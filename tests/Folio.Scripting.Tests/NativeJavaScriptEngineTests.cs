@@ -310,6 +310,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal(3d, engine.Evaluate("const bytes = new Uint8Array([1, 2, 3]); return bytes.byteLength;").AsNumber());
         Assert.Equal(3d, engine.Evaluate("const bytes = new Uint8Array([1, 2, 3]); return bytes.buffer.byteLength;").AsNumber());
         Assert.True(engine.Evaluate("const bytes = new Uint8Array([1, 2, 3, 4]); const view = bytes.subarray(1, 3); view[0] = 9; return bytes[1] == 9 && view.byteOffset == 1 && view.byteLength == 2;").AsBoolean());
+        Assert.Equal(4d, engine.Evaluate("const bytes = new Uint8Array([1, 2, 3, 4]); return bytes.subarray(-1)[0];").AsNumber());
         Assert.Equal(4660d, engine.Evaluate("const values = new Uint16Array(2); values[0] = 4660; return values[0];").AsNumber());
         Assert.Equal(1.5d, engine.Evaluate("const values = new Float32Array(1); values[0] = 1.5; return values[0];").AsNumber(), 5);
         Assert.Equal(15d, engine.Evaluate("const bytes = new Uint8Array(3); bytes.set([4, 5, 6]); return bytes[0] + bytes[1] + bytes[2];").AsNumber());

@@ -1418,14 +1418,16 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 "buffer" => new NativeBuffer(ScriptBufferSourceKind.ArrayBuffer, Bytes, 0, Bytes.Length, 1),
                 "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
-                    var start = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, Length) : 0;
-                    var end = args.Count > 1 ? Math.Clamp((int)Number(args[1]), start, Length) : Length;
+                    var start = args.Count > 0 ? RelativeIndex(Number(args[0]), Length) : 0;
+                    var end = args.Count > 1 ? RelativeIndex(Number(args[1]), Length) : Length;
+                    if (end < start) end = start;
                     return new NativeBuffer(Kind, Bytes.AsSpan(_offset + start * ElementSize, (end - start) * ElementSize).ToArray(), ElementSize);
                 }),
                 "subarray" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
-                    var start = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, Length) : 0;
-                    var end = args.Count > 1 ? Math.Clamp((int)Number(args[1]), start, Length) : Length;
+                    var start = args.Count > 0 ? RelativeIndex(Number(args[0]), Length) : 0;
+                    var end = args.Count > 1 ? RelativeIndex(Number(args[1]), Length) : Length;
+                    if (end < start) end = start;
                     return new NativeBuffer(Kind, Bytes, _offset + start * ElementSize, (end - start) * ElementSize, ElementSize);
                 }),
                 "set" => (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -1450,6 +1452,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             _ when double.TryParse(value?.ToString(), out var parsed) => parsed,
             _ => 0,
         };
+        private static int RelativeIndex(double value, int length)
+        {
+            var index = (int)value;
+            return index < 0 ? Math.Max(length + index, 0) : Math.Min(index, length);
+        }
         public bool TryGetIndex(int index, out object? value)
         {
             if (!IsAttached || Kind == ScriptBufferSourceKind.ArrayBuffer || index < 0 || index >= Length) { value = null; return false; }
