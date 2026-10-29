@@ -274,7 +274,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 return null;
             }),
             ["hasOwn"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && args[0] is IReadOnlyDictionary<string, object?> own && own.ContainsKey(StringValue(args[1]))),
-            ["is"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && Equals(args[0], args[1])),
+            ["is"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && SameValue(args[0], args[1])),
             ["freeze"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? args[0] : null),
             ["getOwnPropertyDescriptor"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
@@ -349,7 +349,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         var numberConstructor = new NativeFunction(args => args.Count == 0 ? 0d : NumberValue(args[0]));
         numberConstructor.SetProperty("isInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && NumberValue(args[0]) is var number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number)));
         numberConstructor.SetProperty("isSafeInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && NumberValue(args[0]) is var number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number) && Math.Abs(number) <= 9007199254740991d));
-        numberConstructor.SetProperty("isNaN", (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || double.IsNaN(NumberValue(args[0]))));
+        numberConstructor.SetProperty("isNaN", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && double.IsNaN(number)));
         numberConstructor.SetProperty("isFinite", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && !double.IsNaN(NumberValue(args[0])) && !double.IsInfinity(NumberValue(args[0]))));
         _bindings["Number"] = numberConstructor;
         _bindings["Boolean"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && TruthValue(args[0]));
@@ -1083,6 +1083,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) => number,
         _ => double.NaN,
     };
+    private static bool SameValue(object? left, object? right)
+    {
+        if (left is double leftNumber && right is double rightNumber)
+            return (double.IsNaN(leftNumber) && double.IsNaN(rightNumber)) || leftNumber == rightNumber && !((leftNumber == 0) && (rightNumber == 0) && double.IsNegative(leftNumber) != double.IsNegative(rightNumber));
+        return Equals(left, right);
+    }
     private static double ParseInteger(string text)
     {
         text = text.Trim();
