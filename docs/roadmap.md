@@ -1,6 +1,6 @@
 # Roadmap
 
-Verification refresh (2026-10-28): the latest serialized Release solution run passed 4,177 tests with 0 failures and 7 documented skips (4,184 discovered). The mandatory Folio-owned replacement track and the remaining native-backend gates remain open.
+Verification refresh (2026-10-30): the latest serialized Release solution run passed 4,256 of 4,258 discovered tests with 0 failures and 2 documented skips. The mandatory Folio-owned replacement track and the remaining native-backend gates remain open.
 
 Folio's end goal is parity with how a modern browser shows and runs AI-written HTML artifacts. Milestones are in order; each one ends when its acceptance criteria are met. Pass rates refer to the conformance suite and its categories (S1–S6 static, D1–D7 scripted), defined in [study 19](study/19-testing.md). Until a milestone lands, artifacts that need it are routed to the system browser by `ArtifactClassifier`.
 
@@ -93,7 +93,8 @@ Current audit note: the interaction behavior, accessibility tree, incremental-eq
 - D6 diagram artifacts render through `Folio.Diagrams` without executing the diagram library.
 - Categories that miss their bar are documented and routed to the system browser by `ArtifactClassifier`.
 
-**Audit result (2026-10-28):** The dependency-backed D2–D7 corpus still passes 60/60, and the focused scripting, canvas, fetch, CSSOM, observer, library and JSX checks pass. The latest Release 30-frame D5/D7 canvas benchmark keeps every library-card artifact and the snake game below the 16.7 ms p95 target, but `D5/canvas-animated-bars` remains above it at 38.13–43.48 ms total p95 across three fresh local runs; issue #519 stays open. Results vary materially between runs, so benchmark stability and optimization both need work. Diagram tests pass through `Folio.Diagrams`, and the pinned library cache/integrity tests pass. The scripted-parity milestone remains open pending the frame-time gate, in addition to the mandatory Folio-owned script-engine replacement.
+**Audit result (2026-10-30):** The dependency-backed D2–D7 corpus still passes 60/60, and the focused scripting, canvas, fetch, CSSOM, observer, library and JSX checks pass. A fresh Release benchmark reports paint-only animation at 5.0 ms median / 7.7 ms p95 for the typical dashboard and 16.5 ms median / 23.6 ms p95 for the busy dashboard; hover repaint is 3.5 ms median / 13.9 ms p95 and scroll replay is 4.8 ms median / 5.4 ms p95. The native Folio engine remains within the 16.7 ms D5/D7 frame budget, while the compatibility-engine `D5/canvas-animated-bars` path remains over budget; issue #519 stays open until the production-engine cutover makes that result authoritative. The software raster backend is now 64.6 ms versus Skia's 6.3 ms at 800×600 and 155.7 ms versus 12.6 ms at 1920×1080 after the rectangle fast path, so issue #575 also remains open. Results vary materially between runs, so benchmark stability and optimization still need work. Diagram tests pass through `Folio.Diagrams`, and the pinned library cache/integrity tests pass. The scripted-parity milestone remains open pending the frame-time gate, in addition to the mandatory Folio-owned script-engine replacement.
+An 80-frame follow-up after the unclipped-solid-paint fast path measured 69.8 ms and 84.9 ms for software replay at the same viewports, with typical paint-only p95 at 8.6 ms; the variance reinforces that #575 needs a stabilized benchmark before a backend switch.
 
 ## 6. Beyond artifacts
 
@@ -115,8 +116,8 @@ This is a required phase after the dependency-backed product and Milestone 6 fea
 This phase is a mandatory, non-waivable completion gate, not an optional follow-up or stretch goal. Folio is not finished, and the roadmap is not complete, until every listed replacement has passed its acceptance criteria and the corresponding production dependency has been removed. The exact release rule and evidence requirements are recorded in [`replacement-gate.md`](replacement-gate.md).
 
 **Current status:** in progress and incomplete. Hybrid shaping covers the proven
-simple-script set plus Hebrew base and isolated-mark runs; multiple-mark Hebrew and
-other complex scripts still use the differential shaper. GIF and WebP decoding are
+simple-script set plus Hebrew and Arabic complex runs; Indic and South-East Asian
+scripts still use the differential shaper. GIF and WebP decoding are
 Folio-owned and production-wired with differential/fuzz evidence; bounded BMP and
 ICO decoding are also Folio-owned slices. Rasterisation and the JavaScript engine
 remain dependency-backed. CFF2 now has a Folio-owned parser path, a pinned

@@ -32,6 +32,7 @@ internal readonly struct FontData(ReadOnlyMemory<byte> bytes)
     public ushort U16(int offset) => BinaryPrimitives.ReadUInt16BigEndian(At(offset, 2));
     public short S16(int offset) => BinaryPrimitives.ReadInt16BigEndian(At(offset, 2));
     public uint U32(int offset) => BinaryPrimitives.ReadUInt32BigEndian(At(offset, 4));
+    public int S32(int offset) => BinaryPrimitives.ReadInt32BigEndian(At(offset, 4));
     public string Tag(int offset) => Encoding.ASCII.GetString(At(offset, 4));
     public ReadOnlySpan<byte> Bytes(int offset, int length) => At(offset, length);
 }
@@ -58,6 +59,7 @@ internal sealed class FontFace : IFontHandle
     private readonly Dictionary<uint, short> _kerning;
     private readonly GposKerning? _gposKerning;
     private readonly GposMarkPositioning? _gposMarks;
+    private readonly GposCursivePositioning? _gposCursive;
     private readonly GsubSubstitution? _gsub;
 
     private FontFace(FontData data, Dictionary<string, (int, int)> tables)
@@ -84,6 +86,7 @@ internal sealed class FontFace : IFontHandle
         _kerning = TryTable("kern") is { } kern ? ReadKern(kern) : [];
         _gposKerning = TryTable("GPOS") is { } gpos ? GposKerning.Read(gpos) : null;
         _gposMarks = TryTable("GPOS") is { } markGpos ? GposMarkPositioning.Read(markGpos) : null;
+        _gposCursive = TryTable("GPOS") is { } cursiveGpos ? GposCursivePositioning.Read(cursiveGpos) : null;
         _gsub = TryTable("GSUB") is { } gsub ? GsubSubstitution.Read(gsub) : null;
 
         Weight = (macStyle & 1) != 0 ? 700 : 400;
@@ -266,6 +269,13 @@ internal sealed class FontFace : IFontHandle
 
     internal void SubstituteAt(ushort[] glyphs, int position, string features, string scriptTag) => _gsub?.SubstituteAt(glyphs, position, features, scriptTag);
 
+    internal ushort[] SubstituteSequence(ushort glyph, string features, string scriptTag) =>
+        _gsub?.SubstituteSequence(glyph, features, scriptTag) ?? [glyph];
+
+    internal GsubSubstitution.LigatureGlyph[] SubstituteLigatures(ushort[] glyphs, string features, string scriptTag) =>
+        _gsub?.SubstituteLigatures(glyphs, features, scriptTag)
+        ?? glyphs.Select((glyph, index) => new GsubSubstitution.LigatureGlyph(glyph, index, 1)).ToArray();
+
     /// <summary>Whether a glyph starts one of the font's default ligatures (liga, clig, rlig).</summary>
     public bool StartsLigature(ushort glyph) => _gsub?.StartsLigature(glyph) == true;
 
@@ -275,11 +285,20 @@ internal sealed class FontFace : IFontHandle
     public int Kerning(ushort left, ushort right) =>
         _gposKerning?.Kerning(left, right) ?? _kerning.GetValueOrDefault(((uint)left << 16) | right);
 
+    /// <summary>Pair-position x-placement adjustment for the right glyph, in font units.</summary>
+    public int PairPlacement(ushort left, ushort right) => _gposKerning?.Placement(left, right) ?? 0;
+
     /// <summary>Returns a mark offset relative to the preceding base glyph, in font units.</summary>
     public (int X, int Y)? MarkOffset(ushort baseGlyph, ushort markGlyph) => _gposMarks?.Offset(baseGlyph, markGlyph);
 
     /// <summary>Returns a mark offset relative to the preceding mark glyph, in font units.</summary>
     public (int X, int Y)? MarkToMarkOffset(ushort previousMark, ushort markGlyph) => _gposMarks?.MarkOffset(previousMark, markGlyph);
+
+    /// <summary>Mark-to-ligature offset for the first ligature component, in font units.</summary>
+    public (int X, int Y)? MarkToLigatureOffset(ushort ligatureGlyph, ushort markGlyph) => _gposMarks?.MarkToLigatureOffset(ligatureGlyph, markGlyph);
+
+    /// <summary>Entry/exit anchor delta for adjacent cursive glyphs, in font units.</summary>
+    public (int X, int Y)? CursivePlacement(ushort previousGlyph, ushort glyph) => _gposCursive?.Placement(previousGlyph, glyph);
 
     private FontData Table(string tag) => TryTable(tag) ?? throw new InvalidDataException($"Missing {tag} table.");
 

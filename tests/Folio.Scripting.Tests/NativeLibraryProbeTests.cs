@@ -43,6 +43,45 @@ public sealed class NativeLibraryProbeTests
     }
 
     [Fact]
+    public void NativeClosuresKeepModuleBindingsThroughMethodCalls()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(42, engine.Evaluate("var g={current:null}; var d={useState:function(a){return [a,function(){}];}}; g.current=d; var c={useState:function(a){return g.current.useState(a);}}; c.useState(42)[0];").AsNumber());
+    }
+
+    [Fact]
+    public void NativeVarDeclarationsAreHoistedAcrossBranches()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(2, engine.Evaluate("function choose(){if(false)var g=1;else g=2;return g;} choose();").AsNumber());
+    }
+
+    [Fact]
+    public void NativeObjectReturnLinksRemainTraversable()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(5, engine.Evaluate("var root={tag:3},ul={tag:5,return:root},li={tag:5,return:ul}; function host(a){for(var b=a.return;b!==null;){if(b.tag===5||b.tag===3)return b.tag;b=b.return;}return 0;} host(li);").AsNumber());
+    }
+
+    [Fact]
+    public void NativeLabeledBreakEscapesSwitch()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var result = engine.Evaluate(@"
+            var output = [];
+            outer: for (var i = 0; i < 3; i++) {
+                switch (i) {
+                    case 0: output.push('before'); break outer;
+                    default: output.push('other');
+                }
+                output.push('after');
+            }
+            output.join(',');");
+
+        Assert.Equal("before", result.AsString());
+    }
+
+    [Fact]
     public void NativeHostMethodsHonorCallReceiver()
     {
         using var engine = new NativeJavaScriptEngine();
@@ -101,6 +140,15 @@ public sealed class NativeLibraryProbeTests
         engine.Evaluate(domSource, "react-dom.production.min.js");
         Assert.Equal("object", engine.Evaluate("typeof ReactDOM").AsString());
 
+    }
+
+    [Fact]
+    public void NativeReactSharedDispatcherCanBeSwappedAndReadThroughHooks()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../..", "tests", "conformance-cache", "files"));
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate(File.ReadAllText(Path.Combine(root, "react.production.min.js")), "react.production.min.js");
+        Assert.Equal(7, engine.Evaluate("var dispatcher=React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentDispatcher; dispatcher.current={useState:function(){return 7;}}; React.useState();").AsNumber());
     }
 
     [Fact]

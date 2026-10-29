@@ -309,6 +309,10 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal(2d, engine.Evaluate("const bytes = new Uint8Array([1, 2, 3]); return bytes.slice(1)[0];").AsNumber());
         Assert.Equal(3d, engine.Evaluate("const bytes = new Uint8Array([1, 2, 3]); return bytes.byteLength;").AsNumber());
         Assert.Equal(3d, engine.Evaluate("const bytes = new Uint8Array([1, 2, 3]); return bytes.buffer.byteLength;").AsNumber());
+        Assert.True(engine.Evaluate("const bytes = new Uint8Array([1, 2, 3, 4]); const view = bytes.subarray(1, 3); view[0] = 9; return bytes[1] == 9 && view.byteOffset == 1 && view.byteLength == 2;").AsBoolean());
+        Assert.Equal(4d, engine.Evaluate("const bytes = new Uint8Array([1, 2, 3, 4]); return bytes.subarray(-1)[0];").AsNumber());
+        Assert.Equal(4660d, engine.Evaluate("const values = new Uint16Array(2); values[0] = 4660; return values[0];").AsNumber());
+        Assert.Equal(1.5d, engine.Evaluate("const values = new Float32Array(1); values[0] = 1.5; return values[0];").AsNumber(), 5);
         Assert.Equal(15d, engine.Evaluate("const bytes = new Uint8Array(3); bytes.set([4, 5, 6]); return bytes[0] + bytes[1] + bytes[2];").AsNumber());
         Assert.True(engine.Evaluate("return new Uint8Array(1) instanceof Uint8Array;").AsBoolean());
     }
@@ -594,6 +598,11 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal((ScriptBufferSourceKind.ArrayBuffer, 4, 0, 1, 4), (info.Kind, info.ByteLength, info.ByteOffset, info.ElementSize, info.Length));
         Assert.True(engine.TryDetachArrayBuffer(buffer));
         Assert.False(engine.TryGetArrayBufferBytes(buffer, out _));
+
+        var typed = engine.CreateTypedArray(ScriptBufferSourceKind.Uint8, [5, 6, 7]);
+        var backing = engine.GetProperty(typed, "buffer");
+        Assert.True(engine.TryDetachArrayBuffer(backing));
+        Assert.Equal(0d, engine.GetProperty(typed, "byteLength").AsNumber());
     }
 
     [Fact]
@@ -648,6 +657,34 @@ public sealed class NativeJavaScriptEngineTests
         Assert.True(engine.Evaluate("Boolean('yes')").AsBoolean());
         Assert.Equal(12d, engine.Evaluate("parseInt('12px')").AsNumber());
         Assert.True(engine.Evaluate("isNaN(Number('x'))").AsBoolean());
+        Assert.True(engine.Evaluate("Object.is(0 / 0, 0 / 0)").AsBoolean());
+        Assert.False(engine.Evaluate("Object.is(0, -0)").AsBoolean());
+        Assert.False(engine.Evaluate("Number.isNaN('x')").AsBoolean());
+        Assert.False(engine.Evaluate("Number.isNaN()").AsBoolean());
+        Assert.False(engine.Evaluate("Number.isInteger('2')").AsBoolean());
+        Assert.True(engine.Evaluate("Number.isInteger(2)").AsBoolean());
+        Assert.False(engine.Evaluate("Number.isFinite('2')").AsBoolean());
+        Assert.True(engine.Evaluate("isFinite('2')").AsBoolean());
+        Assert.True(engine.Evaluate("Number.isNaN(Number.NaN)").AsBoolean());
+        Assert.True(engine.Evaluate("Number.POSITIVE_INFINITY > Number.MAX_VALUE").AsBoolean());
+        Assert.Equal(Math.PI, engine.Evaluate("Math.PI").AsNumber());
+        Assert.Equal(7d, engine.Evaluate("Math.max('7', 3)").AsNumber());
+        Assert.True(engine.Evaluate("Number.isNaN(Math.min(1, 'x'))").AsBoolean());
+        Assert.Equal(-2d, engine.Evaluate("Math.round(-2.4)").AsNumber());
+        Assert.Equal(6d, engine.Evaluate("Math.imul(2, 3)").AsNumber());
+        Assert.Equal(2d, engine.Evaluate("Math.log10(100)").AsNumber());
+        Assert.Equal(5d, engine.Evaluate("Math.hypot(3, 4)").AsNumber());
+        Assert.True(double.IsNaN(engine.Evaluate("Math.sign('x')").AsNumber()));
+        Assert.Equal("😀", engine.Evaluate("String.fromCodePoint(0x1f600)").AsString());
+        Assert.Equal(12d, engine.Evaluate("Number.parseInt('12px')").AsNumber());
+        Assert.Equal(10d, engine.Evaluate("parseInt('1010', 2)").AsNumber());
+        Assert.Equal(255d, engine.Evaluate("Number.parseInt('0xff')").AsNumber());
+        Assert.Equal(3.14d, engine.Evaluate("parseFloat('3.14px')").AsNumber(), 2);
+        Assert.True(double.IsPositiveInfinity(engine.Evaluate("parseFloat('Infinity')").AsNumber()));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("String.fromCodePoint(0x110000)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("queueMicrotask(1)"));
+        Assert.Equal("1970-01-01T00:00:00.000Z", engine.Evaluate("new Date(0).toISOString()").AsString());
+        Assert.Equal(0d, engine.Evaluate("Date.parse('1970-01-01T00:00:00Z')").AsNumber());
         Assert.True(engine.Evaluate("console.log('ok'); return true;").AsBoolean());
     }
 
@@ -658,14 +695,89 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("a-b-c", engine.Evaluate("['a', 'b', 'c'].join('-')").AsString());
         Assert.Equal(3d, engine.Evaluate("let values = [1, 2]; values.push(3); return values.length").AsNumber());
         Assert.Equal("1,9", engine.Evaluate("let values = [1, 2, 3]; let removed = values.splice(1, 1, 9); values.pop(); values.unshift(0); values.shift(); return values.join(',')").AsString());
+        Assert.Equal("3,2,1", engine.Evaluate("[1, 2, 3].toReversed().join(',')").AsString());
+        Assert.Equal("1,2,3", engine.Evaluate("[3, 1, 2].toSorted().join(',')").AsString());
         Assert.Equal(3d, engine.Evaluate("let values = [4, 5]; let first = values.shift(); values.unshift(1, 2); return values.length").AsNumber());
         Assert.True(engine.Evaluate("[1, 2, 3].includes(2)").AsBoolean());
+        Assert.True(engine.Evaluate("[1, 2, 3].includes(1, -3)").AsBoolean());
+        Assert.True(engine.Evaluate("[0 / 0].includes(0 / 0)").AsBoolean());
         Assert.Equal(2d, engine.Evaluate("[1, 2, 3].find(value => value > 1)").AsNumber());
+        Assert.Equal(1d, engine.Evaluate("[1, 2, 3].findIndex(value => value > 1)").AsNumber());
+        Assert.Equal(3d, engine.Evaluate("[1, 2, 3].findLast(value => value > 1)").AsNumber());
+        Assert.Equal(2d, engine.Evaluate("[1, 2, 3].findLastIndex(value => value > 1)").AsNumber());
         Assert.True(engine.Evaluate("[1, 2, 3].some(value => value == 3)").AsBoolean());
         Assert.True(engine.Evaluate("[1, 2, 3].every(value => value > 0)").AsBoolean());
         Assert.Equal(1d, engine.Evaluate("[4, 8, 9].indexOf(8)").AsNumber());
+        Assert.Equal(2d, engine.Evaluate("[4, 8, 9].indexOf(9, -1)").AsNumber());
         Assert.Equal("BC", engine.Evaluate("'abc'.toUpperCase().slice(1)").AsString());
         Assert.True(engine.Evaluate("'folio'.startsWith('fol')").AsBoolean());
+        Assert.True(engine.Evaluate("'folio'.includes('li', 2)").AsBoolean());
+        Assert.True(engine.Evaluate("'folio'.startsWith('li', 2)").AsBoolean());
+        Assert.True(engine.Evaluate("'folio'.endsWith('fo', 2)").AsBoolean());
+        Assert.Equal("bc", engine.Evaluate("'abcdef'.slice(1, -3)").AsString());
+        Assert.Equal("bcd", engine.Evaluate("'abcdef'.substring(4, 1)").AsString());
+        Assert.Equal("cdef", engine.Evaluate("'abcdef'.substring(2)").AsString());
+        Assert.Equal("ababab", engine.Evaluate("'ab'.repeat(3)").AsString());
+        Assert.Equal("00abc", engine.Evaluate("'abc'.padStart(5, '0')").AsString());
+        Assert.Equal("abc!!", engine.Evaluate("'abc'.padEnd(5, '!')").AsString());
+        Assert.Equal(3d, engine.Evaluate("[1, 2, 3].at(-1)").AsNumber());
+        Assert.True(engine.Evaluate("[].pop()").IsUndefined);
+        Assert.True(engine.Evaluate("[].shift()").IsUndefined);
+        Assert.Equal("c", engine.Evaluate("[...['a', 'b', 'c'].splice(-1, 1)][0]").AsString());
+        Assert.Equal("cba", engine.Evaluate("[...['a', 'b', 'c'].reverse()].join('')").AsString());
+        Assert.Equal("x,x,c", engine.Evaluate("['a', 'b', 'c'].fill('x', 0, 2).join(',')").AsString());
+        Assert.Equal("aXc", engine.Evaluate("['a', 'b', 'c'].with(1, 'X').join('')").AsString());
+        Assert.Equal("a,b,c", engine.Evaluate("['a', 'b', 'c'].toString()").AsString());
+        Assert.Equal(1d, engine.Evaluate("[...['a', 'b'].keys()][1]").AsNumber());
+        engine.SetGlobalProperty("iterable", ScriptValue.FromObject(new[] { "x", "y" }));
+        Assert.Equal("x,y", engine.Evaluate("Array.from(iterable).join(',')").AsString());
+        Assert.Equal(2d, engine.Evaluate("Object.fromEntries([['a', 2]]).a").AsNumber());
+        Assert.Equal("ac", engine.Evaluate("['a', 'b', 'c'].toSpliced(1, 1).join('')").AsString());
+        Assert.Equal("ababe", engine.Evaluate("['a', 'b', 'c', 'd', 'e'].copyWithin(2, 0, 2).join('')").AsString());
+        Assert.Equal("i", engine.Evaluate("'folio'.at(-2)").AsString());
+        Assert.Equal("folionative", engine.Evaluate("'folio'.concat('native')").AsString());
+        Assert.Equal("folio", engine.Evaluate("'folio'.valueOf()").AsString());
+        Assert.Equal("FOLIO", engine.Evaluate("'folio'.toLocaleUpperCase()").AsString());
+        Assert.Equal("ff", engine.Evaluate("(255).toString(16)").AsString());
+        Assert.Equal("1e+3", engine.Evaluate("(1000).toExponential()").AsString());
+        Assert.Equal("é", engine.Evaluate("'é'.normalize('NFC')").AsString());
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("'x'.normalize('BAD')"));
+        Assert.True(engine.Evaluate("'folio'.at(99)").IsUndefined);
+        Assert.Equal(128512d, engine.Evaluate("'😀'.codePointAt(0)").AsNumber());
+        Assert.Equal(3d, engine.Evaluate("'folio'.indexOf('i', 2)").AsNumber());
+        Assert.Equal(3d, engine.Evaluate("'folio'.lastIndexOf('i')").AsNumber());
+        Assert.Equal(1d, engine.Evaluate("['a', 'b', 'a'].lastIndexOf('b')").AsNumber());
+        Assert.Equal(0d, engine.Evaluate("['a', 'b', 'a'].lastIndexOf('a', 1)").AsNumber());
+        Assert.Equal("x_x_x", engine.Evaluate("'x-x-x'.replaceAll('-', '_')").AsString());
+        Assert.Equal("x-x-x", engine.Evaluate("'a-a-a'.replaceAll(new RegExp('a', 'g'), 'x')").AsString());
+        Assert.Equal(2d, engine.Evaluate("'folio'.search(new RegExp('l'))").AsNumber());
+        Assert.Equal(2d, engine.Evaluate("'a1a2'.matchAll(new RegExp('a.', 'g')).length").AsNumber());
+        Assert.False(engine.Evaluate("new RegExp('(a+)+$').test('a'.repeat(10000) + '!')").AsBoolean());
+        Assert.Equal("a+", engine.Evaluate("new RegExp('a+', 'gi').source").AsString());
+        Assert.Equal("gi", engine.Evaluate("new RegExp('a+', 'ig').flags").AsString());
+        Assert.True(engine.Evaluate("new RegExp('a+', 'gi').global").AsBoolean());
+        Assert.True(engine.Evaluate("new RegExp('a+', 'gi').ignoreCase").AsBoolean());
+        Assert.True(engine.Evaluate("new RegExp('a+', 'y').sticky").AsBoolean());
+        Assert.True(engine.Evaluate("new RegExp('^a$', 'm').multiline").AsBoolean());
+        Assert.True(engine.Evaluate("new RegExp('.', 's').dotAll").AsBoolean());
+        Assert.True(engine.Evaluate("new RegExp('a.b', 's').test('a\\nb')").AsBoolean());
+        Assert.True(engine.Evaluate("new RegExp('^b$', 'm').test('a\\nb')").AsBoolean());
+        Assert.Equal("x-a-a", engine.Evaluate("'a-a-a'.replace(new RegExp('a'), 'x')").AsString());
+        Assert.Equal("x-x-x", engine.Evaluate("'a-a-a'.replace(new RegExp('a', 'g'), 'x')").AsString());
+        Assert.Equal("a[b]c", engine.Evaluate("'abc'.replace('b', '[$&]')").AsString());
+        Assert.Equal("a$c", engine.Evaluate("'abc'.replaceAll('b', '$$')").AsString());
+        Assert.Equal("-a-b-c-", engine.Evaluate("'abc'.replaceAll('', '-')").AsString());
+        Assert.Equal("a[b]c", engine.Evaluate("'abc'.replace(new RegExp('b'), '[$&]')").AsString());
+        Assert.Equal("a[b]c", engine.Evaluate("'abc'.replace(new RegExp('(b)'), '[$1]')").AsString());
+        Assert.Equal("a[b]c", engine.Evaluate("'abc'.replace(new RegExp('(?<part>b)'), '[$<part>]')").AsString());
+        Assert.Equal("abb1", engine.Evaluate("'ab'.replace(new RegExp('(b)'), (match, group, offset) => match + group + offset)").AsString());
+        Assert.Equal("ab1a", engine.Evaluate("'ab'.replace(new RegExp('(?<part>b)'), (match, group, offset, source, groups) => groups.part + offset + source[0])").AsString());
+        Assert.Equal("a|b|c", engine.Evaluate("'abc'.split('').join('|')").AsString());
+        Assert.Equal(2d, engine.Evaluate("'😀'.split('').length").AsNumber());
+        Assert.Equal("a|b", engine.Evaluate("'a,b,c'.split(',', 2).join('|')").AsString());
+        Assert.Equal("A0a-A2a", engine.Evaluate("'a-a'.replaceAll('a', (match, offset, source) => match.toUpperCase() + offset + source[0])").AsString());
+        Assert.Equal("x-a-a", engine.Evaluate("'a-a-a'.replace('a', 'x')").AsString());
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("'a-a'.replaceAll(new RegExp('a'), 'x')"));
     }
 
     [Fact]
@@ -673,8 +785,30 @@ public sealed class NativeJavaScriptEngineTests
     {
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal(12d, engine.Evaluate("[1, 2, 3].map(value => value * 2).reduce((total, value) => total + value, 0)").AsNumber());
+        Assert.Equal("cba", engine.Evaluate("['a', 'b', 'c'].reduceRight((result, value) => result + value, '')").AsString());
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[].reduce((total, value) => total + value)"));
         Assert.Equal(2d, engine.Evaluate("[1, 2, 3].filter(value => value > 1).length").AsNumber());
         Assert.Equal(3d, engine.Evaluate("Object.keys([7, 8, 9]).length").AsNumber());
+    }
+
+    [Fact]
+    public void ArrayCallbackMethodsRejectNonCallableCallbacks()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].map(1)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].filter(null)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].find(undefined)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].findLast({})"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].some('callback')"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].every(false)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].flatMap(0)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("Array.from([1], 0)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("Array.from(null)"));
+        Assert.Equal("0:1|1:2", engine.Evaluate("Array.from([1, 2], (value, index, source) => index + ':' + source[index]).join('|')").AsString());
+        Assert.Equal("1|2", engine.Evaluate("Array.from(new Set([1, 2])).join('|')").AsString());
+        Assert.Equal("1|2|3", engine.Evaluate("Array.from(new Uint8Array([1, 2, 3])).join('|')").AsString());
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("new Set([1]).forEach(0)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("new Map([['a', 1]]).forEach(null)"));
     }
 
     [Fact]
@@ -683,6 +817,20 @@ public sealed class NativeJavaScriptEngineTests
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal("{\"value\":7}", engine.Evaluate("JSON.stringify({ value: 7 })").AsString());
         Assert.Equal(7d, engine.Evaluate("JSON.parse('{\"value\":7}').value").AsNumber());
+    }
+
+    [Fact]
+    public void ImplementsStickyRegExpLastIndexSemantics()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("var r=/a/y; r.exec('ba') === null").AsBoolean());
+        Assert.Equal(0d, engine.Evaluate("r.lastIndex").AsNumber());
+        Assert.Equal("a", engine.Evaluate("r.lastIndex=1; r.exec('ba')[0]").AsString());
+        Assert.Equal(2d, engine.Evaluate("r.lastIndex").AsNumber());
+        Assert.True(engine.Evaluate("r.test('ba')").AsBoolean() == false);
+        Assert.Equal(0d, engine.Evaluate("r.lastIndex").AsNumber());
+        Assert.True(engine.Evaluate("r.lastIndex=0; r.test('ba')").AsBoolean() == false);
+        Assert.Equal(0d, engine.Evaluate("r.lastIndex").AsNumber());
     }
 
     [Fact]

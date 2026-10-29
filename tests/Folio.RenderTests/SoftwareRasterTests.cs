@@ -1,7 +1,9 @@
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Text;
 using Folio.Imaging;
 using Folio.Painting;
+using Folio.Painting.Software;
 using Folio.Skia;
 using Folio.Typography;
 
@@ -327,6 +329,311 @@ public class SoftwareRasterTests(ITestOutputHelper output)
     private static FontFace Load(string name) => FontFace.Parse(File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", name)))!;
 
     [Fact]
+    public void NativeGlyphCacheRemainsBounded()
+    {
+        var face = Load("SourceSans3-Regular.ttf");
+        var count = Math.Min(face.GlyphCount, ushort.MaxValue + 1);
+        for (var glyph = 0; glyph < count; glyph++)
+        {
+            var id = (ushort)glyph;
+            SoftwareCanvas.Flattened(face, id, 0.25f);
+            SoftwareCanvas.Flattened(face, id, 0.5f);
+            SoftwareCanvas.Flattened(face, id, 1f);
+        }
+
+        var usage = SoftwareCanvas.GlyphCacheUsage(face);
+        Assert.InRange(usage.Outlines + usage.Flattened, 0, 8L * 1024 * 1024);
+    }
+
+    private static byte[] AddTables(byte[] source, params (string Tag, byte[] Data)[] additions)
+    {
+        var oldCount = BinaryPrimitives.ReadUInt16BigEndian(source.AsSpan(4));
+        var directoryShift = 16 * additions.Length;
+        var oldHeader = 12 + 16 * oldCount;
+        var shiftedLength = checked(source.Length + directoryShift);
+        var output = new byte[shiftedLength + additions.Sum(item => (item.Data.Length + 3) & ~3)];
+        source.AsSpan(0, oldHeader).CopyTo(output);
+        source.AsSpan(oldHeader).CopyTo(output.AsSpan(oldHeader + directoryShift));
+        BinaryPrimitives.WriteUInt16BigEndian(output.AsSpan(4), checked((ushort)(oldCount + additions.Length)));
+        for (var i = 0; i < oldCount; i++)
+        {
+            var record = 12 + 16 * i;
+            var oldOffset = BinaryPrimitives.ReadUInt32BigEndian(output.AsSpan(record + 8));
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(record + 8), checked(oldOffset + (uint)directoryShift));
+        }
+
+        var write = shiftedLength;
+        for (var i = 0; i < additions.Length; i++)
+        {
+            var (tag, data) = additions[i];
+            write = (write + 3) & ~3;
+            var record = 12 + 16 * (oldCount + i);
+            Encoding.ASCII.GetBytes(tag).CopyTo(output.AsSpan(record, 4));
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(record + 8), checked((uint)write));
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(record + 12), checked((uint)data.Length));
+            data.CopyTo(output.AsSpan(write));
+            write += (data.Length + 3) & ~3;
+        }
+        return output;
+    }
+
+    private static byte[] SyntheticSbix(int glyphCount, ushort glyph, byte[] png)
+    {
+        // sbix header + one strike. Strike offsets and glyph data offsets are
+        // relative to the strike, as required by the OpenType sbix table.
+        var strikeHeader = 8 + 4 * (glyphCount + 1);
+        var start = strikeHeader;
+        var end = checked(start + 8 + png.Length); // origin (4) + tag (4) + PNG
+        var sbix = new byte[8 + 4 + strikeHeader + 8 + png.Length];
+        BinaryPrimitives.WriteUInt32BigEndian(sbix.AsSpan(4), 1); // one strike
+        BinaryPrimitives.WriteUInt32BigEndian(sbix.AsSpan(8), 12); // strike starts after header and offset
+        BinaryPrimitives.WriteUInt16BigEndian(sbix.AsSpan(12), 64); // ppem
+        BinaryPrimitives.WriteUInt16BigEndian(sbix.AsSpan(14), 72); // resolution
+        for (var i = 0; i <= glyphCount; i++)
+            BinaryPrimitives.WriteUInt32BigEndian(sbix.AsSpan(16 + 4 * i), i <= glyph ? (i == glyph ? (uint)start : 0u) : (uint)end);
+        var data = 20 + 4 * (glyphCount + 1);
+        BinaryPrimitives.WriteInt16BigEndian(sbix.AsSpan(data), 0);
+        BinaryPrimitives.WriteInt16BigEndian(sbix.AsSpan(data + 2), 1);
+        "png "u8.CopyTo(sbix.AsSpan(data + 4));
+        png.CopyTo(sbix.AsSpan(data + 8));
+        return sbix;
+    }
+
+    private static byte[] SyntheticColrV1(ushort glyph)
+    {
+        // COLR v1 header (base glyph list at offset 34), followed by one
+        // PaintGlyph->PaintSolid graph using palette entry 0.
+        var colr = new byte[56];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 10; // PaintGlyph
+        colr[45] = 0; colr[46] = 0; colr[47] = 6; // child PaintSolid
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(48), glyph);
+        colr[50] = 2; // PaintSolid
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(51), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(53), 0x4000);
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1VarSolid(ushort glyph)
+    {
+        var colr = SyntheticColrV1(glyph);
+        Array.Resize(ref colr, 60);
+        colr[50] = 3; // PaintVarSolid; default-instance alpha follows the base value.
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(55), 0); // variation index
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1Translated(ushort glyph)
+    {
+        var colr = new byte[68];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 14; colr[45] = 0; colr[46] = 0; colr[47] = 12; // PaintTranslate -> PaintGlyph
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(48), 20 << 16);
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(52), 0);
+        colr[56] = 10; colr[57] = 0; colr[58] = 0; colr[59] = 6;
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(60), glyph);
+        colr[62] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(63), 0); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(65), 0x4000);
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1VarTranslated(ushort glyph)
+    {
+        var colr = SyntheticColrV1Translated(glyph);
+        colr[44] = 15; // PaintVarTranslate; default-instance translation uses base dx/dy.
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1Transform(ushort glyph)
+    {
+        var colr = new byte[84];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 12; colr[45] = 0; colr[46] = 0; colr[47] = 28; // PaintTransform -> PaintGlyph
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(48), 1 << 16);
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(52), 0);
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(56), 0);
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(60), 1 << 16);
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(64), 20 << 16);
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(68), 0);
+        colr[72] = 10; colr[73] = 0; colr[74] = 0; colr[75] = 6;
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(76), glyph);
+        colr[78] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(79), 0); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(81), 0x4000);
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1Scale(ushort glyph)
+    {
+        var colr = new byte[76];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 16; colr[45] = 0; colr[46] = 0; colr[47] = 12; // PaintScale -> PaintGlyph
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(48), 0x6000);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(50), 0x6000);
+        colr[56] = 10; colr[57] = 0; colr[58] = 0; colr[59] = 6;
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(60), glyph);
+        colr[62] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(63), 0); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(65), 0x4000);
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1Rotate(ushort glyph)
+    {
+        var colr = SyntheticColrV1Scale(glyph);
+        colr[44] = 24; // PaintRotate -> PaintGlyph
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(48), 0x2000); // 90 degrees
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1Skew(ushort glyph)
+    {
+        var colr = SyntheticColrV1Scale(glyph);
+        colr[44] = 28; // PaintSkew -> PaintGlyph
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(48), 0x1000);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(50), 0);
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1LinearGradient(ushort glyph)
+    {
+        // PaintGlyph -> PaintLinearGradient with two CPAL stops and a horizontal
+        // font-unit gradient. The graph exercises the Folio software shader path.
+        var colr = new byte[104];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 10; colr[45] = 0; colr[46] = 0; colr[47] = 12;
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(48), glyph);
+        colr[56] = 4; colr[57] = 0; colr[58] = 0; colr[59] = 30;
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(60), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(62), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(64), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(66), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(68), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(70), 500);
+        colr[86] = 0; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(87), 2);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(89), 0);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(91), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(93), 0x4000);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(95), 0x4000);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(97), 1);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(99), 0x4000);
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1RadialGradient(ushort glyph)
+    {
+        var colr = SyntheticColrV1LinearGradient(glyph);
+        colr[56] = 6; // PaintRadialGradient
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(60), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(62), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(64), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(66), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(68), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(70), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(72), 500);
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1VarLinearGradient(ushort glyph)
+    {
+        var colr = SyntheticColrV1LinearGradient(glyph);
+        colr[56] = 5; // PaintVarLinearGradient; zero variation indices use base geometry.
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1VarRadialGradient(ushort glyph)
+    {
+        var colr = SyntheticColrV1RadialGradient(glyph);
+        colr[56] = 7; // PaintVarRadialGradient; zero variation indices use base geometry.
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1VarSweepGradient(ushort glyph)
+    {
+        var colr = SyntheticColrV1SweepGradient(glyph);
+        colr[56] = 9; // PaintVarSweepGradient; zero variation indices use base geometry.
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1SweepGradient(ushort glyph)
+    {
+        var colr = SyntheticColrV1LinearGradient(glyph);
+        colr[56] = 8; // PaintSweepGradient
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(60), 250);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(62), 250);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(64), unchecked((short)0xC000));
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(66), 0x4000);
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1Composite(ushort glyph)
+    {
+        var colr = new byte[84];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 32; colr[45] = 0; colr[46] = 0; colr[47] = 28; // source
+        colr[48] = 13; // screen
+        colr[49] = 0; colr[50] = 0; colr[51] = 8; // backdrop
+        colr[52] = 10; colr[53] = 0; colr[54] = 0; colr[55] = 6;
+        colr[58] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(59), 0); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(61), 0x4000);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(56), glyph);
+        colr[72] = 10; colr[73] = 0; colr[74] = 0; colr[75] = 6;
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(76), glyph);
+        colr[78] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(79), 1); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(81), 0x4000);
+        return colr;
+    }
+
+    private static byte[] SyntheticCpal() => [0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 12, 0, 0, 255, 255];
+
+    private static byte[] SyntheticCpalTwo() => [0, 0, 0, 2, 0, 1, 0, 2, 0, 0, 0, 12, 0, 0, 255, 255, 255, 0, 0, 255];
+
+    private static byte[] SyntheticColrV0(ushort glyph) =>
+    [
+        0, 0, 0, 1, 0, 0, 0, 14, 0, 0, 0, 20, 0, 1,
+        (byte)(glyph >> 8), (byte)glyph, 0, 0, 0, 1,
+        (byte)(glyph >> 8), (byte)glyph, 0, 0,
+    ];
+
+    private static byte[] SyntheticColrV1Layers(ushort lowerGlyph, ushort upperGlyph)
+    {
+        var colr = new byte[86];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(18), 50);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), lowerGlyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 1; colr[45] = 2; // PaintColrLayers
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(46), 0);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(50), 2);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(54), 12);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(58), 24);
+        colr[62] = 10; colr[65] = 6; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(66), lowerGlyph);
+        colr[68] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(69), 0); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(71), 0x4000);
+        colr[74] = 10; colr[77] = 6; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(78), upperGlyph);
+        colr[80] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(81), 1); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(83), 0x4000);
+        return colr;
+    }
+
+    [Fact]
     public void DrawsTextFromGlyphOutlines()
     {
         var face = Load("SourceSans3-Regular.ttf");
@@ -348,6 +655,291 @@ public class SoftwareRasterTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void DrawsSyntheticColrV1PaintGlyph()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1(glyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Any(pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0),
+            "The synthetic COLR v1 PaintGlyph did not render its CPAL color.");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV0Layer()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV0(glyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Any(pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0),
+            "The synthetic COLR v0 layer did not render its CPAL color.");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1VariableSolidAtDefaultInstance()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1VarSolid(glyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Any(pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0),
+            "The synthetic COLR v1 PaintVarSolid did not render its default-instance CPAL color.");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1TranslatedPaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1Translated(glyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        var redXs = pixels.Chunk(4).Select((pixel, index) => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0 ? index % 96 : -1).Where(x => x >= 0).ToArray();
+        Assert.NotEmpty(redXs);
+        Assert.True(redXs.Min() > 28, $"The COLR v1 PaintTranslate wrapper did not move the glyph (min x={redXs.Min()}).");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1VariableTranslateAtDefaultInstance()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1VarTranslated(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        Assert.True(Assert.Single(parsed!).TransformOrIdentity.Translation.X > 19);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1TransformPaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1Transform(glyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        var redXs = pixels.Chunk(4).Select((pixel, index) => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0 ? index % 96 : -1).Where(x => x >= 0).ToArray();
+        Assert.NotEmpty(redXs);
+        Assert.True(redXs.Min() > 28, $"The COLR v1 PaintTransform wrapper did not move the glyph (min x={redXs.Min()}).");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1ScalePaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1Scale(glyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        var red = pixels.Chunk(4).Select((pixel, index) => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0 ? index % 96 : -1).Where(x => x >= 0).ToArray();
+        Assert.NotEmpty(red);
+        Assert.True(red.Max() - red.Min() > 20, "The COLR v1 PaintScale wrapper did not preserve a scaled glyph width.");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1RotatePaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1Rotate(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        Assert.NotEqual(Matrix3x2.Identity, Assert.Single(parsed!).TransformOrIdentity);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        Assert.Contains(surface.ReadPixels(0, 0, 96, 96).Chunk(4), pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1SkewPaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1Skew(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        Assert.NotEqual(Matrix3x2.Identity, Assert.Single(parsed!).TransformOrIdentity);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        Assert.Contains(surface.ReadPixels(0, 0, 96, 96).Chunk(4), pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1LinearGradientPaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1LinearGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        var layer = Assert.Single(parsed!);
+        Assert.Equal(glyph, layer.Glyph);
+        var gradient = Assert.IsType<Gradient>(layer.Gradient);
+        Assert.Equal(2, gradient.Stops.Count);
+        Assert.True(gradient.Stops[0].Color.R > .9f);
+        Assert.True(gradient.Stops[1].Color.B > .9f);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 150 && pixel[2] < 120 && pixel[3] > 0);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[2] > 150 && pixel[0] < 120 && pixel[3] > 0);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1VariableLinearGradientAtDefaultInstance()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1VarLinearGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        Assert.Equal(GradientKind.Linear, Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient).Kind);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1VariableRadialGradientAtDefaultInstance()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1VarRadialGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.Equal(GradientKind.Radial, Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient).Kind);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1VariableSweepGradientAtDefaultInstance()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1VarSweepGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.Equal(GradientKind.Conic, Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient).Kind);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1RadialGradientPaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1RadialGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        Assert.Equal(GradientKind.Radial, Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient).Kind);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 150 && pixel[2] < 120 && pixel[3] > 0);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[2] > 150 && pixel[0] < 120 && pixel[3] > 0);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1SweepGradientPaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1SweepGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        var gradient = Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient);
+        Assert.Equal(GradientKind.Conic, gradient.Kind);
+        Assert.Equal(90, gradient.StartAngle);
+        Assert.Equal(450, gradient.EndAngle);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 150 && pixel[2] < 120 && pixel[3] > 0);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[2] > 150 && pixel[0] < 120 && pixel[3] > 0);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1CompositePaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1Composite(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        Assert.Contains(parsed!, layer => layer.Blend == BlendMode.Screen);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 100 && pixel[2] > 100 && pixel[1] < 100 && pixel[3] > 0);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1LayerList()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var upperGlyph = original.GlyphFor('B');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1Layers(glyph, upperGlyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Any(pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0),
+            "The lower synthetic COLR v1 layer did not render.");
+        Assert.True(pixels.Chunk(4).Any(pixel => pixel[2] > 180 && pixel[0] < 80 && pixel[1] < 80 && pixel[3] > 0),
+            "The upper synthetic COLR v1 layer did not render.");
+    }
+
+    [Fact]
     public void DrawsTextFromCff2GlyphOutlines()
     {
         var face = Load("FolioCff2.otf");
@@ -363,6 +955,24 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var pixels = surface.ReadPixels(0, 0, 96, 96);
         Assert.True(pixels.Chunk(4).Count(p => p[3] > 0 && p[0] < 250) > 500,
             "The CFF2 glyph did not produce a raster outline.");
+    }
+
+    [Fact]
+    public void DrawsTextFromCffType2GlyphOutlines()
+    {
+        var face = Load("NotoSansJP-Regular.otf");
+        var glyph = face.GlyphFor('A');
+        Assert.NotEqual((ushort)0, glyph);
+        var comparison = Compare(c => c.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f)),
+            width: 96, height: 96, background: White);
+        Assert.True(comparison.Mean < 8 && comparison.OverForty < 0.12,
+            $"CFF raster diverged from the Skia oracle: mean={comparison.Mean:F2}, over40={comparison.OverForty:P2}, max={comparison.Max}.");
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Count(p => p[3] > 0 && p[0] < 250) > 500,
+            "CFF glyph did not produce a raster outline.");
     }
 
     [Fact]
@@ -421,6 +1031,43 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         Assert.NotEqual((ushort)0, glyph);
         Check("bitmap colour glyph", c => c.DrawGlyphs(face, 48, [glyph], [new Vector2(12, 58)], Solid(1, 1, 1)),
             mean: 4.0, over8: 0.12, over40: 0.04, background: White, width: 96, height: 80);
+    }
+
+    [Fact]
+    public void RendersRepresentativeNotoBitmapColourGlyphCorpus()
+    {
+        var face = Load("NotoColorEmoji.ttf");
+        var codePoints = new[] { 0x1F603, 0x1F44D, 0x1F389, 0x1F680, 0x1F431, 0x1F31F, 0x2764 };
+        var glyphs = codePoints.Select(face.GlyphFor).ToArray();
+        Assert.All(glyphs, glyph => Assert.NotEqual((ushort)0, glyph));
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(7 * 64, 80)!;
+        White(surface.Canvas);
+        var origins = glyphs.Select((_, i) => new Vector2(8 + 64 * i, 60)).ToArray();
+        surface.Canvas.DrawGlyphs(face, 48, glyphs, origins, Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 7 * 64, 80);
+        for (var i = 0; i < glyphs.Length; i++)
+        {
+            var region = pixels
+                .Chunk(4)
+                .Skip(64 * 80 * 0)
+                .Where((_, index) => index % (7 * 64) >= i * 64 && index % (7 * 64) < (i + 1) * 64);
+            Assert.Contains(region, pixel => pixel[0] < 250 || pixel[1] < 250 || pixel[2] < 250);
+        }
+    }
+
+    [Fact]
+    public void DrawsSbixPngColourGlyph()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var png = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "images", "gray-1.png"));
+        var face = FontFace.Parse(AddTables(source, ("sbix", SyntheticSbix(original.GlyphCount, glyph, png))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(32, 32)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 16, [glyph], [new Vector2(8, 20)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 32, 32);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] < 255 || pixel[1] < 255 || pixel[2] < 255);
     }
 
     private static void White(ICanvas c) => c.FillRoundedRect(new RoundedRect(new RectF(0, 0, 1000, 1000), default), Solid(1, 1, 1));

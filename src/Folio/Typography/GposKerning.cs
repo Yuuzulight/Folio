@@ -74,10 +74,17 @@ internal sealed class GposKerning
 
     /// <summary>The x-advance adjustment of <paramref name="left"/> before <paramref name="right"/>, in font units.</summary>
     public int Kerning(ushort left, ushort right)
+        => Adjustment(left, right).XAdvance;
+
+    /// <summary>The x-placement adjustment for the second glyph in a pair, in font units.</summary>
+    public int Placement(ushort left, ushort right)
+        => Adjustment(left, right).XPlacement;
+
+    private (int XPlacement, int XAdvance) Adjustment(ushort left, ushort right)
     {
         try
         {
-            var total = 0;
+            var total = (XPlacement: 0, XAdvance: 0);
             foreach (var lookup in _subtables)
             {
                 // A lookup applies its first subtable that handles the pair.
@@ -85,7 +92,8 @@ internal sealed class GposKerning
                 {
                     if (Apply(subtable, left, right) is { } value)
                     {
-                        total += value;
+                        total.XPlacement += value.XPlacement;
+                        total.XAdvance += value.XAdvance;
                         break;
                     }
                 }
@@ -94,11 +102,11 @@ internal sealed class GposKerning
         }
         catch (Exception e) when (e is InvalidDataException or OverflowException)
         {
-            return 0;
+            return (0, 0);
         }
     }
 
-    private int? Apply(int subtable, ushort left, ushort right)
+    private (int XPlacement, int XAdvance)? Apply(int subtable, ushort left, ushort right)
     {
         var format = _gpos.U16(subtable);
         var coverage = CoverageIndex(subtable + _gpos.U16(subtable + 2), left);
@@ -121,7 +129,7 @@ internal sealed class GposKerning
                 var record = set + 2 + recordSize * mid;
                 var second = _gpos.U16(record);
                 if (second == right)
-                    return XAdvance(record + 2, format1);
+                    return Values(record + 2, format1);
                 if (second < right)
                     low = mid + 1;
                 else
@@ -137,13 +145,19 @@ internal sealed class GposKerning
             var (class1Count, class2Count) = (_gpos.U16(subtable + 12), _gpos.U16(subtable + 14));
             if (class1 >= class1Count || class2 >= class2Count)
                 return null;
-            return XAdvance(subtable + 16 + (class1 * class2Count + class2) * (size1 + size2), format1);
+            return Values(subtable + 16 + (class1 * class2Count + class2) * (size1 + size2), format1);
         }
         return null;
     }
 
-    private int XAdvance(int valueRecord, ushort format) =>
-        (format & 0x4) == 0 ? 0 : _gpos.S16(valueRecord + 2 * System.Numerics.BitOperations.PopCount((uint)format & 0x3));
+    private (int XPlacement, int XAdvance) Values(int valueRecord, ushort format)
+    {
+        var offset = 0;
+        var xPlacement = (format & 0x1) != 0 ? _gpos.S16(valueRecord + 2 * offset++) : 0;
+        if ((format & 0x2) != 0) offset++;
+        var xAdvance = (format & 0x4) != 0 ? _gpos.S16(valueRecord + 2 * offset) : 0;
+        return (xPlacement, xAdvance);
+    }
 
     // https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2#coverage-table
     private int CoverageIndex(int coverage, ushort glyph)

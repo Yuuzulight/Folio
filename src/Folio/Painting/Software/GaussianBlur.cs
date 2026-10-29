@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Numerics;
 
 namespace Folio.Painting.Software;
 
@@ -14,17 +15,17 @@ internal static class GaussianBlur
     private static readonly ConcurrentDictionary<(int SigmaBits, int Radius), float[]> Kernels = new();
     private static readonly object KernelGate = new();
 
-    public static byte[] Apply(byte[] source, int width, int height, int channels, float sigmaX, float sigmaY)
+    public static byte[] Apply(byte[] source, int width, int height, int channels, float sigmaX, float sigmaY, int activeChannelMask = -1)
     {
         var current = source;
         if (sigmaX > 0)
-            current = Pass(current, width, height, channels, sigmaX, horizontal: true);
+            current = Pass(current, width, height, channels, sigmaX, horizontal: true, activeChannelMask);
         if (sigmaY > 0)
-            current = Pass(current, width, height, channels, sigmaY, horizontal: false);
+            current = Pass(current, width, height, channels, sigmaY, horizontal: false, activeChannelMask);
         return ReferenceEquals(current, source) ? (byte[])source.Clone() : current;
     }
 
-    private static byte[] Pass(byte[] source, int width, int height, int channels, float sigma, bool horizontal)
+    private static byte[] Pass(byte[] source, int width, int height, int channels, float sigma, bool horizontal, int activeChannelMask)
     {
         var length = horizontal ? width : height;
         var lines = horizontal ? height : width;
@@ -32,44 +33,53 @@ internal static class GaussianBlur
         var lineStride = horizontal ? width * channels : channels; // distance between lines
         var output = new byte[source.Length];
         var pool = ArrayPool<float>.Shared;
-        var line = pool.Rent(length);
-        var result = pool.Rent(length);
-        var scratchA = pool.Rent(length);
-        var scratchB = pool.Rent(length);
         var radius = sigma < BoxThreshold ? Math.Max(1, (int)MathF.Ceiling(sigma * 3)) : 0;
         var kernel = radius == 0 ? [] : GetKernel(sigma, radius);
-        try
+        void ProcessRange(int first, int last)
         {
-            for (var l = 0; l < lines; l++)
+            var line = pool.Rent(length);
+            var result = pool.Rent(length);
+            var scratchA = pool.Rent(length);
+            var scratchB = pool.Rent(length);
+            try
             {
-                for (var c = 0; c < channels; c++)
+                for (var l = first; l < last; l++)
                 {
-                    var start = l * lineStride + c;
-                    var any = false;
-                    for (var i = 0; i < length; i++)
+                    for (var c = 0; c < channels; c++)
                     {
-                        var v = source[start + i * stride];
-                        line[i] = v;
-                        any |= v != 0;
+                        if ((activeChannelMask & (1 << c)) == 0)
+                            continue;
+                        var start = l * lineStride + c;
+                        var any = false;
+                        for (var i = 0; i < length; i++)
+                        {
+                            var v = source[start + i * stride];
+                            line[i] = v;
+                            any |= v != 0;
+                        }
+                        if (!any)
+                            continue;
+                        if (sigma < BoxThreshold)
+                            Kernel(line, result, length, kernel, radius);
+                        else
+                            Boxes(line, result, scratchA, scratchB, length, sigma);
+                        for (var i = 0; i < length; i++)
+                            output[start + i * stride] = (byte)Math.Clamp((int)(result[i] + 0.5f), 0, 255);
                     }
-                    if (!any)
-                        continue;
-                    if (sigma < BoxThreshold)
-                        Kernel(line, result, length, kernel, radius);
-                    else
-                        Boxes(line, result, scratchA, scratchB, length, sigma);
-                    for (var i = 0; i < length; i++)
-                        output[start + i * stride] = (byte)Math.Clamp((int)(result[i] + 0.5f), 0, 255);
                 }
             }
+            finally
+            {
+                pool.Return(line);
+                pool.Return(result);
+                pool.Return(scratchA);
+                pool.Return(scratchB);
+            }
         }
-        finally
-        {
-            pool.Return(line);
-            pool.Return(result);
-            pool.Return(scratchA);
-            pool.Return(scratchB);
-        }
+        if (lines < 64)
+            ProcessRange(0, lines);
+        else
+            Parallel.ForEach(Partitioner.Create(0, lines), range => ProcessRange(range.Item1, range.Item2));
         return output;
     }
 
@@ -106,7 +116,33 @@ internal static class GaussianBlur
 
     private static void Kernel(float[] input, float[] output, int length, float[] kernel, int radius)
     {
-        for (var x = 0; x < length; x++)
+        // The interior of the separable pass has no transparent edge checks.  Process it a
+        // vector at a time; this is the hot path for the small-radius blur used by shadows
+        // and CSS filter: blur().  Keep the scalar loop at both ends where the transparent
+        // outside-of-image rule matters.
+        var width = Vector<float>.Count;
+        var interiorEnd = length - radius;
+        var vectorEnd = interiorEnd - (interiorEnd - radius) % width;
+        for (var x = radius; x < vectorEnd; x += width)
+        {
+            var total = Vector<float>.Zero;
+            for (var k = -radius; k <= radius; k++)
+                total += new Vector<float>(input, x + k) * kernel[k + radius];
+            total.CopyTo(output, x);
+        }
+
+        for (var x = 0; x < radius; x++)
+        {
+            var total = 0f;
+            for (var k = -radius; k <= radius; k++)
+            {
+                var j = x + k;
+                if (j >= 0 && j < length)
+                    total += input[j] * kernel[k + radius];
+            }
+            output[x] = total;
+        }
+        for (var x = vectorEnd; x < length; x++)
         {
             var total = 0f;
             for (var k = -radius; k <= radius; k++)

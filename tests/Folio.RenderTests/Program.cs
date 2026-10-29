@@ -26,6 +26,10 @@ public static class Program
             return CanvasFrames(args.Length > 1 && int.TryParse(args[1], out var frames) ? Math.Max(3, frames) : 30);
         if (args.Length > 0 && args[0] == "canvas-shared-memory")
             return CanvasSharedMemory(args.Length > 1 && int.TryParse(args[1], out var frames) ? Math.Max(3, frames) : 10);
+        if (args.Length > 0 && args[0] == "shaping-differential")
+            return ShapingDifferentialReport();
+        if (args.Length > 0 && args[0] == "shaping-differential-system")
+            return SystemShapingDifferentialReport();
 
         // The rest mirrors the entry point xUnit generates.
         if (args.Any(arg => arg is "--server" or "--internal-msbuild-node"))
@@ -134,6 +138,158 @@ public static class Program
         samples.Sort();
         return samples[Math.Min(samples.Count - 1, (int)Math.Ceiling(samples.Count * .95) - 1)];
     }
+
+    private static int ShapingDifferentialReport()
+    {
+        var corpus = new (string Family, string Text, string Name)[]
+        {
+            ("Source Sans 3", "The quick brown fox, AVATAR", "Latin"),
+            ("Folio Box", "1234", "Latin digits"),
+            ("Source Sans 3", "Γειά σου Κόσμε", "Greek"),
+            ("Source Sans 3", "Привет, мир", "Cyrillic"),
+            ("Source Sans 3", "Ångström — naïve", "Latin extended"),
+            ("Noto Sans Hebrew", "שלום", "Hebrew base"),
+        };
+        var fonts = FontCollection.FromFolder(Path.Combine(RepoPaths.Tests, "fonts"));
+        var failures = 0;
+        Console.WriteLine("Folio shaping differential report (bundled corpus)");
+        Console.WriteLine("| Run | Script | Glyphs | Clusters | Advances | Result |");
+        Console.WriteLine("|---|---|---:|---:|---:|---|");
+        foreach (var (family, text, name) in corpus)
+        {
+            var face = fonts.Match(family, FaceStyle.Normal, 400, 100);
+            if (face is null || !SimpleShaper.CanShape(text, face))
+            {
+                Console.WriteLine($"| {name} | {name} | - | - | - | FAIL (not on Folio path) |");
+                failures++;
+                continue;
+            }
+            var folio = SimpleShaper.Shape(text, 0, text.Length, face, 16);
+            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16,
+                rightToLeft: name.Contains("Hebrew", StringComparison.Ordinal),
+                language: name.Contains("Hebrew", StringComparison.Ordinal) ? "he" : null);
+            var glyphs = folio.Glyphs.SequenceEqual(oracle.Glyphs);
+            var clusters = folio.Clusters.SequenceEqual(oracle.Clusters);
+            var advances = folio.Advances.SequenceEqual(oracle.Advances);
+            var pass = glyphs && clusters && advances;
+            Console.WriteLine($"| {name} | {name} | {folio.Glyphs.Length} | {folio.Clusters.Length} | {folio.Advances.Length} | {(pass ? "PASS" : "FAIL")} |");
+            if (!pass) failures++;
+        }
+
+        var complexCorpus = new (string Family, string Text, string Name, bool RightToLeft, string Language)[]
+        {
+            ("Noto Sans Hebrew", "שָׁלוֹם", "Hebrew niqqud", true, "he"),
+            ("Noto Sans Hebrew", "שלום לכולם. המרכז הקהילתי פותח את שעריו בכל יום ראשון בשעה 09:30, ומציע סדנאות כתיבה, צילום ומוזיקה לכל המשפחה.", "Hebrew RTL paragraph", true, "he"),
+            ("Noto Sans Hebrew", "ברוכים הבאים ללוח המודעות: מפגש חדש יתקיים ביום שלישי הקרוב, וההרשמה פתוחה עד סוף החודש.", "Hebrew mixed paragraph", true, "he"),
+            ("Noto Sans Arabic", "سلام", "Arabic joining", true, "ar"),
+            ("Noto Sans Arabic", "مُحَمَّد", "Arabic marks", true, "ar"),
+            ("Noto Sans Arabic", "العربية لغة جميلة", "Arabic extended", true, "ar"),
+            ("Noto Sans Arabic", "الكتاب والمدرسة والحديقة", "Arabic vocabulary", true, "ar"),
+            ("Noto Sans Arabic", "يكتبون ويقرؤون في المكتبة", "Arabic joining vocabulary", true, "ar"),
+            ("Noto Sans Arabic", "مُسْتَقْبَلٌ مُشْرِقٌ", "Arabic vowel marks", true, "ar"),
+            ("Noto Sans Arabic", "ضِياءٌ وقُرْآنٌ كريمٌ", "Arabic Quranic marks", true, "ar"),
+            ("Noto Sans Arabic", "الطريق إلى النجاح يبدأ بالتعلّم", "Arabic sentence", true, "ar"),
+            ("Noto Sans Arabic", "إِنَّ اللُّغَةَ جِسْرٌ بَيْنَ الشُّعُوبِ", "Arabic marked sentence", true, "ar"),
+            ("Noto Sans Arabic", "هٰذِهِ كَلِمَاتٌ مُشَكَّلةٌ بِعِنَايَةٍ", "Arabic superscript and marks", true, "ar"),
+            ("Noto Sans Arabic", "وَالسَّمَاءِ وَالطَّارِقِ", "Arabic Quranic joining", true, "ar"),
+            ("Noto Sans Arabic", "مَدِينَةٌ عَرِيقَةٌ وَمَكْتَبَةٌ كَبِيرَةٌ", "Arabic marked vocabulary", true, "ar"),
+            ("Noto Sans Arabic", "تَعَلَّمْ، فَإِنَّ العِلْمَ نُورٌ", "Arabic punctuation", true, "ar"),
+            ("Noto Sans Arabic", "اللَّهُمَّ اغْفِرْ لَنَا", "Arabic prayer marks", true, "ar"),
+            ("Noto Sans Arabic", "رَبِّ زِدْنِي عِلْمًا", "Arabic shadda vocabulary", true, "ar"),
+            ("Noto Sans Arabic", "السَّلَامُ عَلَيْكُمْ وَرَحْمَةُ اللَّهِ", "Arabic greeting paragraph", true, "ar"),
+            ("Noto Sans Arabic", "أَحْرُفٌ مُتَنَوِّعَةٌ", "Arabic varied marks", true, "ar"),
+            ("Noto Sans Arabic", "إِقْرَأْ بِاسْمِ رَبِّكَ", "Arabic hamza marks", true, "ar"),
+            ("Noto Sans Arabic", "اللَّهُ", "Arabic ligature mark", true, "ar"),
+            ("Noto Sans Arabic", "اللَّهُمَّ", "Arabic ligature prayer", true, "ar"),
+            ("Noto Sans Arabic", "مرحباً بكم في مركز الواحة الثقافي. نقدّم ورش عمل في الخط العربي والتصوير والطبخ طوال فصل الخريف، وتبدأ التسجيلات يوم الأحد القادم.", "Arabic RTL paragraph", true, "ar"),
+        };
+        foreach (var (family, text, name, rightToLeft, language) in complexCorpus)
+        {
+            var face = fonts.Match(family, FaceStyle.Normal, 400, 100);
+            if (face is null)
+            {
+                Console.WriteLine($"| {name} | {name} | - | - | - | FAIL (font unavailable) |");
+                failures++;
+                continue;
+            }
+            var folio = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft, language);
+            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
+            var glyphs = folio.Glyphs.SequenceEqual(oracle.Glyphs);
+            var clusters = folio.Clusters.SequenceEqual(oracle.Clusters);
+            var advances = folio.Advances.SequenceEqual(oracle.Advances);
+            var offsets = folio.Offsets.Length == oracle.Offsets.Length && folio.Offsets.Zip(oracle.Offsets).All(pair =>
+                MathF.Abs(pair.First.X - pair.Second.X) <= 0.001f && MathF.Abs(pair.First.Y - pair.Second.Y) <= 0.001f);
+            var pass = glyphs && clusters && advances && offsets;
+            Console.WriteLine($"| {name} | {name} | {folio.Glyphs.Length} | {folio.Clusters.Length} | {folio.Advances.Length} | {(pass ? "PASS" : "FAIL")} |");
+            if (!pass) failures++;
+        }
+
+        var kerningFace = fonts.Match("Folio Box", FaceStyle.Normal, 400, 100)!;
+        var kerningText = "AVATAR";
+        var expected = new HarfBuzzShaper().Shape(kerningText, 0, kerningText.Length, kerningFace, 16, false, null);
+        var actual = SimpleShaper.Shape(kerningText, 0, kerningText.Length, kerningFace, 16);
+        var broken = (float[])actual.Advances.Clone();
+        broken[0] += 1;
+        var perturbationDetected = !expected.Advances.SequenceEqual(broken);
+        Console.WriteLine($"| deliberate kerning perturbation | Latin | - | - | - | {(perturbationDetected ? "PASS" : "FAIL")} |");
+        if (!perturbationDetected) failures++;
+        return failures == 0 ? 0 : 1;
+    }
+
+    private static int SystemShapingDifferentialReport()
+    {
+        var corpus = new (string Family, string Text)[]
+        {
+            ("Arial", "The quick brown fox, AVATAR"),
+            ("Times New Roman", "AVATAR fi office"),
+            ("Segoe UI", "Numbers 0123456789"),
+            ("Arial", "שלום לכולם"),
+            ("Arial", "مرحبا بكم"),
+            ("Arial", "שָׁלוֹם וברוכים הבאים"),
+            ("Arial", "יְרוּשָׁלַיִם היא עיר עתיקה ויפה"),
+            ("Arial", "מִשְׁפָּחָה, חֲבֵרִים וְשָׁלוֹם"),
+            ("Arial", "مرحباً بكم في مركز الواحة الثقافي"),
+            ("Arial", "مُسْتَقْبَلٌ مُشْرِقٌ"),
+        };
+        var fonts = FontCollection.For(new FontSettings { Source = new SystemFontSource() });
+        var compared = 0;
+        var failures = 0;
+        Console.WriteLine("Folio shaping differential report (local system-font corpus)");
+        Console.WriteLine("| Family | Glyphs | Clusters | Advances | Result |");
+        Console.WriteLine("|---|---:|---:|---:|---|");
+        foreach (var (family, text) in corpus)
+        {
+            var face = fonts.Match(family, FaceStyle.Normal, 400, 100);
+            if (face is null)
+            {
+                Console.WriteLine($"| {family} | - | - | - | SKIP (family unavailable) |");
+                continue;
+            }
+            compared++;
+            var complex = text.Any(c => c is >= '\u0590' and <= '\u08FF');
+            var language = text.Any(c => c is >= '\u0600' and <= '\u08FF') ? "ar" : "he";
+            var folio = complex
+                ? ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, true, language)
+                : SimpleToShapedText(SimpleShaper.Shape(text, 0, text.Length, face, 16));
+            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, complex, complex ? language : null);
+            var pass = folio.Glyphs.SequenceEqual(oracle.Glyphs)
+                && folio.Clusters.SequenceEqual(oracle.Clusters)
+                && folio.Advances.SequenceEqual(oracle.Advances)
+                && folio.Offsets.Length == oracle.Offsets.Length
+                && folio.Offsets.Zip(oracle.Offsets).All(pair => MathF.Abs(pair.First.X - pair.Second.X) <= 0.001f && MathF.Abs(pair.First.Y - pair.Second.Y) <= 0.001f);
+            Console.WriteLine($"| {family} | {folio.Glyphs.Length} | {folio.Clusters.Length} | {folio.Advances.Length} | {(pass ? "PASS" : "FAIL")} |");
+            if (!pass) failures++;
+        }
+        if (compared == 0)
+        {
+            Console.WriteLine("No requested system families were available; run this command on the target host.");
+            return 2;
+        }
+        return failures == 0 ? 0 : 1;
+    }
+
+    private static ShapedText SimpleToShapedText(ShapedRun run) =>
+        new(run.Glyphs, run.Clusters, run.Advances, new System.Numerics.Vector2[run.Glyphs.Length]);
 
     private static int CanvasSharedMemory(int frameCount)
     {

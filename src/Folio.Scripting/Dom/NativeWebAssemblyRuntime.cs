@@ -149,19 +149,31 @@ internal sealed class NativeWebAssemblyRuntime : IDisposable
                         linker.Define(globalImport.ModuleName, globalImport.Name, nativeGlobal);
                     }
                     else if (import is TableImport tableImport
-                        && tableImport.Kind == ValueKind.FuncRef
-                        && TryFindTable(engine, imports, descriptors, tableImport, hasIndirectSignature ? indirectSignature : null, out var tableSource, out var tableFunctions))
+                        && tableImport.Kind == ValueKind.ExternRef
+                        && TryFindExternRefTable(engine, imports, descriptors, tableImport, out var externTableSource, out var externValues))
+                    {
+                        var sourceLength = checked((uint)engine.GetProperty(externTableSource, "length").AsNumber());
+                        var nativeTable = new Table(store, TableKind.ExternRef, null, sourceLength,
+                            tableImport.Maximum is { } maximum ? maximum : uint.MaxValue);
+                        for (var index = 0; index < externValues.Count; index++)
+                            nativeTable.SetElement(checked((uint)index), externValues[index].IsNullOrUndefined ? null : externValues[index].Raw);
+                        importedTables.Add(new NativeWebAssemblyTable(nativeTable, _gate, externTableSource));
+                        linker.Define(tableImport.ModuleName, tableImport.Name, nativeTable);
+                    }
+                    else if (import is TableImport functionTableImport
+                        && functionTableImport.Kind == ValueKind.FuncRef
+                        && TryFindTable(engine, imports, descriptors, functionTableImport, hasIndirectSignature ? indirectSignature : null, out var tableSource, out var tableFunctions))
                     {
                         var sourceLength = checked((uint)engine.GetProperty(tableSource, "length").AsNumber());
                         var nativeTable = new Table(store, TableKind.FuncRef, null, sourceLength,
-                            tableImport.Maximum is { } maximum ? maximum : uint.MaxValue);
+                            functionTableImport.Maximum is { } maximum ? maximum : uint.MaxValue);
                         for (var index = 0; index < tableFunctions.Count; index++)
                         {
                             if (tableFunctions[index] is { } entry)
                                 nativeTable.SetElement(checked((uint)index), entry.CreateStoreBridge(store, engine, indirectSignature));
                         }
                         importedTables.Add(new NativeWebAssemblyTable(nativeTable, _gate, tableSource));
-                        linker.Define(tableImport.ModuleName, tableImport.Name, nativeTable);
+                        linker.Define(functionTableImport.ModuleName, functionTableImport.Name, nativeTable);
                     }
                     else return false;
                 }
@@ -239,6 +251,32 @@ internal sealed class NativeWebAssemblyRuntime : IDisposable
                 if (resultValues.Count != requested.Results.Count) throw new InvalidOperationException("WebAssembly import returned the wrong number of values.");
                 for (var index = 0; index < results.Length; index++) results[index] = NativeWebAssemblyInstance.BoxValue(requested.Results[index], resultValues[index]);
             };
+            return true;
+        }
+        return false;
+    }
+
+    private static bool TryFindExternRefTable(IScriptEngine engine, ScriptValue imports, IReadOnlyList<ScriptValue> descriptors,
+        TableImport requested, out ScriptValue table, out IReadOnlyList<ScriptValue> values)
+    {
+        table = ScriptValue.Undefined;
+        values = [];
+        foreach (var descriptor in descriptors)
+        {
+            if (engine.GetProperty(descriptor, "kind").AsNumber() != 1
+                || !string.Equals(engine.GetProperty(descriptor, "module").AsString(), requested.ModuleName, StringComparison.Ordinal)
+                || !string.Equals(engine.GetProperty(descriptor, "name").AsString(), requested.Name, StringComparison.Ordinal)) continue;
+            var module = engine.GetProperty(imports, requested.ModuleName);
+            var candidate = engine.GetProperty(module, requested.Name);
+            if (!candidate.IsObject) return false;
+            var length = engine.GetProperty(candidate, "length").AsNumber();
+            if (length < requested.Minimum || length > requested.Maximum) return false;
+            var getter = engine.GetProperty(candidate, "get");
+            if (!getter.IsFunction) return false;
+            var entries = new ScriptValue[checked((int)length)];
+            for (uint index = 0; index < length; index++) entries[checked((int)index)] = engine.Call(getter, candidate, [ScriptValue.FromNumber(index)]);
+            table = candidate;
+            values = entries;
             return true;
         }
         return false;
@@ -466,7 +504,7 @@ internal sealed class NativeWebAssemblyRuntime : IDisposable
         FunctionExport => true,
         MemoryExport => true,
         GlobalExport global => IsNumeric(global.Kind) || global.Kind == ValueKind.ExternRef,
-        TableExport table => table.Kind == ValueKind.FuncRef,
+        TableExport table => table.Kind is ValueKind.FuncRef or ValueKind.ExternRef,
         _ => false
     };
 
@@ -633,7 +671,7 @@ internal sealed class NativeWebAssemblyInstance(Module module, Store store, Wasm
         var result = new Dictionary<string, NativeWebAssemblyTable>(StringComparer.Ordinal);
         var importedIndex = 0;
         foreach (var export in module.Exports)
-            if (export is TableExport tableExport && tableExport.Kind == ValueKind.FuncRef)
+            if (export is TableExport tableExport)
             {
                 var native = instance.GetTable(export.Name)!;
                 var matching = imported.FirstOrDefault(candidate => Equals(candidate.NativeTable, native));
@@ -727,6 +765,7 @@ internal sealed class NativeWebAssemblyTable(Table table, object gate, ScriptVal
     internal object Gate => gate;
     internal Table NativeTable => table;
     internal ScriptValue SourceObject => source;
+    internal bool IsExternRef => table.Kind == TableKind.ExternRef;
     internal int Length
     {
         get { lock (gate) return checked((int)table.GetSize()); }
@@ -922,12 +961,15 @@ internal sealed class NativeWebAssemblyBridge : IDisposable
             {
                 EnsureAllowed();
                 var value = ((NativeWebAssemblyTable)target).Get(args.Length == 0 ? 0 : checked((int)args[0].AsNumber()));
-                return value is Function function ? WrapFunction(function, ((NativeWebAssemblyTable)target).Gate) : ScriptValue.Null;
+                if (value is Function function) return WrapFunction(function, ((NativeWebAssemblyTable)target).Gate);
+                return value is null ? ScriptValue.Null : ScriptValue.FromObject(value);
             })
             .DefineMethod("grow", (target, _, args) =>
             {
                 EnsureAllowed();
                 object? value = null;
+                if (((NativeWebAssemblyTable)target).IsExternRef && args.Length > 1 && !args[1].IsNullOrUndefined)
+                    value = args[1].Raw;
                 return ScriptValue.FromNumber(((NativeWebAssemblyTable)target).Grow(args.Length == 0 ? 0 : checked((int)args[0].AsNumber()), value));
             })
             .DefineMethod("set", (target, _, args) =>
@@ -935,7 +977,11 @@ internal sealed class NativeWebAssemblyBridge : IDisposable
                 EnsureAllowed();
                 if (args.Length < 2) throw WebIdlException.TypeError("WebAssembly.Table.set requires an index and value.");
                 object? value = null;
-                if (!args[1].IsNullOrUndefined)
+                if (((NativeWebAssemblyTable)target).IsExternRef)
+                {
+                    value = args[1].IsNullOrUndefined ? null : args[1].Raw;
+                }
+                else if (!args[1].IsNullOrUndefined)
                 {
                     var marker = _engine.GetProperty(args[1], "__folio_native_wasm_function");
                     if (!_engine.TryGetHostTarget(marker, out var native) || native is not NativeWebAssemblyFunction function)

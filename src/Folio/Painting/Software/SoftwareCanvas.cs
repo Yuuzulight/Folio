@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Folio.Imaging;
 using Folio.Typography;
 
@@ -110,10 +111,71 @@ internal sealed class SoftwareCanvas : ICanvas
 
     // ---- filling ----
 
-    public void FillRoundedRect(in RoundedRect rect, in Paint paint) => FillPath(new PathData().AddRoundedRect(rect), FillRule.NonZero, paint);
+    public void FillRoundedRect(in RoundedRect rect, in Paint paint)
+    {
+        // Plain rectangles are by far the most common primitive in dashboard frames. Avoid constructing and
+        // flattening a PathData when there are no corner curves; the rasterizer already has an exact rectangle path.
+        if (rect.Radii.IsZero)
+        {
+            if (TryFillOpaqueAxisAlignedRect(rect.Rect, paint))
+                return;
+            var r = rect.Rect;
+            var polygons = new[]
+            {
+                new[]
+                {
+                    _state.Transform.Apply(new Vector2(r.X, r.Y)),
+                    _state.Transform.Apply(new Vector2(r.Right, r.Y)),
+                    _state.Transform.Apply(new Vector2(r.Right, r.Bottom)),
+                    _state.Transform.Apply(new Vector2(r.X, r.Bottom)),
+                },
+            };
+            if (Rasterizer.Fill(polygons, FillRule.NonZero, ClipForPaint(paint), snapEdges: true) is { } coverage)
+                Draw(coverage, paint);
+            return;
+        }
+        FillPath(new PathData().AddRoundedRect(rect), FillRule.NonZero, paint);
+    }
+
+    private bool TryFillOpaqueAxisAlignedRect(RectF rect, in Paint paint)
+    {
+        if (paint.Blur > 0 || paint.Gradient is not null || paint.Pattern is not null || paint.Blend != BlendMode.Normal
+            || paint.Color.A < 1 || _state.ClipMask is not null || !_state.Transform.IsAffine)
+            return false;
+        var m = _state.Transform;
+        if (m.M12 != 0 || m.M21 != 0 || m.M11 <= 0 || m.M22 <= 0)
+            return false;
+        var topLeft = m.Apply(new Vector2(rect.X, rect.Y));
+        var bottomRight = m.Apply(new Vector2(rect.Right, rect.Bottom));
+        if (!Integral(topLeft.X) || !Integral(topLeft.Y) || !Integral(bottomRight.X) || !Integral(bottomRight.Y))
+            return false;
+        var area = IntRect.Intersect(_state.Clip, _targetBounds);
+        area = IntRect.Intersect(area, new IntRect((int)topLeft.X, (int)topLeft.Y,
+            (int)bottomRight.X, (int)bottomRight.Y));
+        // The target is a tightly packed RGBA8 surface.  Once the geometry and paint
+        // are known to be an integral opaque rectangle, fill whole pixels as words;
+        // calling the general compositor for every pixel adds needless bounds and
+        // floating-point work to the hottest dashboard path.
+        var packed = (uint)To8(paint.Color.R)
+            | ((uint)To8(paint.Color.G) << 8)
+            | ((uint)To8(paint.Color.B) << 16)
+            | 0xFF000000u;
+        var words = MemoryMarshal.Cast<byte, uint>(_target.Data.AsSpan());
+        for (var y = area.Top; y < area.Bottom; y++)
+        {
+            var first = (y - _targetBounds.Top) * _target.Width + (area.Left - _targetBounds.Left);
+            words.Slice(first, area.Width).Fill(packed);
+        }
+        return true;
+
+        static bool Integral(float value) => MathF.Abs(value - MathF.Round(value)) < 1e-4f;
+        static byte To8(float value) => value <= 0 ? (byte)0 : value >= 1 ? (byte)255 : (byte)(value * 255 + 0.5f);
+    }
 
     public void ClearRect(in RectF rect)
     {
+        if (TryClearAxisAlignedRect(rect))
+            return;
         var polygons = PathGeometry.Polygons(PathGeometry.Flatten(new PathData().AddRoundedRect(new RoundedRect(rect, default)), FlattenTolerance), _state.Transform);
         if (Rasterizer.Fill(polygons, FillRule.NonZero, _state.Clip) is not { } coverage)
             return;
@@ -123,6 +185,30 @@ internal sealed class SoftwareCanvas : ICanvas
             for (var k = 0; k < 4; k++)
                 _target.Data[offset + k] = (byte)(_target.Data[offset + k] * keep + 0.5f);
         });
+    }
+
+    private bool TryClearAxisAlignedRect(RectF rect)
+    {
+        if (_state.ClipMask is not null || !_state.Transform.IsAffine)
+            return false;
+        var m = _state.Transform;
+        if (m.M12 != 0 || m.M21 != 0 || m.M11 <= 0 || m.M22 <= 0)
+            return false;
+        var topLeft = m.Apply(new Vector2(rect.X, rect.Y));
+        var bottomRight = m.Apply(new Vector2(rect.Right, rect.Bottom));
+        if (!Integral(topLeft.X) || !Integral(topLeft.Y) || !Integral(bottomRight.X) || !Integral(bottomRight.Y))
+            return false;
+        var area = IntRect.Intersect(_state.Clip, _targetBounds);
+        area = IntRect.Intersect(area, new IntRect((int)topLeft.X, (int)topLeft.Y,
+            (int)bottomRight.X, (int)bottomRight.Y));
+        for (var y = area.Top; y < area.Bottom; y++)
+        {
+            var first = ((y - _targetBounds.Top) * _target.Width + (area.Left - _targetBounds.Left)) * 4;
+            _target.Data.AsSpan(first, area.Width * 4).Clear();
+        }
+        return true;
+
+        static bool Integral(float value) => MathF.Abs(value - MathF.Round(value)) < 1e-4f;
     }
 
     public void FillPath(PathData path, FillRule rule, in Paint paint)
@@ -166,11 +252,64 @@ internal sealed class SoftwareCanvas : ICanvas
         var blend = paint.Blend;
         if (shader is SolidShader solid)
         {
-            var color = solid.Color;
-            ForEachPixel(coverage, (x, y, c, offset) => Compositor.Blend(_target.Data, offset, color, c, blend));
+            BlendSolid(coverage, solid.Color, blend);
             return;
         }
         ForEachPixel(coverage, (x, y, c, offset) => Compositor.Blend(_target.Data, offset, shader.ColorAt(x, y) * alpha, c, blend));
+    }
+
+    // Keep the common solid-paint path allocation-free: dashboard backgrounds, borders and text shadows
+    // account for most software-raster pixels, so avoiding a delegate per primitive materially reduces replay cost.
+    private void BlendSolid(Coverage coverage, Vector4 color, BlendMode blend)
+    {
+        var area = IntRect.Intersect(IntRect.Intersect(coverage.Bounds, _state.Clip), _targetBounds);
+        if (_state.ClipMask is null)
+        {
+            var opaque = blend == BlendMode.Normal && color.W >= 1f;
+            var words = opaque ? MemoryMarshal.Cast<byte, uint>(_target.Data.AsSpan()) : default;
+            var packed = opaque
+                ? (uint)To8(color.X) | ((uint)To8(color.Y) << 8) | ((uint)To8(color.Z) << 16) | 0xFF000000u
+                : 0u;
+            for (var y = area.Top; y < area.Bottom; y++)
+            {
+                var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
+                var x = area.Left;
+                while (x < area.Right)
+                {
+                    var c = coverage.Data[row + x];
+                    if (c == 255 && opaque)
+                    {
+                        var runStart = x;
+                        do x++; while (x < area.Right && coverage.Data[row + x] == 255);
+                        var first = (y - _targetBounds.Top) * _target.Width + (runStart - _targetBounds.Left);
+                        words.Slice(first, x - runStart).Fill(packed);
+                        continue;
+                    }
+                    if (c != 0)
+                    {
+                        var offset = ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4;
+                        Compositor.Blend(_target.Data, offset, color, c / 255f, blend);
+                    }
+                    x++;
+                }
+            }
+            return;
+        }
+        for (var y = area.Top; y < area.Bottom; y++)
+        {
+            var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
+            for (var x = area.Left; x < area.Right; x++)
+            {
+                var c = coverage.Data[row + x];
+                if (c == 0)
+                    continue;
+                var amount = c / 255f * ClipAt(x, y);
+                if (amount > 0)
+                    Compositor.Blend(_target.Data, ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4, color, amount, blend);
+            }
+        }
+
+        static byte To8(float value) => value <= 0 ? (byte)0 : value >= 1 ? (byte)255 : (byte)(value * 255 + 0.5f);
     }
 
     // A mask blur's deviation is scaled by the square root of the area the transform stretches by, the same in both directions
@@ -196,6 +335,20 @@ internal sealed class SoftwareCanvas : ICanvas
     private void ForEachPixel(Coverage coverage, Action<int, int, float, int> action)
     {
         var area = IntRect.Intersect(IntRect.Intersect(coverage.Bounds, _state.Clip), _targetBounds);
+        if (_state.ClipMask is null)
+        {
+            for (var y = area.Top; y < area.Bottom; y++)
+            {
+                var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
+                for (var x = area.Left; x < area.Right; x++)
+                {
+                    var c = coverage.Data[row + x];
+                    if (c != 0)
+                        action(x, y, c / 255f, ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4);
+                }
+            }
+            return;
+        }
         for (var y = area.Top; y < area.Bottom; y++)
         {
             var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
@@ -215,10 +368,12 @@ internal sealed class SoftwareCanvas : ICanvas
 
     // Keep the native outline cache bounded per font.  The cache is shared by canvases for
     // the same face, but a face can be released as soon as the font itself is no longer
-    // reachable through the ConditionalWeakTable.  Eight MiB is the documented default
-    // backend glyph-cache budget; entries are evicted least-recently-used when a font's
-    // parsed outlines exceed that budget.
-    private const long OutlineCacheBudget = 8L * 1024 * 1024;
+    // reachable through the ConditionalWeakTable. Eight MiB is the documented default
+    // backend glyph-cache budget. The parsed outline and flattened caches each receive
+    // half so their combined retained footprint cannot exceed the cap.
+    private const long GlyphCacheBudget = 8L * 1024 * 1024;
+    private const long OutlineCacheBudget = GlyphCacheBudget / 2;
+    private const long FlattenedCacheBudget = GlyphCacheBudget - OutlineCacheBudget;
     private sealed class OutlineCache
     {
         private readonly Dictionary<ushort, (PathData? Path, long Bytes, LinkedListNode<ushort> Node)> _entries = [];
@@ -256,9 +411,75 @@ internal sealed class SoftwareCanvas : ICanvas
         private static long Estimate(PathData? path) => path is null
             ? 128
             : 256L + path.Commands.Count * 64L;
+
+        public long Bytes
+        {
+            get { lock (_entries) return _bytes; }
+        }
     }
 
     private static readonly ConditionalWeakTable<FontFace, OutlineCache> Outlines = new();
+
+    // Curve flattening is deterministic for a face, glyph and tolerance. Keep a
+    // small per-face cache so animation frames do not repeatedly subdivide the
+    // same outlines. The bound prevents a large font corpus from retaining all
+    // tolerances indefinitely.
+    private sealed class FlattenedGlyphCache
+    {
+        private readonly Dictionary<(ushort Glyph, int ToleranceBits), Subpath[]> _entries = [];
+        private long _bytes;
+
+        public Subpath[] Get(FontFace face, ushort glyph, float tolerance)
+        {
+            var key = (glyph, BitConverter.SingleToInt32Bits(tolerance));
+            lock (_entries)
+            {
+                if (_entries.TryGetValue(key, out var cached))
+                    return cached;
+                var flattened = Outlines.GetOrCreateValue(face).Get(face, glyph) is { } path
+                    ? PathGeometry.Flatten(path, tolerance).ToArray()
+                    : [];
+                var bytes = Estimate(flattened);
+                if (bytes > FlattenedCacheBudget)
+                    return flattened;
+                while (_bytes + bytes > FlattenedCacheBudget && _entries.Count > 0)
+                {
+                    var evictedKey = _entries.Keys.First();
+                    _bytes -= Estimate(_entries[evictedKey]);
+                    _entries.Remove(evictedKey);
+                }
+                _entries[key] = flattened;
+                _bytes += bytes;
+                return flattened;
+            }
+        }
+
+        private static long Estimate(Subpath[] paths)
+        {
+            var bytes = 128L;
+            foreach (var path in paths)
+                bytes += 64L + path.Points.Length * 8L;
+            return bytes;
+        }
+
+        public long Bytes
+        {
+            get { lock (_entries) return _bytes; }
+        }
+    }
+
+    private static readonly ConditionalWeakTable<FontFace, FlattenedGlyphCache> FlattenedGlyphs = new();
+
+    internal static Subpath[] Flattened(FontFace face, ushort glyph, float tolerance) =>
+        FlattenedGlyphs.GetOrCreateValue(face).Get(face, glyph, tolerance);
+
+    /// <summary>Returns the currently retained native glyph-cache bytes for diagnostics and conformance tests.</summary>
+    internal static (long Outlines, long Flattened) GlyphCacheUsage(FontFace face)
+    {
+        var outlines = Outlines.TryGetValue(face, out var outlineCache) ? outlineCache.Bytes : 0;
+        var flattened = FlattenedGlyphs.TryGetValue(face, out var flattenedCache) ? flattenedCache.Bytes : 0;
+        return (outlines, flattened);
+    }
 
     private PathData? Outline(IFontHandle font, ushort glyph)
     {
@@ -277,10 +498,8 @@ internal sealed class SoftwareCanvas : ICanvas
         var tolerance = FlattenTolerance / Math.Max(scale * Math.Max(Scale(), 1e-3f), 1e-6f);
         for (var i = 0; i < glyphs.Length && i < origins.Length; i++)
         {
-            if (Outline(font, glyphs[i]) is not { } path)
-                continue;
             var matrix = Matrix3x2.CreateScale(scale, -scale) * Matrix3x2.CreateTranslation(SnapToTextGrid(origins[i]));
-            foreach (var subpath in PathGeometry.Flatten(path, tolerance))
+            foreach (var subpath in Flattened(face, glyphs[i], tolerance))
             {
                 var points = new Vector2[subpath.Points.Length];
                 for (var k = 0; k < points.Length; k++)
@@ -305,7 +524,7 @@ internal sealed class SoftwareCanvas : ICanvas
 
     public void DrawGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
     {
-        if (font is FontFace colorFace && ColorGlyphs.Has(colorFace))
+        if (font is FontFace colorFace && ColorGlyphs.Has(colorFace) && HasRenderableColorGlyph(colorFace, glyphs))
         {
             DrawColorGlyphs(colorFace, size, glyphs, origins, paint);
             return;
@@ -318,6 +537,14 @@ internal sealed class SoftwareCanvas : ICanvas
         var polygons = PathGeometry.Polygons(Glyphs(font, size, glyphs, origins), _state.Transform);
         if (polygons.Count > 0 && Rasterizer.Fill(polygons, FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
             Draw(coverage, paint);
+    }
+
+    private static bool HasRenderableColorGlyph(FontFace face, ReadOnlySpan<ushort> glyphs)
+    {
+        for (var i = 0; i < glyphs.Length; i++)
+            if (ColorGlyphs.Get(face, glyphs[i]) is not null)
+                return true;
+        return false;
     }
 
     private void DrawColorGlyphs(FontFace face, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
@@ -333,7 +560,7 @@ internal sealed class SoftwareCanvas : ICanvas
             {
                 if (Outline(face, layer.Glyph) is not { } path)
                     continue;
-                var matrix = Matrix3x2.CreateScale(scale, -scale) * Matrix3x2.CreateTranslation(origin);
+                var matrix = Matrix3x2.CreateScale(scale, -scale) * layer.TransformOrIdentity * Matrix3x2.CreateTranslation(origin);
                 var subpaths = PathGeometry.Flatten(path, tolerance);
                 var points = new List<Subpath>(subpaths.Count);
                 foreach (var subpath in subpaths)
@@ -345,8 +572,31 @@ internal sealed class SoftwareCanvas : ICanvas
                 }
                 if (Rasterizer.Fill(PathGeometry.Polygons(points, _state.Transform), FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
                 {
+                    if (layer.Gradient is { } gradient)
+                    {
+                        var blend = layer.Blend == BlendMode.Normal ? paint.Blend : layer.Blend;
+                        var paintAlpha = paint.Color.A;
+                        var stops = gradient.Stops
+                            .Select(stop => stop with { Color = stop.Color with { A = stop.Color.A * paintAlpha } })
+                            .ToArray();
+                        var transformedGradient = gradient with
+                        {
+                            Stops = stops,
+                            Start = Vector2.Transform(gradient.Start, matrix),
+                            End = Vector2.Transform(gradient.End, matrix),
+                            Center = Vector2.Transform(gradient.Center, matrix),
+                            Radii = new Vector2(Vector2.TransformNormal(new Vector2(gradient.Radii.X, 0), matrix).Length(),
+                                Vector2.TransformNormal(new Vector2(0, gradient.Radii.Y), matrix).Length()),
+                            Focus = gradient.Focus is { } focus ? Vector2.Transform(focus, matrix) : null,
+                            FocusRadius = gradient.FocusRadius * Vector2.TransformNormal(Vector2.UnitX, matrix).Length(),
+                            Transform = null,
+                        };
+                        Draw(coverage, new Paint(paint.Color, Gradient: transformedGradient, Blend: blend));
+                        continue;
+                    }
                     var colour = (layer.Color ?? paint.Color) with { A = (layer.Color?.A ?? 1) * paint.Color.A };
-                    Draw(coverage, new Paint(colour, Blend: paint.Blend));
+                    var blendMode = layer.Blend == BlendMode.Normal ? paint.Blend : layer.Blend;
+                    Draw(coverage, new Paint(colour, Blend: blendMode));
                 }
             }
         }
@@ -526,9 +776,18 @@ internal sealed class SoftwareCanvas : ICanvas
                 var a = content.Data[i + 3];
                 if (a == 0 && blend is BlendMode.Normal or BlendMode.PlusLighter or BlendMode.DestinationOver)
                     continue;
+                var parentOffset = ((y - layer.ParentBounds.Top) * layer.Parent.Width + (x - layer.ParentBounds.Left)) * 4;
+                // Normal source-over with a fully opaque source and no clip mask is
+                // an exact replacement. Avoid constructing a Vector4 and entering
+                // the general compositor for the common opaque layer case.
+                if (a == 255 && opacity >= 1f && blend == BlendMode.Normal && layer.Saved.ClipMask is null)
+                {
+                    content.Data.AsSpan(i, 4).CopyTo(layer.Parent.Data.AsSpan(parentOffset, 4));
+                    continue;
+                }
                 var source = new Vector4(content.Data[i], content.Data[i + 1], content.Data[i + 2], a) / 255f * opacity;
                 var mask = layer.Saved.ClipMask is { } m ? m[(y - layer.Saved.Clip.Top) * layer.Saved.Clip.Width + (x - layer.Saved.Clip.Left)] / 255f : 1f;
-                Compositor.Blend(layer.Parent.Data, ((y - layer.ParentBounds.Top) * layer.Parent.Width + (x - layer.ParentBounds.Left)) * 4, source, mask, blend);
+                Compositor.Blend(layer.Parent.Data, parentOffset, source, mask, blend);
             }
         }
         Restore();

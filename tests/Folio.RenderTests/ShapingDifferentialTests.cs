@@ -55,7 +55,6 @@ public sealed class ShapingDifferentialTests
     }
 
     [Theory]
-    [InlineData("Noto Sans Arabic", "السَّلَامُ عَلَيْكُمْ", "Arabic")]
     [InlineData("Noto Sans JP", "こんにちは世界", "CJK")]
     public void ComplexScriptsRemainOnTheOracleUntilTheirGateIsProven(string family, string text, string script)
     {
@@ -109,5 +108,132 @@ public sealed class ShapingDifferentialTests
         Assert.Equal(expected.Clusters, actual.Clusters);
         Assert.Equal(expected.Advances, actual.Advances);
         Assert.Equal(expected.Offsets, actual.Offsets);
+    }
+
+    [Fact]
+    public void DefaultHybridShaperUsesTheProvenHebrewFolioPath()
+    {
+        var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;
+        const string text = "שָׁלוֹם לכולם";
+        var actual = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        var expected = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+
+        Assert.Equal(expected.Glyphs, actual.Glyphs);
+        Assert.Equal(expected.Clusters, actual.Clusters);
+        Assert.Equal(expected.Advances, actual.Advances);
+        Assert.Equal(expected.Offsets, actual.Offsets);
+    }
+
+    [Fact]
+    public void DefaultHybridShaperUsesTheProvenArabicFolioPath()
+    {
+        var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
+        const string text = "السَّلَامُ عَلَيْكُمْ";
+        var actual = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+        var expected = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+
+        Assert.Equal(expected.Glyphs, actual.Glyphs);
+        Assert.Equal(expected.Clusters, actual.Clusters);
+        Assert.Equal(expected.Advances, actual.Advances);
+        Assert.Equal(expected.Offsets, actual.Offsets);
+    }
+
+    [Theory]
+    [InlineData("ا")]
+    [InlineData("ب")]
+    [InlineData("سلام")]
+    [InlineData("لم")]
+    [InlineData("مُحَمَّد")]
+    public void ArabicJoiningFormsMatchTheOracle(string text)
+    {
+        var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+        var expected = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+
+        Assert.Equal(expected.Glyphs, actual.Glyphs);
+        Assert.Equal(expected.Clusters, actual.Clusters);
+    }
+
+    [Theory]
+    [InlineData("سلام")]
+    [InlineData("لا")]
+    [InlineData("لم")]
+    [InlineData("مُحَمَّد")]
+    public void ArabicComplexShaperMatchesTheOracleForTheCurrentCorpus(string text)
+    {
+        var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets, actual.Offsets);
+    }
+
+    [Theory]
+    [InlineData("العربية لغة جميلة")]
+    [InlineData("مَرْحَبًا بِكُمْ")]
+    [InlineData("اللغة العربية")]
+    [InlineData("فلسطين")]
+    [InlineData("الكتاب والمدرسة والحديقة")]
+    [InlineData("يكتبون ويقرؤون في المكتبة")]
+    [InlineData("مُسْتَقْبَلٌ مُشْرِقٌ")]
+    [InlineData("ضِياءٌ وقُرْآنٌ كريمٌ")]
+    [InlineData("الطريق إلى النجاح يبدأ بالتعلّم")]
+    [InlineData("إِنَّ اللُّغَةَ جِسْرٌ بَيْنَ الشُّعُوبِ")]
+    [InlineData("هٰذِهِ كَلِمَاتٌ مُشَكَّلةٌ بِعِنَايَةٍ")]
+    [InlineData("وَالسَّمَاءِ وَالطَّارِقِ")]
+    [InlineData("مَدِينَةٌ عَرِيقَةٌ وَمَكْتَبَةٌ كَبِيرَةٌ")]
+    [InlineData("تَعَلَّمْ، فَإِنَّ العِلْمَ نُورٌ")]
+    [InlineData("اللَّهُمَّ اغْفِرْ لَنَا")]
+    [InlineData("رَبِّ زِدْنِي عِلْمًا")]
+    [InlineData("السَّلَامُ عَلَيْكُمْ وَرَحْمَةُ اللَّهِ")]
+    [InlineData("أَحْرُفٌ مُتَنَوِّعَةٌ")]
+    [InlineData("إِقْرَأْ بِاسْمِ رَبِّكَ")]
+    [InlineData("اللَّهُ")]
+    [InlineData("اللَّهُمَّ")]
+    [InlineData("مرحباً بكم في مركز الواحة الثقافي. نقدّم ورش عمل في الخط العربي والتصوير والطبخ طوال فصل الخريف، وتبدأ التسجيلات يوم الأحد القادم.")]
+    public void ArabicComplexShaperMatchesGlyphsForExtendedCorpus(string text)
+    {
+        var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets.Length, actual.Offsets.Length);
+        for (var i = 0; i < oracle.Offsets.Length; i++)
+        {
+            Assert.InRange(MathF.Abs(oracle.Offsets[i].X - actual.Offsets[i].X), 0, 0.001f);
+            Assert.InRange(MathF.Abs(oracle.Offsets[i].Y - actual.Offsets[i].Y), 0, 0.001f);
+        }
+    }
+
+    [Theory]
+    [InlineData("שָׁלוֹם")]
+    [InlineData("בְּרֵאשִׁית")]
+    [InlineData("מַלְכָּה")]
+    [InlineData("שלום לכולם. המרכז הקהילתי פותח את שעריו בכל יום ראשון בשעה 09:30, ומציע סדנאות כתיבה, צילום ומוזיקה לכל המשפחה.")]
+    [InlineData("ברוכים הבאים ללוח המודעות: מפגש חדש יתקיים ביום שלישי הקרוב, וההרשמה פתוחה עד סוף החודש.")]
+    [InlineData("שָׁלוֹם וברוכים הבאים")]
+    [InlineData("יְרוּשָׁלַיִם היא עיר עתיקה ויפה")]
+    [InlineData("מִשְׁפָּחָה, חֲבֵרִים וְשָׁלוֹם")]
+    [InlineData("הספרייה פתוחה בימים ראשון עד חמישי בשעה 08:00")]
+    [InlineData("כָּל הַדְּרָכִים מוֹבִילוֹת אֶל הַיָּם")]
+    [InlineData("ברוכים הבאים! השנה נלמד עברית, מוזיקה ואמנות.")]
+    public void HebrewComplexShaperMatchesGlyphsAndPlacementForExtendedCorpus(string text)
+    {
+        var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets.Length, actual.Offsets.Length);
+        for (var i = 0; i < oracle.Offsets.Length; i++)
+        {
+            Assert.InRange(MathF.Abs(oracle.Offsets[i].X - actual.Offsets[i].X), 0, 0.001f);
+            Assert.InRange(MathF.Abs(oracle.Offsets[i].Y - actual.Offsets[i].Y), 0, 0.001f);
+        }
     }
 }

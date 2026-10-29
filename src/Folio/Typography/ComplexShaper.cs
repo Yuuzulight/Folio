@@ -115,6 +115,21 @@ public sealed class ComplexShaper : ITextShaper
         List<(Rune Rune, int Index)> runes, FontFace face, float scale,
         List<ushort> glyphs, List<int> clusters, List<float> advances, List<Vector2> offsets)
     {
+        // Arabic marks are emitted in visual attachment order. Reverse each
+        // consecutive transparent-mark run so a source sequence such as
+        // fatha + shadda matches the order used by the font's mark anchors.
+        var orderedRunes = new List<(Rune Rune, int Index)>(runes.Count);
+        for (var i = 0; i < runes.Count;)
+        {
+            orderedRunes.Add(runes[i]);
+            var end = i + 1;
+            while (end < runes.Count && GetArabicJoining(runes[end].Rune.Value) == ArabicJoining.Transparent)
+                end++;
+            for (var mark = end - 1; mark > i; mark--)
+                orderedRunes.Add(runes[mark]);
+            i = end;
+        }
+        runes = orderedRunes;
         var forms = new ArabicForm[runes.Count];
 
         ushort? previousBaseGlyph = null;
@@ -170,16 +185,80 @@ public sealed class ComplexShaper : ITextShaper
             }
         }
 
+        var expanded = new List<(Rune Rune, int Index, ushort Glyph, bool Transparent, bool Auxiliary)>();
         for (var i = 0; i < runes.Count; i++)
         {
             var (rune, cluster) = runes[i];
-            var code = rune.Value;
-            var joining = GetArabicJoining(code);
-
+            var joining = GetArabicJoining(rune.Value);
             if (joining == ArabicJoining.Transparent)
             {
+                expanded.Add((rune, cluster, face.GlyphFor(rune.Value), true, false));
+                continue;
+            }
+
+            var decomposition = face.SubstituteSequence(face.GlyphFor(rune.Value), "ccmp", "arab");
+            var formFeature = forms[i] switch
+            {
+                ArabicForm.Initial => "init",
+                ArabicForm.Medial => "medi",
+                ArabicForm.Final => "fina",
+                _ => "isol",
+            };
+            var formed = face.SubstituteSequence(decomposition[0], formFeature, "arab");
+            for (var j = 0; j < formed.Length; j++)
+                expanded.Add((rune, cluster, formed[j], false, j > 0));
+            for (var j = 1; j < decomposition.Length; j++)
+                expanded.Add((rune, cluster, decomposition[j], false, true));
+        }
+
+        // Re-run contextual GSUB on the base-only view as well. Arabic lookup
+        // flags frequently use ignoreMarks; presenting the base sequence
+        // directly lets Folio honor those contexts without treating a
+        // transparent tashkeel glyph as a required adjacent input.
+        var basePositions = expanded
+            .Select((item, index) => (item, index))
+            .Where(pair => !pair.item.Transparent && !pair.item.Auxiliary)
+            .Select(pair => pair.index)
+            .ToArray();
+        if (basePositions.Length > 0)
+        {
+            var baseGlyphs = basePositions.Select(index => expanded[index].Glyph).ToArray();
+            var substitutedBases = face.Substitute(baseGlyphs, "ccmp locl rlig liga", "arab");
+            for (var i = 0; i < basePositions.Length; i++)
+                expanded[basePositions[i]] = expanded[basePositions[i]] with { Glyph = substitutedBases[i] };
+        }
+
+        // A few Arabic fonts use ccmp/rlig ligatures for marked sequences
+        // (for example superscript-alef plus kasra). Collapse those spans
+        // before positioning so the Folio path retains HarfBuzz's glyph
+        // stream while preserving the source cluster and mark class.
+        var ligatureGlyphs = face.SubstituteLigatures(expanded.Select(item => item.Glyph).ToArray(), "ccmp rlig liga", "arab");
+        var ligatureChanged = ligatureGlyphs.Length != expanded.Count;
+        for (var index = 0; !ligatureChanged && index < ligatureGlyphs.Length; index++)
+            ligatureChanged = ligatureGlyphs[index].Glyph != expanded[index].Glyph;
+        if (ligatureChanged)
+        {
+            var collapsed = new List<(Rune Rune, int Index, ushort Glyph, bool Transparent, bool Auxiliary)>(ligatureGlyphs.Length);
+            foreach (var ligature in ligatureGlyphs)
+            {
+                var sourceStart = Math.Clamp(ligature.SourceStart, 0, expanded.Count - 1);
+                var sourceLength = Math.Clamp(ligature.SourceLength, 1, expanded.Count - sourceStart);
+                var source = expanded[sourceStart];
+                var transparent = true;
+                for (var j = 0; j < sourceLength; j++) transparent &= expanded[sourceStart + j].Transparent;
+                collapsed.Add((source.Rune, source.Index, ligature.Glyph, transparent, source.Auxiliary));
+            }
+            expanded = collapsed;
+        }
+
+        for (var i = 0; i < expanded.Count; i++)
+        {
+            var (rune, cluster, mappedGlyph, transparent, auxiliary) = expanded[i];
+
+            if (transparent)
+            {
                 // Arabic tashkeel: advance = 0, positioned through Folio-owned GPOS anchors.
-                var glyph = face.GlyphFor(code);
+                var glyph = mappedGlyph;
                 glyphs.Add(glyph);
                 clusters.Add(previousBaseCluster ?? cluster);
                 advances.Add(0f);
@@ -187,16 +266,28 @@ public sealed class ComplexShaper : ITextShaper
                 (int X, int Y)? markOffset = null;
                 if (previousMarkGlyph is { } previousMark)
                 {
-                    markOffset = face.MarkToMarkOffset(previousMark, glyph);
-                    relativeToPreviousMark = markOffset is not null;
+                    // Arabic marks are emitted in reverse visual order. The
+                    // font's mkmk lookup is defined in source order, so map
+                    // the source-order relation back onto the reversed run by
+                    // subtracting the offset from the following visual mark.
+                    markOffset = face.MarkToMarkOffset(glyph, previousMark);
+                    if (markOffset is not null)
+                        relativeToPreviousMark = true;
                 }
                 if (markOffset is null && previousBaseGlyph is { } previousBase)
-                    markOffset = face.MarkOffset(previousBase, glyph);
+                    markOffset = face.MarkOffset(previousBase, glyph) ?? face.MarkToLigatureOffset(previousBase, glyph);
                 if (markOffset is { } position)
                 {
-                    var offset = new Vector2(position.X * scale, -position.Y * scale);
                     if (relativeToPreviousMark)
-                        offset += previousMarkOffset;
+                    {
+                        var relation = new Vector2(position.X * scale, -position.Y * scale);
+                        var relativeOffset = previousMarkOffset - relation;
+                        offsets.Add(relativeOffset);
+                        previousMarkOffset = relativeOffset;
+                        previousMarkGlyph = glyph;
+                        continue;
+                    }
+                    var offset = new Vector2(position.X * scale, -position.Y * scale);
                     offsets.Add(offset);
                     previousMarkOffset = offset;
                 }
@@ -209,11 +300,25 @@ public sealed class ComplexShaper : ITextShaper
                 continue;
             }
 
-            var mappedGlyph = face.GlyphFor(code);
-
             glyphs.Add(mappedGlyph);
             clusters.Add(cluster);
             advances.Add(face.Advance(mappedGlyph) * scale);
+            if (auxiliary)
+            {
+                var auxiliaryOffset = previousBaseGlyph is { } baseGlyph
+                    ? face.MarkOffset(baseGlyph, mappedGlyph)
+                    : null;
+                var offset = auxiliaryOffset is { } position
+                    ? new Vector2(position.X * scale, -position.Y * scale)
+                    : Vector2.Zero;
+                offsets.Add(offset);
+                if (auxiliaryOffset is not null)
+                {
+                    previousMarkGlyph = mappedGlyph;
+                    previousMarkOffset = offset;
+                }
+                continue;
+            }
             offsets.Add(Vector2.Zero);
             previousBaseGlyph = mappedGlyph;
             previousBaseCluster = cluster;
@@ -228,25 +333,103 @@ public sealed class ComplexShaper : ITextShaper
         if (glyphs.Count > 0)
         {
             var contextual = glyphs.ToArray();
-            for (var i = 0; i < contextual.Length; i++)
-            {
-                var form = forms[i];
-                if (GetArabicJoining(runes[i].Rune.Value) == ArabicJoining.Transparent)
-                    continue;
-                face.SubstituteAt(contextual, i, form switch
-                {
-                    ArabicForm.Initial => "init",
-                    ArabicForm.Medial => "medi",
-                    ArabicForm.Final => "fina",
-                    _ => "isol",
-                }, "arab");
-            }
-            contextual = face.Substitute(contextual, "locl rlig calt liga", "arab");
+            contextual = face.Substitute(contextual, "ccmp locl rlig calt liga", "arab");
             for (var i = 0; i < contextual.Length && i < glyphs.Count; i++)
             {
                 if (contextual[i] == glyphs[i]) continue;
                 glyphs[i] = contextual[i];
                 advances[i] = face.Advance(contextual[i]) * scale;
+            }
+
+            // Arabic GPOS pair positioning also ignores transparent marks and
+            // decomposed dot components. Apply the pair adjustment to the
+            // preceding base advance after the final glyph sequence is known.
+            for (var i = 0; i < contextual.Length && i < expanded.Count; i++)
+            {
+                if (expanded[i].Transparent || expanded[i].Auxiliary)
+                    continue;
+                var units = face.Advance(contextual[i]);
+                for (var next = i + 1; next < contextual.Length && next < expanded.Count; next++)
+                {
+                    if (expanded[next].Transparent || expanded[next].Auxiliary)
+                        continue;
+                    units += face.Kerning(contextual[i], contextual[next]);
+                    break;
+                }
+                advances[i] = units * scale;
+            }
+
+            // Contextual substitutions can change the base glyph used by a
+            // mark anchor. Recompute Arabic mark offsets against the final
+            // glyph sequence rather than retaining pre-substitution anchors.
+            ushort? finalBaseGlyph = null;
+            ushort? finalMarkGlyph = null;
+            var finalMarkOffset = Vector2.Zero;
+            var finalBaseOffset = Vector2.Zero;
+            for (var i = 0; i < contextual.Length && i < expanded.Count; i++)
+            {
+                if (expanded[i].Transparent)
+                {
+                    (int X, int Y)? markOffset = null;
+                    var relative = false;
+                    if (finalMarkGlyph is { } previousMark)
+                    {
+                        markOffset = face.MarkToMarkOffset(contextual[i], previousMark);
+                        relative = markOffset is not null;
+                    }
+                    if (markOffset is null && finalBaseGlyph is { } baseGlyph)
+                        markOffset = face.MarkOffset(baseGlyph, contextual[i]) ?? face.MarkToLigatureOffset(baseGlyph, contextual[i]);
+                    var offset = markOffset is { } position
+                        ? new Vector2(position.X * scale, -position.Y * scale)
+                        : Vector2.Zero;
+                    if (relative) offset = finalMarkOffset - offset;
+                    else offset += finalBaseOffset;
+                    offsets[i] = offset;
+                    finalMarkOffset = offset;
+                    finalMarkGlyph = contextual[i];
+                }
+                else if (expanded[i].Auxiliary)
+                {
+                    var auxiliaryOffset = finalBaseGlyph is { } baseGlyph
+                        ? face.MarkOffset(baseGlyph, contextual[i]) ?? face.MarkToLigatureOffset(baseGlyph, contextual[i])
+                        : null;
+                    offsets[i] = auxiliaryOffset is { } position
+                        ? finalBaseOffset + new Vector2(position.X * scale, -position.Y * scale)
+                        : Vector2.Zero;
+                    finalMarkGlyph = contextual[i];
+                    finalMarkOffset = offsets[i];
+                }
+                else
+                {
+                    finalBaseGlyph = contextual[i];
+                    finalMarkGlyph = null;
+                    finalMarkOffset = Vector2.Zero;
+                    var placement = 0;
+                    for (var next = i + 1; next < contextual.Length && next < expanded.Count; next++)
+                    {
+                        if (expanded[next].Transparent || expanded[next].Auxiliary)
+                            continue;
+                        placement = face.PairPlacement(contextual[i], contextual[next]);
+                        break;
+                    }
+                    finalBaseOffset = new Vector2(placement * scale, 0);
+                    offsets[i] = finalBaseOffset;
+                }
+            }
+
+            // Arabic cursive attachment joins the entry anchor of the next base
+            // to the exit anchor of the preceding base. Transparent marks are
+            // skipped, as required by the Arabic shaping model.
+            for (var i = 0; i < contextual.Length && i < expanded.Count; i++)
+            {
+                if (expanded[i].Transparent || expanded[i].Auxiliary) continue;
+                for (var next = i + 1; next < contextual.Length && next < expanded.Count; next++)
+                {
+                    if (expanded[next].Transparent || expanded[next].Auxiliary) continue;
+                    if (face.CursivePlacement(contextual[i], contextual[next]) is { } join)
+                        offsets[next] += new Vector2(join.X * scale, -join.Y * scale);
+                    break;
+                }
             }
         }
     }
@@ -307,19 +490,48 @@ public sealed class ComplexShaper : ITextShaper
             i = end;
         }
 
+        // Apply Hebrew's contextual GSUB features over the complete run so
+        // ccmp/locl/rlig substitutions can inspect neighboring glyphs. The
+        // current buffer model does not carry ligature cluster spans, so only
+        // same-length substitutions are consumed; the per-glyph locl path
+        // below remains the safe fallback for any length-changing result.
+        var sourceGlyphs = orderedRunes.Select(r => face.GlyphFor(r.Rune.Value)).ToArray();
+        var contextualGlyphs = face.Substitute(sourceGlyphs, "ccmp locl rlig", "hebr");
+        var useContextual = contextualGlyphs.Length == orderedRunes.Count;
+
+        // Some fonts (notably system Arial faces) use length-changing ccmp/rlig
+        // ligatures for a base plus niqqud. Keep the source span so clusters and
+        // mark classification survive the substitution.
+        var substitutedGlyphs = useContextual ? contextualGlyphs : sourceGlyphs;
+        var ligatures = face.SubstituteLigatures(substitutedGlyphs, "ccmp locl rlig", "hebr");
+        var useLigatures = ligatures.Any(static match => match.SourceLength > 1);
+        var shapedRunes = new List<(Rune Rune, int Cluster, ushort Glyph)>(ligatures.Length);
+        if (useLigatures)
+        {
+            foreach (var match in ligatures)
+                shapedRunes.Add((orderedRunes[match.SourceStart].Rune, orderedRunes[match.SourceStart].Index, match.Glyph));
+        }
+        else
+        {
+            for (var i = 0; i < orderedRunes.Count; i++)
+            {
+                var glyph = useContextual
+                    ? contextualGlyphs[i]
+                    : face.Substitute([face.GlyphFor(orderedRunes[i].Rune.Value)], "locl", "hebr")[0];
+                shapedRunes.Add((orderedRunes[i].Rune, orderedRunes[i].Index, glyph));
+            }
+        }
+
         ushort? previousBaseGlyph = null;
         int? previousBaseCluster = null;
         ushort? previousMarkGlyph = null;
         var previousMarkOffset = Vector2.Zero;
+        var previousBaseOffset = Vector2.Zero;
 
-        for (var i = 0; i < orderedRunes.Count; i++)
+        for (var i = 0; i < shapedRunes.Count; i++)
         {
-            var (rune, cluster) = orderedRunes[i];
+            var (rune, cluster, glyph) = shapedRunes[i];
             var code = rune.Value;
-            // Hebrew localisation can select a script-specific glyph before
-            // mark anchors are read; keep this single-substitution step
-            // Folio-owned and leave contextual/ligature work to the gate.
-            var glyph = face.Substitute([face.GlyphFor(code)], "locl", "hebr")[0];
             glyphs.Add(glyph);
 
             var category = Rune.GetUnicodeCategory(rune);
@@ -344,6 +556,8 @@ public sealed class ComplexShaper : ITextShaper
                     var offset = new Vector2(position.X * scale, -position.Y * scale);
                     if (relativeToPreviousMark)
                         offset += previousMarkOffset;
+                    else
+                        offset += previousBaseOffset;
                     offsets.Add(offset);
                     previousMarkOffset = offset;
                 }
@@ -356,8 +570,26 @@ public sealed class ComplexShaper : ITextShaper
             }
             else
             {
-                advances.Add(face.Advance(glyph) * scale);
-                offsets.Add(Vector2.Zero);
+                // Hebrew GPOS pair positioning contributes to the advance of
+                // the preceding glyph in the shaped (visual) sequence. Keep
+                // this Folio-owned adjustment alongside the contextual GSUB
+                // result so extended niqqud words retain oracle spacing.
+                var units = face.Advance(glyph);
+                var pairAdjustment = 0;
+                // GPOS pair positioning ignores intervening combining marks;
+                // find the next base glyph rather than pairing with a zero-
+                // advance mark.
+                for (var next = i + 1; next < shapedRunes.Count; next++)
+                {
+                    if (IsHebrewMark(shapedRunes[next].Rune))
+                        continue;
+                    pairAdjustment = face.Kerning(glyph, shapedRunes[next].Glyph);
+                    units += pairAdjustment;
+                    break;
+                }
+                advances.Add(units * scale);
+                previousBaseOffset = new Vector2(pairAdjustment * scale, 0);
+                offsets.Add(previousBaseOffset);
                 clusters.Add(cluster);
                 previousBaseGlyph = glyph;
                 previousBaseCluster = cluster;

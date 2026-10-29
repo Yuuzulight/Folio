@@ -18,10 +18,10 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | Unicode text algorithms | **Folio builds it**, BCL where it covers the need | See [Unicode](#unicode-what-the-bcl-covers-and-what-folio-implements) below |
 | Font file parsing (OpenType tables, WOFF, WOFF2) | **Folio builds it** | `cmap`, `head`, `hhea`, `hmtx`, `maxp`, `name`, `OS/2`, `post`, `kern`, `GSUB`/`GPOS`/`GDEF` basics, `fvar`; WOFF on `ZLibStream`, WOFF2 on `BrotliDecoder` plus Folio's `glyf` reconstruction |
 | Font matching and fallback logic | **Folio builds it** | CSS Fonts 4 matching, per-cluster fallback chain ([study](study/11-text.md)) |
-| Simple-script shaper (Latin, Greek, Cyrillic, basic Hebrew, common punctuation and digits) | **Folio builds it** | Kerning and ligatures from `kern`/`GPOS`/`GSUB`; Hebrew base runs and single niqqud marks are differential-proven, while multiple-mark and complex-script runs remain on the oracle |
+| Simple-script shaper (Latin, Greek, Cyrillic, Hebrew, common punctuation and digits) | **Folio builds it** | Kerning and ligatures from `kern`/`GPOS`/`GSUB`; Hebrew base, niqqud words, length-changing ccmp/rlig cases and conformance-style RTL paragraphs are differential-proven, while broader complex-script runs remain on the oracle |
 | Complex-script shaping | **Dependency for now**: HarfBuzzSharp | Behind `ITextShaper` |
 | PNG decoder | **Folio builds it** | On `System.IO.Compression.ZLibStream`; all colour types, bit depths, interlacing, `tRNS`, gamma ignored except sRGB; APNG shows the first frame |
-| JPEG decoder | **Folio builds it** | Baseline and progressive, Huffman, 4:4:4/4:2:2/4:2:0, restart markers, EXIF orientation, DCT-domain downscaling; CMYK/arithmetic coding refused with a diagnostic |
+| JPEG codec | **Folio builds it** | Decoder: baseline and progressive, Huffman, 4:4:4/4:2:2/4:2:0, restart markers, EXIF orientation, DCT-domain downscaling; CMYK/arithmetic coding refused with a diagnostic. Encoder: baseline 4:4:4 export for software-canvas `toDataURL("image/jpeg")`, with quality scaling, alpha compositing and Folio decoder round-trip coverage. |
 | GIF decoder | **Folio builds it** | First-frame GIF87a/GIF89a decoding with palettes, interlace, transparency and bounded LZW |
 | BMP decoder | **Folio builds it** | Bounded uncompressed 8/16/24/32-bit decoding, including top-down images and 16/32-bit BI_BITFIELDS masks; broader differential corpus expansion remains part of the replacement gate |
 | WebP decoder | **Folio builds it** | RIFF/VP8L lossless and VP8 lossy key frames, ALPH alpha, extended/animated first-frame handling, bounded parsing and fuzz coverage |
@@ -29,7 +29,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | Display list, paint order, border/gradient/shadow geometry | **Folio builds it** | [study](study/12-painting.md) |
 | 2D rasterisation | **Dependency for now**: SkiaSharp | Behind `IRasterBackend`/`ICanvas` |
 | Native GPU surface and GLSL translation | **Dependency for now**: ANGLE | Windows surface pipe uses D3D11 hardware or explicitly identified WARP; native WebGL shader/draw integration remains unfinished |
-| Glyph rasterisation (outlines, hinting, colour glyph formats) | **Folio-owned for glyf/loca, CFF Type 2, CFF2, CBDT/CBLC, PNG sbix and COLR v0**; Skia remains for variation outlines and COLR v1 | SoftwareCanvas draws Folio-parsed outlines, including CFF2 Type 2 through pinned OpenType and WOFF2 fixture regressions; the CFF2 fixtures now have Skia differential and malformed-limit checks; PNG bitmap strikes and layered palette glyphs use Folio parsers; parsed outlines use an 8 MiB per-font LRU cache; CFF2 variation-font support and broader malformed/limit corpus remain required |
+| Glyph rasterisation (outlines, hinting, colour glyph formats) | **Folio-owned for glyf/loca, CFF Type 2, CFF2, CBDT/CBLC, PNG sbix and COLR v0 plus bounded COLR v1 solid/linear/radial/sweep-gradient/composite paint graphs and variable-wrapper base formats**; Skia remains for variation outlines and unsupported COLR v1 paint formats | SoftwareCanvas draws Folio-parsed outlines and bounded COLR v1 PaintSolid/PaintGlyph/PaintColrLayers/PaintColrGlyph/PaintLinearGradient/PaintRadialGradient/PaintSweepGradient/PaintComposite graphs, including PaintTranslate/PaintVarTranslate, PaintTransform/PaintVarTransform, PaintScale/PaintVarScale variants, PaintRotate/PaintVarRotate variants, and PaintSkew/PaintVarSkew variants; synthetic COLR v1 pixel coverage, translation/transform/scale/rotate/skew, variable-wrapper default-instance, linear/radial/sweep gradient, composite, CBDT/CBLC, sbix and CFF2 differential/malformed-limit checks pass (SoftwareRasterTests 39/39, including the cache-cap stress test); PNG bitmap strikes and layered palette glyphs use Folio parsers; parsed outlines and flattened paths share an 8 MiB per-font LRU budget; non-default variation deltas, unsupported composite modes and broader malformed/limit corpus remain required |
 | Font discovery and last-resort system fallback | **System-provided**: Windows (DirectWrite font collection and fallback) | Reached through `IFontSource`; the first implementation uses SkiaSharp's font manager, which calls DirectWrite on Windows |
 | Hit testing, selection, input routing, form editing | **Folio builds it** | [study](study/15-interaction.md) |
 | Clipboard | **System-provided** | WinForms `Clipboard` |
@@ -113,7 +113,9 @@ public interface ITextShaper
 }
 ```
 
-`HybridShaper` (the production `Folio.Skia` shaper) asks Folio's `SimpleShaper` first and falls back to `HarfBuzzShaper` for complex runs. The differential harness now has an explicit per-script promotion switch with conservative mixed-script handling: a script can be moved to Folio's path only while its corpus is being proven, without changing the default safe routing. Folio's Arabic path now consumes bounded one-glyph GSUB MultipleSubst sequences and applies the computed isol/init/medi/fina form at its shaping position; representative joining cases are green, while broader Arabic corpus parity is still open. The differential tests compare both paths on bundled Latin and Hebrew fonts, including Hebrew base runs and isolated niqqud mark-to-base positioning. Multiple-mark attachment and complex scripts remain on HarfBuzz until each replacement track meets the criteria below.
+`HybridShaper` (the production `Folio.Skia` shaper) asks Folio's `SimpleShaper` first and falls back to `HarfBuzzShaper` for complex runs. The differential harness now has an explicit per-script promotion switch with conservative mixed-script handling: a script can be moved to Folio's path only while its corpus is being proven, without changing the default safe routing. Folio's Arabic path now consumes bounded GSUB single/multiple substitutions, applies the computed isol/init/medi/fina form at its shaping position, and applies pair advances, mark attachments and Folio-owned GPOS cursive entry/exit attachment; representative joining, marked-vocabulary and S6 paragraph cases are green, while broader Arabic corpus parity is still open. The differential tests compare both paths on bundled Latin, Hebrew and Arabic fonts, including Hebrew base runs, niqqud mark-to-base positioning and RTL paragraphs. Multiple-mark attachment and complex scripts remain on HarfBuzz until each replacement track meets the criteria below. The bundled corpus can also be rerun as a standalone gate with `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release -- shaping-differential`; the current checked-in case list passes and the deliberate kerning perturbation is detected. System-font coverage and the complete complex-script corpus remain mandatory before promotion.
+
+The local system-font side is reproducible with `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release -- shaping-differential-system`; the current Windows host compares Arial, Times New Roman and Segoe UI simple runs plus expanded Hebrew and Arabic complex runs, including marked and paragraph cases, and reports all ten PASS. Installed-font results remain host-local evidence. The bundled command reports the complete checked-in case list plus its deliberate kerning perturbation check.
 
 ### ANGLE — native GPU surfaces and shader translation
 
@@ -226,20 +228,23 @@ ship intermediate dependency-backed implementations while the replacements are
 being built, but Folio itself is complete only after all five replacement tracks below
 are selected by production and their superseded dependencies are removable.
 
-**Current status (2026-10-28):** the latest Release build and direct M1–M6
-acceptance suites pass. Native D2–D7 remains 59/60 because React host
-reconciliation is still open in #645, and the mandatory replacement gate remains
+**Current status (2026-10-29):** the latest Release build and direct M1–M6
+acceptance suites pass. Native D2–D7 now passes 60/60, including the React host
+reconciliation interaction fixed in #645; the mandatory replacement gate remains
 open. The production Skia path now selects
 `HybridShaper`, which routes provably simple runs through Folio's own shaper and
 keeps HarfBuzz as the complex-script oracle. Folio's GPOS mark-to-base/mark-to-mark
 parser has direct differential coverage; the Folio complex shaper now matches the
 bundled Hebrew base, isolated-mark and selected RTL multi-mark cases, while production
-multiple-mark and complex Hebrew runs remain on HarfBuzz until corpus-wide ordering,
+broader complex Hebrew runs remain on HarfBuzz until corpus-wide ordering,
 GSUB and kerning parity is proven. Arabic now has Folio-owned joining plus
 script-selected `locl`/`rlig`/`calt`/`liga` contextual substitutions for the
 representative corpus, but broad Arabic mark/corpus parity, Indic and South-East
 Asian scripts, and the differential corpus remain outstanding. The
 rasteriser and JavaScript engine are still dependency-backed. The
+latest local system-font shaping differential report passes 10/10 cases; this
+is host-specific evidence only, and the complete per-script corpus and
+production cutover requirements remain open. The
 Folio-owned JavaScript replacement has now started with a bounded lexer and
 source-location/error tests plus bounded expression, statement, explicit
 host-function, array-literal, indexed-access, object-literal, property-read,
@@ -274,7 +279,7 @@ Generated bottom-up and top-down BMP cases are also pixel-compared with
 SkiaSharp in the render-test suite.
 
 1. **Extend the in-house shaper** script by script: bounded Hebrew base and isolated-mark runs now meet the differential bar; multiple-mark Hebrew, then Arabic (joining forms, mark positioning, contextual lookups), Indic and South-East Asian scripts (reordering) follow. *Good enough*: for each added script, glyph ids and positions identical to HarfBuzzSharp's output over the text corpus for the bundled and default system fonts; then that script stops routing to HarfBuzzSharp.
-2. **Folio's own rasteriser** behind `IRasterBackend`: scanline coverage rasteriser with SIMD (`Vector256`), stroker, gradients, blur, compositing and blend modes, clip masks, image resampling, and glyph rasterisation from `glyf`/`CFF`/`CFF2` outlines plus colour formats (`COLR`, bitmap glyphs through Folio's PNG decoder). *Good enough*: all reftests and goldens pass within their existing tolerances, text is judged equal in side-by-side review at 100% and 150% scale, and scroll and animation frame targets still hold at 1920×1080.
+2. **Folio's own rasteriser** behind `IRasterBackend`: scanline coverage rasteriser with SIMD (`Vector256`), stroker, gradients, blur, compositing and blend modes, clip masks, image resampling, and glyph rasterisation from `glyf`/`CFF`/`CFF2` outlines plus colour formats (`COLR`, bitmap glyphs through Folio's PNG decoder). Default-instance COLR v1 variable solid/gradient paint wrappers now retain their base paint values; non-default variation deltas remain part of the open gate. *Good enough*: all reftests and goldens pass within their existing tolerances, text is judged equal in side-by-side review at 100% and 150% scale, and scroll and animation frame targets still hold at 1920×1080.
 3. **In-house GIF and WebP decoders**. Both decoders are production-selected and bounded. GIF covers first-frame GIF87a/GIF89a with interlace/transparency; WebP covers VP8L lossless, VP8 key-frame lossy, ALPH alpha, extended and animated first-frame files. Differential corpus and fuzz evidence are checked in; this image-codec replacement gate is complete.
 4. **JavaScript engine**: planned removal of the temporary Jint dependency after
    the Folio-owned engine passes the full scripting and conformance suites.

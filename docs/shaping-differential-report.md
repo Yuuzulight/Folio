@@ -6,20 +6,37 @@ This is the checked-in evidence for the mandatory shaping replacement track
 
 ## Current green corpus
 
-`ShapingDifferentialTests` passes 12/12 on the bundled fonts:
+`ShapingDifferentialTests` passes 37/37 on the bundled fonts:
 
 - Latin and punctuation (`Source Sans 3`)
 - digits and kerning (`Folio Box`)
 - Greek and Cyrillic
 - Latin extended characters
 - Hebrew base text
+- Hebrew niqqud words (`שלום`, `בראשית`, `מלכה`)
+- Hebrew RTL conformance-style paragraphs with punctuation, times and mixed Latin text
+- Hebrew marked vocabulary, Jerusalem and classroom sentences with mixed punctuation/digits
+- Hebrew length-changing ccmp/rlig coverage (`שָׁלוֹם וברוכים הבאים`)
 - Arabic promotion-switch routing through `ComplexShaper`
+- Arabic extended corpus parity (`العربية لغة جميلة`, `مَرْحَبًا بِكُمْ`,
+  `اللغة العربية`, `فلسطين`), with advances exact and offsets within 0.001
+- Arabic vocabulary, joining-vocabulary, vowel-mark, Quranic-mark and sentence
+  cases, all with glyph, cluster, advance and offset parity
+- Arabic RTL notice-board paragraph from the S6 conformance corpus, with
+  glyph, cluster, advance and offset parity
 - Hebrew promotion-switch routing through `ComplexShaper`
 - mixed-script safety (a promoted script cannot capture an entire mixed run)
 - deliberate kerning perturbation detection
 
 `HarfBuzzShaperTests` passes 19/19, including representative Hebrew niqqud
-and Arabic `سلام`, `لا`, and `لم` cases.
+and Arabic `سلام`, `لا`, and `لم` cases. The direct Arabic corpus now also
+covers `مُحَمَّد`; glyph, cluster, advance and multi-mark offset parity pass
+for all four cases. The broader Arabic corpus remains open below.
+
+The local Windows system-font command currently passes ten runs: Arial, Times New
+Roman and Segoe UI simple-script samples, plus expanded marked Hebrew and Arabic
+sentences/paragraphs shaped through `ComplexShaper`. These are host-local results;
+other system font inventories still require their own run.
 
 ## Explicitly open parity
 
@@ -27,9 +44,9 @@ The promotion switch does not claim parity. It is a controlled harness switch
 for a script under review; production routing remains unchanged until the
 script's corpus is identical in glyphs, clusters, advances, and offsets.
 
-The current broader Arabic probe still differs for ordinary corpus samples
-including `العربية لغة جميلة`, `مَرْحَبًا بِكُمْ`, `اللغة العربية`, and `فلسطين`.
-Those differences are recorded on [#563](https://github.com/Yuuzulight/Folio/issues/563),
+The broader Arabic probe still requires additional ordinary-word, cursive-
+attachment and mark corpus coverage beyond these promoted samples. Those
+remaining differences are recorded on [#563](https://github.com/Yuuzulight/Folio/issues/563),
 so Arabic remains on the HarfBuzz oracle in production.
 
 ## Gate interpretation

@@ -7,14 +7,16 @@ namespace Folio.Typography;
 internal sealed class GposMarkPositioning
 {
     private const int MarkToBase = 4;
+    private const int MarkToLigature = 5;
     private const int MarkToMark = 6;
     private const int Extension = 9;
     private readonly FontData _gpos;
     private readonly int[][] _subtables;
     private readonly int[][] _markToMark;
+    private readonly int[][] _markToLigature;
 
-    private GposMarkPositioning(FontData gpos, int[][] subtables, int[][] markToMark) =>
-        (_gpos, _subtables, _markToMark) = (gpos, subtables, markToMark);
+    private GposMarkPositioning(FontData gpos, int[][] subtables, int[][] markToMark, int[][] markToLigature) =>
+        (_gpos, _subtables, _markToMark, _markToLigature) = (gpos, subtables, markToMark, markToLigature);
 
     public static GposMarkPositioning? Read(FontData gpos)
     {
@@ -43,6 +45,7 @@ internal sealed class GposMarkPositioning
             var lookups = gpos.U16(lookupList);
             var subtables = new List<int[]>();
             var markToMark = new List<int[]>();
+            var markToLigature = new List<int[]>();
             foreach (var index in wanted)
             {
                 if ((uint)index >= lookups)
@@ -72,9 +75,21 @@ internal sealed class GposMarkPositioning
                 }
                 if (markOffsets.Count > 0)
                     markToMark.Add([.. markOffsets]);
+
+                var ligatureOffsets = new List<int>();
+                for (var s = 0; s < gpos.U16(lookup + 4); s++)
+                {
+                    var subtable = lookup + gpos.U16(lookup + 6 + 2 * s);
+                    if (type == MarkToLigature)
+                        ligatureOffsets.Add(subtable);
+                    else if (type == Extension && gpos.U16(subtable) == 1 && gpos.U16(subtable + 2) == MarkToLigature)
+                        ligatureOffsets.Add(checked(subtable + (int)gpos.U32(subtable + 4)));
+                }
+                if (ligatureOffsets.Count > 0)
+                    markToLigature.Add([.. ligatureOffsets]);
             }
-            return subtables.Count > 0 || markToMark.Count > 0
-                ? new GposMarkPositioning(gpos, [.. subtables], [.. markToMark])
+            return subtables.Count > 0 || markToMark.Count > 0 || markToLigature.Count > 0
+                ? new GposMarkPositioning(gpos, [.. subtables], [.. markToMark], [.. markToLigature])
                 : null;
         }
         catch (Exception e) when (e is InvalidDataException or OverflowException)
@@ -115,6 +130,20 @@ internal sealed class GposMarkPositioning
         catch (Exception e) when (e is InvalidDataException or OverflowException)
         {
         }
+        return null;
+    }
+
+    /// <summary>Mark-to-ligature offset for the first ligature component.</summary>
+    public (int X, int Y)? MarkToLigatureOffset(ushort ligatureGlyph, ushort markGlyph)
+    {
+        try
+        {
+            foreach (var lookup in _markToLigature)
+                foreach (var subtable in lookup)
+                    if (ApplyMarkToLigature(subtable, ligatureGlyph, markGlyph, 0) is { } offset)
+                        return offset;
+        }
+        catch (Exception e) when (e is InvalidDataException or OverflowException) { }
         return null;
     }
 
@@ -174,6 +203,34 @@ internal sealed class GposMarkPositioning
         var mark1Anchor = Anchor(mark1Array + mark1AnchorOffset);
         var mark2Anchor = Anchor(mark2Array + mark2AnchorOffset);
         return (mark1Anchor.X - mark2Anchor.X, mark1Anchor.Y - mark2Anchor.Y);
+    }
+
+    private (int X, int Y)? ApplyMarkToLigature(int subtable, ushort ligatureGlyph, ushort markGlyph, int component)
+    {
+        if (_gpos.U16(subtable) != 1) return null;
+        var markIndex = CoverageIndex(subtable + _gpos.U16(subtable + 2), markGlyph);
+        var ligatureIndex = CoverageIndex(subtable + _gpos.U16(subtable + 4), ligatureGlyph);
+        if (markIndex < 0 || ligatureIndex < 0) return null;
+        var classCount = _gpos.U16(subtable + 6);
+        var markArray = subtable + _gpos.U16(subtable + 8);
+        var ligatureArray = subtable + _gpos.U16(subtable + 10);
+        if ((uint)markIndex >= _gpos.U16(markArray) || (uint)ligatureIndex >= _gpos.U16(ligatureArray)) return null;
+        var markRecord = markArray + 2 + 4 * markIndex;
+        var markClass = _gpos.U16(markRecord);
+        if (markClass >= classCount) return null;
+        var markAnchorOffset = _gpos.U16(markRecord + 2);
+        if (markAnchorOffset == 0) return null;
+        var ligatureRecord = ligatureArray + 2 + 2 * ligatureIndex;
+        var attachOffset = _gpos.U16(ligatureRecord);
+        if (attachOffset == 0) return null;
+        var attach = ligatureArray + attachOffset;
+        var componentCount = _gpos.U16(attach);
+        if ((uint)component >= componentCount) return null;
+        var anchorOffset = _gpos.U16(attach + 2 + 2 * (component * classCount + markClass));
+        if (anchorOffset == 0) return null;
+        var markAnchor = Anchor(markArray + markAnchorOffset);
+        var ligatureAnchor = Anchor(attach + anchorOffset);
+        return (ligatureAnchor.X - markAnchor.X, ligatureAnchor.Y - markAnchor.Y);
     }
 
     private (int X, int Y) Anchor(int offset)

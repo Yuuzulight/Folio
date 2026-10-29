@@ -6,7 +6,7 @@ using Xunit.Runner.InProc.SystemConsole;
 namespace Folio.Benchmarks;
 
 /// <summary>
-/// <c>bench [iterations]</c> measures every benchmark document and prints a table (also to the GitHub Actions job
+/// <c>bench [iterations] [frames]</c> measures every benchmark document and prints a table (also to the GitHub Actions job
 /// summary when run there). Documents over a target get a warning, never a failure: timings on shared machines are
 /// noisy. <c>gc [runs]</c> shows what layout leaves to the garbage collector on the large generated documents (#397).
 /// Anything else runs the harness's own tests.
@@ -16,7 +16,11 @@ public static class Program
     public static int Main(string[] args)
     {
         if (args is ["bench", .. var rest])
-            return Bench(rest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 20);
+        {
+            var iterations = rest.Length > 0 ? Math.Max(1, int.Parse(rest[0], CultureInfo.InvariantCulture)) : 20;
+            var frames = rest.Length > 1 ? Math.Max(10, int.Parse(rest[1], CultureInfo.InvariantCulture)) : iterations * 10;
+            return Bench(iterations, frames);
+        }
         if (args is ["cold"])
             return Cold();
         if (args is ["gpu"])
@@ -34,7 +38,7 @@ public static class Program
         return ConsoleRunner.Run(args).GetAwaiter().GetResult();
     }
 
-    private static int Bench(int iterations)
+    private static int Bench(int iterations, int frames)
     {
         var table = new StringBuilder()
             .AppendLine($"Parse to display list, median of {iterations} runs; typical-artifact targets: {Benchmark.TimeTarget.TotalMilliseconds} ms and {Mb(Benchmark.MemoryTarget)} MB for the whole first paint.")
@@ -51,35 +55,35 @@ public static class Program
                 warnings.Add($"{m.Name} is over a typical-artifact target: {Ms(m.Total)} ms, {Mb(m.Retained)} MB retained");
         }
 
-        table.AppendLine().AppendLine($"Paint-only animation frames, {iterations * 10} frames each: restyle + display list + raster at 800x600; target {Ms(FrameBenchmark.Target)} ms for the typical dashboard.")
+        table.AppendLine().AppendLine($"Paint-only animation frames, {frames} frames each: restyle + display list + raster at 800x600; target {Ms(FrameBenchmark.Target)} ms for the typical dashboard.")
             .AppendLine().AppendLine("| Document | Median ms | p95 ms | Paint-only |").AppendLine("|---|--:|--:|---|");
         foreach (var (name, html, held) in new[] { ("typical dashboard", FrameBenchmark.Typical, true), ("busy dashboard", FrameBenchmark.Busy, false) })
         {
-            var frames = FrameBenchmark.Measure(html, iterations * 10);
-            table.AppendLine($"| {name} | {Ms(frames.Median)} | {Ms(frames.P95)} | {(frames.PaintOnly ? "yes" : "no")} |");
-            if (held && (frames.Median > FrameBenchmark.Target || !frames.PaintOnly))
-                warnings.Add($"Paint-only animation frames of the {name} are over the target or not paint-only: median {Ms(frames.Median)} ms");
+            var result = FrameBenchmark.Measure(html, frames);
+            table.AppendLine($"| {name} | {Ms(result.Median)} | {Ms(result.P95)} | {(result.PaintOnly ? "yes" : "no")} |");
+            if (held && (result.Median > FrameBenchmark.Target || !result.PaintOnly))
+                warnings.Add($"Paint-only animation frames of the {name} are over the target or not paint-only: median {Ms(result.Median)} ms");
         }
 
-        table.AppendLine().AppendLine($"Hover restyle and repaint, {iterations * 10} steps: update + raster at 800x600; target {Ms(FrameBenchmark.HoverTarget)} ms.")
+        table.AppendLine().AppendLine($"Hover restyle and repaint, {frames} steps: update + raster at 800x600; target {Ms(FrameBenchmark.HoverTarget)} ms.")
             .AppendLine().AppendLine("| Interaction | Median ms | p95 ms |").AppendLine("|---|--:|--:|");
-        var hover = FrameBenchmark.MeasureHover(FrameBenchmark.HoverHtml, iterations * 10);
+        var hover = FrameBenchmark.MeasureHover(FrameBenchmark.HoverHtml, frames);
         table.AppendLine($"| card hover restyle | {Ms(hover.Median)} | {Ms(hover.P95)} |");
         if (hover.Median > FrameBenchmark.HoverTarget)
             warnings.Add($"Hover restyle of the dashboard is over the target: median {Ms(hover.Median)} ms (target {Ms(FrameBenchmark.HoverTarget)} ms)");
 
-        table.AppendLine().AppendLine($"Scroll frame, {iterations * 10} steps: replay display list + raster at 800x600; target {Ms(FrameBenchmark.ScrollTarget)} ms.")
+        table.AppendLine().AppendLine($"Scroll frame, {frames} steps: replay display list + raster at 800x600; target {Ms(FrameBenchmark.ScrollTarget)} ms.")
             .AppendLine().AppendLine("| Interaction | Median ms | p95 ms |").AppendLine("|---|--:|--:|");
-        var scroll = FrameBenchmark.MeasureScroll(FrameBenchmark.ScrollHtml, iterations * 10);
+        var scroll = FrameBenchmark.MeasureScroll(FrameBenchmark.ScrollHtml, frames);
         table.AppendLine($"| viewport scroll frame | {Ms(scroll.Median)} | {Ms(scroll.P95)} |");
         if (scroll.Median > FrameBenchmark.ScrollTarget)
             warnings.Add($"Viewport scroll frame is over the target: median {Ms(scroll.Median)} ms (target {Ms(FrameBenchmark.ScrollTarget)} ms)");
 
-        table.AppendLine().AppendLine($"Raster backends, median of {iterations * 2} replays of the typical dashboard's display list; informational, the software backend is not the default.")
+        table.AppendLine().AppendLine($"Raster backends, median of {frames} replays of the typical dashboard's display list; informational, the software backend is not the default.")
             .AppendLine().AppendLine("| Viewport | Skia ms | Software ms | Software / Skia |").AppendLine("|---|--:|--:|--:|");
         foreach (var (width, height) in new[] { (800, 600), (1920, 1080) })
         {
-            var (skia, software) = FrameBenchmark.MeasureBackends(FrameBenchmark.Typical, width, height, iterations * 2);
+            var (skia, software) = FrameBenchmark.MeasureBackends(FrameBenchmark.Typical, width, height, frames);
             table.AppendLine(string.Create(CultureInfo.InvariantCulture, $"| {width}x{height} | {Ms(skia)} | {Ms(software)} | {software / skia:0.0}x |"));
         }
 

@@ -219,7 +219,7 @@ internal static class WebAssemblyBindings
                 },
                 Table: function(options) {
                     if (!enabled()) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
-                    options = options || {}; this._maximum = options.maximum === undefined ? __folio_wasm_max_table_elements : Number(options.maximum); this._entries = [];
+                    options = options || {}; this._element = String(options.element || 'anyfunc'); if (this._element === 'anyfunc') this._element = 'funcref'; if (this._element !== 'funcref' && this._element !== 'externref') throw new TypeError('Invalid WebAssembly table element type.'); this._maximum = options.maximum === undefined ? __folio_wasm_max_table_elements : Number(options.maximum); this._entries = [];
                     var initial = Number(options.initial) || 0; if (!intrinsic_Number_isInteger(initial) || !intrinsic_Number_isInteger(this._maximum) || initial < 0 || this._maximum < 0 || this._maximum > __folio_wasm_max_table_elements || initial > this._maximum) throw new RangeError('WebAssembly table limit exceeded.');
                     requireAllowed(); for (var i = 0; i < initial; i++) this._entries.push(null);
                 },
@@ -243,10 +243,10 @@ internal static class WebAssemblyBindings
                 requireAllowed();
                 delta = Number(delta); var previous = this._entries.length; var next = previous + delta;
                 if (!intrinsic_Number_isInteger(delta) || delta < 0 || next > this._maximum || next > __folio_wasm_max_table_elements) throw new RangeError('WebAssembly table limit exceeded.');
-                requireAllowed(); for (var i = previous; i < next; i++) this._entries.push(value === undefined ? null : value); return previous;
+                if (this._element === 'funcref' && value !== undefined && value !== null && typeof value !== 'function') throw new TypeError('WebAssembly funcref table values must be functions or null.'); requireAllowed(); for (var i = previous; i < next; i++) this._entries.push(value === undefined ? null : value); return previous;
             };
             WebAssembly.Table.prototype.get = function(index) { requireAllowed(); index = Number(index); if (index < 0 || index >= this._entries.length) throw new RangeError('WebAssembly table index out of range.'); return this._entries[index]; };
-            WebAssembly.Table.prototype.set = function(index, value) { requireAllowed(); index = Number(index); if (index < 0 || index >= this._entries.length) throw new RangeError('WebAssembly table index out of range.'); this._entries[index] = value; };
+            WebAssembly.Table.prototype.set = function(index, value) { requireAllowed(); index = Number(index); if (index < 0 || index >= this._entries.length) throw new RangeError('WebAssembly table index out of range.'); if (this._element === 'funcref' && value !== null && typeof value !== 'function') throw new TypeError('WebAssembly funcref table values must be functions or null.'); this._entries[index] = value; };
             WebAssembly.Global.prototype.valueOf = function() { return this.value; };
             WebAssembly.Module.exports = function(module) {
                 if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Module.exports requires a Module.');

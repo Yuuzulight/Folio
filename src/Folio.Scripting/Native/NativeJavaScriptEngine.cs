@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Buffers.Binary;
 
 using System.Numerics;
 
@@ -39,7 +40,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         arrayConstructor.SetProperty("isArray", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyList<object?>));
         arrayConstructor.SetProperty("from", (Func<IReadOnlyList<object?>, object?>)(args =>
         {
-            if (args.Count == 0 || args[0] is null or JavaScriptEvaluator.UndefinedValue) return Array.Empty<object?>();
+            if (args.Count == 0 || args[0] is null or JavaScriptEvaluator.UndefinedValue) throw WebIdlException.TypeError("Array.from requires an array-like or iterable object.");
             var values = args[0] switch
             {
                 IReadOnlyList<object?> list => list.ToArray(),
@@ -48,10 +49,17 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length)))
                         .Select(index => arrayLike.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance))
                         .ToArray(),
+                NativeSet set => set.Values(),
+                NativeMap map => map.Entries(),
+                NativeBuffer buffer => Enumerable.Range(0, buffer.Length).Select(index => buffer.TryGetIndex(index, out var value) ? value : JavaScriptEvaluator.UndefinedValue.Instance).ToArray(),
+                IEnumerable<object?> enumerable => enumerable.ToArray(),
                 _ => Array.Empty<object?>(),
             };
-            if (args.Count > 1 && IsCallable(args[1]))
-                for (var index = 0; index < values.Length; index++) values[index] = InvokeCallable(args[1]!, [values[index], (double)index]);
+            if (args.Count > 1)
+            {
+                if (!IsCallable(args[1])) throw WebIdlException.TypeError("Array.from mapfn must be callable.");
+                for (var index = 0; index < values.Length; index++) values[index] = InvokeCallable(args[1]!, [values[index], (double)index, values]);
+            }
             return values;
         }));
         var arrayPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -117,12 +125,14 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }),
             ["map"] = new NativeReceiverFunction((receiver, args) =>
             {
-                if (receiver is not IReadOnlyList<object?> values || args.Count == 0) return Array.Empty<object?>();
+                if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
+                if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
                 return values.Select((value, index) => InvokeCallable(args[0], [value, (double)index, values])).ToList();
             }),
             ["flatMap"] = new NativeReceiverFunction((receiver, args) =>
             {
-                if (receiver is not IReadOnlyList<object?> values || args.Count == 0) return Array.Empty<object?>();
+                if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
+                if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
                 return values.SelectMany((value, index) =>
                 {
                     var mapped = InvokeCallable(args[0], [value, (double)index, values]);
@@ -181,6 +191,18 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     _ => Array.Empty<object?>(),
                 }
                 : Array.Empty<object?>()),
+            ["fromEntries"] = (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+                if (args.Count == 0 || args[0] is not IEnumerable<object?> entries) return result;
+                foreach (var entry in entries)
+                {
+                    if (entry is not IReadOnlyList<object?> pair || pair.Count < 2)
+                        throw WebIdlException.TypeError("Object.fromEntries requires iterable key/value pairs.");
+                    result[StringValue(pair[0])] = pair[1];
+                }
+                return result;
+            }),
             ["getOwnPropertyNames"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count == 0 || args[0] is null || args[0] is JavaScriptEvaluator.UndefinedValue) return Array.Empty<object?>();
@@ -268,7 +290,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 return null;
             }),
             ["hasOwn"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && args[0] is IReadOnlyDictionary<string, object?> own && own.ContainsKey(StringValue(args[1]))),
-            ["is"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && Equals(args[0], args[1])),
+            ["is"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && SameValue(args[0], args[1])),
             ["freeze"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? args[0] : null),
             ["getOwnPropertyDescriptor"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
@@ -316,17 +338,24 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         };
         _bindings["Math"] = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
+            ["E"] = Math.E, ["LN2"] = Math.Log(2), ["LN10"] = Math.Log(10), ["LOG2E"] = Math.Log2(Math.E), ["LOG10E"] = Math.Log10(Math.E), ["PI"] = Math.PI, ["SQRT1_2"] = Math.Sqrt(0.5), ["SQRT2"] = Math.Sqrt(2),
             ["abs"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Abs(Number(args, 0))),
             ["floor"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Floor(Number(args, 0))),
             ["ceil"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Ceiling(Number(args, 0))),
-            ["max"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.NegativeInfinity : args.Max(value => value is double number ? number : 0)),
-            ["min"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.PositiveInfinity : args.Min(value => value is double number ? number : 0)),
+            ["max"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.NegativeInfinity : MathMax(args)),
+            ["min"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.PositiveInfinity : MathMin(args)),
             ["random"] = (Func<IReadOnlyList<object?>, object?>)(_ => Random.Shared.NextDouble()),
             ["log"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Log(Number(args, 0))),
+            ["log10"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Log10(Number(args, 0))),
+            ["log2"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Log2(Number(args, 0))),
+            ["cbrt"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Cbrt(Number(args, 0))),
+            ["hypot"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sqrt(args.Sum(value => Math.Pow(NumberValue(value), 2)))),
             ["pow"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Pow(Number(args, 0), Number(args, 1))),
             ["sqrt"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sqrt(Number(args, 0))),
-            ["sign"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sign(Number(args, 0))),
+            ["sign"] = (Func<IReadOnlyList<object?>, object?>)(args => MathSign(args.Count > 0 ? args[0] : 0)),
             ["trunc"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Truncate(Number(args, 0))),
+            ["round"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Floor(NumberValue(args.Count > 0 ? args[0] : 0) + 0.5)),
+            ["imul"] = (Func<IReadOnlyList<object?>, object?>)(args => (double)(int)((uint)(int)NumberValue(args.Count > 0 ? args[0] : 0) * (uint)(int)NumberValue(args.Count > 1 ? args[1] : 0))),
             ["sin"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sin(Number(args, 0))),
             ["cos"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Cos(Number(args, 0))),
             ["atan2"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Atan2(Number(args, 0), Number(args, 1))),
@@ -339,18 +368,36 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         var stringConstructor = new NativeFunction(args => args.Count == 0 ? string.Empty : StringValue(args[0]));
         stringConstructor.SetProperty("fromCharCode", (Func<IReadOnlyList<object?>, object?>)(args =>
             string.Concat(args.Select(value => (char)((int)NumberValue(value) & 0xffff)))));
+        stringConstructor.SetProperty("fromCodePoint", (Func<IReadOnlyList<object?>, object?>)(args =>
+            string.Concat(args.Select(value =>
+            {
+                var point = NumberValue(value);
+                if (double.IsNaN(point) || point < 0 || point > 0x10ffff || point != Math.Truncate(point))
+                    throw WebIdlException.RangeError("Invalid code point.");
+                return char.ConvertFromUtf32((int)point);
+            }))));
         _bindings["String"] = stringConstructor;
         var numberConstructor = new NativeFunction(args => args.Count == 0 ? 0d : NumberValue(args[0]));
-        numberConstructor.SetProperty("isInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && NumberValue(args[0]) is var number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number)));
-        numberConstructor.SetProperty("isSafeInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && NumberValue(args[0]) is var number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number) && Math.Abs(number) <= 9007199254740991d));
-        numberConstructor.SetProperty("isNaN", (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || double.IsNaN(NumberValue(args[0]))));
-        numberConstructor.SetProperty("isFinite", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && !double.IsNaN(NumberValue(args[0])) && !double.IsInfinity(NumberValue(args[0]))));
+        numberConstructor.SetProperty("NaN", double.NaN);
+        numberConstructor.SetProperty("POSITIVE_INFINITY", double.PositiveInfinity);
+        numberConstructor.SetProperty("NEGATIVE_INFINITY", double.NegativeInfinity);
+        numberConstructor.SetProperty("MAX_VALUE", double.MaxValue);
+        numberConstructor.SetProperty("MIN_VALUE", double.Epsilon);
+        numberConstructor.SetProperty("EPSILON", 2.220446049250313e-16d);
+        numberConstructor.SetProperty("parseInt", (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0]), args.Count > 1 ? (int)NumberValue(args[1]) : 0)));
+        numberConstructor.SetProperty("parseFloat", (Func<IReadOnlyList<object?>, object?>)(args => ParseFloat(args.Count == 0 ? string.Empty : StringValue(args[0]))));
+        numberConstructor.SetProperty("isInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number)));
+        numberConstructor.SetProperty("isSafeInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number) && Math.Abs(number) <= 9007199254740991d));
+        numberConstructor.SetProperty("isNaN", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && double.IsNaN(number)));
+        numberConstructor.SetProperty("isFinite", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number)));
         _bindings["Number"] = numberConstructor;
         _bindings["Boolean"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && TruthValue(args[0]));
-        _bindings["parseInt"] = (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0])));
+        _bindings["parseInt"] = (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0]), args.Count > 1 ? (int)NumberValue(args[1]) : 0));
+        _bindings["parseFloat"] = (Func<IReadOnlyList<object?>, object?>)(args => ParseFloat(args.Count == 0 ? string.Empty : StringValue(args[0])));
         _bindings["encodeURIComponent"] = (Func<IReadOnlyList<object?>, object?>)(args => Uri.EscapeDataString(args.Count == 0 ? string.Empty : StringValue(args[0])));
         _bindings["decodeURIComponent"] = (Func<IReadOnlyList<object?>, object?>)(args => Uri.UnescapeDataString(args.Count == 0 ? string.Empty : StringValue(args[0])));
         _bindings["isNaN"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || double.IsNaN(NumberValue(args[0])));
+        _bindings["isFinite"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && !double.IsNaN(NumberValue(args[0])) && !double.IsInfinity(NumberValue(args[0])));
         _bindings["Error"] = CreateErrorConstructor("Error");
         _bindings["TypeError"] = CreateErrorConstructor("TypeError");
         _bindings["RangeError"] = CreateErrorConstructor("RangeError");
@@ -389,7 +436,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["add"] = new NativeReceiverFunction((receiver, args) => receiver is NativeSet set && args.Count > 0 ? set.Add(args[0]) : receiver),
             ["has"] = new NativeReceiverFunction((receiver, args) => receiver is NativeSet set && set.Has(args.Count > 0 ? args[0] : null)),
             ["delete"] = new NativeReceiverFunction((receiver, args) => receiver is NativeSet set && set.Delete(args.Count > 0 ? args[0] : null)),
-            ["forEach"] = new NativeReceiverFunction((receiver, args) => { if (receiver is NativeSet set && args.Count > 0 && IsCallable(args[0])) set.ForEach(args[0]!); return JavaScriptEvaluator.UndefinedValue.Instance; }),
+            ["forEach"] = new NativeReceiverFunction((receiver, args) => { if (receiver is NativeSet set) { if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Set callback must be callable."); set.ForEach(args[0]!); } return JavaScriptEvaluator.UndefinedValue.Instance; }),
         };
         var setConstructor = new NativeFunction(args => new NativeSet(args.Count > 0 ? args[0] : null));
         setConstructor.SetProperty("prototype", setPrototype);
@@ -400,7 +447,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["get"] = new NativeReceiverFunction((receiver, args) => receiver is NativeMap map && args.Count > 0 && args[0] is { } key ? map.Get(key) : JavaScriptEvaluator.UndefinedValue.Instance),
             ["has"] = new NativeReceiverFunction((receiver, args) => receiver is NativeMap map && args.Count > 0 && args[0] is { } key && map.Has(key)),
             ["delete"] = new NativeReceiverFunction((receiver, args) => receiver is NativeMap map && args.Count > 0 && args[0] is { } key && map.Delete(key)),
-            ["forEach"] = new NativeReceiverFunction((receiver, args) => { if (receiver is NativeMap map && args.Count > 0 && IsCallable(args[0])) map.ForEach(args[0]!); return JavaScriptEvaluator.UndefinedValue.Instance; }),
+            ["forEach"] = new NativeReceiverFunction((receiver, args) => { if (receiver is NativeMap map) { if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Map callback must be callable."); map.ForEach(args[0]!); } return JavaScriptEvaluator.UndefinedValue.Instance; }),
         };
         var mapConstructor = new NativeFunction(args => new NativeMap(args.Count > 0 ? args[0] : null));
         mapConstructor.SetProperty("prototype", mapPrototype);
@@ -427,16 +474,20 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _bindings["Promise"] = promiseConstructor;
         _bindings["queueMicrotask"] = (Func<IReadOnlyList<object?>, object?>)(args =>
         {
-            if (args.Count > 0 && IsCallable(args[0])) _microtasks.Enqueue(() => InvokeCallable(args[0], []));
+            if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("The callback must be callable.");
+            _microtasks.Enqueue(() => InvokeCallable(args[0], []));
             return null;
         });
         _bindings["Function"] = (Func<IReadOnlyList<object?>, object?>)(args => CreateDynamicFunction(args));
-        var dateConstructor = new NativeFunction(args => new NativeDate(args.Count > 0 ? NumberValue(args[0]) : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        var dateConstructor = new NativeFunction(args => new NativeDate(args.Count == 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : ParseDateMilliseconds(args[0])));
         dateConstructor.SetProperty("prototype", new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["getTime"] = new NativeReceiverFunction((receiver, _) => receiver is NativeDate date ? date.Milliseconds : double.NaN),
+            ["valueOf"] = new NativeReceiverFunction((receiver, _) => receiver is NativeDate date ? date.Milliseconds : double.NaN),
+            ["toISOString"] = new NativeReceiverFunction((receiver, _) => receiver is NativeDate date && !double.IsNaN(date.Milliseconds) ? DateTimeOffset.FromUnixTimeMilliseconds((long)date.Milliseconds).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture) : throw WebIdlException.RangeError("Invalid time value.")),
         });
         dateConstructor.SetProperty("now", (Func<IReadOnlyList<object?>, object?>)(_ => (double)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        dateConstructor.SetProperty("parse", (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.NaN : ParseDateMilliseconds(args[0])));
         _bindings["Date"] = dateConstructor;
         _bindings["RegExp"] = new NativeFunction(args => JavaScriptEvaluator.RegexValue.Create("/" + (args.Count > 0 ? StringValue(args[0]) : string.Empty) + "/" + (args.Count > 1 ? StringValue(args[1]) : string.Empty)));
         _bindings["BigInt"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? NumberValue(args[0]) : 0d);
@@ -611,7 +662,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         if (value.Raw is NativeBuffer buffer && buffer.Kind is ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped && buffer.IsAttached && buffer.ByteOffset == 0)
         {
-            bytes = buffer.Bytes.ToArray();
+            bytes = buffer.Bytes.AsSpan(buffer.ByteOffset, buffer.ByteLength).ToArray();
             return true;
         }
         bytes = [];
@@ -619,9 +670,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     }
     public bool TrySetBytes(ScriptValue value, ReadOnlySpan<byte> bytes)
     {
-        if (value.Raw is not NativeBuffer buffer || buffer.Kind is not (ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped) || !buffer.IsAttached || buffer.ByteOffset != 0 || buffer.Bytes.Length != bytes.Length)
+        if (value.Raw is not NativeBuffer buffer || buffer.Kind is not (ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped) || !buffer.IsAttached || buffer.ByteOffset != 0 || buffer.ByteLength != bytes.Length)
             return false;
-        bytes.CopyTo(buffer.Bytes);
+        bytes.CopyTo(buffer.Bytes.AsSpan(buffer.ByteOffset, buffer.ByteLength));
         return true;
     }
     public bool TryGetArrayBufferBytes(ScriptValue value, out byte[] bytes)
@@ -691,8 +742,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             return ToScriptValue(mapValue);
         if (target.Raw is NativeSet set && set.TryGetProperty(name, out var setValue))
             return ToScriptValue(setValue);
-        if (target.Raw is NativeDate date && name == "getTime")
-            return ToScriptValue(new NativeReceiverFunction((_, _) => date.Milliseconds));
+        if (target.Raw is NativeDate date)
+        {
+            if (name == "getTime" || name == "valueOf") return ToScriptValue(new NativeReceiverFunction((_, _) => date.Milliseconds));
+            if (name == "toISOString") return ToScriptValue(new NativeReceiverFunction((_, _) => !double.IsNaN(date.Milliseconds) ? DateTimeOffset.FromUnixTimeMilliseconds((long)date.Milliseconds).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture) : throw WebIdlException.RangeError("Invalid time value.")));
+        }
         if (target.Raw is INativeBuffer buffer && buffer.TryGetProperty(name, out var bufferValue))
             return ToScriptValue(bufferValue);
         if (target.Raw is IReadOnlyList<object?> array && name == "length") return ScriptValue.FromNumber(array.Count);
@@ -703,6 +757,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     }
     public bool TrySetProperty(ScriptValue target, string name, ScriptValue value)
     {
+        if (target.Raw is JavaScriptEvaluator.RegexValue regex && name == "lastIndex")
+        {
+            regex.LastIndex = Math.Max(0, (int)NumberValue(ToObject(value)));
+            return true;
+        }
         if (target.Raw is NativeHostValue host)
             return host.TrySetSetValue(name, ToObject(value)) || host.TrySetPrototypeValue(name, ToObject(value));
         if (target.Raw is IDictionary<string, object?> properties)
@@ -1077,13 +1136,63 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) => number,
         _ => double.NaN,
     };
-    private static double ParseInteger(string text)
+    private static double ParseDateMilliseconds(object? value)
+    {
+        if (value is double number) return number;
+        if (value is int integer) return integer;
+        return DateTimeOffset.TryParse(StringValue(value), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
+            ? parsed.ToUnixTimeMilliseconds()
+            : double.NaN;
+    }
+    private static double MathMax(IReadOnlyList<object?> args)
+    {
+        var result = double.NegativeInfinity;
+        foreach (var value in args) { var number = NumberValue(value); if (double.IsNaN(number)) return double.NaN; result = Math.Max(result, number); }
+        return result;
+    }
+    private static double MathMin(IReadOnlyList<object?> args)
+    {
+        var result = double.PositiveInfinity;
+        foreach (var value in args) { var number = NumberValue(value); if (double.IsNaN(number)) return double.NaN; result = Math.Min(result, number); }
+        return result;
+    }
+    private static double MathSign(object? value)
+    {
+        var number = NumberValue(value);
+        if (double.IsNaN(number) || number == 0) return number;
+        return number > 0 ? 1 : -1;
+    }
+    private static bool SameValue(object? left, object? right)
+    {
+        if (left is double leftNumber && right is double rightNumber)
+            return (double.IsNaN(leftNumber) && double.IsNaN(rightNumber)) || leftNumber == rightNumber && !((leftNumber == 0) && (rightNumber == 0) && double.IsNegative(leftNumber) != double.IsNegative(rightNumber));
+        return Equals(left, right);
+    }
+    private static double ParseInteger(string text, int radix = 0)
     {
         text = text.Trim();
-        var length = 0;
-        if (text.StartsWith('+') || text.StartsWith('-')) length++;
-        while (length < text.Length && char.IsDigit(text[length])) length++;
-        return length == 0 || (length == 1 && (text[0] is '+' or '-')) || !double.TryParse(text[..length], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? double.NaN : parsed;
+        var sign = 1;
+        if (text.StartsWith('+') || text.StartsWith('-')) { if (text[0] == '-') sign = -1; text = text[1..]; }
+        if (radix == 0) radix = text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? 16 : 10;
+        if (radix is < 2 or > 36) return double.NaN;
+        if (radix == 16 && text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) text = text[2..];
+        var value = 0d; var consumed = 0;
+        foreach (var character in text)
+        {
+            var digit = character switch { >= '0' and <= '9' => character - '0', >= 'a' and <= 'z' => character - 'a' + 10, >= 'A' and <= 'Z' => character - 'A' + 10, _ => -1 };
+            if (digit < 0 || digit >= radix) break;
+            value = value * radix + digit; consumed++;
+        }
+        return consumed == 0 ? double.NaN : sign * value;
+    }
+    private static double ParseFloat(string text)
+    {
+        text = text.Trim();
+        if (text.StartsWith("Infinity", StringComparison.Ordinal)) return double.PositiveInfinity;
+        if (text.StartsWith("-Infinity", StringComparison.Ordinal)) return double.NegativeInfinity;
+        for (var length = text.Length; length > 0; length--)
+            if (double.TryParse(text[..length], NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) return value;
+        return double.NaN;
     }
     private static bool TruthValue(object? value) => value switch
     {
@@ -1195,7 +1304,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 "has" => new NativeReceiverFunction((_, args) => Has(args.Count > 0 ? args[0] : null)),
                 "delete" => new NativeReceiverFunction((_, args) => Delete(args.Count > 0 ? args[0] : null)),
                 "values" or "keys" => new NativeReceiverFunction((_, _) => Values()),
-                "forEach" => new NativeReceiverFunction((_, args) => { if (args.Count > 0 && IsCallable(args[0])) foreach (var item in _values) InvokeCallable(args[0], [item, item, this]); return JavaScriptEvaluator.UndefinedValue.Instance; }),
+                "forEach" => new NativeReceiverFunction((_, args) => { if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Set callback must be callable."); foreach (var item in _values) InvokeCallable(args[0], [item, item, this]); return JavaScriptEvaluator.UndefinedValue.Instance; }),
                 "size" => (double)_values.Count,
                 _ => null,
             };
@@ -1226,7 +1335,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 "has" => new NativeReceiverFunction((_, args) => args.Count > 0 && args[0] is { } key && Has(key)),
                 "delete" => new NativeReceiverFunction((_, args) => args.Count > 0 && args[0] is { } key && Delete(key)),
                 "entries" or "keys" or "values" => new NativeReceiverFunction((_, _) => name == "values" ? _values.Values.ToArray() : name == "keys" ? _values.Keys.ToArray() : Entries()),
-                "forEach" => new NativeReceiverFunction((_, args) => { if (args.Count > 0 && IsCallable(args[0])) foreach (var pair in _values) InvokeCallable(args[0], [pair.Value, pair.Key, this]); return JavaScriptEvaluator.UndefinedValue.Instance; }),
+                "forEach" => new NativeReceiverFunction((_, args) => { if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Map callback must be callable."); foreach (var pair in _values) InvokeCallable(args[0], [pair.Value, pair.Key, this]); return JavaScriptEvaluator.UndefinedValue.Instance; }),
                 "size" => (double)_values.Count,
                 _ => null,
             };
@@ -1367,9 +1476,27 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
     }
 
-    private sealed class NativeBuffer(ScriptBufferSourceKind kind, byte[] bytes, int elementSize) : INativeBuffer
+    private sealed class NativeBuffer : INativeBuffer
     {
-        internal ScriptBufferSourceKind Kind { get; } = kind;
+        private sealed class BufferStorage(byte[] bytes)
+        {
+            internal byte[] Bytes { get; set; } = bytes;
+            internal bool Detached { get; set; }
+        }
+        private readonly BufferStorage _storage;
+        private readonly int _offset;
+        private int _viewByteLength;
+        internal NativeBuffer(ScriptBufferSourceKind kind, byte[] bytes, int elementSize)
+            : this(kind, new BufferStorage(bytes), 0, bytes.Length, elementSize) { }
+        private NativeBuffer(ScriptBufferSourceKind kind, BufferStorage storage, int offset, int viewByteLength, int elementSize)
+        {
+            Kind = kind;
+            _storage = storage;
+            _offset = offset;
+            _viewByteLength = viewByteLength;
+            ElementSize = elementSize;
+        }
+        internal ScriptBufferSourceKind Kind { get; }
         public string TypeName => Kind switch
         {
             ScriptBufferSourceKind.Uint8 => "Uint8Array",
@@ -1386,13 +1513,13 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ScriptBufferSourceKind.DataView => "DataView",
             _ => "ArrayBuffer",
         };
-        internal byte[] Bytes { get; private set; } = bytes;
-        internal int ElementSize { get; } = elementSize;
-        internal int ByteOffset => 0;
-        internal int ByteLength => IsAttached ? Bytes.Length : 0;
-        internal int Length => IsAttached ? Bytes.Length / ElementSize : 0;
-        internal bool IsAttached { get; private set; } = true;
-        internal void Detach() { Bytes = []; IsAttached = false; }
+        internal byte[] Bytes => _storage.Bytes;
+        internal int ElementSize { get; }
+        internal int ByteOffset => IsAttached ? _offset : 0;
+        internal int ByteLength => IsAttached ? _viewByteLength : 0;
+        internal int Length => IsAttached ? _viewByteLength / ElementSize : 0;
+        internal bool IsAttached => !_storage.Detached;
+        internal void Detach() { _storage.Bytes = []; _storage.Detached = true; _viewByteLength = 0; }
         public bool TryGetProperty(string name, out object? value)
         {
             if (!IsAttached) { value = name is "byteLength" or "length" or "byteOffset" ? 0d : null; return name is "byteLength" or "length" or "byteOffset"; }
@@ -1401,25 +1528,29 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 "byteLength" => (double)ByteLength,
                 "length" => (double)Length,
                 "byteOffset" => (double)ByteOffset,
-                "buffer" => new NativeBuffer(ScriptBufferSourceKind.ArrayBuffer, Bytes.ToArray(), 1),
+                "buffer" => new NativeBuffer(ScriptBufferSourceKind.ArrayBuffer, _storage, 0, Bytes.Length, 1),
                 "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
-                    var start = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, Length) : 0;
-                    var end = args.Count > 1 ? Math.Clamp((int)Number(args[1]), start, Length) : Length;
-                    return new NativeBuffer(Kind, Bytes.Skip(start * ElementSize).Take((end - start) * ElementSize).ToArray(), ElementSize);
+                    var start = args.Count > 0 ? RelativeIndex(Number(args[0]), Length) : 0;
+                    var end = args.Count > 1 ? RelativeIndex(Number(args[1]), Length) : Length;
+                    if (end < start) end = start;
+                    return new NativeBuffer(Kind, Bytes.AsSpan(_offset + start * ElementSize, (end - start) * ElementSize).ToArray(), ElementSize);
                 }),
                 "subarray" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
-                    var start = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, Length) : 0;
-                    var end = args.Count > 1 ? Math.Clamp((int)Number(args[1]), start, Length) : Length;
-                    return new NativeBuffer(Kind, Bytes.Skip(start * ElementSize).Take((end - start) * ElementSize).ToArray(), ElementSize);
+                    var start = args.Count > 0 ? RelativeIndex(Number(args[0]), Length) : 0;
+                    var end = args.Count > 1 ? RelativeIndex(Number(args[1]), Length) : Length;
+                    if (end < start) end = start;
+                    return new NativeBuffer(Kind, _storage, _offset + start * ElementSize, (end - start) * ElementSize, ElementSize);
                 }),
                 "set" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
                     if (args.Count == 0) return null;
-                    var source = args[0] is NativeBuffer sourceBuffer ? sourceBuffer.Bytes : EncodeElements(Kind, args[0] is IReadOnlyList<object?> values ? values : []);
+                    var source = args[0] is NativeBuffer sourceBuffer
+                        ? sourceBuffer.Bytes.AsSpan(sourceBuffer.ByteOffset, sourceBuffer.ByteLength).ToArray()
+                        : EncodeElements(Kind, args[0] is IReadOnlyList<object?> values ? values : []);
                     var offset = args.Count > 1 ? Math.Max(0, (int)Number(args[1])) * ElementSize : 0;
-                    if (offset < Bytes.Length) source.AsSpan(0, Math.Min(source.Length, Bytes.Length - offset)).CopyTo(Bytes.AsSpan(offset));
+                    if (offset < ByteLength) source.AsSpan(0, Math.Min(source.Length, ByteLength - offset)).CopyTo(Bytes.AsSpan(_offset + offset));
                     return null;
                 }),
                 _ => null,
@@ -1434,10 +1565,15 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             _ when double.TryParse(value?.ToString(), out var parsed) => parsed,
             _ => 0,
         };
+        private static int RelativeIndex(double value, int length)
+        {
+            var index = (int)value;
+            return index < 0 ? Math.Max(length + index, 0) : Math.Min(index, length);
+        }
         public bool TryGetIndex(int index, out object? value)
         {
             if (!IsAttached || Kind == ScriptBufferSourceKind.ArrayBuffer || index < 0 || index >= Length) { value = null; return false; }
-            value = (double)Bytes[index * ElementSize];
+            value = ReadElement(index);
             return true;
         }
         public bool TrySetIndex(int index, object? value)
@@ -1445,8 +1581,42 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             if (!IsAttached || Kind == ScriptBufferSourceKind.ArrayBuffer || index < 0 || index >= Length) return false;
             var number = value switch { double d => d, int i => i, _ => double.NaN };
             if (double.IsNaN(number)) return false;
-            Bytes[index * ElementSize] = unchecked((byte)Math.Clamp((int)number, 0, 255));
+            WriteElement(index, number);
             return true;
+        }
+        private double ReadElement(int index)
+        {
+            var span = Bytes.AsSpan(_offset + index * ElementSize, ElementSize);
+            return Kind switch
+            {
+                ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped => span[0],
+                ScriptBufferSourceKind.Int8 => unchecked((sbyte)span[0]),
+                ScriptBufferSourceKind.Uint16 => BinaryPrimitives.ReadUInt16LittleEndian(span),
+                ScriptBufferSourceKind.Int16 => BinaryPrimitives.ReadInt16LittleEndian(span),
+                ScriptBufferSourceKind.Uint32 => BinaryPrimitives.ReadUInt32LittleEndian(span),
+                ScriptBufferSourceKind.Int32 => BinaryPrimitives.ReadInt32LittleEndian(span),
+                ScriptBufferSourceKind.Float32 => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(span)),
+                ScriptBufferSourceKind.Float64 => BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(span)),
+                _ => span[0],
+            };
+        }
+        private void WriteElement(int index, double number)
+        {
+            var span = Bytes.AsSpan(_offset + index * ElementSize, ElementSize);
+            switch (Kind)
+            {
+                case ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped:
+                    span[0] = unchecked((byte)Math.Clamp((int)number, 0, 255)); break;
+                case ScriptBufferSourceKind.Int8:
+                    span[0] = unchecked((byte)(sbyte)Math.Clamp((int)number, -128, 127)); break;
+                case ScriptBufferSourceKind.Uint16: BinaryPrimitives.WriteUInt16LittleEndian(span, unchecked((ushort)number)); break;
+                case ScriptBufferSourceKind.Int16: BinaryPrimitives.WriteInt16LittleEndian(span, unchecked((short)number)); break;
+                case ScriptBufferSourceKind.Uint32: BinaryPrimitives.WriteUInt32LittleEndian(span, unchecked((uint)number)); break;
+                case ScriptBufferSourceKind.Int32: BinaryPrimitives.WriteInt32LittleEndian(span, unchecked((int)number)); break;
+                case ScriptBufferSourceKind.Float32: BinaryPrimitives.WriteInt32LittleEndian(span, BitConverter.SingleToInt32Bits((float)number)); break;
+                case ScriptBufferSourceKind.Float64: BinaryPrimitives.WriteInt64LittleEndian(span, BitConverter.DoubleToInt64Bits(number)); break;
+                default: span[0] = unchecked((byte)number); break;
+            }
         }
     }
 

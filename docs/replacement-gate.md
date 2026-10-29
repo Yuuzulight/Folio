@@ -45,46 +45,178 @@ The status table in [`docs/dependencies.md`](dependencies.md) and the milestone
 roadmap must be updated with links to this evidence. A dependency-backed pass
 or a partial Folio implementation is progress, never completion.
 
-## Verification refresh — 2026-10-28
+## Verification refresh — 2026-10-30
 
-The replacement gate remains open. The current focused native-engine/library
-probe set passes 75/75, the direct M1–M6 acceptance suites pass, and the latest
-complete Release verification passes 4,177 tests with 0 failures and 7 documented
-skips (4,184 discovered). The Folio-owned GIF/WebP/BMP fuzz targets completed
-1,167,395, 60,239 and 4,066,722 mutations respectively with zero failures. These
-are progress and safety evidence, not completion: HybridShaper still routes
-complex scripts to HarfBuzz, rasterisation still uses SkiaSharp, Jint remains the
-production JavaScript engine, and Wasmtime remains part of the native WebAssembly
-path. The complete differential corpus, production selection, parity bars and
+Current PR #658 head (`ec7a5d56`) adds the native glyph-cache cap check: parsed
+outlines and flattened paths share an 8 MiB per-font budget, and the stress
+test covers every Source Sans glyph at three tolerances. `SoftwareRasterTests`
+passes 39/39 and the full `Folio.RenderTests` Release suite passes 822/822.
+The same head's broader project-level Release checks pass `Folio.Tests`
+1997/1997 executable tests (one documented symlink skip), `Folio.WinForms.Tests`
+8/8, and `Folio.Scripting.Tests` 1411/1411.
+The font fuzz target also completed 178,885 mutated inputs from six seeds with
+zero failures in a five-second Release run.
+The decoder fuzz targets also remain clean on this head: JPEG 181,368 inputs,
+WebP 73,735 inputs, and GIF 1,307,221 inputs, all with zero failures.
+This closes the cache-cap evidence portion of #573; CFF2 non-default variation
+deltas, the broader glyph corpus and the default-backend performance gate remain
+open.
+
+The latest audit head (`fa0849fc`) extends the opaque fast path to fully
+covered solid spans, while preserving the 37/37 `SoftwareRasterTests` result.
+A short 20-frame Release run measured software replay at 73.4 ms versus 9.2
+ms for Skia at 800×600 and 49.3 ms versus 16.6 ms at 1920×1080. The spread is
+still noisy and the default-backend performance gate remains open.
+
+The latest audit head (`9f417579`) bulk-fills integral opaque RGBA rectangles
+in the Folio-owned software canvas. `SoftwareRasterTests` remains green at
+37/37. A short Release benchmark measured typical software replay at 66.0 ms
+at 800×600 and 49.2 ms at 1920×1080; these noisy measurements are evidence of
+progress only and do not satisfy the default-backend performance gate.
+
+The current audit head (`fc431f5b`) adds an exact opaque normal-source-over
+fast path to the Folio-owned compositor. `SoftwareRasterTests` remains green
+at 37/37. A fresh Release benchmark measured software replay at approximately
+69.0 ms versus Skia 8.1 ms at 800×600, and 134.0 ms versus 18.0 ms at
+1920×1080. The optimization is measurable, but the software backend is still
+well above the production performance bar, so #575 and the default-backend
+replacement gate remain open.
+
+PR #658's latest head (`3f3d2c40`) passed CI run
+[`40748439916`](https://github.com/Yuuzulight/Folio/actions/runs/40748439916)
+on both Linux and Windows, including the serialized Release suite, conformance,
+capability matrices, GPU/WebGL checks, benchmarks and fuzz stages. The current
+native conformance sweep remains 94/94 across D1–D14, and the focused
+Folio-owned JavaScript/parser/evaluator/program/library probes remain 131/131.
+These are verified behavior slices; they do not by themselves select the
+native engine for production or remove its dependency-backed transition path.
+
+The current Release benchmark records paint-only animation at 4.8 ms median /
+7.2 ms p95 for the typical dashboard and 17.4 ms median / 26.7 ms p95 for the
+busy dashboard. Software raster replay remains informational at 83.7 ms versus
+Skia's 5.7 ms at 800×600 and 163.0 ms versus 15.5 ms at 1920×1080. Therefore
+the mandatory production raster-performance gate (#575), full complex-script
+shaping gate, Jint and Wasmtime removal, and the remaining native M6 backend
+acceptance work remain open.
+
+The follow-up software-raster optimizations in PR #658 (`355831eb`, `348209b1`)
+remove a delegate allocation and bypass path construction for plain rectangles.
+A fresh local Release run measured typical software replay at 64.6 ms at
+800×600 and 155.7 ms at 1920×1080, down from 81.2 ms and 165.0 ms in the
+preceding run; typical paint-only animation remained 6.8 ms p95. This is
+measurable progress, but full-scene software replay is still above the Skia
+baseline, so it does not satisfy the default-backend switch gate.
+
+The serialized local Release suite after these changes passes 4,248 tests with
+zero failures and three documented skips (4,251 discovered).
+
+An 80-frame benchmark after the unclipped-solid-paint fast path measured 69.8
+ms at 800×600 and 84.9 ms at 1920×1080 for software replay, with typical
+paint-only p95 at 8.6 ms. The spread between runs confirms that the benchmark
+needs stabilization before the default-backend decision; these numbers are
+evidence, not a gate pass.
+
+## Verification refresh — 2026-10-30
+
+An additional Release benchmark (`Folio.Benchmarks bench 3 5`) measured the
+typical dashboard at 5.1 ms paint-only p95 and the busy dashboard at 18.8 ms
+p95. Raster replay remained 60.2 ms versus Skia's 5.9 ms at 800x600 and
+109.2 ms versus 11.6 ms at 1920x1080. The typical animation is within its
+frame target, but the busy case and software-backend gap keep #575 open.
+
+Fresh Release benchmark evidence (`Folio.Benchmarks bench 3 20`) still fails
+the production raster gate: the Folio-owned software backend replays the
+typical dashboard at 63.7 ms median versus Skia's 7.2 ms at 800x600, and 46.0
+ms versus 15.3 ms at 1920x1080. Busy-dashboard paint-only p95 is 24.2 ms
+against the 8.0 ms typical target. #575 therefore remains open.
+
+Commit `d8ff8db5` adds a direct-copy fast path for fully opaque normal-source-over
+software layers; the focused software raster suite remains 46/46. Follow-up
+30-frame benchmark samples measured 61.8 ms at 800x600 and 39.3 ms at
+1920x1080, still far above the replacement bar and subject to host noise.
+
+Commit `e089a7d7` adds an exact-pixel fast path for integral axis-aligned
+`clearRect` calls. A fresh 20-replay sample measured 57.8 ms versus Skia's
+7.0 ms at 800x600 and 43.7 versus 14.0 ms at 1920x1080; the optimization is
+useful but does not satisfy the production performance gate.
+
+The replacement gate remains open. The latest complete serialized Release
+verification passes 4,260 of 4,261 discovered tests with 0 failures and one
+environment-dependent skip (local symbolic-link privilege). The software
+canvas now has a Folio-owned baseline JPEG encoder, with scripting coverage
+round-tripping the generated bytes through Folio's decoder. The CSSOM fuzz harness now retains and replays a mutation
+that hit the configured script-memory bound; hosted CI run 40780721066 is
+green across all 14 jobs. These are regression and containment results, not
+evidence that any dependency replacement is complete.
+The focused Folio-owned JavaScript engine/parser/evaluator/program/library
+probe suites pass 131/131, and native D2–D7 conformance remains 60/60; these
+are implementation slices, not completion evidence while Jint remains in the
+production graph.
+The Folio-owned GIF/WebP/BMP fuzz targets completed 1,167,395, 60,239 and
+4,066,722 mutations respectively with zero failures. These are progress and
+safety evidence, not completion: HybridShaper still routes complex scripts to
+HarfBuzz, rasterisation still uses SkiaSharp, and Jint remains the production JavaScript engine;
+Wasmtime remains part of the native WebAssembly path.
+The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
 
-The latest Release build succeeds from `Folio.slnx` (4,177 passed, 0 failed,
-7 documented skips). The native D2–D7 probe remains 59/60: all library-card
-and canvas artifacts pass, while `D2/pantry-react-jsx` now mounts its React
-tree and reaches the click handler. Its remaining failure is the state-update
-rerender, where React's hook dispatcher exposes `g.current.useState` as
-undefined; this is tracked by #645. The canvas frame benchmark now has an
+## Verification refresh — 2026-10-29 (current audit branch)
+
+The current native scripting audit adds replacement-string tokens, regex capture
+callback arguments, enumerable `Array.from` sources, `Object.fromEntries`,
+numeric radix/precision formatting, Unicode normalization, and UTF-16
+`split('')` semantics. Focused native tests pass 81/81 and the full scripting
+suite passes 1,411/1,411. A fresh native conformance report passes D1–D14
+94/94 and S1–S6 72/72 with no mismatches, crashes, hangs, limit hits, or
+script failures.
+
+These results strengthen the Folio-owned JavaScript evidence only. Production
+still selects Jint, and the complete DOM/sandbox/resource-limit/failure corpus,
+Folio-owned raster/shaper/WebAssembly cutovers, and dependency removal remain
+mandatory before Folio completion.
+
+The latest native D2–D7 probe passes 60/60: all library-card and canvas
+artifacts pass, including `D2/pantry-react-jsx`, which now mounts and reaches
+the click handler. Native `var` declarations are hoisted across conditional
+scheduler branches (commit `c08da8bb`), fixing the previous dispatcher-binding
+corruption. The prior React `NotFoundError` diagnosis was resolved by
+labeled-break propagation in commit `b37a1f44`.
+The canvas frame benchmark now has an
 explicit native-engine mode. In the current compatibility-engine 30-frame run,
 every library-card artifact and the snake game are below 16.7 ms p95, but
-`D5/canvas-animated-bars` is 31.65 ms, dominated by script/update time, under
+`D5/canvas-animated-bars` is 46.44 ms, dominated by script/update time, under
 #519. The native 30-frame run puts every D5/D7 artifact below the target (worst
-case `D7/canvas-snake-game`: 11.06 ms), so native-mode numbers are now
+case `D7/canvas-snake-game`: 11.55 ms), so native-mode numbers are now
 acceptance evidence; native D2–D7 parity remains tracked separately.
 
 Latest focused refresh: the Folio-owned GIF/WebP decoder suite passes 26/26,
 the Folio-owned raster differential/conformance/unit suite passes 12/12, and
-the native D2–D7 matrix now passes 59/60 (D2 9/10, D3 10/10, D4 10/10, D5 10/10,
+the native D2–D7 matrix now passes 60/60 (D2–D7 each 10/10; D5 remains 10/10,
 D6 10/10, D7 10/10). These results strengthen the verified slices but do not
 close the JavaScript, raster-performance, shaping, or WebAssembly replacement
 gates.
 
-The shaping replacement now also has a checked-in differential probe covering
-Latin, digits, Greek, Cyrillic, Latin-extended and Hebrew-base runs, plus a
-deliberately perturbed kerning value that the report detects. Two explicit
-Arabic/CJK cases also prove complex runs remain on the HarfBuzz oracle until
-their gates are met (9 focused tests total). This is still only the proven
-simple-run corpus for #561; the complete per-script corpus and complex-script
-routing work remain open.
+The shaping replacement now has a checked-in differential probe covering simple
+scripts plus promoted Hebrew and Arabic complex runs, explicit Arabic joining
+forms, and a deliberately perturbed kerning value that the report detects. The
+focused suite passes 55/55, and native S6 remains 12/12. The standalone bundled
+report currently passes every listed case, and the Windows system-font report
+passes all ten available cases. Hebrew and Arabic now route through Folio's
+ComplexShaper by default; Indic, South-East Asian and other unproven scripts
+remain on the HarfBuzz oracle until their per-script corpus and routing gates
+are met.
+
+The same bundled-font evidence is reproducible without the test runner:
+`dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release
+-- shaping-differential` reports the complete checked-in bundled case list plus a
+deliberate kerning perturbation check. This is the checked-in harness evidence for #561;
+system-font coverage and the remaining complex-script corpus are still required
+before the shaping replacement as a whole can be considered complete.
+On Windows, `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj
+-c Release -- shaping-differential-system` compares Arial, Times New Roman and
+Segoe UI simple runs plus expanded Hebrew and Arabic complex runs against HarfBuzzSharp;
+the current host reports all ten PASS. The system corpus remains a local
+evidence run because installed fonts vary by host.
 
 The artifact classifier now shares the image-format contract with `ImageLoader`:
 data URLs for GIF, WebP, BMP, ICO and SVG remain in Folio alongside PNG/JPEG,
@@ -92,26 +224,29 @@ while unsupported formats such as AVIF still route to the browser. The supported
 format matrix is covered by `ArtifactClassifierTests.BuiltInImageFormatsStayInFolio`.
 
 The native-engine differential conformance probe makes the remaining JavaScript
-gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 59/60: D2
-9/10, D3 10/10, D4 10/10, D5 10/10, D6 10/10 and D7 10/10. The native D5 chart
+gate concrete: D1 passes 2/2, D2–D7 passes 60/60, and the full D1–D14 sweep
+passes 94/94.
+The native D5 chart
 bridge now renders all ten Chart.js artifacts within the reference tolerance;
-the remaining native parity failure is the React hooks interaction artifact,
-tracked in #645. These residual results are not accepted as full parity.
-The native matrix now clears the aggregate M5 category bar, but it cannot select
-the native engine as Folio's production engine until the React artifact passes.
+the React hooks interaction artifact now passes. These residual results are not
+accepted as full replacement parity.
+The native matrix now clears the aggregate M5 category bar, including the React
+hooks interaction artifact. This removes the React-specific blocker; the native
+engine still cannot replace Jint until the complete engine, sandbox and
+dependency-removal gates pass.
 
 The earlier reproducible library bootstrap and host-commit failures are resolved:
 the staged parser executes the cached minified React/ReactDOM sources, labeled
 control flow is implemented, DOM event bubbling works across host wrappers, and
-`createRoot(...).render(...)` produces the expected DOM tree. The remaining React
-failure is later in the lifecycle: a state update reaches `g.current.useState`
-as undefined. The focused MessageChannel, placement and bubbling regressions pass,
-so the remaining blocker is reconciliation/shared-internals state-update behavior.
+`createRoot(...).render(...)` produces the expected DOM tree. Function-scoped
+`var` hoisting fixes the shared-internals scheduler binding; the remaining
+blocker is broader Folio-owned replacement, not React host-parent selection. The
+focused MessageChannel, placement and bubbling regressions pass.
 
 The script runner now forwards uncaught timer, animation-frame and promise-job
-exceptions into document diagnostics. This makes the React host-commit failure
-actionable (`NotFoundError` is reported as an event-loop script error) without
-weakening DOM mutation validity.
+exceptions into document diagnostics. This historical diagnostic helped expose
+the React host-commit failure; current native D2–D7 conformance passes 60/60 and
+the DOM mutation validity checks remain strict.
 
 The UMD repair landed in `a0d2877`: native non-strict calls without an explicit
 receiver bind `this` to the global object. Subsequent native engine work also
@@ -133,23 +268,54 @@ required before the native engine can pass the React/JSX interaction artifact or
 the mandatory replacement gate.
 
 The Folio-owned software rasterizer also remains differential-only: the focused
-blur/filter suite passes 12/12, but the latest repository benchmark measured
-85.5 ms versus Skia's 8.6 ms at 800x600 (10.0x slower), and 190.6 ms versus
-15.9 ms at 1920x1080 (12.0x slower). The production performance gate and
-backend cutover therefore remain open under issue #575.
+software raster suite passes 39/39, including glyf, CFF, CFF2 and WOFF2 outline
+cases plus CBDT/CBLC, sbix and COLR colour-glyph cases. After the SIMD blur pass, the latest
+repository benchmark now measures 18.4 ms versus Skia's 5.3 ms at 800x600
+(3.5x slower), and 36.9 ms versus 10.8 ms at 1920x1080 (3.4x slower). Paint-only
+animation p95 is 7.7 ms for the typical dashboard and scroll p95 is 6.8 ms at
+800x600. The production performance gate and backend cutover therefore remain
+open under issue #575 pending the full 1920x1080 review and corpus evidence.
 
 Arabic GSUB progress (2026-10-28, commits `c3d9f83f` and `7c152852`): the Folio-owned shaper now
 selects the Arabic script's required `rlig` feature and applies format-3
 contextual substitutions, reverse-chain single substitutions and SingleSubst
 format-2 replacement records.
 Representative `سلام`, `لا` and `لم` forms match the HarfBuzz oracle; the focused
-shaping suite passes 19/19 and the full Release suite passes 4,172 tests with no
-failures. This narrows #563 but does not close it: marks, cursive attachment,
-Indic/SE Asian shaping and broad corpus coverage remain required for the mandatory
-all-Folio replacement track.
+shaping suite now passes 55/55 and Arabic is production-routed through the
+Folio-owned path. Indic/SE Asian shaping, broader system-font coverage and the
+remaining raster/engine gates are still required for the mandatory all-Folio
+replacement track.
+
+The current parser also supports contextual and chained GSUB format-1 and
+class-based format-2 rules. The Arabic corpus and current system-font probe remain
+differential evidence while the promoted path is exercised in production; the
+replacement gate stays open until all scripts and dependencies meet the same
+standard.
 
 The post-change Release verification remains green across the repository suites:
 Folio.Tests 1,961 with one documented symlink skip, RenderTests 744/744, and
 Scripting.Tests 1,390 executable tests succeeded, with six documented software skips. These results verify
 that the receiver-aware and stable-identity host fixes do not regress existing
 coverage; they do not close the React reconciliation or replacement gate.
+
+## Verification refresh — 2026-10-29 (hosted and native full-suite)
+
+Hosted CI run `40816100429` is fully green after the latest audit updates. The
+exact WinForms and native capability checks passed in the hosted matrix. The
+complete scripting suite also passes 1,412/1,412 with
+`FOLIO_SCRIPT_ENGINE=native`, so native evidence covers the full suite rather
+than only the focused parity corpus. These results strengthen the replacement
+evidence but do not remove the mandatory production dependency gates.
+
+Native RegExp now implements the previously missing sticky `y` flag contract:
+stateful `lastIndex`, anchored matching, success advancement and failure reset
+are covered by a focused regression and the full native suite.
+
+The CI capability matrix now runs every capability row through both the
+compatibility engine and the Folio-owned native engine. The native process
+matrix and WinForms lifecycle slice pass locally for the `all` row (12/12 and
+8/8), making hosted sandbox coverage a required regression gate instead of an
+opt-in probe.
+The Windows build also runs the complete conformance report with
+`FOLIO_CONFORMANCE_ENGINE=native`; native conformance is therefore a hosted CI
+requirement rather than a local-only verification command.

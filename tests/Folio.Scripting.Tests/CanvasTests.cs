@@ -241,7 +241,6 @@ public class CanvasTests
     [Fact]
     public void ToDataUrlEncodesThePixels()
     {
-        Assert.SkipWhen(UsesSoftwareRaster, "The software backend encodes PNG only (#568 follow-up: a JPEG encoder).");
         using var page = new Page(this);
         page.Js("ctx.fillStyle = 'red'; ctx.fillRect(0, 0, 100, 60); ''");
         var url = page.Js("canvas.toDataURL()");
@@ -252,8 +251,29 @@ public class CanvasTests
         Assert.NotNull(decoded);
         Assert.Equal((100, 60), (decoded.Width, decoded.Height));
         Assert.Equal(new byte[] { 255, 0, 0, 255 }, decoded.Pixels[..4]);
-        Assert.StartsWith("data:image/jpeg;base64,", page.Js("canvas.toDataURL('image/jpeg', 0.5)"));
+        var jpeg = page.Js("canvas.toDataURL('image/jpeg', 0.5)");
+        Assert.StartsWith("data:image/jpeg;base64,", jpeg);
+        var jpegBytes = Convert.FromBase64String(jpeg["data:image/jpeg;base64,".Length..]);
+        var jpegDecoded = Folio.Imaging.ImageLoader.Decode(jpegBytes);
+        Assert.NotNull(jpegDecoded);
+        Assert.Equal((100, 60), (jpegDecoded.Width, jpegDecoded.Height));
         Assert.StartsWith("data:image/png;base64,", page.Js("canvas.toDataURL('image/unknown')"));
+    }
+
+    [Fact]
+    public void SoftwareJpegExportHandlesTransparencyAndQualityBounds()
+    {
+        using var page = new Page(this);
+        page.Js("ctx.fillStyle = 'rgba(0, 0, 255, 0.5)'; ctx.fillRect(0, 0, 12, 8); ''");
+        foreach (var quality in new[] { 0, 1 })
+        {
+            var url = page.Js($"canvas.toDataURL('image/jpeg', {quality})");
+            Assert.StartsWith("data:image/jpeg;base64,", url);
+            var bytes = Convert.FromBase64String(url["data:image/jpeg;base64,".Length..]);
+            var decoded = Folio.Imaging.ImageLoader.Decode(bytes);
+            Assert.NotNull(decoded);
+            Assert.Equal((100, 60), (decoded.Width, decoded.Height));
+        }
     }
 
     [Fact]
@@ -1200,7 +1220,6 @@ public class CanvasTests
     [InlineData("Noto Sans JP", "こんにちは世界")]
     public void MeasureTextAgreesWithInlineLayoutForTheSameText(string family, string text)
     {
-        Assert.SkipWhen(UsesSoftwareRaster, "The software backend measures Arabic and Hebrew runs without the shaper's mark positioning (#561 and after).");
         using var page = new Page(this, $"<canvas id='c' width='100' height='60'></canvas><div style=\"position:absolute;top:0;left:0;white-space:nowrap\"><span id='t' style=\"font:30px '{family}'\">{text}</span></div>", fonts: true);
         page.Document.Paint(800, 600, 1, new HarfBuzzShaper());
         var span = page.Document.Node.Descendants.OfType<Folio.Dom.ElementNode>().Single(e => e.LocalName == "span");

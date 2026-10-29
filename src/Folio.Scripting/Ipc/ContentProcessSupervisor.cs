@@ -11,6 +11,7 @@ public sealed class ContentProcessSupervisor : IDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ContentProcessLimits _limits;
     private long _lastHeartbeat = Environment.TickCount64;
+    private int _receivedHeartbeat;
     private int _stopped;
 
     public ContentProcessSupervisor(ContentProcessLimits? limits = null) => _limits = limits ?? new ContentProcessLimits();
@@ -18,7 +19,11 @@ public sealed class ContentProcessSupervisor : IDisposable
     public event Action<string>? Stopped;
     public CancellationToken CancellationToken => _shutdown.Token;
 
-    public void Heartbeat() => Interlocked.Exchange(ref _lastHeartbeat, Environment.TickCount64);
+    public void Heartbeat()
+    {
+        Interlocked.Exchange(ref _lastHeartbeat, Environment.TickCount64);
+        Volatile.Write(ref _receivedHeartbeat, 1);
+    }
 
     public bool CheckMemory(long workingSetBytes)
     {
@@ -31,7 +36,16 @@ public sealed class ContentProcessSupervisor : IDisposable
     public bool CheckHeartbeat()
     {
         if (IsStopped) return false;
-        if (Environment.TickCount64 - Interlocked.Read(ref _lastHeartbeat) <= _limits.EffectiveHeartbeatTimeout.TotalMilliseconds) return true;
+        var elapsed = Environment.TickCount64 - Interlocked.Read(ref _lastHeartbeat);
+        // Process startup includes loading the runtime and opening the sandboxed
+        // host. Under a saturated machine that can exceed the normal liveness
+        // interval before the child has read its first heartbeat. Give only
+        // that pre-handshake window a bounded grace period; once the child has
+        // answered, the configured watchdog remains strict.
+        var startupGrace = Volatile.Read(ref _receivedHeartbeat) == 0 && _limits.EffectiveHeartbeatTimeout > TimeSpan.Zero
+            ? _limits.EffectiveHeartbeatTimeout.TotalMilliseconds + 10_000
+            : _limits.EffectiveHeartbeatTimeout.TotalMilliseconds;
+        if (elapsed <= startupGrace) return true;
         Stop("content process heartbeat timed out");
         return false;
     }

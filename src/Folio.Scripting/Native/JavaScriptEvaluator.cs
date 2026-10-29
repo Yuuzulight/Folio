@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Runtime.CompilerServices;
 
@@ -122,7 +123,7 @@ internal sealed class JavaScriptEvaluator
 
     internal object? Execute(IReadOnlyList<JavaScriptStatement> statements)
     {
-        try { return ExecuteCore(statements); }
+        try { HoistVariables(statements); return ExecuteCore(statements); }
         catch (ReturnSignal returned) { return returned.Value; }
     }
 
@@ -130,10 +131,82 @@ internal sealed class JavaScriptEvaluator
     {
         try
         {
+            HoistVariables(statements);
             ExecuteCore(statements);
             return UndefinedOrNull();
         }
         catch (ReturnSignal returned) { return returned.Value; }
+    }
+
+    private void HoistVariables(IReadOnlyList<JavaScriptStatement> statements)
+    {
+        foreach (var statement in statements)
+        {
+            switch (statement)
+            {
+                case JavaScriptVariableStatement variable:
+                    HoistBinding(variable.Name);
+                    break;
+                case JavaScriptBlockStatement block:
+                    HoistVariables(block.Statements);
+                    break;
+                case JavaScriptIfStatement conditional:
+                    HoistStatement(conditional.Then);
+                    if (conditional.Else is { } alternative) HoistStatement(alternative);
+                    break;
+                case JavaScriptWhileStatement loop:
+                    HoistStatement(loop.Body);
+                    break;
+                case JavaScriptDoWhileStatement loop:
+                    HoistStatement(loop.Body);
+                    break;
+                case JavaScriptForStatement loop:
+                    if (loop.Initializer is { } initializer) HoistStatement(initializer);
+                    HoistStatement(loop.Body);
+                    break;
+                case JavaScriptForEachStatement each:
+                    HoistBinding(each.Name);
+                    HoistStatement(each.Body);
+                    break;
+                case JavaScriptLabeledStatement labeled:
+                    HoistStatement(labeled.Body);
+                    break;
+                case JavaScriptWithStatement with:
+                    HoistStatement(with.Body);
+                    break;
+                case JavaScriptTryStatement guarded:
+                    HoistVariables(guarded.Body.Statements);
+                    if (guarded.CatchName is { } catchName) HoistBinding(catchName);
+                    if (guarded.CatchBody is { } catchBody) HoistVariables(catchBody.Statements);
+                    if (guarded.FinallyBody is { } finallyBody) HoistVariables(finallyBody.Statements);
+                    break;
+                case JavaScriptSwitchStatement selection:
+                    foreach (var @case in selection.Cases) HoistVariables(@case.Statements);
+                    break;
+            }
+        }
+    }
+
+    private void HoistStatement(JavaScriptStatement statement) => HoistVariables([statement]);
+
+    private void HoistBinding(string name)
+    {
+        if (name.StartsWith("[", StringComparison.Ordinal) && name.EndsWith("]", StringComparison.Ordinal))
+        {
+            foreach (var item in name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+                if (!item.StartsWith("...", StringComparison.Ordinal)) HoistBinding(item.Trim());
+            return;
+        }
+        if (name.StartsWith("{", StringComparison.Ordinal) && name.EndsWith("}", StringComparison.Ordinal))
+        {
+            foreach (var item in name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = item.Split(':', 2);
+                HoistBinding((parts.Length == 2 ? parts[1] : parts[0]).Trim());
+            }
+            return;
+        }
+        if (name.Length != 0) _bindings.TryAdd(name, UndefinedValue.Instance);
     }
 
     private object? ExecuteCore(IReadOnlyList<JavaScriptStatement> statements)
@@ -293,7 +366,10 @@ internal sealed class JavaScriptEvaluator
                             if (activeCase) ExecuteCore(@case.Statements);
                         }
                     }
-                    catch (BreakSignal) { }
+                    // An unlabeled break exits the switch. A labeled break may
+                    // target an enclosing labeled statement and must continue
+                    // propagating until that label handles it.
+                    catch (BreakSignal signal) when (signal.Label is null) { }
                     break;
                 case JavaScriptReturnStatement returned: throw new ReturnSignal(returned.Expression is null ? UndefinedOrNull() : Evaluate(returned.Expression));
                 case JavaScriptYieldStatement yielded:
@@ -518,6 +594,9 @@ internal sealed class JavaScriptEvaluator
             case JavaScriptMemberExpression member when Evaluate(member.Target) is NativeJavaScriptEngine.INativeHostObject host:
                 if (!host.TrySetSetValue(member.Name, assigned) && !host.TrySetPrototypeValue(member.Name, assigned))
                     throw new InvalidDataException($"Host property '{member.Name}' is read-only.");
+                break;
+            case JavaScriptMemberExpression member when Evaluate(member.Target) is RegexValue regex && member.Name == "lastIndex":
+                regex.LastIndex = Math.Max(0, (int)Number(assigned));
                 break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is IDictionary<string, object?> properties:
                 if (properties.TryGetValue(member.Name, out var existing)
@@ -758,6 +837,13 @@ internal sealed class JavaScriptEvaluator
             if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => nativeFunction.Invoke(args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : []));
         }
         if (target is NativeJavaScriptEngine.INativePromise promise && promise.TryGetProperty(name, out var promiseValue)) return promiseValue;
+        if (target is NativeJavaScriptEngine.NativeDate date)
+        {
+            if (name is "getTime" or "valueOf") return (Func<IReadOnlyList<object?>, object?>)(_ => date.Milliseconds);
+            if (name == "toISOString") return (Func<IReadOnlyList<object?>, object?>)(_ => double.IsNaN(date.Milliseconds)
+                ? FormatDateInvalid()
+                : DateTimeOffset.FromUnixTimeMilliseconds((long)date.Milliseconds).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture));
+        }
         if (target is IList<object?> values)
         {
             if (name == "length") return (double)values.Count;
@@ -767,12 +853,42 @@ internal sealed class JavaScriptEvaluator
         if (target is double or int or long)
         {
             if (name == "toString")
-                return (Func<IReadOnlyList<object?>, object?>)(args => StringValue(target));
+                return (Func<IReadOnlyList<object?>, object?>)(args =>
+                {
+                    var number = Number(target);
+                    var radix = args.Count == 0 ? 10 : (int)Number(args[0]);
+                    if (radix == 10) return StringValue(number);
+                    if (radix is < 2 or > 36) throw WebIdlException.RangeError("Number radix must be between 2 and 36.");
+                    if (double.IsNaN(number) || double.IsInfinity(number)) return StringValue(number);
+                    if (number == Math.Truncate(number)) return Convert.ToString((long)number, radix) ?? string.Empty;
+                    return number.ToString(CultureInfo.InvariantCulture);
+                });
             if (name == "toFixed")
                 return (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
                     var digits = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, 100) : 0;
                     return Number(target).ToString($"F{digits}", CultureInfo.InvariantCulture);
+                });
+            if (name == "toExponential")
+                return (Func<IReadOnlyList<object?>, object?>)(args =>
+                {
+                    var number = Number(target);
+                    if (double.IsNaN(number) || double.IsInfinity(number)) return StringValue(number);
+                    var digits = args.Count == 0 ? 15 : Math.Clamp((int)Number(args[0]), 0, 100);
+                    var formatted = number.ToString($"E{digits}", CultureInfo.InvariantCulture);
+                    var separator = formatted.IndexOf('E');
+                    if (separator < 0) return formatted;
+                    var exponent = int.Parse(formatted.AsSpan(separator + 1), CultureInfo.InvariantCulture);
+                    var mantissa = formatted[..separator].TrimEnd('0').TrimEnd('.');
+                    return $"{mantissa}e{(exponent >= 0 ? "+" : string.Empty)}{exponent}";
+                });
+            if (name == "toPrecision")
+                return (Func<IReadOnlyList<object?>, object?>)(args =>
+                {
+                    var number = Number(target);
+                    if (args.Count == 0 || args[0] is UndefinedValue) return StringValue(number);
+                    var precision = Math.Clamp((int)Number(args[0]), 1, 100);
+                    return number.ToString($"G{precision}", CultureInfo.InvariantCulture);
                 });
             if (name == "toLocaleString")
                 return (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -898,40 +1014,125 @@ internal sealed class JavaScriptEvaluator
         private readonly Regex _regex;
         internal string Source { get; }
         internal string Flags { get; }
-        private RegexValue(Regex regex, string source, string flags) { _regex = regex; Source = source; Flags = flags; }
+        internal int LastIndex { get; set; }
+        private RegexValue(Regex regex, string source, string flags) { _regex = regex; Source = source; Flags = CanonicalFlags(flags); }
+        private static string CanonicalFlags(string flags)
+        {
+            const string order = "dgimsuvy";
+            return string.Concat(order.Where(flags.Contains));
+        }
+        internal IReadOnlyDictionary<string, object?>? NamedGroups(Match match)
+        {
+            var names = _regex.GetGroupNames().Where(name => !int.TryParse(name, out _)).ToArray();
+            if (names.Length == 0) return null;
+            var groups = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var name in names) groups[name] = match.Groups[name].Success ? match.Groups[name].Value : JavaScriptEvaluator.UndefinedValue.Instance;
+            return groups;
+        }
         internal static RegexValue Create(string source)
         {
             var slash = source.LastIndexOf('/');
             var pattern = slash > 0 ? source[1..slash] : source;
             var flags = slash > 0 ? source[(slash + 1)..] : string.Empty;
-            var options = flags.Contains('i') ? RegexOptions.IgnoreCase : RegexOptions.None;
+            var options = RegexOptions.None;
+            if (flags.Contains('i')) options |= RegexOptions.IgnoreCase;
+            if (flags.Contains('m')) options |= RegexOptions.Multiline;
+            if (flags.Contains('s')) options |= RegexOptions.Singleline;
             return new RegexValue(new Regex(pattern, options, TimeSpan.FromMilliseconds(100)), pattern, flags);
         }
         internal bool TryGetProperty(string name, out object? value)
         {
             value = name switch
             {
-                "test" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && _regex.IsMatch(StringValue(args[0]))),
+                "source" => Source,
+                "flags" => Flags,
+                "global" => Flags.Contains('g'),
+                "lastIndex" => (double)LastIndex,
+                "ignoreCase" => Flags.Contains('i'),
+                "multiline" => Flags.Contains('m'),
+                "dotAll" => Flags.Contains('s'),
+                "unicode" => Flags.Contains('u'),
+                "sticky" => Flags.Contains('y'),
+                "test" => (Func<IReadOnlyList<object?>, object?>)(args =>
+                {
+                    if (args.Count == 0) return false;
+                    try { return Execute(StringValue(args[0])) is not null; }
+                    catch (RegexMatchTimeoutException) { return false; }
+                }),
                 "exec" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
                     if (args.Count == 0) return null;
-                    var match = _regex.Match(StringValue(args[0]));
-                    return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+                    try
+                    {
+                        var match = Execute(StringValue(args[0]));
+                        return match is not null ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+                    }
+                    catch (RegexMatchTimeoutException) { return null; }
                 }),
                 _ => null,
             };
             return value is not null;
         }
+        private Match? Execute(string input)
+        {
+            var stateful = Flags.Contains('g') || Flags.Contains('y');
+            var start = stateful ? Math.Clamp(LastIndex, 0, input.Length) : 0;
+            var match = _regex.Match(input, start);
+            if (Flags.Contains('y') && match.Success && match.Index != start)
+            {
+                LastIndex = 0;
+                return null;
+            }
+            if (stateful)
+                LastIndex = match.Success ? match.Index + match.Length : 0;
+            return match.Success ? match : null;
+        }
         internal object? Match(string input)
         {
-            if (Flags.Contains('g'))
-                return _regex.Matches(input).Cast<Match>().Select(match => (object?)match.Value).ToArray();
-            var match = _regex.Match(input);
-            return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+            try
+            {
+                if (Flags.Contains('g'))
+                    return _regex.Matches(input).Cast<Match>().Select(match => (object?)match.Value).ToArray();
+                var match = _regex.Match(input);
+                return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+            }
+            catch (RegexMatchTimeoutException) { return null; }
         }
-        internal string Replace(string input, Func<string, string> replacement) => _regex.Replace(input, match => replacement(match.Value));
-        internal string Replace(string input, string replacement) => _regex.Replace(input, replacement);
-        internal string[] Split(string input) => _regex.Split(input);
+        internal object?[] MatchAll(string input)
+        {
+            try
+            {
+                return _regex.Matches(input)
+                    .Cast<Match>()
+                    .Select(match => (object?)match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray())
+                    .ToArray();
+            }
+            catch (RegexMatchTimeoutException) { return []; }
+        }
+        internal int Search(string input)
+        {
+            try
+            {
+                var match = _regex.Match(input);
+                return match.Success ? match.Index : -1;
+            }
+            catch (RegexMatchTimeoutException) { return -1; }
+        }
+        internal string Replace(string input, MatchEvaluator replacement, bool all)
+        {
+            try { return all ? _regex.Replace(input, replacement) : _regex.Replace(input, replacement, 1); }
+            catch (RegexMatchTimeoutException) { return input; }
+        }
+        internal string Replace(string input, string replacement, bool all)
+        {
+            try { return all ? _regex.Replace(input, replacement) : _regex.Replace(input, replacement, 1); }
+            catch (RegexMatchTimeoutException) { return input; }
+        }
+        internal string[] Split(string input)
+        {
+            try { return _regex.Split(input); }
+            catch (RegexMatchTimeoutException) { return [input]; }
+        }
     }
 
     private static bool TryArrayMethod(IList<object?> values, string name, out object? method)
@@ -939,13 +1140,83 @@ internal sealed class JavaScriptEvaluator
         method = name switch
         {
             "join" => (Func<IReadOnlyList<object?>, object?>)(args => string.Join(args.Count > 0 ? StringValue(args[0]) : ",", values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(value)))),
-            "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => Enumerable.Range(0, values.Count).FirstOrDefault(index => Equals(values[index], args.Count > 0 ? args[0] : null), -1)),
-            "includes" => (Func<IReadOnlyList<object?>, object?>)(args => values.Any(item => Equals(item, args.Count > 0 ? args[0] : null))),
+            "toString" => (Func<IReadOnlyList<object?>, object?>)(_ => string.Join(",", values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(value)))),
+            "keys" => (Func<IReadOnlyList<object?>, object?>)(_ => Enumerable.Range(0, values.Count).Select(index => (object?)(double)index).ToArray()),
+            "values" => (Func<IReadOnlyList<object?>, object?>)(_ => values.ToArray()),
+            "entries" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Select((item, index) => (object?)new object?[] { (double)index, item }).ToArray()),
+            "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return -1d;
+                var start = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, 0);
+                return (double)Enumerable.Range(start, Math.Max(0, values.Count - start)).FirstOrDefault(index => Equals(values[index], args[0]), -1);
+            }),
+            "lastIndexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return -1d;
+                var start = args.Count > 1 && args[1] is not null and not JavaScriptEvaluator.UndefinedValue
+                    ? (int)Number(args[1])
+                    : values.Count - 1;
+                if (start < 0) start += values.Count;
+                start = Math.Min(start, values.Count - 1);
+                for (var index = start; index >= 0; index--)
+                    if (Equals(values[index], args[0])) return (double)index;
+                return -1d;
+            }),
+            "at" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var index = args.Count == 0 ? 0 : (int)Number(args[0]);
+                if (index < 0) index += values.Count;
+                return index < 0 || index >= values.Count ? JavaScriptEvaluator.UndefinedValue.Instance : values[index];
+            }),
+            "includes" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return values.Count > 0 && values.Any(item => item is null or JavaScriptEvaluator.UndefinedValue);
+                var start = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, 0);
+                return values.Skip(start).Any(item => SameValueZero(item, args[0]));
+            }),
             "push" => (Func<IReadOnlyList<object?>, object?>)(args => { foreach (var value in args) values.Add(value); return (double)values.Count; }),
-            "pop" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? null : Pop(values)),
-            "shift" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? null : Shift(values)),
+            "pop" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? JavaScriptEvaluator.UndefinedValue.Instance : Pop(values)),
+            "shift" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? JavaScriptEvaluator.UndefinedValue.Instance : Shift(values)),
             "unshift" => (Func<IReadOnlyList<object?>, object?>)(args => { for (var i = args.Count - 1; i >= 0; i--) values.Insert(0, args[i]); return (double)values.Count; }),
             "splice" => (Func<IReadOnlyList<object?>, object?>)(args => Splice(values, args)),
+            "reverse" => (Func<IReadOnlyList<object?>, object?>)(_ =>
+            {
+                for (int left = 0, right = values.Count - 1; left < right; left++, right--)
+                    (values[left], values[right]) = (values[right], values[left]);
+                return values;
+            }),
+            "fill" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var item = args.Count > 0 ? args[0] : JavaScriptEvaluator.UndefinedValue.Instance;
+                var start = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, 0);
+                var end = RelativeArrayIndex(args.Count > 2 ? args[2] : null, values.Count, values.Count);
+                for (var i = start; i < end; i++) values[i] = item;
+                return values;
+            }),
+            "copyWithin" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var target = RelativeArrayIndex(args.Count > 0 ? args[0] : null, values.Count, 0);
+                var start = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, 0);
+                var end = RelativeArrayIndex(args.Count > 2 ? args[2] : null, values.Count, values.Count);
+                var copied = values.Skip(start).Take(Math.Max(0, end - start)).ToArray();
+                for (var i = 0; i < copied.Length && target + i < values.Count; i++) values[target + i] = copied[i];
+                return values;
+            }),
+            "with" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var index = args.Count == 0 ? 0 : (int)Number(args[0]);
+                if (index < 0) index += values.Count;
+                if (index < 0 || index >= values.Count) throw WebIdlException.RangeError("Array.prototype.with index is out of range.");
+                var copy = values.ToArray();
+                copy[index] = args.Count > 1 ? args[1] : JavaScriptEvaluator.UndefinedValue.Instance;
+                return copy;
+            }),
+            "toSpliced" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var copy = values.ToList();
+                Splice(copy, args);
+                return copy;
+            }),
             "map" => (Func<IReadOnlyList<object?>, object?>)(args => Map(values, args, filter: false)),
             "flatMap" => (Func<IReadOnlyList<object?>, object?>)(args => FlatMap(values, args)),
             "flat" => (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -956,7 +1227,11 @@ internal sealed class JavaScriptEvaluator
             "filter" => (Func<IReadOnlyList<object?>, object?>)(args => Map(values, args, filter: true)),
             "forEach" => (Func<IReadOnlyList<object?>, object?>)(args => { _ = Map(values, args, filter: false, discard: true); return null; }),
             "reduce" => (Func<IReadOnlyList<object?>, object?>)(args => Reduce(values, args)),
+            "reduceRight" => (Func<IReadOnlyList<object?>, object?>)(args => ReduceRight(values, args)),
             "find" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "find")),
+            "findIndex" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "findIndex")),
+            "findLast" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "findLast")),
+            "findLastIndex" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "findLastIndex")),
             "some" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "some")),
             "every" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "every")),
             "sort" => (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -986,6 +1261,21 @@ internal sealed class JavaScriptEvaluator
                 sorted.Sort(comparison);
                 for (var i = 0; i < sorted.Count; i++) values[i] = sorted[i];
                 return values;
+            }),
+            "toReversed" => (Func<IReadOnlyList<object?>, object?>)(args => values.Reverse().ToArray()),
+            "toSorted" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var copy = values.ToList();
+                var comparison = args.Count > 0 && IsCallable(args[0])
+                    ? new Comparison<object?>((left, right) =>
+                    {
+                        TryInvoke(args[0], [left, right], out var result);
+                        var number = result switch { double d => d, int i => i, long l => l, _ => Number(result) };
+                        return double.IsNaN(number) ? 0 : Math.Clamp((int)Math.Sign(number), -1, 1);
+                    })
+                    : (left, right) => string.Compare(StringValue(left), StringValue(right), StringComparison.Ordinal);
+                copy.Sort(comparison);
+                return copy.ToArray();
             }),
             "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
@@ -1017,6 +1307,11 @@ internal sealed class JavaScriptEvaluator
         return integer < 0 ? Math.Max(length + integer, 0) : Math.Min(integer, length);
     }
 
+    private static bool SameValueZero(object? left, object? right) =>
+        left is double leftNumber && right is double rightNumber
+            ? leftNumber == rightNumber || (double.IsNaN(leftNumber) && double.IsNaN(rightNumber))
+            : Equals(left, right);
+
     private static object? Pop(IList<object?> values)
     {
         var index = values.Count - 1;
@@ -1034,7 +1329,8 @@ internal sealed class JavaScriptEvaluator
 
     private static object?[] Splice(IList<object?> values, IReadOnlyList<object?> args)
     {
-        var start = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, values.Count) : 0;
+        var requestedStart = args.Count > 0 ? (int)Number(args[0]) : 0;
+        var start = requestedStart < 0 ? Math.Max(values.Count + requestedStart, 0) : Math.Min(requestedStart, values.Count);
         var deleteCount = args.Count > 1 ? Math.Clamp((int)Number(args[1]), 0, values.Count - start) : values.Count - start;
         var removed = values.Skip(start).Take(deleteCount).ToArray();
         for (var i = 0; i < deleteCount; i++) values.RemoveAt(start);
@@ -1044,7 +1340,7 @@ internal sealed class JavaScriptEvaluator
 
     private static object? Map(IList<object?> values, IReadOnlyList<object?> args, bool filter, bool discard = false)
     {
-        if (args.Count == 0 || !IsCallable(args[0])) return Array.Empty<object?>();
+        RequireCallable(args, "Array callback must be callable.");
         var result = new List<object?>();
         for (var i = 0; i < values.Count; i++)
         {
@@ -1056,7 +1352,7 @@ internal sealed class JavaScriptEvaluator
 
     private static object?[] FlatMap(IList<object?> values, IReadOnlyList<object?> args)
     {
-        if (args.Count == 0 || !IsCallable(args[0])) return [];
+        RequireCallable(args, "Array callback must be callable.");
         var result = new List<object?>();
         for (var i = 0; i < values.Count; i++)
         {
@@ -1082,29 +1378,50 @@ internal sealed class JavaScriptEvaluator
 
     private static object? Reduce(IList<object?> values, IReadOnlyList<object?> args)
     {
-        if (args.Count == 0 || !IsCallable(args[0])) return null;
+        if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array.prototype.reduce callback must be callable.");
+        if (args.Count < 2 && values.Count == 0) throw WebIdlException.TypeError("Reduce of empty array with no initial value.");
         var index = args.Count > 1 ? 0 : 1;
-        object? accumulator = args.Count > 1 ? args[1] : values.Count > 0 ? values[0] : null;
+        object? accumulator = args.Count > 1 ? args[1] : values[0];
         for (; index < values.Count; index++) TryInvoke(args[0], [accumulator, values[index], (double)index, values], out accumulator);
+        return accumulator;
+    }
+
+    private static object? ReduceRight(IList<object?> values, IReadOnlyList<object?> args)
+    {
+        if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array.prototype.reduceRight callback must be callable.");
+        if (args.Count < 2 && values.Count == 0) throw WebIdlException.TypeError("Reduce of empty array with no initial value.");
+        var index = args.Count > 1 ? values.Count - 1 : values.Count - 2;
+        object? accumulator = args.Count > 1 ? args[1] : values[^1];
+        for (; index >= 0; index--) TryInvoke(args[0], [accumulator, values[index], (double)index, values], out accumulator);
         return accumulator;
     }
 
     private static object? Find(IList<object?> values, IReadOnlyList<object?> args, string mode)
     {
-        if (args.Count == 0 || !IsCallable(args[0]))
-            return mode == "every";
-        for (var i = 0; i < values.Count; i++)
+        RequireCallable(args, "Array callback must be callable.");
+        var reverse = mode is "findLast" or "findLastIndex";
+        var first = reverse ? values.Count - 1 : 0;
+        var last = reverse ? -1 : values.Count;
+        var step = reverse ? -1 : 1;
+        for (var i = first; i != last; i += step)
         {
             TryInvoke(args[0], [values[i], (double)i, values], out var callbackResult);
             var matched = Truth(callbackResult);
             if (mode == "find" && matched) return values[i];
+            if (mode == "findIndex" && matched) return (double)i;
+            if (mode == "findLast" && matched) return values[i];
+            if (mode == "findLastIndex" && matched) return (double)i;
             if (mode == "some" && matched) return true;
             if (mode == "every" && !matched) return false;
         }
-        return mode switch { "find" => UndefinedValue.Instance, "some" => false, _ => true };
+        return mode switch { "find" or "findLast" or "findIndex" or "findLastIndex" => mode is "find" or "findLast" ? UndefinedValue.Instance : -1d, "some" => false, _ => true };
     }
 
     internal static bool IsCallable(object? value) => value is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable;
+    private static void RequireCallable(IReadOnlyList<object?> args, string message)
+    {
+        if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError(message);
+    }
     private static bool TryInvoke(object? value, IReadOnlyList<object?> args, out object? result)
     {
         switch (value)
@@ -1124,22 +1441,107 @@ internal sealed class JavaScriptEvaluator
         {
             "toUpperCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToUpperInvariant()),
             "toLowerCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToLowerInvariant()),
-            "includes" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && value.Contains(StringValue(args[0]), StringComparison.Ordinal)),
-            "startsWith" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && value.StartsWith(StringValue(args[0]), StringComparison.Ordinal)),
-            "endsWith" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && value.EndsWith(StringValue(args[0]), StringComparison.Ordinal)),
+            "toLocaleUpperCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToUpperInvariant()),
+            "toLocaleLowerCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToLowerInvariant()),
+            "concat" => (Func<IReadOnlyList<object?>, object?>)(args => value + string.Concat(args.Select(StringValue))),
+            "toString" => (Func<IReadOnlyList<object?>, object?>)(_ => value),
+            "valueOf" => (Func<IReadOnlyList<object?>, object?>)(_ => value),
+            "includes" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return false;
+                var needle = StringValue(args[0]);
+                var start = Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : 0, 0, value.Length);
+                return value.IndexOf(needle, start, StringComparison.Ordinal) >= 0;
+            }),
+            "startsWith" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return false;
+                var needle = StringValue(args[0]);
+                var start = Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : 0, 0, value.Length);
+                return start + needle.Length <= value.Length && value.AsSpan(start, needle.Length).SequenceEqual(needle.AsSpan());
+            }),
+            "endsWith" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return false;
+                var needle = StringValue(args[0]);
+                var end = Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : value.Length, 0, value.Length);
+                return needle.Length <= end && value.AsSpan(end - needle.Length, needle.Length).SequenceEqual(needle.AsSpan());
+            }),
             "localeCompare" => (Func<IReadOnlyList<object?>, object?>)(args => (double)string.Compare(value, args.Count > 0 ? StringValue(args[0]) : string.Empty, StringComparison.CurrentCulture)),
             "replace" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count < 2) return value;
                 if (args[0] is RegexValue regex)
-                    return IsCallable(args[1]) ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match]))) : regex.Replace(value, StringValue(args[1]));
+                    return IsCallable(args[1])
+                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], ReplacementCallbackArgs(regex, match, value))), regex.Flags.Contains('g'))
+                        : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match, value), regex.Flags.Contains('g'));
                 if (IsCallable(args[1]))
                 {
                     var needle = StringValue(args[0]);
                     var index = value.IndexOf(needle, StringComparison.Ordinal);
-                    return index < 0 ? value : value[..index] + StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [needle])) + value[(index + needle.Length)..];
+                    return index < 0 ? value : value[..index] + StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [needle, (double)index, value])) + value[(index + needle.Length)..];
                 }
-                return value.Replace(StringValue(args[0]), StringValue(args[1]), StringComparison.Ordinal);
+                var literalNeedle = StringValue(args[0]);
+                var position = value.IndexOf(literalNeedle, StringComparison.Ordinal);
+                return position < 0
+                    ? value
+                    : value[..position] + ExpandReplacement(StringValue(args[1]), literalNeedle, position, value) + value[(position + literalNeedle.Length)..];
+            }),
+            "replaceAll" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count < 2) return value;
+                if (args[0] is RegexValue regex)
+                {
+                    if (!regex.Flags.Contains('g'))
+                        throw WebIdlException.TypeError("String.prototype.replaceAll requires a global regular expression.");
+                    return IsCallable(args[1])
+                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], ReplacementCallbackArgs(regex, match, value))), all: true)
+                        : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match, value), all: true);
+                }
+                if (IsCallable(args[1]))
+                {
+                    var needle = StringValue(args[0]);
+                    var builder = new System.Text.StringBuilder(value.Length);
+                    if (needle.Length == 0)
+                    {
+                        for (var index = 0; index <= value.Length; index++)
+                        {
+                            builder.Append(StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [string.Empty, (double)index, value])));
+                            if (index < value.Length) builder.Append(value[index]);
+                        }
+                        return builder.ToString();
+                    }
+                    for (var start = 0; start < value.Length;)
+                    {
+                        var index = value.IndexOf(needle, start, StringComparison.Ordinal);
+                        if (index < 0) { builder.Append(value, start, value.Length - start); break; }
+                        builder.Append(value, start, index - start);
+                        builder.Append(StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [needle, (double)index, value])));
+                        start = index + needle.Length;
+                    }
+                    return builder.ToString();
+                }
+                var allNeedle = StringValue(args[0]);
+                var allReplacement = StringValue(args[1]);
+                var allBuilder = new System.Text.StringBuilder(value.Length);
+                if (allNeedle.Length == 0)
+                {
+                    for (var index = 0; index <= value.Length; index++)
+                    {
+                        allBuilder.Append(ExpandReplacement(allReplacement, string.Empty, index, value));
+                        if (index < value.Length) allBuilder.Append(value[index]);
+                    }
+                    return allBuilder.ToString();
+                }
+                for (var allStart = 0; allStart < value.Length;)
+                {
+                    var allIndex = value.IndexOf(allNeedle, allStart, StringComparison.Ordinal);
+                    if (allIndex < 0) { allBuilder.Append(value, allStart, value.Length - allStart); break; }
+                    allBuilder.Append(value, allStart, allIndex - allStart);
+                    allBuilder.Append(ExpandReplacement(allReplacement, allNeedle, allIndex, value));
+                    allStart = allIndex + allNeedle.Length;
+                }
+                return allBuilder.ToString();
             }),
             "match" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
@@ -1149,21 +1551,127 @@ internal sealed class JavaScriptEvaluator
                 var index = value.IndexOf(needle, StringComparison.Ordinal);
                 return index < 0 ? null : new object?[] { needle };
             }),
-            "split" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0
-                ? new List<object?> { value }
-                : args[0] is RegexValue regex
-                    ? regex.Split(value).Cast<object?>().ToList()
-                    : value.Split(StringValue(args[0]), StringSplitOptions.None).Cast<object?>().ToList()),
+            "search" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return (double)value.IndexOf("undefined", StringComparison.Ordinal);
+                if (args[0] is RegexValue regex)
+                    return (double)regex.Search(value);
+                return (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal);
+            }),
+            "matchAll" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return Array.Empty<object?>();
+                if (args[0] is RegexValue regex)
+                {
+                    if (!regex.Flags.Contains('g'))
+                        throw WebIdlException.TypeError("String.prototype.matchAll requires a global regular expression.");
+                    return regex.MatchAll(value);
+                }
+                var literal = RegexValue.Create($"/{Regex.Escape(StringValue(args[0]))}/g");
+                return literal.MatchAll(value);
+            }),
+            "split" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0 || args[0] is UndefinedValue) return new List<object?> { value };
+                var limit = args.Count > 1 ? Math.Max(0, (int)Number(args[1])) : int.MaxValue;
+                if (limit == 0) return Array.Empty<object?>();
+                if (args[0] is RegexValue regex) return regex.Split(value).Take(limit).Cast<object?>().ToList();
+                var separator = StringValue(args[0]);
+                if (separator.Length == 0) return value.Select(character => (object?)character.ToString()).Take(limit).ToList();
+                return value.Split(separator, StringSplitOptions.None).Take(limit).Cast<object?>().ToList();
+            }),
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
-            "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? -1d : (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal)),
+            "trimStart" => (Func<IReadOnlyList<object?>, object?>)(_ => value.TrimStart()),
+            "trimEnd" => (Func<IReadOnlyList<object?>, object?>)(_ => value.TrimEnd()),
+            "normalize" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var form = args.Count == 0 ? "NFC" : StringValue(args[0]);
+                var normalization = form switch
+                {
+                    "NFC" => NormalizationForm.FormC,
+                    "NFD" => NormalizationForm.FormD,
+                    "NFKC" => NormalizationForm.FormKC,
+                    "NFKD" => NormalizationForm.FormKD,
+                    _ => throw WebIdlException.RangeError("The normalization form is invalid.")
+                };
+                return value.Normalize(normalization);
+            }),
+            "padStart" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var target = args.Count == 0 ? value.Length : Math.Max(0, (int)Number(args[0]));
+                if (target <= value.Length) return value;
+                var fill = args.Count > 1 ? StringValue(args[1]) : " ";
+                if (fill.Length == 0) return value;
+                return string.Concat(string.Concat(Enumerable.Repeat(fill, (target - value.Length + fill.Length - 1) / fill.Length))[..(target - value.Length)], value);
+            }),
+            "padEnd" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var target = args.Count == 0 ? value.Length : Math.Max(0, (int)Number(args[0]));
+                if (target <= value.Length) return value;
+                var fill = args.Count > 1 ? StringValue(args[1]) : " ";
+                if (fill.Length == 0) return value;
+                return value + string.Concat(Enumerable.Repeat(fill, (target - value.Length + fill.Length - 1) / fill.Length))[..(target - value.Length)];
+            }),
+            "repeat" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var count = args.Count == 0 ? 0 : (int)Number(args[0]);
+                if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), "Invalid count value.");
+                return string.Concat(Enumerable.Repeat(value, count));
+            }),
+            "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return -1d;
+                var start = Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : 0, 0, value.Length);
+                return (double)value.IndexOf(StringValue(args[0]), start, StringComparison.Ordinal);
+            }),
+            "lastIndexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return -1d;
+                var needle = StringValue(args[0]);
+                var start = Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : value.Length, 0, value.Length);
+                return (double)value.LastIndexOf(needle, start, StringComparison.Ordinal);
+            }),
+            "at" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var index = args.Count == 0 ? 0 : (int)Number(args[0]);
+                if (index < 0) index += value.Length;
+                return index < 0 || index >= value.Length ? UndefinedValue.Instance : value[index].ToString();
+            }),
             "charAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? string.Empty : value[(int)Number(args[0])].ToString()),
             "charCodeAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? double.NaN : (double)value[(int)Number(args[0])]),
-            "slice" => (Func<IReadOnlyList<object?>, object?>)(args => value[Math.Clamp(args.Count > 0 ? (int)Number(args[0]) : 0, 0, value.Length)..Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : value.Length, 0, value.Length)]),
-            "substring" => (Func<IReadOnlyList<object?>, object?>)(args => value[Math.Clamp(args.Count > 0 ? (int)Number(args[0]) : 0, 0, value.Length)..Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : value.Length, 0, value.Length)]),
+            "codePointAt" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var index = args.Count == 0 ? 0 : (int)Number(args[0]);
+                if (index < 0 || index >= value.Length) return UndefinedValue.Instance;
+                if (char.IsHighSurrogate(value[index]) && index + 1 < value.Length && char.IsLowSurrogate(value[index + 1]))
+                    return (double)char.ConvertToUtf32(value[index], value[index + 1]);
+                return (double)value[index];
+            }),
+            "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var start = RelativeStringIndex(args.Count > 0 ? args[0] : null, value.Length, 0);
+                var end = RelativeStringIndex(args.Count > 1 ? args[1] : null, value.Length, value.Length);
+                return value[start..Math.Max(start, end)];
+            }),
+            "substring" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var start = ClampStringIndex(args.Count > 0 ? args[0] : null, value.Length);
+                var end = ClampStringIndex(args.Count > 1 ? args[1] : null, value.Length, value.Length);
+                if (start > end) (start, end) = (end, start);
+                return value[start..end];
+            }),
             _ => null,
         };
         return method is not null;
     }
+
+    private static int RelativeStringIndex(object? value, int length, int fallback)
+    {
+        var index = value is null or UndefinedValue ? fallback : (int)Number(value);
+        return index < 0 ? Math.Max(length + index, 0) : Math.Min(index, length);
+    }
+
+    private static int ClampStringIndex(object? value, int length, int fallback = 0) => Math.Clamp(value is null or UndefinedValue ? fallback : (int)Number(value), 0, length);
 
     private object Function(JavaScriptFunctionExpression function)
     {
@@ -1387,6 +1895,96 @@ internal sealed class JavaScriptEvaluator
     }
 
     private static string StringValue(object? value) => value switch { null => "null", UndefinedValue => "undefined", bool boolean => boolean ? "true" : "false", double number => number.ToString("G15", CultureInfo.InvariantCulture), _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty };
+
+    private static string ExpandReplacement(string replacement, string match, int index, string source)
+    {
+        if (!replacement.Contains('$')) return replacement;
+        var builder = new System.Text.StringBuilder(replacement.Length);
+        for (var i = 0; i < replacement.Length; i++)
+        {
+            if (replacement[i] != '$' || i + 1 >= replacement.Length)
+            {
+                builder.Append(replacement[i]);
+                continue;
+            }
+
+            switch (replacement[++i])
+            {
+                case '$': builder.Append('$'); break;
+                case '&': builder.Append(match); break;
+                case '`': builder.Append(source, 0, index); break;
+                case '\'': builder.Append(source, index + match.Length, source.Length - index - match.Length); break;
+                default: builder.Append('$'); builder.Append(replacement[i]); break;
+            }
+        }
+        return builder.ToString();
+    }
+
+    private static string ExpandReplacement(string replacement, System.Text.RegularExpressions.Match match, string source)
+    {
+        var builder = new System.Text.StringBuilder(replacement.Length);
+        for (var i = 0; i < replacement.Length; i++)
+        {
+            if (replacement[i] != '$' || i + 1 >= replacement.Length)
+            {
+                builder.Append(replacement[i]);
+                continue;
+            }
+
+            var next = replacement[++i];
+            if (next is >= '0' and <= '9')
+            {
+                var end = i;
+                while (end + 1 < replacement.Length && end - i < 2 && replacement[end + 1] is >= '0' and <= '9') end++;
+                var groupNumber = int.Parse(replacement.AsSpan(i, end - i + 1), CultureInfo.InvariantCulture);
+                if (groupNumber > 0 && groupNumber < match.Groups.Count)
+                {
+                    builder.Append(match.Groups[groupNumber].Value);
+                    i = end;
+                    continue;
+                }
+                builder.Append('$');
+                builder.Append(replacement.AsSpan(i, end - i + 1));
+                i = end;
+                continue;
+            }
+
+            switch (next)
+            {
+                case '$': builder.Append('$'); break;
+                case '&': builder.Append(match.Value); break;
+                case '`': builder.Append(source, 0, match.Index); break;
+                case '\'': builder.Append(source, match.Index + match.Length, source.Length - match.Index - match.Length); break;
+                case '<':
+                    var close = replacement.IndexOf('>', i + 1);
+                    if (close > i + 1)
+                    {
+                        var name = replacement[(i + 1)..close];
+                        builder.Append(match.Groups[name].Success ? match.Groups[name].Value : string.Empty);
+                        i = close;
+                    }
+                    else builder.Append("$<");
+                    break;
+                default: builder.Append('$'); builder.Append(next); break;
+            }
+        }
+        return builder.ToString();
+    }
+
+    private static object?[] ReplacementCallbackArgs(RegexValue regex, System.Text.RegularExpressions.Match match, string source)
+    {
+        var namedGroups = regex.NamedGroups(match);
+        var args = new object?[match.Groups.Count + 2 + (namedGroups is null ? 0 : 1)];
+        args[0] = match.Value;
+        for (var group = 1; group < match.Groups.Count; group++) args[group] = match.Groups[group].Value;
+        args[^2] = (double)match.Index;
+        args[^1] = source;
+        if (namedGroups is not null) args[^1] = namedGroups;
+        if (namedGroups is not null) args[^2] = source;
+        if (namedGroups is not null) args[^3] = (double)match.Index;
+        return args;
+    }
+    private static string FormatDateInvalid() => throw WebIdlException.RangeError("Invalid time value.");
     private object? UndefinedOrNull() => _preserveUndefined ? UndefinedValue.Instance : null;
 
     internal sealed class UndefinedValue

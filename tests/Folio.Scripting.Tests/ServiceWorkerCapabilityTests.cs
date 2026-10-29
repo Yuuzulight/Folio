@@ -144,6 +144,35 @@ public sealed class ServiceWorkerCapabilityTests
     }
 
     [Fact]
+    public void DisposingDocumentRetiresRegistrationAndClearsHostInterceptorBeforeReopen()
+    {
+        var options = new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new TestServiceWorkerLoader("self.addEventListener('fetch', e => e.respondWith(new Response('old')));"),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        };
+        using var document = Folio.Document.Parse("<p>service worker</p>", options);
+        using var engine = new NativeJavaScriptEngine();
+        DomBindings.Install(engine, document);
+        Assert.True(engine.Evaluate("let registration; navigator.serviceWorker.register('old.js').then(r => registration = r); true").AsBoolean());
+        engine.PerformMicrotaskCheckpoint();
+        var staleInterceptor = options.ResourceInterceptor;
+        Assert.NotNull(staleInterceptor);
+        Assert.NotNull(staleInterceptor!.Intercept(new ResourceRequest("https://worker.example/offline.txt", ResourceKind.Document)));
+
+        Assert.True(DomBindings.Dispose(engine));
+        Assert.Null(options.ResourceInterceptor);
+        Assert.Equal("redundant", engine.Evaluate("registration.active.state").AsString());
+        Assert.Null(staleInterceptor.Intercept(new ResourceRequest("https://worker.example/offline.txt", ResourceKind.Document)));
+
+        using var reopened = Folio.Document.Parse("<p>reopened</p>", options);
+        using var reopenedEngine = new NativeJavaScriptEngine();
+        DomBindings.Install(reopenedEngine, reopened);
+        Assert.Null(options.ResourceInterceptor!.Intercept(new ResourceRequest("https://worker.example/offline.txt", ResourceKind.Document)));
+    }
+
+    [Fact]
     public void NativeEngineServiceWorkerControllerInterceptsResource()
     {
         using var document = Folio.Document.Parse("<p>service worker</p>", new FolioOptions

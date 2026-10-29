@@ -45,13 +45,28 @@ the corrected assignment parser now preserves the full conditional RHS used by
 `innerHTML` updates. The D1 result is accepted as evidence for this corpus
 slice only; full-corpus DOM, sandbox, limit, and failure-behavior gates remain.
 
-The subsequent native corpus sweep recorded these baselines on 2026-10-26:
-D2 `0/10`, D3 `0/10`, D4 `0/10`, D5 `1/10`, D6 `0/10`, and D7 `1/10`.
-Nine artifacts in each D2-D7 set are the same cached React/library path and
-crash when the staged VM cannot resolve a `screenX` assignment target; the
-remaining failures are independent interaction or rendering mismatches. These
-results keep the replacement gate open despite the complete D1 slice.
-D8 currently records `4/6` exact passes; `particles` and `webgl-shader`
-encounter the same shared screenX/bootstrap crash, while the other WebGL
-artifacts pass. This supports the WebGL implementation independently of the
-still-incomplete native JavaScript/library replacement.
+The native corpus has since advanced materially. A fresh full sweep is now
+green across D1-D14: D1 `2/2`, D2-D7 `60/60` (including the React pantry
+artifact), and D8-D14 `32/32`, for `94/94` exact passes. These are verified
+corpus results, not a claim that the engine is production-complete.
+The same native run also passes the scripting-focused S1-S6 corpus `72/72`
+with no mismatches, crashes, hangs, limit hits, or script failures.
+
+The follow-on parity slice now also covers native string replacement expansion
+(`$&`, `$$`, prefix/suffix, numbered and named capture groups), array iteration
+helpers, Unicode normalization, locale-case helpers, and the remaining common
+string/array accessors. The focused native suite is `82/82`, and the full
+`Folio.Scripting.Tests` suite is `1,412/1,412` on the audit branch.
+Recent numeric coverage also includes radix conversion and precision/exponential
+formatting; these remain differential evidence until the complete corpus and
+production cutover gates pass.
+Regex replacement callbacks also now preserve capture groups, offsets, and
+source text across both replace variants.
+Native regular expressions also honor the sticky `y` flag with stateful
+`lastIndex` advancement and reset behavior.
+
+The replacement gate remains open because the production content-host default
+is still Jint and the native path has not yet passed the complete DOM host,
+sandbox, resource-limit, failure-behavior, worker/iframe, and dependency
+removal gates. The native switch and conformance harness therefore remain
+differential probes until those requirements are met.

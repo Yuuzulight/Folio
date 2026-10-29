@@ -24,6 +24,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -87,12 +88,28 @@ jobs:
         if: always()
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance
 
+      # Keep the mandatory Folio-owned replacement path on the complete
+      # conformance corpus, not only the focused WebGL category.
+      - name: Native conformance report
+        if: always() && matrix.os == 'windows-latest'
+        env:
+          FOLIO_CONFORMANCE_ENGINE: native
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance
+
       # D8 is Folio's native WebGL acceptance category; the compatibility engine intentionally routes it away.
       - name: Native WebGL conformance
         if: always() && matrix.os == 'windows-latest'
         env:
           FOLIO_CONFORMANCE_ENGINE: native
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance D8
+
+      # The Folio-owned engine must keep the canvas animation budget; the command
+      # exits non-zero when any D5/D7 artifact exceeds the 16.7 ms p95 target.
+      - name: Native canvas frame budget
+        if: always() && matrix.os == 'windows-latest'
+        env:
+          FOLIO_CONFORMANCE_ENGINE: native
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll canvas-frames 30
 
       # Time and memory per benchmark document, also on the run's summary page. Documents over a target only warn.
       - name: Benchmarks
@@ -149,12 +166,14 @@ jobs:
           if-no-files-found: ignore
 
   capability-matrix:
-    name: capability matrix (${{ matrix.capability }})
+    name: capability matrix (${{ matrix.capability }}, ${{ matrix.engine }})
     strategy:
       fail-fast: false
       matrix:
         capability: [none, webgl, media, sound, camera, microphone, workers, webassembly, iframes, webrtc, service-workers, all]
+        engine: [jint, native]
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
@@ -164,8 +183,10 @@ jobs:
       - name: Run sandbox and limits suite (${{ matrix.capability }})
         env:
           FOLIO_CAPABILITY_MATRIX: ${{ matrix.capability }}
+          FOLIO_SCRIPT_ENGINE: ${{ matrix.engine }}
         run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class '*CapabilityMatrixTests' -class '*WindowsSandboxTests'
       - name: Verify frame retention, stopped notice and view lifecycle (${{ matrix.capability }})
         env:
           FOLIO_CAPABILITY_MATRIX: ${{ matrix.capability }}
+          FOLIO_SCRIPT_ENGINE: ${{ matrix.engine }}
         run: dotnet tests/Folio.WinForms.Tests/bin/Release/net10.0-windows/Folio.WinForms.Tests.dll

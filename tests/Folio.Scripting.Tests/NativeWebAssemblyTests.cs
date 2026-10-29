@@ -19,7 +19,7 @@ public sealed class NativeWebAssemblyTests
             7, 7, 1, 3, (byte)'r', (byte)'u', (byte)'n', 0, 0,
             10, 6, 1, 4, 0, 65, 42, 11
         };
-        using var engine = new NativeJavaScriptEngine();
+        using var engine = new JintScriptEngine();
         using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
         WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
         var values = string.Join(',', bytes);
@@ -124,6 +124,28 @@ public sealed class NativeWebAssemblyTests
         Assert.True(runtime.TryInstantiate(engine, bytes, ScriptValue.Undefined, [], out var instance));
         using var native = instance!;
         Assert.True(native.GetGlobal("g")!.GetValue(engine).IsNull);
+    }
+
+    [Fact]
+    public void NativeEngineRoundTripsLocalExternrefFunctionResults()
+    {
+        // (module (type (func (param externref) (result externref)))
+        //   (func (export "run") (type 0) (local.get 0)))
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            1, 6, 1, 0x60, 1, 0x6f, 1, 0x6f,
+            3, 2, 1, 0,
+            7, 7, 1, 3, (byte)'r', (byte)'u', (byte)'n', 0, 0,
+            10, 6, 1, 4, 0, 0x20, 0, 0x0b
+        };
+        using var runtime = new NativeWebAssemblyRuntime(64 * 1024);
+        using var engine = new JintScriptEngine();
+        Assert.True(runtime.TryInstantiate(engine, bytes, ScriptValue.Undefined, [], out var instance));
+        using var native = instance!;
+        var value = engine.Evaluate("({answer:42})");
+        var result = native.Invoke(engine, "run", [value]);
+        Assert.Same(value.Raw, result.Raw);
     }
 
     [Fact]
@@ -251,6 +273,124 @@ public sealed class NativeWebAssemblyTests
         Assert.Null(table.Get(0));
         table.Set(1, null);
         Assert.Null(table.Get(1));
+    }
+
+    [Fact]
+    public void NativeEngineExposesLocalExternrefTables()
+    {
+        // (module (table (export "tab") 1 externref))
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            4, 4, 1, 0x6f, 0, 1,
+            7, 7, 1, 3, (byte)'t', (byte)'a', (byte)'b', 1, 0
+        };
+        using var runtime = new NativeWebAssemblyRuntime(64 * 1024);
+        using var engine = new JintScriptEngine();
+        Assert.True(runtime.TryInstantiate(engine, bytes, ScriptValue.Undefined, [], out var instance));
+        using var native = instance!;
+        var table = native.GetTable("tab");
+        Assert.NotNull(table);
+        var value = engine.Evaluate("({answer:42})");
+        table!.Set(0, value.Raw);
+        Assert.Same(value.Raw, table.Get(0));
+        Assert.Equal(1, table.Grow(1, null));
+        Assert.Equal(2, table.Length);
+        Assert.Null(table.Get(1));
+    }
+
+    [Fact]
+    public void JavaScriptBindingExposesNativeExternrefTables()
+    {
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            4, 4, 1, 0x6f, 0, 1,
+            7, 7, 1, 3, (byte)'t', (byte)'a', (byte)'b', 1, 0
+        };
+        using var engine = new NativeJavaScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        var values = string.Join(',', bytes);
+        var result = engine.Evaluate($"var m=new WebAssembly.Module(new Uint8Array([{values}])); var i=new WebAssembly.Instance(m,{{}}); var o={{answer:42}}; i.exports.tab.set(0,o); i.exports.tab.grow(1,o); i.exports.tab.get(0)===o && i.exports.tab.get(1)===o;");
+        Assert.True(result.AsBoolean());
+    }
+
+    [Fact]
+    public void JavaScriptBindingBridgesImportedNativeExternrefTables()
+    {
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            2, 13, 1, 3, (byte)'e', (byte)'n', (byte)'v', 3, (byte)'t', (byte)'a', (byte)'b', 1, 0x6f, 0, 1,
+            7, 7, 1, 3, (byte)'t', (byte)'a', (byte)'b', 1, 0
+        };
+        using var engine = new JintScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        var values = string.Join(',', bytes);
+        var result = engine.Evaluate($"var source=new WebAssembly.Table({{initial:1,element:'externref'}}); var o={{answer:42}}; source.set(0,o); var m=new WebAssembly.Module(new Uint8Array([{values}])); var i=new WebAssembly.Instance(m,{{env:{{tab:source}}}}); i.exports.tab.get(0)===o;");
+        Assert.True(result.AsBoolean());
+    }
+
+    [Fact]
+    public void JavaScriptBindingExposesMutableExternrefGlobals()
+    {
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            6, 6, 1, 0x6f, 1, 0xd0, 0x6f, 0x0b,
+            7, 5, 1, 1, (byte)'g', 3, 0
+        };
+        using var engine = new NativeJavaScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        var values = string.Join(',', bytes);
+        var result = engine.Evaluate($"var m=new WebAssembly.Module(new Uint8Array([{values}])); var i=new WebAssembly.Instance(m,{{}}); var o={{answer:42}}; i.exports.g.value=o; i.exports.g.value===o;");
+        Assert.True(result.AsBoolean());
+    }
+
+    [Fact]
+    public void JavaScriptBindingExposesCustomSections()
+    {
+        // (module (custom "foo" [1,2,3]))
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            0, 7, 3, (byte)'f', (byte)'o', (byte)'o', 1, 2, 3
+        };
+        using var engine = new NativeJavaScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        var values = string.Join(',', bytes);
+        var result = engine.Evaluate($"var m=new WebAssembly.Module(new Uint8Array([{values}])); var s=WebAssembly.Module.customSections(m,'foo'); s.length===1 && s[0].byteLength===3;");
+        Assert.True(result.AsBoolean());
+    }
+
+    [Fact]
+    public void CompatibilityTableEnforcesElementValueTypes()
+    {
+        using var engine = new JintScriptEngine();
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024);
+        Assert.True(engine.Evaluate("var t=new WebAssembly.Table({initial:1,element:'externref'}); var o={answer:42}; t.set(0,o); t.get(0)===o;").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => engine.Evaluate("var t=new WebAssembly.Table({initial:1,element:'funcref'}); t.set(0,42);"));
+    }
+
+    [Fact]
+    public void JavaScriptBindingBridgesImportedMutableExternrefGlobals()
+    {
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            2, 10, 1, 3, (byte)'e', (byte)'n', (byte)'v', 1, (byte)'g', 3, 0x6f, 1,
+            7, 5, 1, 1, (byte)'g', 3, 0
+        };
+        using var engine = new JintScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        var values = string.Join(',', bytes);
+        var result = engine.Evaluate($"var o={{answer:42}}; var source=new WebAssembly.Global({{value:'externref',mutable:true}},o); var m=new WebAssembly.Module(new Uint8Array([{values}])); var i=new WebAssembly.Instance(m,{{env:{{g:source}}}}); var n={{answer:7}}; i.exports.g.value=n; source.value===n;");
+        Assert.True(result.AsBoolean());
     }
 
     [Fact]

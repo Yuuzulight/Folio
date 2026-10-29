@@ -241,7 +241,8 @@ public sealed class ContentResourceBrokerTests
     private static async Task<ContentMessage> Load(ContentProcessClient client, object payload)
     {
         var result = await LoadFrameOrDiagnostic(client, payload);
-        Assert.Equal(ContentMessageKind.Frame, result.Kind);
+        Assert.True(result.Kind == ContentMessageKind.Frame,
+            result.Kind == ContentMessageKind.Diagnostic ? result.Payload.GetRawText() : $"Unexpected {result.Kind}");
         return result;
     }
 

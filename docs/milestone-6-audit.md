@@ -7,9 +7,10 @@ Folio-native mode through `FOLIO_CONFORMANCE_ENGINE=native`, and reports
 per-artifact script/update, display-list, host-paint and total p95 timings.
 A fresh Release run (30 frames per artifact) shows the native engine below the
 16.7 ms target for every D5/D7 artifact; the worst case is
-`D7/canvas-snake-game` at 11.06 ms. The compatibility-engine run still misses
-the target for `D5/canvas-animated-bars` and `D5/library-card-08`, so that
-separate performance gap remains open. Native-mode numbers are now acceptance
+`D7/canvas-snake-game` at 10.81 ms. The compatibility-engine run still misses
+the target for `D5/canvas-animated-bars` at 46.44 ms and is borderline for
+`D7/canvas-snake-game` at 16.92 ms; the other library-card artifacts remain
+below target. Native-mode numbers are now acceptance
 evidence for the Folio-owned execution path; the issue remains open for the
 compatibility-engine misses rather than being hidden by routing.
 
@@ -17,28 +18,65 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 `Partial` means implemented behavior exists but does not prove the full acceptance; `Unverified` means the evidence is not strong enough to claim resolution. Only a later requirement-specific runtime check can change a row to verified. The table is a source/acceptance audit, not a claim that three complete review passes have already been performed for every issue.
 
+## Verification refresh — 2026-10-30
+
+Latest focused checks on the audit head: WebRTC/capture/media-capture 30/30,
+software raster/filter and Skia canvas behavior 124/124, native WebGL
+page/object/ANGLE slices 87/87, and the full native D1–D14 conformance sweep
+85/85. The compatibility-engine canvas frame benchmark still exceeds the
+16.70 ms target for `D5/canvas-animated-bars`, so #519 remains open until the
+Folio-owned engine is authoritative. The latest native 30-frame run records
+every D5/D7 artifact below target (worst case 10.81 ms). These are verified
+slices; device
+transport, optional-format, interruption and production dependency-removal
+requirements remain open.
+
+The current focused reruns also pass native WebAssembly/worker/iframe coverage
+217/217 and media/WebRTC/service-worker coverage 132/132. These reruns confirm
+the deterministic local slices only; they do not close the original device,
+isolated-process, interruption, or Folio-owned-runtime requirements.
+
+The current Release fuzz checks also pass: the native WebGL shader target
+completed 175 mutated inputs from seven seeds with zero failures. This is
+parser robustness evidence only; it does not establish the runaway-shader
+interruption requirement in #531.
+
+The same refresh passes the media/playback/capture slice 51/51, the native and
+compatibility WebAssembly capability/content-process slice 53/53, the worker and
+iframe lifecycle/platform slice 152/152, and the service-worker/cache slice
+52/52. These results strengthen deterministic behavior and policy coverage; they
+do not close the original device, isolated-process, Folio-owned-runtime or
+dependency-removal requirements.
+
+Earlier focused runtime checks passed WebRTC/capture 31/31, Worker/Iframe 196/196,
+media playback/native decoding 26/26, media budget/host-switch 37/37, native WebGL texture/framebuffer 74/74,
+and WebGL fallback/loss/limits 123/123. These strengthen the deterministic
+implementation evidence, but the corresponding issues remain open where their
+original acceptance requires real device, process-teardown, runaway-shader or
+optional-format behavior beyond the local harness.
+
 ## Verification refresh — 2026-10-28
 
 The current audit branch was rechecked after the shaping changes: the Release
-render suite passes 758/758 and the Release scripting suite passes 1,393/1,393
+render suite passes 758/758 and the Release scripting suite passes 1,401/1,407
 with six documented software-backend skips. The complete CI run
 `40599053194` passed on Ubuntu and Windows, including all capability-matrix
 rows. These checks confirm that the audited fixes did not regress the covered
 surfaces; they do not promote any of the explicitly partial rows below to
 complete.
 
-The full serialized Release solution runner then passed 4,177 tests with zero
-failures and seven documented skips (4,184 discovered), including benchmarks,
+The full serialized Release solution runner then passed 4,211 tests with zero
+failures and three documented skips (4,214 discovered), including benchmarks,
 core tests, render tests, scripting tests, WinForms tests and fuzz tests.
 
 The native conformance runner independently passes D8 6/6, D9 5/5, D10 4/4,
 D11 4/4, D12 4/4, D13 4/4 and D14 3/3, with the document-named-property
 scope now wired for native inline handlers.
 
-- The latest complete Release solution passes 4,177 tests with 0 failures and 7 documented environment/software skips (4,184 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit, plus the latest render and event-loop diagnostics coverage. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
+- The latest complete Release solution passes 4,211 tests with 0 failures and 3 documented environment/software skips (4,214 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit, plus the latest render and event-loop diagnostics coverage. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
 - Compatibility and native D9 both pass their current 5/5 corpus. A fresh native sweep passes D1 2/2 and D8–D14 at 30/30 (32/32 combined). These category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
-- Compatibility D2–D7 remains 60/60. Native D2–D7 is 59/60: D3–D7 are 10/10 and the only failure is `D2/pantry-react-jsx`. PR #651 resolved its detached-root/labeled-control-flow and event-bubbling failures; the remaining mismatch is the React state-update hook dispatcher (`g.current.useState`), tracked in #645.
+- Compatibility and native D2–D7 both pass 60/60. The final `D2/pantry-react-jsx` interaction now passes after the native evaluator was corrected to propagate labeled breaks out of switches; issue #645 is resolved. The broader Folio-owned engine replacement gate remains open.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
 - The focused native WebAssembly capability set passes 46/46, including the current
@@ -630,3 +668,39 @@ Original acceptance:
 **Incomplete.** Evidence: `All rows below`.
 
 Original acceptance is not satisfied. Previous closure and completion documentation were premature.
+
+## Current audit checkpoint — 2026-10-29
+
+The latest native scripting parity work remains regression-clean: focused native
+tests pass 82/82, the complete scripting suite passes 1,412/1,412, and the
+native conformance report passes D1–D14 94/94 plus S1–S6 72/72 exactly. The
+latest capability slices also pass WebAssembly/worker/iframe 137/137 and
+media/WebRTC/service-worker 115/115 locally. These are verified implementation
+slices; M6 remains incomplete until the open device/process, optional WebGL,
+interruption, production-routing, and dependency-removal requirements are met.
+
+Hosted CI run `40816100429` is now fully green across all 26 jobs, including
+both compatibility and native capability matrices. The complete scripting suite
+also passes 1,412/1,412 with `FOLIO_SCRIPT_ENGINE=native`, confirming that the
+native runtime evidence covers the full suite rather than only the focused
+parity corpus. This is an audit checkpoint, not an M6 completion claim.
+
+The native RegExp implementation now honors sticky `y` matching with
+`lastIndex` advancement and reset semantics; the focused regression and full
+native scripting suite both pass.
+
+The capability-matrix workflow now covers both `jint` and `native` engines for
+every capability row. The native `all` row passes locally through the real
+content process (12/12 scripting checks and 8/8 WinForms lifecycle checks).
+This closes the previous CI-evidence gap while leaving the production cutover
+and dependency-removal requirements open.
+
+The 30-frame canvas benchmark now reports the performance split explicitly:
+native D5/D7 artifacts all stay below the 16.7 ms p95 target (D5 animated bars
+5.99 ms, D7 snake 10.41 ms), while compatibility/Jint still misses D5 animated
+bars at 31.83 ms because of script/update time. This isolates the remaining
+performance issue to the compatibility path and keeps #519 open until that
+path is retired or brought under the target.
+The Windows build also runs the complete conformance report with
+`FOLIO_CONFORMANCE_ENGINE=native`, so the native D1–D14 and S1–S6 evidence is
+continuously checked in hosted CI.

@@ -4,7 +4,9 @@ A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
 
 Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher is designed to stay light on memory. Mana writes HTML "artifacts" (reports, tables, charts, small interactive pages), and Folio shows them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
 
-**Status:** Folio has dependency-backed rendering and scripting through milestone 5; the compatibility D2–D7 corpus passes, including Chart.js canvas parity. The Folio-owned native JavaScript path is still below the replacement bar (its current D2–D7 run is 59/60, with React reconciliation tracked in #645). Milestone 6 is in progress: the D8–D14 corpus passes end to end, while the [acceptance audit](docs/milestone-6-audit.md) still identifies unfinished native texture/backend completeness, media transport/pacing, native WebAssembly, capture/transport and isolated service-worker requirements. Transactional Cache API storage now works through the host in both in-process and separate-process documents; see the [storage guide](docs/cache-api-storage.md). Native raster work now bounds each font's parsed-outline cache to 8 MiB, while CFF2, variation outlines, COLR v1 and the performance gate remain open. Milestone 7 is a **mandatory, non-waivable completion gate**: Folio is not finished until the dependency-backed shaper, rasteriser, image codecs, JavaScript engine and WebAssembly runtime have all been replaced, differentially verified and removed from production. See the [replacement gate](docs/replacement-gate.md).
+**Status:** Folio has dependency-backed rendering and scripting through milestone 5; the compatibility D2–D7 corpus passes, including Chart.js canvas parity. The Folio-owned native engine now passes D1–D14 (94/94 artifacts, including native D2–D7 React parity), and the full native scripting suite passes 1,412/1,412, but it remains a differential path while the production Jint, SkiaSharp, HarfBuzz and Wasmtime replacement gates are unfinished. Milestone 6 is in progress: the D8–D14 corpus passes end to end, while the [acceptance audit](docs/milestone-6-audit.md) still identifies unfinished native texture/backend completeness, media transport/pacing, native WebAssembly, capture/transport and isolated service-worker requirements. Hosted CI run 40815041120 is green across all 26 jobs, including both compatibility and native capability matrices plus hosted native conformance. Transactional Cache API storage now works through the host in both in-process and separate-process documents; see the [storage guide](docs/cache-api-storage.md). Native raster work now bounds each font's parsed-outline cache to 8 MiB and covers bounded COLR v1 solid, linear/radial/sweep gradients, composites and non-variable transform wrappers; CFF2 variation, broader color-font corpus and raster performance gates remain open. Milestone 7 is a **mandatory, non-waivable completion gate**: Folio is not finished until the dependency-backed shaper, rasteriser, image codecs, JavaScript engine and WebAssembly runtime have all been replaced, differentially verified and removed from production. See the [replacement gate](docs/replacement-gate.md).
+
+Current hosted verification baseline: run `40816100429` completed green across all 26 jobs. The mandatory replacement gate remains open.
 
 ## Goal
 Render and run AI-written HTML artifacts as well as a modern browser does: pages that use modern CSS, web fonts, SVG charts and diagrams, and, in later milestones, the scripts, UI libraries and canvas graphics those artifacts rely on.
@@ -90,8 +92,11 @@ dotnet run --project tests/Folio.Fuzz -c Release -- fuzz <seconds> [html|css|png
 The benchmark harness times each pipeline stage and measures memory for generated documents and the conformance corpus, against the targets in `docs/study/18-memory-and-performance.md`:
 
 ```
-dotnet run --project tests/Folio.Benchmarks -c Release -- bench [iterations]
+dotnet run --project tests/Folio.Benchmarks -c Release -- bench [iterations] [frames]
 ```
+
+`iterations` controls parse/layout measurements; `frames` independently fixes the number of animation,
+interaction, and raster-replay samples so runs can be compared across machines (for example, `bench 20 80`).
 
 `gc` reports the layout stage's time, GC pause and collection counts, and a whole render through the public API, for the large generated documents:
 

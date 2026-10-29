@@ -30,6 +30,11 @@ internal static class Compositor
     {
         if (coverage <= 0)
             return;
+        if (mode == BlendMode.Normal && coverage >= 1 && source.W >= 1)
+        {
+            BlendOpaque(data, offset, source);
+            return;
+        }
         var dr = data[offset] / 255f;
         var dg = data[offset + 1] / 255f;
         var db = data[offset + 2] / 255f;
@@ -59,6 +64,15 @@ internal static class Compositor
         data[offset + 1] = To8(g);
         data[offset + 2] = To8(b);
         data[offset + 3] = To8(a);
+    }
+
+    /// <summary>Stores an opaque normal-mode source without reading or blending the destination.</summary>
+    public static void BlendOpaque(byte[] data, int offset, Vector4 source)
+    {
+        data[offset] = To8(source.X);
+        data[offset + 1] = To8(source.Y);
+        data[offset + 2] = To8(source.Z);
+        data[offset + 3] = 255;
     }
 
     /// <summary>The blend of a premultiplied source over a premultiplied backdrop (components 0 to 1), without rounding.</summary>
