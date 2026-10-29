@@ -1004,6 +1004,11 @@ internal sealed class JavaScriptEvaluator
             var match = _regex.Match(input);
             return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
         }
+        internal int Search(string input)
+        {
+            var match = _regex.Match(input);
+            return match.Success ? match.Index : -1;
+        }
         internal string Replace(string input, Func<string, string> replacement, bool all) => all ? _regex.Replace(input, match => replacement(match.Value)) : _regex.Replace(input, match => replacement(match.Value), 1);
         internal string Replace(string input, string replacement, bool all) => all ? _regex.Replace(input, replacement) : _regex.Replace(input, replacement, 1);
         internal string[] Split(string input) => _regex.Split(input);
@@ -1333,6 +1338,13 @@ internal sealed class JavaScriptEvaluator
                 var needle = StringValue(args[0]);
                 var index = value.IndexOf(needle, StringComparison.Ordinal);
                 return index < 0 ? null : new object?[] { needle };
+            }),
+            "search" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return 0d;
+                if (args[0] is RegexValue regex)
+                    return (double)regex.Search(value);
+                return (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal);
             }),
             "split" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0
                 ? new List<object?> { value }
