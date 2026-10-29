@@ -55,6 +55,7 @@ internal sealed class JavaScriptEvaluator
             JavaScriptTemplateExpression template => Template(template.Text),
             JavaScriptRegexExpression regex => RegexValue.Create(regex.Text),
             JavaScriptIdentifierExpression identifier => Lookup(identifier.Name),
+            JavaScriptAwaitExpression awaited => NativeJavaScriptEngine.UnwrapAwait(Evaluate(awaited.Operand)),
             JavaScriptYieldExpression yielded => EvaluateYield(yielded),
             JavaScriptUnaryExpression unary => Unary(unary),
             JavaScriptUpdateExpression update => Update(update),
@@ -1707,7 +1708,31 @@ internal sealed class JavaScriptEvaluator
             local["this"] = receiver ?? captured;
             local["arguments"] = arguments.ToList();
             if (function.IsGenerator) return RunGenerator(local, function.Body);
-            return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
+            try
+            {
+                var result = new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
+                if (!function.IsAsync) return result;
+                return ResolvePromise(result);
+            }
+            catch (Exception error) when (function.IsAsync)
+            {
+                return RejectPromise(error);
+            }
+        }
+
+        object? ResolvePromise(object? value) => PromiseCall("resolve", value);
+        object? RejectPromise(Exception error) => PromiseCall("reject", new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["name"] = error is WebIdlException web ? web.Name : "Error",
+            ["message"] = error.Message,
+        });
+        object? PromiseCall(string name, object? value)
+        {
+            if (captured.TryGetValue("Promise", out var promise)
+                && promise is NativeJavaScriptEngine.INativeCallable callable
+                && callable.TryGetProperty(name, out var method))
+                return NativeJavaScriptEngine.InvokeCallable(method!, [value]);
+            return value;
         }
 
         List<object?> RunGenerator(IDictionary<string, object?> local, IReadOnlyList<JavaScriptStatement> body)

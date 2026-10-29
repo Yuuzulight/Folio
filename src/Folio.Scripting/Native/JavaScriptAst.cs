@@ -5,6 +5,7 @@ internal sealed record JavaScriptLiteralExpression(string Text, JavaScriptTokenK
 internal sealed record JavaScriptTemplateExpression(string Text) : JavaScriptExpression;
 internal sealed record JavaScriptRegexExpression(string Text) : JavaScriptExpression;
 internal sealed record JavaScriptIdentifierExpression(string Name) : JavaScriptExpression;
+internal sealed record JavaScriptAwaitExpression(JavaScriptExpression Operand) : JavaScriptExpression;
 internal sealed record JavaScriptYieldExpression(JavaScriptExpression? Expression, bool Delegate = false) : JavaScriptExpression;
 internal sealed record JavaScriptUnaryExpression(string Operator, JavaScriptExpression Operand) : JavaScriptExpression;
 internal sealed record JavaScriptUpdateExpression(string Operator, JavaScriptExpression Operand, bool Prefix) : JavaScriptExpression;
@@ -17,7 +18,7 @@ internal sealed record JavaScriptSpreadExpression(JavaScriptExpression Operand) 
 internal sealed record JavaScriptIndexExpression(JavaScriptExpression Target, JavaScriptExpression Index) : JavaScriptExpression;
 internal sealed record JavaScriptObjectExpression(IReadOnlyList<(string Name, JavaScriptExpression Value)> Properties) : JavaScriptExpression;
 internal sealed record JavaScriptFunctionExpression(IReadOnlyList<string> Parameters, IReadOnlyList<JavaScriptStatement> Body,
-    IReadOnlyList<JavaScriptExpression?>? DefaultValues = null, bool IsGenerator = false, string? Name = null) : JavaScriptExpression;
+    IReadOnlyList<JavaScriptExpression?>? DefaultValues = null, bool IsGenerator = false, string? Name = null, bool IsAsync = false) : JavaScriptExpression;
 internal sealed record JavaScriptClassMethod(string Name, bool Getter, bool Setter, bool Static, JavaScriptFunctionExpression Function);
 internal sealed record JavaScriptClassExpression(string? Name, string? Parent, IReadOnlyList<JavaScriptClassMethod> Methods) : JavaScriptExpression;
 

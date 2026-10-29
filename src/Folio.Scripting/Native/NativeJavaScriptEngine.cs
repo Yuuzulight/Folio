@@ -1394,6 +1394,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         bool TryGetProperty(string name, out object? value);
     }
 
+    internal static object? UnwrapAwait(object? value) => value is NativePromise promise ? promise.SettledValue : value;
+
     private sealed class NativePromise : INativePromise
     {
         private readonly NativeJavaScriptEngine _engine;
@@ -1407,6 +1409,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
         internal void Resolve(object? value) => Settle(value, rejected: false);
         internal void Reject(object? value) => Settle(value, rejected: true);
+        internal object? SettledValue => _settled ? _value : JavaScriptEvaluator.UndefinedValue.Instance;
         public bool TryGetProperty(string name, out object? value)
         {
             value = name switch

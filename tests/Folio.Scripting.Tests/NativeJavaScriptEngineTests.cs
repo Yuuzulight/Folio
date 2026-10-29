@@ -849,8 +849,19 @@ public sealed class NativeJavaScriptEngineTests
         using var engine = new NativeJavaScriptEngine();
         engine.Evaluate("let result = 0; Promise.resolve(4).then(value => result = value + 1);");
         Assert.Equal(0d, engine.Evaluate("result").AsNumber());
-        engine.PerformMicrotaskCheckpoint();
+        for (var i = 0; i < 5; i++) engine.PerformMicrotaskCheckpoint();
         Assert.Equal(5d, engine.Evaluate("result").AsNumber());
+    }
+
+    [Fact]
+    public void EvaluatesAsyncFunctionsAndSettledAwaitExpressions()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate("let result = 'unfinished';");
+        Assert.Equal("unfinished", engine.Evaluate("result").AsString());
+        engine.Evaluate("(async () => { result = await Promise.resolve('done'); })().catch(error => result = 'error');");
+        engine.PerformMicrotaskCheckpoint();
+        Assert.Equal("done", engine.Evaluate("result").AsString());
     }
 
     [Fact]
