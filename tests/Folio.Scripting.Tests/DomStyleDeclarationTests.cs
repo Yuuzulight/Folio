@@ -1808,8 +1808,9 @@ public sealed class DomStyleDeclarationTests
         var document = TreeBuilder.Parse("<form><input id='field' required></form><div id='box'></div>");
         using var engine = new JintScriptEngine();
         DomBindings.Install(engine, document);
-        Assert.True(engine.Evaluate("const field=document.getElementById('field'); field.setCustomValidity('no'); !field.checkValidity()").AsBoolean());
+        Assert.True(engine.Evaluate("const field=document.getElementById('field'); field.setCustomValidity('no'); !field.checkValidity() && !field.reportValidity()").AsBoolean());
         Assert.True(engine.Evaluate("field.setCustomValidity(''); field.value='ok'; field.checkValidity()").AsBoolean());
+        Assert.True(engine.Evaluate("field.setCustomValidity('form error'); !document.querySelector('form').reportValidity()").AsBoolean());
         Assert.True(engine.Evaluate("Array.isArray(document.elementsFromPoint(0,0)); document.getElementById('box').scrollIntoView(); true").AsBoolean());
     }
 
@@ -1832,6 +1833,7 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(engine, document);
 
         Assert.False(engine.Evaluate("const input = document.getElementById('email'); input.checkValidity()").AsBoolean());
+        Assert.False(engine.Evaluate("input.reportValidity()").AsBoolean());
         engine.Evaluate("input.value = 'person@example.com';");
         Assert.True(engine.Evaluate("input.reportValidity()").AsBoolean());
     }

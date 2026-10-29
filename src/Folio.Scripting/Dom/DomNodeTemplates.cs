@@ -1331,16 +1331,12 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("elements", (target, _) => _context.WrapHtmlCollection((ElementNode)target));
         t.DefineMethod("checkValidity", (target, _, _) =>
         {
-            var valid = ((ElementNode)target).Descendants.OfType<ElementNode>().Where(e => e.LocalName is "input" or "textarea" or "select").All(control =>
-            {
-                var value = control.Value ?? control.GetAttribute("value") ?? "";
-                return control.GetAttribute("disabled") is not null || string.IsNullOrEmpty(control.GetAttribute("data-folio-custom-validity")) && (control.GetAttribute("required") is null || value.Length > 0);
-            });
+            var valid = ((ElementNode)target).Descendants.OfType<ElementNode>().Where(e => e.LocalName is "input" or "textarea" or "select").All(IsConstraintValid);
             return ScriptValue.FromBoolean(valid);
         });
         t.DefineMethod("reportValidity", (target, thisValue, args) =>
         {
-            return ScriptValue.FromBoolean(((ElementNode)target).Descendants.OfType<ElementNode>().Where(e => e.LocalName is "input" or "textarea" or "select").All(control => control.GetAttribute("required") is null || (control.Value ?? control.GetAttribute("value") ?? "").Length > 0));
+            return ScriptValue.FromBoolean(((ElementNode)target).Descendants.OfType<ElementNode>().Where(e => e.LocalName is "input" or "textarea" or "select").All(IsConstraintValid));
         });
         t.DefineMethod("reset", (target, _, _) =>
         {
@@ -2926,12 +2922,24 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("reportValidity", (target, _, _) =>
         {
             var el = (ElementNode)target;
-            var value = el.Value ?? el.GetAttribute("value") ?? "";
-            var valid = el.GetAttribute("required") is null || value.Length > 0;
-            return ScriptValue.FromBoolean(valid);
+            return ScriptValue.FromBoolean(IsConstraintValid(el));
         });
 
         return t;
+    }
+
+    private static bool IsConstraintValid(ElementNode control)
+    {
+        if (control.GetAttribute("disabled") is not null || control.GetAttribute("readonly") is not null)
+            return true;
+        if (!string.IsNullOrEmpty(control.GetAttribute("data-folio-custom-validity")))
+            return false;
+        var value = control.Value ?? control.GetAttribute("value") ?? "";
+        if (control.GetAttribute("required") is not null && value.Length == 0)
+            return false;
+        return !string.Equals(control.GetAttribute("type"), "email", StringComparison.OrdinalIgnoreCase)
+            || value.Length == 0
+            || value.Contains('@');
     }
 
     private HostObjectTemplate CreateHtmlButtonElementTemplate(IHostObjectTemplate htmlElementProto)
