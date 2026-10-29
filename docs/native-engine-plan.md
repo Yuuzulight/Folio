@@ -26,11 +26,11 @@ existing artifact corpus remains runnable. It is a compatibility backend, not th
 native completion criterion.
 
 The content-host executable exposes the staged engine through the explicit
-`FOLIO_SCRIPT_ENGINE=native` environment switch. This is a differential/runtime
-probe only: the default remains Jint until the native engine passes the full
-corpus, DOM, sandbox, resource-limit and failure-behavior gates. The switch lets
-real content-host paths run against Folio's engine without changing the shipping
-default prematurely.
+`FOLIO_SCRIPT_ENGINE=native` environment switch. The default remains Jint until
+the native engine passes the complete content-process DOM, sandbox,
+resource-limit and failure-behavior gates. The switch lets real content-host
+paths run against Folio's engine without changing the shipping default
+prematurely.
 
 The render conformance harness also accepts `FOLIO_CONFORMANCE_ENGINE=native`.
 On 2026-10-26 the first D1 differential run was crash-free and produced 1/2
@@ -66,14 +66,12 @@ Native regular expressions also honor the sticky `y` flag with stateful
 `lastIndex` advancement and reset behavior.
 
 The replacement gate remains open because the production content-host default
-is still Jint and the native path has not yet passed the complete DOM host,
-sandbox, resource-limit, failure-behavior, worker/iframe, and dependency
-removal gates. The native switch and conformance harness therefore remain
-differential probes until those requirements are met.
+is still Jint and native content-process parity is incomplete. The native
+switch and conformance harness therefore remain differential probes until
+those requirements are met.
 
-Audit refresh (2026-10-29): the focused native engine suite remains green
-(82/82), and the capability-matrix/native slices pass. However, running the
-complete `Folio.Scripting.Tests` assembly with `FOLIO_SCRIPT_ENGINE=native`
-does not reach test execution: the runner remains in `Starting` for more than
-60 seconds and must be interrupted. This is an additional cutover blocker,
-not a reason to classify the native engine as production-complete.
+Audit refresh (2026-10-29): the complete `Folio.Scripting.Tests` assembly
+passes 1,422/1,422 with `FOLIO_SCRIPT_ENGINE=native` in 116.7 seconds, and the
+focused native suite remains 82/82. However, forcing the native engine as the
+content-host default causes 25 content-process/cache/worker failures, so the
+production cutover remains blocked on DOM-host and content-process parity.
