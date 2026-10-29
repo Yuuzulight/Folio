@@ -270,10 +270,11 @@ the mandatory replacement gate.
 The Folio-owned software rasterizer also remains differential-only: the focused
 software raster suite passes 39/39, including glyf, CFF, CFF2 and WOFF2 outline
 cases plus CBDT/CBLC, sbix and COLR colour-glyph cases. After the SIMD blur pass, the latest
-repository benchmark measured 77.5 ms versus Skia's 7.0 ms at 800x600 (11.1x
-slower), and 195.1 ms versus 13.5 ms at 1920x1080 (14.4x slower). The
-production performance gate and backend cutover therefore remain open under
-issue #575.
+repository benchmark now measures 18.4 ms versus Skia's 5.3 ms at 800x600
+(3.5x slower), and 36.9 ms versus 10.8 ms at 1920x1080 (3.4x slower). Paint-only
+animation p95 is 7.7 ms for the typical dashboard and scroll p95 is 6.8 ms at
+800x600. The production performance gate and backend cutover therefore remain
+open under issue #575 pending the full 1920x1080 review and corpus evidence.
 
 Arabic GSUB progress (2026-10-28, commits `c3d9f83f` and `7c152852`): the Folio-owned shaper now
 selects the Arabic script's required `rlig` feature and applies format-3
