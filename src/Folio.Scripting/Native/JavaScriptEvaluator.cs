@@ -1364,7 +1364,19 @@ internal sealed class JavaScriptEvaluator
                 if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), "Invalid count value.");
                 return string.Concat(Enumerable.Repeat(value, count));
             }),
-            "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? -1d : (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal)),
+            "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return -1d;
+                var start = Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : 0, 0, value.Length);
+                return (double)value.IndexOf(StringValue(args[0]), start, StringComparison.Ordinal);
+            }),
+            "lastIndexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return -1d;
+                var needle = StringValue(args[0]);
+                var start = Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : value.Length, 0, value.Length);
+                return (double)value.LastIndexOf(needle, start, StringComparison.Ordinal);
+            }),
             "at" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var index = args.Count == 0 ? 0 : (int)Number(args[0]);
