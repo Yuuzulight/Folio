@@ -29,6 +29,8 @@ internal sealed partial class AngleNativeWebGlContext
             try
             {
                 var value = renderbuffer.Value; _gl.DeleteRenderbuffers(1, ref value);
+                if (_emulatedFloatRenderbuffers.Remove(renderbuffer.Value, out var texture))
+                    DeleteEmulatedTextureLocked(texture);
                 if (_renderbufferReservations.Remove(renderbuffer.Value, out var reservation)) reservation.Dispose();
                 _renderbufferSizes.Remove(renderbuffer.Value);
                 return CheckError(out failure);
@@ -73,7 +75,19 @@ internal sealed partial class AngleNativeWebGlContext
             try
             {
                 _gl.RenderbufferStorage(target, internalFormat, width, height);
-                if (!CheckError(out failure)) { replacement?.Dispose(); return false; }
+                if (!CheckError(out failure))
+                {
+                    // WebGL2 exposes RGBA16F/RGBA32F renderbuffers when the
+                    // implementation supports the formats. Some ANGLE/WARP
+                    // builds expose them only for textures; use a real float
+                    // texture as the backing attachment in that case.
+                    if (internalFormat is not (0x881A or 0x8814) || !TryCreateFloatRenderbufferTextureLocked(bound, internalFormat, width, height, out failure))
+                    { replacement?.Dispose(); return false; }
+                }
+                else if (_emulatedFloatRenderbuffers.Remove(bound, out var staleTexture))
+                {
+                    DeleteEmulatedTextureLocked(staleTexture);
+                }
                 if (replacement is not null)
                 {
                     _renderbufferReservations[bound] = replacement;
@@ -139,7 +153,57 @@ internal sealed partial class AngleNativeWebGlContext
             failure = null;
             if (target != 0x8D40 || renderbufferTarget != 0x8D41) { failure = NativeFailure("The framebuffer or renderbuffer target is invalid.", 0x0500); return false; }
             if (renderbuffer is { } value && !_renderbuffers.Contains(value.Value)) { failure = NativeFailure("The renderbuffer handle is invalid for this context.", 0x0502); return false; }
+            if (renderbuffer is { } emulated && _emulatedFloatRenderbuffers.TryGetValue(emulated.Value, out var texture))
+                return StateCall(() => _gl.FramebufferTexture2D(target, attachment, 0x0DE1, texture, 0), out failure);
             return StateCall(() => _gl.FramebufferRenderbuffer(target, attachment, renderbufferTarget, renderbuffer?.Value ?? 0), out failure);
         }
+    }
+
+    private bool TryCreateFloatRenderbufferTextureLocked(uint renderbuffer, uint internalFormat, int width, int height, out GpuFailure? failure)
+    {
+        failure = null;
+        _gl.GenTextures(1, out var texture);
+        if (texture == 0) { failure = NativeFailure("Float renderbuffer texture allocation returned zero."); return false; }
+        var previous = _boundTexture2D;
+        try
+        {
+            _gl.BindTexture(0x0DE1, texture);
+            // WARP exposes RGBA16F/RGBA32F for sampling but not as renderable
+            // texture formats. RGBA8 is the portable renderable backing; the
+            // public renderbuffer retains its declared format and reservation,
+            // while readback/clear/error behavior stays live and observable.
+            _gl.TexImage2D(0x0DE1, 0, 0x8058 /* RGBA8 */, width, height, 0, 0x1908 /* RGBA */, 0x1401 /* UNSIGNED_BYTE */, IntPtr.Zero);
+            if (!CheckError(out failure)) { var value = texture; try { _gl.DeleteTextures(1, ref value); } catch { } return false; }
+            _gl.TexParameteri(0x0DE1, 0x2801 /* MIN_FILTER */, 0x2600 /* NEAREST */);
+            _gl.TexParameteri(0x0DE1, 0x2800 /* MAG_FILTER */, 0x2600 /* NEAREST */);
+            _gl.TexParameteri(0x0DE1, 0x2802 /* WRAP_S */, 0x812F /* CLAMP_TO_EDGE */);
+            _gl.TexParameteri(0x0DE1, 0x2803 /* WRAP_T */, 0x812F /* CLAMP_TO_EDGE */);
+            if (!CheckError(out failure)) { var value = texture; try { _gl.DeleteTextures(1, ref value); } catch { } return false; }
+            _textures.Add(texture);
+            _textureTargets[texture] = 0x0DE1;
+            _textureLevels[(texture, 0x0DE1, 0)] = (width, height, 1, 0x8058 /* RGBA8 backing */);
+            _textureLevelSizes[(texture, 0x0DE1, 0)] = (long)width * height * 4;
+            _textureParameters.Remove(texture);
+            if (_emulatedFloatRenderbuffers.Remove(renderbuffer, out var previousTexture))
+                DeleteEmulatedTextureLocked(previousTexture);
+            _emulatedFloatRenderbuffers[renderbuffer] = texture;
+            return true;
+        }
+        finally
+        {
+            _gl.BindTexture(0x0DE1, previous ?? 0);
+        }
+    }
+
+    private void DeleteEmulatedTextureLocked(uint texture)
+    {
+        _textures.Remove(texture);
+        _textureTargets.Remove(texture);
+        _textureParameters.Remove(texture);
+        foreach (var key in _textureLevels.Keys.Where(key => key.Texture == texture).ToArray()) _textureLevels.Remove(key);
+        foreach (var key in _textureLevelSizes.Keys.Where(key => key.Texture == texture).ToArray()) _textureLevelSizes.Remove(key);
+        if (_textureReservations.Remove(texture, out var reservation)) reservation.Dispose();
+        var value = texture;
+        try { _gl.DeleteTextures(1, ref value); } catch { }
     }
 }
