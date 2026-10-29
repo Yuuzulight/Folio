@@ -56,6 +56,8 @@ The same head's broader project-level Release checks pass `Folio.Tests`
 8/8, and `Folio.Scripting.Tests` 1410/1410.
 The font fuzz target also completed 178,885 mutated inputs from six seeds with
 zero failures in a five-second Release run.
+The decoder fuzz targets also remain clean on this head: JPEG 181,368 inputs,
+WebP 73,735 inputs, and GIF 1,307,221 inputs, all with zero failures.
 This closes the cache-cap evidence portion of #573; CFF2 non-default variation
 deltas, the broader glyph corpus and the default-backend performance gate remain
 open.
