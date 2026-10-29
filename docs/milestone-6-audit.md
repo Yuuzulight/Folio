@@ -149,9 +149,16 @@ Synthetic capture and local object loopback do not satisfy real permitted captur
 
 ### #175 — Service workers (after milestone 5)
 
-**Incomplete.** Evidence: `Service-worker findings #555–#559`.
+**Original scope verified; lifecycle follow-up remains separate.** Evidence:
+`ContentCacheTests.ServiceWorkerCacheWritesReachTheHostAndSurviveProcessRestart`,
+`ContentCacheTests.PersistedServiceWorkerInterceptsTheFirstFetchAfterProcessReopen`,
+artifact-prefixed storage isolation, capability revocation and disposal tests.
 
-Worker isolation, nested-frame budgeting and a real offline reopen test remain incomplete. Parent/child iframe windows now have a structured-clone message bridge with direct round-trip regression coverage.
+The original issue's artifact-scoped persistence, offline request interception,
+host limits and no-background-work requirements are covered in real content
+processes. Richer interruption, nested-frame budgeting and full sandbox
+matrix requirements remain tracked by #556/#559 and are not used to reopen
+this completed umbrella scope.
 
 ### #523 — Hosting: feature capabilities the host grants
 
