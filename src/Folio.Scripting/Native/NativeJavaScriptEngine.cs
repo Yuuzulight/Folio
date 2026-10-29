@@ -611,7 +611,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         if (value.Raw is NativeBuffer buffer && buffer.Kind is ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped && buffer.IsAttached && buffer.ByteOffset == 0)
         {
-            bytes = buffer.Bytes.ToArray();
+            bytes = buffer.Bytes.AsSpan(buffer.ByteOffset, buffer.ByteLength).ToArray();
             return true;
         }
         bytes = [];
@@ -619,9 +619,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     }
     public bool TrySetBytes(ScriptValue value, ReadOnlySpan<byte> bytes)
     {
-        if (value.Raw is not NativeBuffer buffer || buffer.Kind is not (ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped) || !buffer.IsAttached || buffer.ByteOffset != 0 || buffer.Bytes.Length != bytes.Length)
+        if (value.Raw is not NativeBuffer buffer || buffer.Kind is not (ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped) || !buffer.IsAttached || buffer.ByteOffset != 0 || buffer.ByteLength != bytes.Length)
             return false;
-        bytes.CopyTo(buffer.Bytes);
+        bytes.CopyTo(buffer.Bytes.AsSpan(buffer.ByteOffset, buffer.ByteLength));
         return true;
     }
     public bool TryGetArrayBufferBytes(ScriptValue value, out byte[] bytes)
@@ -1367,9 +1367,22 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
     }
 
-    private sealed class NativeBuffer(ScriptBufferSourceKind kind, byte[] bytes, int elementSize) : INativeBuffer
+    private sealed class NativeBuffer : INativeBuffer
     {
-        internal ScriptBufferSourceKind Kind { get; } = kind;
+        private byte[] _storage;
+        private readonly int _offset;
+        private int _viewByteLength;
+        internal NativeBuffer(ScriptBufferSourceKind kind, byte[] bytes, int elementSize)
+            : this(kind, bytes, 0, bytes.Length, elementSize) { }
+        private NativeBuffer(ScriptBufferSourceKind kind, byte[] storage, int offset, int viewByteLength, int elementSize)
+        {
+            Kind = kind;
+            _storage = storage;
+            _offset = offset;
+            _viewByteLength = viewByteLength;
+            ElementSize = elementSize;
+        }
+        internal ScriptBufferSourceKind Kind { get; }
         public string TypeName => Kind switch
         {
             ScriptBufferSourceKind.Uint8 => "Uint8Array",
@@ -1386,13 +1399,13 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ScriptBufferSourceKind.DataView => "DataView",
             _ => "ArrayBuffer",
         };
-        internal byte[] Bytes { get; private set; } = bytes;
-        internal int ElementSize { get; } = elementSize;
-        internal int ByteOffset => 0;
-        internal int ByteLength => IsAttached ? Bytes.Length : 0;
-        internal int Length => IsAttached ? Bytes.Length / ElementSize : 0;
+        internal byte[] Bytes => _storage;
+        internal int ElementSize { get; }
+        internal int ByteOffset => IsAttached ? _offset : 0;
+        internal int ByteLength => IsAttached ? _viewByteLength : 0;
+        internal int Length => IsAttached ? _viewByteLength / ElementSize : 0;
         internal bool IsAttached { get; private set; } = true;
-        internal void Detach() { Bytes = []; IsAttached = false; }
+        internal void Detach() { _storage = []; _viewByteLength = 0; IsAttached = false; }
         public bool TryGetProperty(string name, out object? value)
         {
             if (!IsAttached) { value = name is "byteLength" or "length" or "byteOffset" ? 0d : null; return name is "byteLength" or "length" or "byteOffset"; }
@@ -1401,25 +1414,27 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 "byteLength" => (double)ByteLength,
                 "length" => (double)Length,
                 "byteOffset" => (double)ByteOffset,
-                "buffer" => new NativeBuffer(ScriptBufferSourceKind.ArrayBuffer, Bytes.ToArray(), 1),
+                "buffer" => new NativeBuffer(ScriptBufferSourceKind.ArrayBuffer, Bytes, 0, Bytes.Length, 1),
                 "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
                     var start = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, Length) : 0;
                     var end = args.Count > 1 ? Math.Clamp((int)Number(args[1]), start, Length) : Length;
-                    return new NativeBuffer(Kind, Bytes.Skip(start * ElementSize).Take((end - start) * ElementSize).ToArray(), ElementSize);
+                    return new NativeBuffer(Kind, Bytes.AsSpan(_offset + start * ElementSize, (end - start) * ElementSize).ToArray(), ElementSize);
                 }),
                 "subarray" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
                     var start = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, Length) : 0;
                     var end = args.Count > 1 ? Math.Clamp((int)Number(args[1]), start, Length) : Length;
-                    return new NativeBuffer(Kind, Bytes.Skip(start * ElementSize).Take((end - start) * ElementSize).ToArray(), ElementSize);
+                    return new NativeBuffer(Kind, Bytes, _offset + start * ElementSize, (end - start) * ElementSize, ElementSize);
                 }),
                 "set" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
                     if (args.Count == 0) return null;
-                    var source = args[0] is NativeBuffer sourceBuffer ? sourceBuffer.Bytes : EncodeElements(Kind, args[0] is IReadOnlyList<object?> values ? values : []);
+                    var source = args[0] is NativeBuffer sourceBuffer
+                        ? sourceBuffer.Bytes.AsSpan(sourceBuffer.ByteOffset, sourceBuffer.ByteLength).ToArray()
+                        : EncodeElements(Kind, args[0] is IReadOnlyList<object?> values ? values : []);
                     var offset = args.Count > 1 ? Math.Max(0, (int)Number(args[1])) * ElementSize : 0;
-                    if (offset < Bytes.Length) source.AsSpan(0, Math.Min(source.Length, Bytes.Length - offset)).CopyTo(Bytes.AsSpan(offset));
+                    if (offset < ByteLength) source.AsSpan(0, Math.Min(source.Length, ByteLength - offset)).CopyTo(Bytes.AsSpan(_offset + offset));
                     return null;
                 }),
                 _ => null,
@@ -1437,7 +1452,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         public bool TryGetIndex(int index, out object? value)
         {
             if (!IsAttached || Kind == ScriptBufferSourceKind.ArrayBuffer || index < 0 || index >= Length) { value = null; return false; }
-            value = (double)Bytes[index * ElementSize];
+            value = (double)Bytes[_offset + index * ElementSize];
             return true;
         }
         public bool TrySetIndex(int index, object? value)
@@ -1445,7 +1460,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             if (!IsAttached || Kind == ScriptBufferSourceKind.ArrayBuffer || index < 0 || index >= Length) return false;
             var number = value switch { double d => d, int i => i, _ => double.NaN };
             if (double.IsNaN(number)) return false;
-            Bytes[index * ElementSize] = unchecked((byte)Math.Clamp((int)number, 0, 255));
+            Bytes[_offset + index * ElementSize] = unchecked((byte)Math.Clamp((int)number, 0, 255));
             return true;
         }
     }
