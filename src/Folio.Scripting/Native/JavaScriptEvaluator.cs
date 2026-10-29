@@ -1158,7 +1158,8 @@ internal sealed class JavaScriptEvaluator
 
     private static object?[] Splice(IList<object?> values, IReadOnlyList<object?> args)
     {
-        var start = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, values.Count) : 0;
+        var requestedStart = args.Count > 0 ? (int)Number(args[0]) : 0;
+        var start = requestedStart < 0 ? Math.Max(values.Count + requestedStart, 0) : Math.Min(requestedStart, values.Count);
         var deleteCount = args.Count > 1 ? Math.Clamp((int)Number(args[1]), 0, values.Count - start) : values.Count - start;
         var removed = values.Skip(start).Take(deleteCount).ToArray();
         for (var i = 0; i < deleteCount; i++) values.RemoveAt(start);
