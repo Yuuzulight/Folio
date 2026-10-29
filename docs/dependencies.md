@@ -264,8 +264,9 @@ isolated-engine limit propagation, and staged
 ownership/copy/detachment operations and script-visible typed-buffer
 properties/indexed mutation in `Folio.Scripting.Native`;
 it is available to the content host through the explicit
-`FOLIO_SCRIPT_ENGINE=native` probe, but is not selected by default and does not
-reduce the replacement gate by itself. The
+`FOLIO_SCRIPT_ENGINE=native` probe, but is not selected by default while
+content-process parity is incomplete; selecting the native engine does not by
+itself complete the dependency-removal gate. The
 Folio-owned GIF decoder is production-selected, differentially checked against
 SkiaSharp, bounded to the 12-bit GIF LZW table, and included in the image fuzz
 target (a five-second run exercised 4,067,165 mutations with no failures). Four
