@@ -667,6 +667,8 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("a-b-c", engine.Evaluate("['a', 'b', 'c'].join('-')").AsString());
         Assert.Equal(3d, engine.Evaluate("let values = [1, 2]; values.push(3); return values.length").AsNumber());
         Assert.Equal("1,9", engine.Evaluate("let values = [1, 2, 3]; let removed = values.splice(1, 1, 9); values.pop(); values.unshift(0); values.shift(); return values.join(',')").AsString());
+        Assert.Equal("3,2,1", engine.Evaluate("[1, 2, 3].toReversed().join(',')").AsString());
+        Assert.Equal("1,2,3", engine.Evaluate("[3, 1, 2].toSorted().join(',')").AsString());
         Assert.Equal(3d, engine.Evaluate("let values = [4, 5]; let first = values.shift(); values.unshift(1, 2); return values.length").AsNumber());
         Assert.True(engine.Evaluate("[1, 2, 3].includes(2)").AsBoolean());
         Assert.True(engine.Evaluate("[1, 2, 3].includes(1, -3)").AsBoolean());

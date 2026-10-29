@@ -1082,6 +1082,21 @@ internal sealed class JavaScriptEvaluator
                 for (var i = 0; i < sorted.Count; i++) values[i] = sorted[i];
                 return values;
             }),
+            "toReversed" => (Func<IReadOnlyList<object?>, object?>)(args => values.Reverse().ToArray()),
+            "toSorted" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var copy = values.ToList();
+                var comparison = args.Count > 0 && IsCallable(args[0])
+                    ? new Comparison<object?>((left, right) =>
+                    {
+                        TryInvoke(args[0], [left, right], out var result);
+                        var number = result switch { double d => d, int i => i, long l => l, _ => Number(result) };
+                        return double.IsNaN(number) ? 0 : Math.Clamp((int)Math.Sign(number), -1, 1);
+                    })
+                    : (left, right) => string.Compare(StringValue(left), StringValue(right), StringComparison.Ordinal);
+                copy.Sort(comparison);
+                return copy.ToArray();
+            }),
             "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var start = RelativeArrayIndex(args.Count > 0 ? args[0] : null, values.Count, 0);
