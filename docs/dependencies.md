@@ -282,10 +282,11 @@ SkiaSharp in the render-test suite.
 1. **Extend the in-house shaper** script by script: bounded Hebrew base and isolated-mark runs now meet the differential bar; multiple-mark Hebrew, then Arabic (joining forms, mark positioning, contextual lookups), Indic and South-East Asian scripts (reordering) follow. *Good enough*: for each added script, glyph ids and positions identical to HarfBuzzSharp's output over the text corpus for the bundled and default system fonts; then that script stops routing to HarfBuzzSharp.
 2. **Folio's own rasteriser** behind `IRasterBackend`: scanline coverage rasteriser with SIMD (`Vector256`), stroker, gradients, blur, compositing and blend modes, clip masks, image resampling, and glyph rasterisation from `glyf`/`CFF`/`CFF2` outlines plus colour formats (`COLR`, bitmap glyphs through Folio's PNG decoder). Default-instance COLR v1 variable solid/gradient paint wrappers now retain their base paint values; non-default variation deltas remain part of the open gate. *Good enough*: all reftests and goldens pass within their existing tolerances, text is judged equal in side-by-side review at 100% and 150% scale, and scroll and animation frame targets still hold at 1920×1080.
 3. **In-house GIF and WebP decoders**. Both decoders are production-selected and bounded. GIF covers first-frame GIF87a/GIF89a with interlace/transparency; WebP covers VP8L lossless, VP8 key-frame lossy, ALPH alpha, extended and animated first-frame files. Differential corpus and fuzz evidence are checked in; this image-codec replacement gate is complete.
-4. **JavaScript engine**: planned removal of the temporary Jint dependency after
-   the Folio-owned engine passes the full scripting and conformance suites.
-5. **WebAssembly runtime**: replace Wasmtime and the compatibility interpreter
-   with Folio-owned validation, compilation and execution covering imports,
-   linear memory, tables, globals, streaming, workers, traps, limits and
-   teardown. The native Wasmtime bridge is an intermediate M6 backend, never a
-   completion substitute.
+4. **JavaScript engine**: [#685](https://github.com/Yuuzulight/Folio/issues/685)
+   tracks removal of the temporary Jint dependency after the Folio-owned engine
+   passes the full scripting and conformance suites.
+5. **WebAssembly runtime**: [#686](https://github.com/Yuuzulight/Folio/issues/686)
+   tracks replacing Wasmtime and the compatibility interpreter with Folio-owned
+   validation, compilation and execution covering imports, linear memory, tables,
+   globals, streaming, workers, traps, limits and teardown. The native Wasmtime
+   bridge is an intermediate M6 backend, never a completion substitute.

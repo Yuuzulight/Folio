@@ -33,12 +33,14 @@ production dependency has been removed:
    The shared `Folio.Imaging.ImageDecoder` entry point is also used by canvas
    still-media fallback, so video/canvas decode no longer has a narrower
    PNG/JPEG-only format matrix.
-4. **JavaScript** — Folio's parser, VM, DOM host layer and hot-path execution
-   replace Jint in production and pass the complete scripting and conformance
-   suites, including sandbox and resource-limit behavior.
-5. **WebAssembly** — Folio-owned validation, compilation and execution replace
-   Wasmtime and the compatibility interpreter, including imports, linear memory,
-   tables, globals, streaming, workers, traps, limits and teardown behavior.
+4. **JavaScript** — [#685](https://github.com/Yuuzulight/Folio/issues/685): Folio's
+   parser, VM, DOM host layer and hot-path execution replace Jint in production
+   and pass the complete scripting and conformance suites, including sandbox and
+   resource-limit behavior.
+5. **WebAssembly** — [#686](https://github.com/Yuuzulight/Folio/issues/686): Folio-owned
+   validation, compilation and execution replace Wasmtime and the compatibility
+   interpreter, including imports, linear memory, tables, globals, streaming,
+   workers, traps, limits and teardown behavior.
 6. **GPU backend and shader translation** — Folio-owned WebGL/GPU backend and
    shader translation replace ANGLE, including texture/framebuffer formats,
    float/integer paths, device loss/recovery, budgets, sandboxing and host-frame
