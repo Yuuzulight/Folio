@@ -1015,6 +1015,12 @@ internal sealed class JavaScriptEvaluator
         {
             "join" => (Func<IReadOnlyList<object?>, object?>)(args => string.Join(args.Count > 0 ? StringValue(args[0]) : ",", values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(value)))),
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => Enumerable.Range(0, values.Count).FirstOrDefault(index => Equals(values[index], args.Count > 0 ? args[0] : null), -1)),
+            "at" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var index = args.Count == 0 ? 0 : (int)Number(args[0]);
+                if (index < 0) index += values.Count;
+                return index < 0 || index >= values.Count ? JavaScriptEvaluator.UndefinedValue.Instance : values[index];
+            }),
             "includes" => (Func<IReadOnlyList<object?>, object?>)(args => values.Any(item => Equals(item, args.Count > 0 ? args[0] : null))),
             "push" => (Func<IReadOnlyList<object?>, object?>)(args => { foreach (var value in args) values.Add(value); return (double)values.Count; }),
             "pop" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? null : Pop(values)),
@@ -1273,6 +1279,12 @@ internal sealed class JavaScriptEvaluator
                 return string.Concat(Enumerable.Repeat(value, count));
             }),
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? -1d : (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal)),
+            "at" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var index = args.Count == 0 ? 0 : (int)Number(args[0]);
+                if (index < 0) index += value.Length;
+                return index < 0 || index >= value.Length ? string.Empty : value[index].ToString();
+            }),
             "charAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? string.Empty : value[(int)Number(args[0])].ToString()),
             "charCodeAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? double.NaN : (double)value[(int)Number(args[0])]),
             "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
