@@ -1071,6 +1071,10 @@ internal sealed class JavaScriptEvaluator
         method = name switch
         {
             "join" => (Func<IReadOnlyList<object?>, object?>)(args => string.Join(args.Count > 0 ? StringValue(args[0]) : ",", values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(value)))),
+            "toString" => (Func<IReadOnlyList<object?>, object?>)(_ => string.Join(",", values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(value)))),
+            "keys" => (Func<IReadOnlyList<object?>, object?>)(_ => Enumerable.Range(0, values.Count).Select(index => (object?)(double)index).ToArray()),
+            "values" => (Func<IReadOnlyList<object?>, object?>)(_ => values.ToArray()),
+            "entries" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Select((item, index) => (object?)new object?[] { (double)index, item }).ToArray()),
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count == 0) return -1d;
