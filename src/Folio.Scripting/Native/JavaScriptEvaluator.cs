@@ -1452,11 +1452,16 @@ internal sealed class JavaScriptEvaluator
                 var literal = RegexValue.Create($"/{Regex.Escape(StringValue(args[0]))}/g");
                 return literal.MatchAll(value);
             }),
-            "split" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0
-                ? new List<object?> { value }
-                : args[0] is RegexValue regex
-                    ? regex.Split(value).Cast<object?>().ToList()
-                    : value.Split(StringValue(args[0]), StringSplitOptions.None).Cast<object?>().ToList()),
+            "split" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0 || args[0] is UndefinedValue) return new List<object?> { value };
+                var limit = args.Count > 1 ? Math.Max(0, (int)Number(args[1])) : int.MaxValue;
+                if (limit == 0) return Array.Empty<object?>();
+                if (args[0] is RegexValue regex) return regex.Split(value).Take(limit).Cast<object?>().ToList();
+                var separator = StringValue(args[0]);
+                if (separator.Length == 0) return value.EnumerateRunes().Select(rune => (object?)rune.ToString()).Take(limit).ToList();
+                return value.Split(separator, StringSplitOptions.None).Take(limit).Cast<object?>().ToList();
+            }),
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
             "trimStart" => (Func<IReadOnlyList<object?>, object?>)(_ => value.TrimStart()),
             "trimEnd" => (Func<IReadOnlyList<object?>, object?>)(_ => value.TrimEnd()),
