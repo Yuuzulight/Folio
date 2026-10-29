@@ -1000,6 +1000,9 @@ public sealed class DomStyleDeclarationTests
         Assert.True(intercepted.Evaluate("let inScopeText = ''; navigator.serviceWorker.register('sw.js', { scope: '/app/' }).then(() => fetch('/app/offline')).then(r => r.text()).then(text => inScopeText = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("from worker", intercepted.Evaluate("inScopeText").AsString());
+        Assert.True(intercepted.Evaluate("let boundaryText = ''; navigator.serviceWorker.register('sw.js', { scope: '/app/' }).then(() => fetch('/apple/offline')).then(r => r.text()).then(text => boundaryText = text); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("from host", intercepted.Evaluate("boundaryText").AsString());
         Assert.True(intercepted.Evaluate("let crossOriginText = ''; fetch('https://other.example/offline').then(r => r.text()).then(text => crossOriginText = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("from host", intercepted.Evaluate("crossOriginText").AsString());
