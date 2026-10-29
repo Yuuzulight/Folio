@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Runtime.CompilerServices;
 
@@ -1496,6 +1497,19 @@ internal sealed class JavaScriptEvaluator
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
             "trimStart" => (Func<IReadOnlyList<object?>, object?>)(_ => value.TrimStart()),
             "trimEnd" => (Func<IReadOnlyList<object?>, object?>)(_ => value.TrimEnd()),
+            "normalize" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var form = args.Count == 0 ? "NFC" : StringValue(args[0]);
+                var normalization = form switch
+                {
+                    "NFC" => NormalizationForm.FormC,
+                    "NFD" => NormalizationForm.FormD,
+                    "NFKC" => NormalizationForm.FormKC,
+                    "NFKD" => NormalizationForm.FormKD,
+                    _ => throw WebIdlException.RangeError("The normalization form is invalid.")
+                };
+                return value.Normalize(normalization);
+            }),
             "padStart" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var target = args.Count == 0 ? value.Length : Math.Max(0, (int)Number(args[0]));
