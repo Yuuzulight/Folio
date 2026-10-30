@@ -100,10 +100,10 @@ scope now wired for native inline handlers.
 - Compatibility and native D2–D7 both pass 60/60. The final `D2/pantry-react-jsx` interaction now passes after the native evaluator was corrected to propagate labeled breaks out of switches; issue #645 is resolved. The broader Folio-owned engine replacement gate remains open.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host, including the WARP float-renderbuffer fallback.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
-- The focused native WebAssembly capability set passes 46/46, including the current
-  Wasmtime-backed native bridge, limits, imports/exports and lifecycle checks. This
-  is transition-path evidence only; it does not satisfy the required Folio-owned
-  Wasm replacement or dependency-removal gate.
+- The focused native WebAssembly capability set passes 46/46, including the
+  Folio-owned interpreter path, limits, imports/exports and lifecycle checks.
+  Wasmtime remains available only as an explicit oracle; this does not satisfy
+  the remaining reference-value/streaming parity or dependency-removal gate.
 - The documentation acceptance suites for Milestones 1 through 6 also pass in the
   direct Release runner; these suites validate the documented wiring and evidence
   indexes, not the unresolved backend or replacement gates.
