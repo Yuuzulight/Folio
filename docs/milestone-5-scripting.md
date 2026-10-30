@@ -26,7 +26,7 @@ The latest native Folio-engine run now matches the dependency-backed compatibili
 
 - `dotnet build Folio.slnx --no-restore`: passes.
 - `dotnet tests/Folio.Tests/bin/Release/net10.0/Folio.Tests.dll`: 1,998 passed, 1 environment-dependent symlink test skipped.
-- `dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll`: 1,421 passed.
+- `dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll`: 1,453 passed.
 - `dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll`: 822 passed.
 - `dotnet tests/Folio.WinForms.Tests/bin/Release/net10.0-windows/Folio.WinForms.Tests.dll`: 8 passed.
 - The focused serialized scripting acceptance run passes its covered cases, including the later M6 lifecycle, native WebAssembly, iframe sandbox, aggregate worker-memory, imported-table, brokered worker isolation, native texture-minification, media-budget, iframe permission, IPC-serialization, host capture-provider, GPU-reset, iframe message-source/target/port regressions, signed and unsigned array-texture sampling, native readback error/packing coverage, native array-growth semantics, and native worker structured-clone object/array/RegExp/cycle/Map/Set/Date/ArrayBuffer/typed-array/Error round trips plus native end-to-end worker transfer detachment.
