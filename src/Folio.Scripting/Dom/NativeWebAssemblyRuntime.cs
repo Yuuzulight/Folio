@@ -1,3 +1,4 @@
+#if FOLIO_WASM_ORACLE
 using Wasmtime;
 
 namespace Folio.Scripting.Dom;
@@ -1080,3 +1081,4 @@ internal sealed class NativeWebAssemblyBridge : IDisposable
 
     public void Dispose() { _runtime.Dispose(); _engine.SetGlobalProperty("__folio_native_wasm", ScriptValue.Undefined); }
 }
+#endif
