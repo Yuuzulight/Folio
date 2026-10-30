@@ -174,8 +174,8 @@ green across all 14 jobs. These are regression and containment results, not
 evidence that any dependency replacement is complete.
 The focused Folio-owned JavaScript engine/parser/evaluator/program/library
 probe suites pass 131/131, and native D2–D7 conformance remains 60/60; these
-are implementation slices, not completion evidence while Jint remains in the
-production graph.
+are implementation slices, not completion evidence for the remaining corpus
+and sandbox gates.
 The Folio-owned GIF/WebP/BMP fuzz targets completed 1,167,395, 60,239 and
 4,066,722 mutations respectively with zero failures. These are progress and
 safety evidence, not completion: HybridShaper still routes complex scripts to
