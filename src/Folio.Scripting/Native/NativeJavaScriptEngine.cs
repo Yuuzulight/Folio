@@ -608,7 +608,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             switch (kind)
             {
                 case ScriptBufferSourceKind.Uint8: bytes[offset] = ToUint8(number); break;
-                case ScriptBufferSourceKind.Uint8Clamped: bytes[offset] = (byte)Math.Clamp((int)number, 0, 255); break;
+                case ScriptBufferSourceKind.Uint8Clamped: bytes[offset] = ToUint8Clamped(number); break;
                 case ScriptBufferSourceKind.Int8: bytes[offset] = unchecked((byte)(sbyte)number); break;
                 case ScriptBufferSourceKind.Uint16: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 2), (ushort)number); break;
                 case ScriptBufferSourceKind.Int16: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 2), (short)number); break;
@@ -1194,6 +1194,16 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         return (byte)modulo;
     }
 
+    private static byte ToUint8Clamped(double number)
+    {
+        if (double.IsNaN(number) || number <= 0) return 0;
+        if (number >= 255) return 255;
+        var floor = Math.Floor(number);
+        var fraction = number - floor;
+        var rounded = fraction > 0.5 || (fraction == 0.5 && ((long)floor & 1) != 0) ? floor + 1 : floor;
+        return (byte)rounded;
+    }
+
     private static double Number(IReadOnlyList<object?> args, int index) => index < args.Count && args[index] is double number ? number : 0;
     private static double NumberValue(object? value) => value switch
     {
@@ -1738,7 +1748,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 case ScriptBufferSourceKind.Uint8:
                     span[0] = NativeJavaScriptEngine.ToUint8(number); break;
                 case ScriptBufferSourceKind.Uint8Clamped:
-                    span[0] = unchecked((byte)Math.Clamp((int)number, 0, 255)); break;
+                    span[0] = NativeJavaScriptEngine.ToUint8Clamped(number); break;
                 case ScriptBufferSourceKind.Int8:
                     span[0] = unchecked((byte)(sbyte)Math.Clamp((int)number, -128, 127)); break;
                 case ScriptBufferSourceKind.Uint16: BinaryPrimitives.WriteUInt16LittleEndian(span, unchecked((ushort)number)); break;
