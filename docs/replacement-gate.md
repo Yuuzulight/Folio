@@ -8,9 +8,9 @@ waive, defer, or reclassify this gate as optional.
 ## Current audit head — 2026-10-30
 
 The native worker, nested-worker, iframe, and WebRTC capability slices are
-green (54/54, 7/7, 27/27, and 11/11 respectively), and the full native
-scripting runner is 1,412/1,412. These are compatibility and Folio-owned
-runtime slices, not proof that production dependencies can be removed. Jint,
+green (54/54, 7/7, 27/27, and 11/11 respectively), and the latest full native
+scripting runner is 1,449/1,449 on the current checkout. Jint is now excluded from the shipped content
+host and retained only in the explicitly built differential/oracle host.
 SkiaSharp, HarfBuzzSharp, Wasmtime, and ANGLE
 (`Avalonia.Angle.Windows.Natives`) remain in the production graph until
 the complete replacement gates below are met. The WARP float-renderbuffer
@@ -75,6 +75,9 @@ The same head's broader project-level Release checks pass `Folio.Tests`
 8/8, and `Folio.Scripting.Tests` 1411/1411.
 The font fuzz target also completed 178,885 mutated inputs from six seeds with
 zero failures in a five-second Release run.
+The current audit rerun extends that evidence to 606,558 mutated inputs in
+15 seconds, still with zero failures, including the bundled CFF2 OTF and WOFF2
+seeds.
 The decoder fuzz targets also remain clean on this head: JPEG 181,368 inputs,
 WebP 73,735 inputs, and GIF 1,307,221 inputs, all with zero failures.
 This closes the cache-cap evidence portion of #573; CFF2 non-default variation
@@ -154,6 +157,12 @@ typical dashboard at 63.7 ms median versus Skia's 7.2 ms at 800x600, and 46.0
 ms versus 15.3 ms at 1920x1080. Busy-dashboard paint-only p95 is 24.2 ms
 against the 8.0 ms typical target. #575 therefore remains open.
 
+Latest local rerun of the same benchmark (2026-10-30) measured typical
+paint-only p95 at 5.5 ms and scroll p95 at 7.4 ms, while the busy dashboard
+paint-only p95 was 20.7 ms. Software replay measured 62.5 ms at 800x600 and
+53.8 ms at 1920x1080 versus Skia's 6.5 ms and 12.2 ms. The typical and scroll
+checks pass, but the busy case and software-backend gap still keep #575 open.
+
 Commit `d8ff8db5` adds a direct-copy fast path for fully opaque normal-source-over
 software layers; the focused software raster suite remains 46/46. Follow-up
 30-frame benchmark samples measured 61.8 ms at 800x600 and 39.3 ms at
@@ -174,13 +183,20 @@ green across all 14 jobs. These are regression and containment results, not
 evidence that any dependency replacement is complete.
 The focused Folio-owned JavaScript engine/parser/evaluator/program/library
 probe suites pass 131/131, and native D2–D7 conformance remains 60/60; these
-are implementation slices, not completion evidence while Jint remains in the
-production graph.
+are implementation slices, not completion evidence for the remaining corpus
+and sandbox gates.
 The Folio-owned GIF/WebP/BMP fuzz targets completed 1,167,395, 60,239 and
 4,066,722 mutations respectively with zero failures. These are progress and
 safety evidence, not completion: HybridShaper still routes complex scripts to
-HarfBuzz, rasterisation still uses SkiaSharp, and Jint remains the production JavaScript engine;
-Wasmtime remains part of the native WebAssembly path.
+HarfBuzz and rasterisation still uses SkiaSharp. Jint is now oracle-only, and
+Folio's native WebAssembly interpreter is the production path; Wasmtime remains
+only as an explicit differential oracle until its package can be removed after
+the remaining parity gates.
+
+The production `win-x64` content-host publish now excludes both `Wasmtime.Dotnet`
+and `wasmtime.dll`; the production Folio.Scripting build no longer references the
+Wasmtime package or bridge at all. An explicit `FolioWasmOracle=true` test/oracle
+build enables the bridge at runtime.
 The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
 
@@ -195,16 +211,25 @@ suite passes 1,411/1,411. A fresh native conformance report passes D1–D14
 script failures.
 
 These results strengthen the Folio-owned JavaScript evidence only. Production
-still selects Jint, and the complete DOM/sandbox/resource-limit/failure corpus,
-Folio-owned raster/shaper/WebAssembly cutovers, and dependency removal remain
-mandatory before Folio completion.
+now selects Folio's native engine; the complete DOM/sandbox/resource-limit/
+failure corpus, Folio-owned raster/shaper/WebAssembly cutovers, and dependency
+removal remain mandatory before Folio completion.
 
 The full native scripting assembly was completed on 2026-10-29 with
 `FOLIO_SCRIPT_ENGINE=native`: `Folio.Scripting.Tests` passed 1,422/1,422 in
 116.7 seconds, while the focused native suite and capability-matrix slices
 also remained green. A production-default cutover was then checked locally;
-it exposed 25 content-process/cache/worker failures, so Jint remains the
-shipping default until those parity gaps are fixed.
+it exposed 25 content-process/cache/worker failures. That historical result
+blocked cutover at the time and is retained as context below.
+
+Follow-up on 2026-10-30 reran the complete assembly with
+`FOLIO_SCRIPT_ENGINE=native`: **1,449/1,449 passed**. This confirms the native
+unit/in-process suite has no current failures; the remaining blockers are the
+separate content-process parity breadth and final dependency-removal gates.
+
+The same native-engine run also passed the real content-process/cache/worker/
+sandbox slice **52/52**. The shipped content host now defaults to Folio's native
+engine; Jint is retained only in the explicitly built differential/oracle host.
 
 The latest native D2–D7 probe passes 60/60: all library-card and canvas
 artifacts pass, including `D2/pantry-react-jsx`, which now mounts and reaches
@@ -230,14 +255,17 @@ gates.
 The shaping replacement now has a checked-in differential probe covering simple
 scripts plus promoted Hebrew and Arabic complex runs, explicit Arabic joining
 forms, and a deliberately perturbed kerning value that the report detects. The
-focused suite passes 55/55, and native S6 remains 12/12. The standalone bundled
-report currently passes every listed case, and the Windows system-font report
-passes all ten available cases. Hebrew and Arabic now route through Folio's
+focused shaping suite passes 19/19, and native S6 remains 12/12. The standalone
+bundled report currently passes every listed case, and the Windows system-font
+report passes all twenty-three available cases, including Devanagari, Bengali,
+Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada, Malayalam, Thai,
+Lao, Khmer and Myanmar. Hebrew and Arabic now route through Folio's
 ComplexShaper by default; Indic, South-East Asian and other unproven scripts
 remain on the HarfBuzz oracle until their per-script corpus and routing gates
 are met.
 
-The same bundled-font evidence is reproducible without the test runner:
+The same bundled-font evidence is reproducible without the test runner and is
+now executed in CI on every build:
 `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release
 -- shaping-differential` reports the complete checked-in bundled case list plus a
 deliberate kerning perturbation check. This is the checked-in harness evidence for #561;
@@ -245,8 +273,8 @@ system-font coverage and the remaining complex-script corpus are still required
 before the shaping replacement as a whole can be considered complete.
 On Windows, `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj
 -c Release -- shaping-differential-system` compares Arial, Times New Roman and
-Segoe UI simple runs plus expanded Hebrew and Arabic complex runs against HarfBuzzSharp;
-the current host reports all ten PASS. The system corpus remains a local
+Segoe UI simple runs plus Hebrew, Arabic, Indic and South-East Asian runs against
+HarfBuzzSharp; the current host reports all twenty-three PASS. The system corpus remains a local
 evidence run because installed fonts vary by host.
 
 The artifact classifier now shares the image-format contract with `ImageLoader`:
@@ -350,3 +378,11 @@ opt-in probe.
 The Windows build also runs the complete conformance report with
 `FOLIO_CONFORMANCE_ENGINE=native`; native conformance is therefore a hosted CI
 requirement rather than a local-only verification command.
+
+Verification refresh — 2026-10-30: the complete `Folio.Scripting.Tests` assembly
+passes 1,449/1,449 with `FOLIO_SCRIPT_ENGINE=native` (106.4 seconds). The full
+Release solution passes 4,350/4,352 with two documented skips (one
+environment-only symbolic-link skip and one explicit Wasmtime oracle
+benchmark skip). These are implementation-slice results; the mandatory replacement gate
+still requires the broader corpus, sandbox/watchdog evidence and dependency
+removal criteria below.

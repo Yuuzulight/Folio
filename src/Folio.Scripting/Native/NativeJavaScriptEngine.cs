@@ -532,7 +532,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         dateConstructor.SetProperty("parse", (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.NaN : ParseDateMilliseconds(args[0])));
         _bindings["Date"] = dateConstructor;
         _bindings["RegExp"] = new NativeFunction(args => JavaScriptEvaluator.RegexValue.Create("/" + (args.Count > 0 ? StringValue(args[0]) : string.Empty) + "/" + (args.Count > 1 ? StringValue(args[1]) : string.Empty)));
-        _bindings["BigInt"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? NumberValue(args[0]) : 0d);
+        _bindings["BigInt"] = (Func<IReadOnlyList<object?>, object?>)(args => ToBigInt(args.Count > 0 ? args[0] : 0));
         _bindings["Proxy"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 ? new NativeProxyValue(args[0], args[1]) : args.Count > 0 ? args[0] : new Dictionary<string, object?>());
         _bindings["atob"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? string.Empty : Encoding.Latin1.GetString(Convert.FromBase64String(StringValue(args[0]))));
         _bindings["btoa"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? string.Empty : Convert.ToBase64String(Encoding.Latin1.GetBytes(StringValue(args[0]))));
@@ -603,11 +603,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         var bytes = new byte[values.Count * size];
         for (var i = 0; i < values.Count; i++)
         {
-            var number = values[i] switch { double d => d, int n => n, long n => n, _ when double.TryParse(values[i]?.ToString(), out var parsed) => parsed, _ => 0 };
+            var number = values[i] switch { double d => d, int n => n, long n => n, BigInteger big => (double)big, _ when double.TryParse(values[i]?.ToString(), out var parsed) => parsed, _ => 0 };
             var offset = i * size;
             switch (kind)
             {
-                case ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped: bytes[offset] = (byte)Math.Clamp((int)number, 0, 255); break;
+                case ScriptBufferSourceKind.Uint8: bytes[offset] = ToUint8(number); break;
+                case ScriptBufferSourceKind.Uint8Clamped: bytes[offset] = ToUint8Clamped(number); break;
                 case ScriptBufferSourceKind.Int8: bytes[offset] = unchecked((byte)(sbyte)number); break;
                 case ScriptBufferSourceKind.Uint16: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 2), (ushort)number); break;
                 case ScriptBufferSourceKind.Int16: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 2), (short)number); break;
@@ -615,6 +616,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 case ScriptBufferSourceKind.Int32: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 4), (int)number); break;
                 case ScriptBufferSourceKind.Float32: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 4), (float)number); break;
                 case ScriptBufferSourceKind.Float64: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 8), number); break;
+                case ScriptBufferSourceKind.BigInt64: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 8), values[i] is BigInteger bigInt ? (long)bigInt : (long)number); break;
+                case ScriptBufferSourceKind.BigUint64: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 8), values[i] is BigInteger bigUint ? (ulong)bigUint : (ulong)number); break;
                 default: break;
             }
         }
@@ -1184,15 +1187,45 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _ => 1,
     };
 
+    private static byte ToUint8(double number)
+    {
+        if (double.IsNaN(number) || double.IsInfinity(number) || number == 0) return 0;
+        var truncated = Math.Truncate(number);
+        var modulo = truncated % 256;
+        if (modulo < 0) modulo += 256;
+        return (byte)modulo;
+    }
+
+    private static byte ToUint8Clamped(double number)
+    {
+        if (double.IsNaN(number) || number <= 0) return 0;
+        if (number >= 255) return 255;
+        var floor = Math.Floor(number);
+        var fraction = number - floor;
+        var rounded = fraction > 0.5 || (fraction == 0.5 && ((long)floor & 1) != 0) ? floor + 1 : floor;
+        return (byte)rounded;
+    }
+
     private static double Number(IReadOnlyList<object?> args, int index) => index < args.Count && args[index] is double number ? number : 0;
     private static double NumberValue(object? value) => value switch
     {
         null => 0,
         bool boolean => boolean ? 1 : 0,
         double number => number,
+        BigInteger number => (double)number,
         int number => number,
         string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) => number,
         _ => double.NaN,
+    };
+    private static BigInteger ToBigInt(object? value) => value switch
+    {
+        BigInteger number => number,
+        bool boolean => boolean ? BigInteger.One : BigInteger.Zero,
+        double number when !double.IsNaN(number) && !double.IsInfinity(number) => new BigInteger(number),
+        int number => new BigInteger(number),
+        long number => new BigInteger(number),
+        string text => BigInteger.Parse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture),
+        _ => throw WebIdlException.TypeError("Cannot convert value to BigInt.")
     };
     private static double ParseDateMilliseconds(object? value)
     {
@@ -1265,6 +1298,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         null => "null",
         JavaScriptEvaluator.UndefinedValue => "undefined",
         bool boolean => boolean ? "true" : "false",
+        BigInteger number => number.ToString(CultureInfo.InvariantCulture),
         double number => number.ToString("G15", CultureInfo.InvariantCulture),
         _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
     };
@@ -1699,34 +1733,39 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         public bool TrySetIndex(int index, object? value)
         {
             if (!IsAttached || Kind == ScriptBufferSourceKind.ArrayBuffer || index < 0 || index >= Length) return false;
-            var number = value switch { double d => d, int i => i, _ => double.NaN };
-            if (double.IsNaN(number)) return false;
+            var number = value switch { double d => (object)d, int i => (object)(double)i, BigInteger big => big, _ => null };
+            if (number is null) return false;
             WriteElement(index, number);
             return true;
         }
-        private double ReadElement(int index)
+        private object ReadElement(int index)
         {
             var span = Bytes.AsSpan(_offset + index * ElementSize, ElementSize);
             return Kind switch
             {
-                ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped => span[0],
-                ScriptBufferSourceKind.Int8 => unchecked((sbyte)span[0]),
-                ScriptBufferSourceKind.Uint16 => BinaryPrimitives.ReadUInt16LittleEndian(span),
-                ScriptBufferSourceKind.Int16 => BinaryPrimitives.ReadInt16LittleEndian(span),
-                ScriptBufferSourceKind.Uint32 => BinaryPrimitives.ReadUInt32LittleEndian(span),
-                ScriptBufferSourceKind.Int32 => BinaryPrimitives.ReadInt32LittleEndian(span),
-                ScriptBufferSourceKind.Float32 => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(span)),
+                ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped => (double)span[0],
+                ScriptBufferSourceKind.Int8 => (double)unchecked((sbyte)span[0]),
+                ScriptBufferSourceKind.Uint16 => (double)BinaryPrimitives.ReadUInt16LittleEndian(span),
+                ScriptBufferSourceKind.Int16 => (double)BinaryPrimitives.ReadInt16LittleEndian(span),
+                ScriptBufferSourceKind.Uint32 => (double)BinaryPrimitives.ReadUInt32LittleEndian(span),
+                ScriptBufferSourceKind.Int32 => (double)BinaryPrimitives.ReadInt32LittleEndian(span),
+                ScriptBufferSourceKind.Float32 => (double)BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(span)),
                 ScriptBufferSourceKind.Float64 => BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(span)),
-                _ => span[0],
+                ScriptBufferSourceKind.BigInt64 => new BigInteger(BinaryPrimitives.ReadInt64LittleEndian(span)),
+                ScriptBufferSourceKind.BigUint64 => new BigInteger(BinaryPrimitives.ReadUInt64LittleEndian(span)),
+                _ => (double)span[0],
             };
         }
-        private void WriteElement(int index, double number)
+        private void WriteElement(int index, object numberValue)
         {
+            var number = numberValue is BigInteger big ? (double)big : numberValue is double d ? d : 0d;
             var span = Bytes.AsSpan(_offset + index * ElementSize, ElementSize);
             switch (Kind)
             {
-                case ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped:
-                    span[0] = unchecked((byte)Math.Clamp((int)number, 0, 255)); break;
+                case ScriptBufferSourceKind.Uint8:
+                    span[0] = NativeJavaScriptEngine.ToUint8(number); break;
+                case ScriptBufferSourceKind.Uint8Clamped:
+                    span[0] = NativeJavaScriptEngine.ToUint8Clamped(number); break;
                 case ScriptBufferSourceKind.Int8:
                     span[0] = unchecked((byte)(sbyte)Math.Clamp((int)number, -128, 127)); break;
                 case ScriptBufferSourceKind.Uint16: BinaryPrimitives.WriteUInt16LittleEndian(span, unchecked((ushort)number)); break;
@@ -1735,9 +1774,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 case ScriptBufferSourceKind.Int32: BinaryPrimitives.WriteInt32LittleEndian(span, unchecked((int)number)); break;
                 case ScriptBufferSourceKind.Float32: BinaryPrimitives.WriteInt32LittleEndian(span, BitConverter.SingleToInt32Bits((float)number)); break;
                 case ScriptBufferSourceKind.Float64: BinaryPrimitives.WriteInt64LittleEndian(span, BitConverter.DoubleToInt64Bits(number)); break;
+                case ScriptBufferSourceKind.BigInt64: BinaryPrimitives.WriteInt64LittleEndian(span, (long)(numberValue is BigInteger bigInt ? bigInt : new BigInteger(number))); break;
+                case ScriptBufferSourceKind.BigUint64: BinaryPrimitives.WriteUInt64LittleEndian(span, (ulong)(numberValue is BigInteger bigUint ? bigUint : new BigInteger(number))); break;
                 default: span[0] = unchecked((byte)number); break;
             }
         }
+
     }
 
     internal interface INativeHostObject

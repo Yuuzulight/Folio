@@ -14,4 +14,11 @@
     <Compile Include="..\Folio.RenderTests\RepoPaths.cs" Link="RepoPaths.cs" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(FolioWasmOracle)' != 'true'">
+    <Compile Remove="WebAssemblyBenchmark.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(FolioWasmOracle)' == 'true'">
+    <Compile Remove="WebAssemblyBenchmark.Stub.cs" />
+  </ItemGroup>
+
 </Project>

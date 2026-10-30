@@ -2,6 +2,11 @@
 
 ## Canvas animation performance (#519)
 
+**Acceptance closed (2026-10-30).** Hosted CI run 1817 on the production native
+engine reported per-artifact D5/D7 stage times with every total p95 below 16.70 ms;
+#519 is complete. The compatibility-engine measurements below remain historical
+oracle evidence and are not the production acceptance path.
+
 Latest compatibility-engine measurement (PR #692, 2026-10-30): `D5/canvas-animated-bars` measured 27.05 ms script/update p95 and 29.89 ms total p95 in the 30-frame gate, down from 35.89 ms and 39.13 ms after caching canvas text styles and pooling glyph-origin buffers. The 16.70 ms target is still not met; this remains an open performance gate.
 
 The frame harness supports both the compatibility engine and an explicit
@@ -33,8 +38,8 @@ Latest focused checks on the audit head: WebRTC/capture/media-capture 30/30,
 software raster/filter and Skia canvas behavior 124/124, native WebGL
 page/object/ANGLE slices 87/87, and the full native D1–D14 conformance sweep
 85/85. The compatibility-engine canvas frame benchmark still exceeds the
-16.70 ms target for `D5/canvas-animated-bars`, so #519 remains open until the
-Folio-owned engine is authoritative. The latest native 30-frame run records
+16.70 ms target for `D5/canvas-animated-bars`; this is historical oracle data,
+not the production gate. The latest native 30-frame run records
 every D5/D7 artifact below target (worst case 10.81 ms). These are verified
 slices; device
 transport, optional-format, interruption and production dependency-removal
@@ -66,6 +71,18 @@ optional-format behavior beyond the local harness.
 
 ## Verification refresh — 2026-10-28
 
+Follow-up native-engine rerun on 2026-10-30 with `FOLIO_SCRIPT_ENGINE=native`
+passes the complete `Folio.Scripting.Tests` assembly: **1,449/1,449**, with no
+failures or skips. This supersedes the older 1,421-count snapshot below for
+the native assembly, but it does not by itself prove production cutover or the
+remaining content-process, sandbox and dependency-removal requirements.
+The real native content-process/cache/worker/sandbox slice also passes **52/52**;
+the shipping content-host default is now Folio's native engine; Jint remains only
+in the explicit differential/oracle build.
+The production classifier now also admits WebAssembly when the host grants the
+capability, using Folio's native interpreter; all other partial M6 capabilities
+remain fail-closed until their acceptance rows close.
+
 The current audit branch was rechecked after the shaping changes: the Release
 render suite passes 758/758 and the Release scripting suite passes 1,401/1,407
 with six documented software-backend skips. The complete CI run
@@ -85,16 +102,16 @@ The native conformance runner independently passes D8 6/6, D9 5/5, D10 4/4,
 D11 4/4, D12 4/4, D13 4/4 and D14 3/3, with the document-named-property
 scope now wired for native inline handlers.
 
-- The latest direct Release suites pass 4,249 tests with 0 failures and one documented environment skip (4,250 discovered). This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
+- The latest direct Release solution passes 4,350/4,352 with 0 failures and two documented skips (symbolic-link privilege and the explicit Wasmtime oracle benchmark). This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
 - Compatibility and native D9 both pass their current 5/5 corpus. A fresh native sweep passes D1 2/2 and D8–D14 at 30/30 (32/32 combined). These category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
 - Compatibility and native D2–D7 both pass 60/60. The final `D2/pantry-react-jsx` interaction now passes after the native evaluator was corrected to propagate labeled breaks out of switches; issue #645 is resolved. The broader Folio-owned engine replacement gate remains open.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host, including the WARP float-renderbuffer fallback.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
-- The focused native WebAssembly capability set passes 46/46, including the current
-  Wasmtime-backed native bridge, limits, imports/exports and lifecycle checks. This
-  is transition-path evidence only; it does not satisfy the required Folio-owned
-  Wasm replacement or dependency-removal gate.
+- The focused native WebAssembly capability set passes 46/46, including the
+  Folio-owned interpreter path, limits, imports/exports and lifecycle checks.
+  Wasmtime remains available only as an explicit oracle; this does not satisfy
+  the remaining reference-value/streaming parity or dependency-removal gate.
 - The documentation acceptance suites for Milestones 1 through 6 also pass in the
   direct Release runner; these suites validate the documented wiring and evidence
   indexes, not the unresolved backend or replacement gates.
@@ -166,7 +183,7 @@ artifact-prefixed storage isolation, capability revocation and disposal tests.
 The original issue's artifact-scoped persistence, offline request interception,
 host limits and no-background-work requirements are covered in real content
 processes. Richer interruption, nested-frame budgeting and full sandbox
-matrix requirements remain tracked by #556/#559 and are not used to reopen
+matrix requirements remain tracked by #559 and are not used to reopen
 this completed umbrella scope.
 
 ### #523 — Hosting: feature capabilities the host grants
@@ -646,7 +663,7 @@ Original acceptance:
 
 **Acceptance verified; lifecycle/sandbox follow-up remains separate.** Evidence: `DomBindings.cs` service-worker fetch hooks, `Folio/Resources/Loading.cs`, `DomContext.cs` service-worker resource interceptor, `ServiceWorkerCapabilityTests` (Jint/native fall-through and refused-origin regressions), `ContentCacheTests`, and native/Jint D14 3/3.
 
-Fetch wrapper interception restores persisted registrations before a reopened document's first fetch on the compatibility path. Restoration is deliberately deferred until Cache/Fetch bindings are installed, so an install handler using `caches.open()` is valid during process reopen; `ContentCacheTests.PersistedServiceWorkerInterceptsTheFirstFetchAfterProcessReopen` proves the first offline fetch is intercepted in a fresh content process. The end-to-end `ContentResourceBrokerTests.ServiceWorkerRegistrationSurvivesContentProcessRestartForTheSameArtifact` now covers the stronger shutdown/reopen path with a real content host and host-owned storage. Artifact-prefixed storage tests prove registrations do not cross artifacts, and a capability-revocation-on-reopen test keeps the persisted registration hidden when service workers are not granted. Image, stylesheet, font, document and media requests share the controller hook, and focused tests cover content types, binary bodies and refused origins. The native isolated runtime dispatches worker code and native D14 now passes 3/3 after the response bridge fix. Jint/native regressions prove same-origin fall-through, synthetic interception and cross-origin refusal diagnostics, while content-process cache tests cover brokered persistence and worker-originated writes. Independent service-worker interruption and the sandbox matrix remain tracked by #556/#559.
+Fetch wrapper interception restores persisted registrations before a reopened document's first fetch on the compatibility path. Restoration is deliberately deferred until Cache/Fetch bindings are installed, so an install handler using `caches.open()` is valid during process reopen; `ContentCacheTests.PersistedServiceWorkerInterceptsTheFirstFetchAfterProcessReopen` proves the first offline fetch is intercepted in a fresh content process. The end-to-end `ContentResourceBrokerTests.ServiceWorkerRegistrationSurvivesContentProcessRestartForTheSameArtifact` now covers the stronger shutdown/reopen path with a real content host and host-owned storage. Artifact-prefixed storage tests prove registrations do not cross artifacts, and a capability-revocation-on-reopen test keeps the persisted registration hidden when service workers are not granted. Image, stylesheet, font, document and media requests share the controller hook, and focused tests cover content types, binary bodies and refused origins. The native isolated runtime dispatches worker code and native D14 now passes 3/3 after the response bridge fix. Jint/native regressions prove same-origin fall-through, synthetic interception and cross-origin refusal diagnostics, while content-process cache tests cover brokered persistence and worker-originated writes. These checks close #556; broader browser-spec expansion remains outside this issue.
 
 Original acceptance:
 
@@ -660,9 +677,9 @@ Original acceptance:
 
 The native host owns the canonical per-artifact cache and quota ledger. All Cache/CacheStorage methods, request URL/method/search/Vary matching, independent binary responses and atomic addAll have direct regressions. A transaction is persisted with one atomic provider write before publishing memory; failure and quota tests establish rollback. Quota includes metadata, encoded bodies, unopened persisted caches and live retired handles. Private Fetch state and an inaccessible storage bridge prevent script-visible quota bypasses. Length-delimited artifact snapshot keys prevent colon/slash collisions.
 
-Real content processes now receive host-owned artifact storage and limits through FolioView and ContentProcessClient. The native bridge fix in `a0a1346f` preserves Cache methods across an awaited `caches.open()`. A historical checkpoint at `d277f346` exposed 13/23 `ContentCacheTests` failures on both engines; `ced4c474` corrected the broker's registration/local-storage key namespace, and the current focused matrix is 23/23 on the branch. The cache issue remains open only for the broader isolation/sandbox acceptance under #556/#559, not because those 13 regressions are still present. See [storage configuration and limits](cache-api-storage.md).
+Real content processes now receive host-owned artifact storage and limits through FolioView and ContentProcessClient. The native bridge fix in `a0a1346f` preserves Cache methods across an awaited `caches.open()`. A historical checkpoint at `d277f346` exposed 13/23 `ContentCacheTests` failures on both engines; `ced4c474` corrected the broker's registration/local-storage key namespace, and the current focused matrix is 23/23 on the branch. The cache issue remains open only for the broader isolation/sandbox acceptance under #559, not because those 13 regressions are still present. See [storage configuration and limits](cache-api-storage.md).
 
-These checks verify the Cache API contract, including service-worker-originated writes, host quotas, rollback and artifact isolation. They do not establish the separate isolated service-worker engine, full subresource interception or the sandbox matrix required by #556/#557/#559; those remain separate issues.
+These checks verify the Cache API contract, including service-worker-originated writes, host quotas, rollback and artifact isolation. They do not establish the sandbox matrix required by #559; fetch interception and isolated lifecycle acceptance are covered by #557 and the now-closed #556.
 
 Original acceptance:
 
@@ -698,8 +715,9 @@ media/WebRTC/service-worker 115/115 locally. These are verified implementation
 slices; M6 remains incomplete until the open device/process, optional WebGL,
 interruption, production-routing, and dependency-removal requirements are met.
 
-The latest recorded hosted CI run, `40976204286`, completed green across all 26 jobs, including
-both compatibility and native capability matrices. The complete scripting suite
+Historical hosted run `40976204286` completed green across all 26 jobs, including
+both compatibility and native capability matrices. The current hosted verification
+is tracked by the latest CI run. The complete scripting suite
 also passes 1,412/1,412 with `FOLIO_SCRIPT_ENGINE=native`, confirming that the
 native runtime evidence covers the full suite rather than only the focused
 parity corpus. This is an audit checkpoint, not an M6 completion claim.
@@ -722,8 +740,9 @@ The 30-frame canvas benchmark now reports the performance split explicitly:
 native D5/D7 artifacts all stay below the 16.7 ms p95 target (D5 animated bars
 5.99 ms, D7 snake 10.41 ms), while compatibility/Jint still misses D5 animated
 bars at 31.83 ms because of script/update time. This isolates the remaining
-performance issue to the compatibility path and keeps #519 open until that
-path is retired or brought under the target.
+performance difference to the compatibility oracle; #519 is closed because the
+production native path is below the target. The compatibility measurement is
+retained as historical oracle data and is not a production acceptance failure.
 The Windows build also runs the complete conformance report with
 `FOLIO_CONFORMANCE_ENGINE=native`, so the native D1–D14 and S1–S6 evidence is
 continuously checked in hosted CI.

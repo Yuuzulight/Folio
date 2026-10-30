@@ -270,8 +270,21 @@ internal sealed class JavaScriptParser
                 while (true)
                 {
                     if (Match(",")) { names.Add(string.Empty); continue; }
-                    if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name");
-                    names.Add(_current.Text); Take();
+                    if (Match("..."))
+                    {
+                        if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a rest binding name");
+                        names.Add("..." + _current.Text); Take();
+                        break;
+                    }
+                    if (_current.Text is "[" or "{")
+                    {
+                        names.Add(ParseBindingName());
+                    }
+                    else
+                    {
+                        if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name");
+                        names.Add(_current.Text); Take();
+                    }
                     if (!Match(",")) break;
                     if (_current.Text == "]") { names.Add(string.Empty); break; }
                 }
@@ -286,6 +299,12 @@ internal sealed class JavaScriptParser
             {
                 do
                 {
+                    if (Match("..."))
+                    {
+                        if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a rest binding name");
+                        names.Add("..." + _current.Text); Take();
+                        break;
+                    }
                     if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured property name");
                     var property = _current.Text; Take();
                     var local = property;

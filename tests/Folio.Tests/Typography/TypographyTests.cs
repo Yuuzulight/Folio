@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using Folio.Painting;
+using Folio.Painting.Software;
 using Folio.Typography;
 
 namespace Folio.Tests.Typography;
@@ -8,6 +10,53 @@ public class TypographyTests
     private static readonly string FontsFolder = Path.Combine(AppContext.BaseDirectory, "fonts");
     private static readonly byte[] BoxFontBytes = File.ReadAllBytes(Path.Combine(FontsFolder, "FolioBox.ttf"));
     private static readonly FontFace Box = FontFace.Parse(BoxFontBytes)!;
+
+    [Fact]
+    public void ParsesCff2AndProducesGlyphOutlines()
+    {
+        var face = FontFace.Parse(File.ReadAllBytes(Path.Combine(FontsFolder, "FolioCff2.otf")));
+
+        Assert.NotNull(face);
+        Assert.NotNull(face!.RawTable("CFF2"));
+        var glyph = face.GlyphFor('A');
+        Assert.NotEqual((ushort)0, glyph);
+        var outline = GlyphOutlines.Get(face, glyph);
+        Assert.NotNull(outline);
+        Assert.Contains(outline!.Commands, command => command.Verb is PathVerb.LineTo or PathVerb.CubicTo);
+    }
+
+    [Fact]
+    public void Cff2GlyphCacheStaysWithinTheEightMiBBudget()
+    {
+        var face = FontFace.Parse(File.ReadAllBytes(Path.Combine(FontsFolder, "FolioCff2.otf")))!;
+        for (var glyph = 0; glyph < face.GlyphCount; glyph++)
+        for (var step = 0; step < 64; step++)
+            _ = SoftwareCanvas.Flattened(face, (ushort)glyph, 0.05f + step * 0.01f);
+
+        var usage = SoftwareCanvas.GlyphCacheUsage(face);
+        Assert.InRange(usage.Outlines + usage.Flattened, 0, 8L * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ColorEmojiBitmapStrikeDecodesThroughFolio()
+    {
+        var face = FontFace.Parse(File.ReadAllBytes(Path.Combine(FontsFolder, "NotoColorEmoji.ttf")))!;
+
+        Assert.True(BitmapGlyphs.Has(face));
+        Assert.Contains(Enumerable.Range(0, face.GlyphCount), glyph => BitmapGlyphs.Get(face, (ushort)glyph) is not null);
+    }
+
+    [Fact]
+    public void ColorEmojiBitmapGlyphPaintsPixelsOnSoftwareSurface()
+    {
+        var face = FontFace.Parse(File.ReadAllBytes(Path.Combine(FontsFolder, "NotoColorEmoji.ttf")))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        var glyph = face.GlyphFor('\u2764');
+
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new System.Numerics.Vector2(16, 76)], new Paint(new Rgba(1, 1, 1, 1)));
+
+        Assert.Contains(surface.ReadPixels(0, 0, 96, 96).Chunk(4), pixel => pixel[3] > 0);
+    }
 
     [Fact]
     public void ReadsTheBoxFontNamesAndMetrics()

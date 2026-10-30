@@ -21,8 +21,10 @@ public sealed class Milestone7ReplacementGateTests
         foreach (var track in new[] { "Text shaping", "Rasterisation", "Image codecs", "JavaScript", "WebAssembly" })
             Assert.Contains(track, gate, StringComparison.Ordinal);
         Assert.Contains("gate remains open", gate, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Jint remains the", gate, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("production JavaScript engine", gate, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Wasmtime remains part of the native WebAssembly", gate, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Jint is now oracle-only", gate, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("replace Jint in production", gate, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Wasmtime remains", gate, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("explicit differential oracle", gate, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Folio's native WebAssembly interpreter", gate, StringComparison.OrdinalIgnoreCase);
     }
 }

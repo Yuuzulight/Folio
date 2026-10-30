@@ -99,7 +99,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
         WindowsContentLaunch? isolated = null;
         try
         {
-            if (OperatingSystem.IsWindows())
+            if (OperatingSystem.IsWindows() && !string.Equals(Environment.GetEnvironmentVariable("FOLIO_UNSANDBOXED"), "1", StringComparison.Ordinal))
                 isolated = WindowsContentLauncher.Start(executablePath, arguments, effectiveLimits, framePath);
             else
             {
