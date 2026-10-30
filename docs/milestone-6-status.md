@@ -216,6 +216,14 @@ working set reaching 91.6 MB. The current published teardown cleanup keeps all
 baseline, but confirms that the performance gate remains unmet and that the
 benchmark methodology must stay explicit while #677 is open.
 
+Fresh published-host rerun on 2026-10-30 supersedes those older diagnostics:
+cold first frame was 559.4 ms; all 12 D1 rows stayed below 80 MB, while 8/12
+met both warm targets. Accordion, calculator, sortable table and timer carousel
+missed the 50 ms warm target. The script-size calibration still reports 1–100 KB
+samples as scripted and 250 KB as browser-routed, while the classifier's static
+50 KB routing threshold intentionally sends the 100 KB sample to the browser.
+These measurements are local evidence only until the hosted benchmark job passes.
+
 Historical snapshot (2026-10-27): after the native evaluator and WebAssembly bridge repairs, a complete Release solution passed 4,147 tests (0 failed, 7 documented skips; 4,154 discovered). That run also included worker, WebAssembly, WebRTC, iframe and service-worker content-process sandbox coverage. These results proved the covered subsets only; the remaining native backend, interruption and routing requirements remain open. The 2026-10-28 refresh at the top supersedes this count.
 
 Historical solution verification after native service-worker controller interception, typed-array bridge coverage, worker-scope isolation, native worker message delivery, imported native funcref/externref bridging, brokered worker isolation, typed page-function table bridging, iframe allowlist parsing, native-engine timeout enforcement, host capture-provider wiring, GPU-reset coverage, iframe message-source/target/port coverage, media autoplay/clock coverage, reviewed media goldens, starvation-safe host loading, transactional WebGL texture/renderbuffer reservations, retained media-frame budget accounting, transform-feedback capture/readback plus next-draw round trip, signed and unsigned integer vertex-attribute input, signed integer 2D/3D/2D-array texture sampling, `UNPACK_FLIP_Y_WEBGL` upload handling, pack row/skip readback controls, `clients.claim()` controller wiring in both engines and COLR v1 gradient, composite, sweep-gradient, scale-wrapper, rotation-wrapper, skew-wrapper and default-instance variable-wrapper rendering: 4,211 passed, 0 failed, 3 documented skips, 4,214 discovered. The current scripting suite passes 1,405/1,407, with two documented software-backend skips; the current totals are recorded above.

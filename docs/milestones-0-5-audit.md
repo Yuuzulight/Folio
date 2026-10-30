@@ -26,11 +26,11 @@ conformance remains a separate differential result and does not waive the M5
 compatibility-path gate.
 
 The current scripted-process benchmark keeps M4 open. The latest published
-ReadyToRun host run measures cold first frame at 510.3 ms against the 400 ms
-target; the latest published ReadyToRun teardown-cleanup run keeps all 12 D1
-rows under the 80 MB working-set target, with 9/12 meeting both warm timing and
-memory targets. Cold startup and three warm timing rows remain unmet. The
-benchmark emits warnings and does not silently waive the gate.
+win-x64 host run measures cold first frame at 559.4 ms against the 400 ms
+target; all 12 D1 rows remain under the 80 MB working-set target, with 8/12
+meeting both warm timing and memory targets. Cold startup and four warm timing
+rows (accordion, calculator, sortable table and timer carousel) remain unmet.
+The benchmark emits warnings and does not silently waive the gate.
 The calibrated script-size samples are measured after a dedicated warm-up so
 the first row does not include process/JIT bootstrap. These measurements are
 recorded in #677; the benchmark emits warnings and does not silently waive the
