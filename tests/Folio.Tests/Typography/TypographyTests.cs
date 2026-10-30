@@ -38,6 +38,15 @@ public class TypographyTests
     }
 
     [Fact]
+    public void ColorEmojiBitmapStrikeDecodesThroughFolio()
+    {
+        var face = FontFace.Parse(File.ReadAllBytes(Path.Combine(FontsFolder, "NotoColorEmoji.ttf")))!;
+
+        Assert.True(BitmapGlyphs.Has(face));
+        Assert.Contains(Enumerable.Range(0, face.GlyphCount), glyph => BitmapGlyphs.Get(face, (ushort)glyph) is not null);
+    }
+
+    [Fact]
     public void ReadsTheBoxFontNamesAndMetrics()
     {
         Assert.Equal("Folio Box", Box.Family);
