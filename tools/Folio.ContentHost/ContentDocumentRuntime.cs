@@ -162,6 +162,11 @@ public sealed class ContentDocumentRuntime : IDisposable
         _engine?.Dispose(); _engine = null;
         _eventLoop?.Dispose(); _eventLoop = null;
         _document?.Dispose(); _document = null;
+        // A content process replaces documents repeatedly. Promptly collect
+        // retired DOM/script graphs so the process working-set target reflects
+        // the live document rather than every page visited since startup.
+        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
     }
 
     private sealed class BrokerResourceLoader(ContentHostSession session) : IResourceLoader
