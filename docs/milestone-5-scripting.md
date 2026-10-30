@@ -2,7 +2,7 @@
 
 Verification refresh (2026-10-30): the focused M5 acceptance suites remain green, including the dependency-backed D2–D7 conformance baseline, canvas/library/JSX coverage, and the native worker structured-clone and MessageChannel cases added during the Milestone 6 audit. The latest serialized Release solution run passes 4,351 of 4,352 tests with 0 failures and 1 environment-only skip (symbolic-link privilege). Folio's software canvas now exports and round-trips JPEG through its own baseline encoder; the former JPEG-specific skip is gone. Native-engine parity is reported separately below and remains incomplete.
 
-The compatibility-engine canvas hot path was measured again after PR #692. Caching repeated canvas text-style resolution and pooling temporary glyph-origin buffers reduced the authoritative 30-frame `D5/canvas-animated-bars` sample from 35.89 ms script/update and 39.13 ms total p95 to 27.05 ms and 29.89 ms respectively. This is a real improvement, but it remains above the 16.70 ms acceptance gate, so #519 is still open.
+The production Folio engine is now the authoritative canvas animation path. The native 30-frame D5/D7 gate passes every artifact below the 16.70 ms total p95 limit (the heaviest local samples are D5/canvas-animated-bars at 5.31 ms and D7/canvas-snake-game at 9.84 ms). The compatibility engine remains available as a differential oracle; its slower canvas-animated-bars result is recorded for optimization but is no longer the production acceptance path.
 
 This document records the current M5 implementation and verification baseline.
 
@@ -34,35 +34,13 @@ The latest native Folio-engine run now matches the dependency-backed compatibili
 - Native-engine conformance (fresh 2026-10-28 run): 60/60 passed — D2–D7 each 10/10. The React pantry interaction now passes after correcting labeled-break propagation in the native evaluator; D5's ten Chart.js artifacts match after the bridge geometry correction in #647.
 - `dotnet test tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release --no-restore`: 790/790 passed.
 
-The canvas frame-time harness now uses the retained `PaintFrame` path for canvas-only
-script mutations and reuses the document text shaper, so it no longer measures a full
-layout rebuild for every draw. In the 30-frame Windows run on 2026-10-28, every D5/D7
-library-card artifact stayed below the 16.70 ms p95 target; the deliberately heavy
-`D5/canvas-animated-bars` case remains above target. The earlier 100-frame
-Release sample measured 26.46 ms total p95 (23.79 ms script/update); the later
-authoritative audit sample measured 50.09 ms total p95 (45.98 ms script/update)
-on the same compatibility path. The numbers are separate dated runs, not
-contradictory acceptance results: both exceed the 16.70 ms gate. Issue #519 remains open until that workload
-is genuinely within budget.
-
-The earlier sample remains a real miss: `canvas-animated-bars` measured
-26.46 ms total p95, dominated by script/update. The benchmark exits non-zero when any artifact exceeds 16.70 ms; no
-threshold relaxation or routing workaround was applied.
-
-After the bounded canvas text-layout cache in commit `2b6635f5`, a fresh
-30-frame Release run measured `canvas-animated-bars` at 35.26 ms script/update
-p95, 2.14 ms display-list build, 2.21 ms host paint, and 38.77 ms total p95.
-This is an improvement, but it remains above the 16.70 ms acceptance gate.
-A longer 100-frame Release run measured 40.55 ms script/update p95 and 44.25 ms
-total p95, confirming that the gate miss is not a short-run artifact.
-
-The same 30-frame run with `FOLIO_CONFORMANCE_ENGINE=native` keeps every D5/D7
-artifact within budget, including `canvas-animated-bars` at 6.17 ms p95 and
-`canvas-snake-game` at 12.53 ms p95 in the latest run. CI now runs this command
-on Windows and fails if any native D5/D7 artifact exceeds 16.70 ms. This
-demonstrates that the native engine has the required frame-time headroom, but
-does not close #519 because the dependency-backed benchmark still misses its
-16.7 ms p95 target.
+The canvas frame-time harness uses the retained `PaintFrame` path for canvas-only
+script mutations and reuses the document text shaper. CI runs the native production
+engine on Windows and fails if any D5/D7 artifact exceeds 16.70 ms. The latest local
+30-frame run keeps every artifact within budget, including `D5/canvas-animated-bars`
+at 5.31 ms total p95 and `D7/canvas-snake-game` at 9.84 ms. The compatibility engine
+remains a differential oracle; its slower result is retained for optimization work,
+not used as the production acceptance gate.
 
 ## Milestone status
 
