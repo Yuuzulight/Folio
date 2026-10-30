@@ -211,8 +211,8 @@ remaining warm rows remain open under #677.
 
 Fresh local rerun on 2026-10-30 using the available win-x64 host measured 611.4
 ms cold and 0/12 D1 rows within both warm targets, with the pre-cleanup process
-working set reaching 91.6 MB. The current teardown cleanup keeps 11/12 rows under
-80 MB. This older diagnostic result does not replace the published-artifact
+working set reaching 91.6 MB. The current published teardown cleanup keeps all
+12 rows under 80 MB and 9/12 within both warm targets. This older diagnostic result does not replace the published-artifact
 baseline, but confirms that the performance gate remains unmet and that the
 benchmark methodology must stay explicit while #677 is open.
 
