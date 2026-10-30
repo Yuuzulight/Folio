@@ -96,6 +96,13 @@ jobs:
           FOLIO_CONFORMANCE_ENGINE: native
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance
 
+      - name: Differential shaping corpus
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll shaping-differential
+
+      - name: Differential shaping corpus (installed system fonts)
+        if: always() && matrix.os == 'windows-latest'
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll shaping-differential-system
+
       # D8 is Folio's native WebGL acceptance category; the compatibility engine intentionally routes it away.
       - name: Native WebGL conformance
         if: always() && matrix.os == 'windows-latest'
