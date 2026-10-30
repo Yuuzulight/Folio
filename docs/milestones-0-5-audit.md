@@ -27,8 +27,9 @@ compatibility-path gate.
 
 The current scripted-process benchmark keeps M4 open. The latest published
 ReadyToRun host run measures cold first frame at 510.3 ms against the 400 ms
-target; 5/12 D1 rows meet both the 50 ms warm-first-frame and 80 MB working-set
-targets. The benchmark emits warnings and does not silently waive the gate.
+target; the latest teardown-cleanup run keeps 11/12 D1 rows under the 80 MB
+working-set target, while several warm-first-frame rows and the cold target
+remain unmet. The benchmark emits warnings and does not silently waive the gate.
 The calibrated script-size samples are measured after a dedicated warm-up so
 the first row does not include process/JIT bootstrap. These measurements are
 recorded in #677; the benchmark emits warnings and does not silently waive the
