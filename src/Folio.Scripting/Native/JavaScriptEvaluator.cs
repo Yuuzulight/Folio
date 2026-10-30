@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Runtime.CompilerServices;
+using System.Numerics;
 
 namespace Folio.Scripting.Native;
 
@@ -441,7 +442,11 @@ internal sealed class JavaScriptEvaluator
         if (literal.Kind == JavaScriptTokenKind.Number)
         {
             var text = literal.Text.Replace("_", string.Empty, StringComparison.Ordinal);
-            if (text.EndsWith('n')) text = text[..^1];
+            if (text.EndsWith('n'))
+            {
+                text = text[..^1];
+                return BigInteger.Parse(text, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            }
             if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 16), CultureInfo.InvariantCulture);
             if (text.StartsWith("0b", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 2), CultureInfo.InvariantCulture);
             if (text.StartsWith("0o", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 8), CultureInfo.InvariantCulture);
@@ -460,6 +465,7 @@ internal sealed class JavaScriptEvaluator
                 null or UndefinedValue => "undefined",
                 bool => "boolean",
                 string => "string",
+                BigInteger => "bigint",
                 double or float or int or long or decimal => "number",
                 Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable => "function",
                 _ => "object",
@@ -473,6 +479,8 @@ internal sealed class JavaScriptEvaluator
         }
         if (unary.Operator == "delete") return Delete(unary.Operand);
         var value = Evaluate(unary.Operand);
+        if (value is BigInteger bigInteger && unary.Operator is "+" or "-")
+            return unary.Operator == "-" ? -bigInteger : bigInteger;
         return unary.Operator switch
         {
             "!" => !Truth(value),
