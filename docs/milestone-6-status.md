@@ -1,5 +1,56 @@
 # Milestone 6 status
 
+## Focused runtime refresh — 2026-10-30
+
+**Current-result correction:** the latest native conformance sweep is not
+94/94. It now passes 102/102 D1–D14 artifacts, including all ten D4 library-card
+artifacts after correcting compact conditional-expression lexing in the native
+JavaScript parser. Earlier 85/85 and
+94/94 statements in this document are historical snapshots.
+
+The native runtime audit also passes the isolated capability slices currently
+available for workers, nested workers, iframes, and WebRTC: `WorkerCapabilityTests`
+54/54, `NestedWorkerCapabilityTests` 7/7, `IframeLifecycleTests` 27/27, and
+`WebRtcCapabilityTests` 11/11. These checks establish deterministic lifecycle,
+capability-policy, structured-clone, and local transport behavior. They do not
+close the broader M6 acceptance rows that require full web-platform coverage,
+real device/network transport, iframe visual/watchdog parity, or process-death
+and offline-reopen isolation.
+
+The content-host teardown path now closes host-owned media capture sessions and
+stops host audio immediately when the content process exits or is killed
+(commits `c9546fff` and `17e8f32b`). Real content-process regressions cover both
+capture-session disposal and audio-output stop on process death. These repairs
+close the corresponding teardown slices, but do not claim real device/network
+transport acceptance for the broader WebRTC and media issues.
+
+The float-renderbuffer follow-up also confirmed the remaining WebGL gap: using
+RGBA16F/RGBA32F texture backing instead of the current RGBA8 compatibility
+surface leaves WARP's framebuffer incomplete (`INVALID_FRAMEBUFFER_OPERATION`).
+The current path therefore preserves API shape and framebuffer behavior but is
+not true float-precision storage; #530 remains open for a real float-capable
+backend.
+
+The compatibility canvas frame probe after commit `2b6635f5` reports the same
+remaining M5 performance miss: `D5/canvas-animated-bars` is 40.55 ms
+script/update p95 and 44.25 ms total p95 in a 100-frame Release run. A repeated
+100-frame native probe is materially faster (D5 canvas 6.45 ms total p95 and
+D7 snake 9.10 ms total p95); the earlier 30-frame D7 19.45 ms result was a
+short-run outlier, so native performance claims use the longer run.
+
+Historical cache checkpoint: commit `d277f346` failed 13 of 23
+`ContentCacheTests` on both the default and native engines. The current audit
+tip (`bfb3b9a9`) contains the subsequent repair; its full cache run is 23/23
+(41.525 seconds). That branch-local result does not close the broader service-worker
+registration, process-death, offline-reopen and isolation acceptance in #556
+and #560, and current-HEAD CI is still in progress on PR #672.
+
+Likewise, native D8's 6/6 is a verified corpus slice, not full WebGL
+conformance. #527, #530 and #531 remain open for the complete category,
+optional formats/readback, context loss, limits and sandbox evidence. The M6
+audit still includes the media (#533/#535/#537), WebAssembly (#545), WebRTC
+(#554), service-worker (#556) and umbrella (#170–#174) requirements.
+
 ## Latest focused audit refresh
 
 Current Release slices pass WebRTC/capture/media-capture 30/30,
@@ -210,7 +261,7 @@ The subsequent engine/worker lifetime repair prevents disposed or reconfigured J
 
 Artifact routing now independently checks completed feature implementations and host permission. Production routes all seven incomplete M6 backends to the browser even with grants; SharedWorker follows the dedicated-worker capability and has direct shared-runtime/MessagePort coverage. The change adds 88 routing cases, with three fresh code reviews and an earlier focused Release verification of 3,195 passing tests plus one local symbolic-link privilege skip; the current complete Release totals are recorded above. This satisfies the routing acceptance of #524 while leaving the feature implementation issues open.
 
-The D1 team-directory mismatch found during the earlier audit was corrected by the `all: unset` reset and CSS-wide variable rollback handling. The current native D1 report passes 2/2, and the native D8/D10–D14 categories pass their current corpora. The broader compatibility report still records its explicit Chart.js/media expected-fail rows; a successful report command does not by itself establish the separate native replacement gate.
+The D1 team-directory mismatch found during the earlier audit was corrected by the `all: unset` reset and CSS-wide variable rollback handling. The current native D1 report passes 2/2, and the native D8/D10–D14 categories pass their current corpora. Older compatibility reports retain historical Chart.js/media expected-fail rows; the current classifier now keeps an allowlisted Chart.js artifact in Folio, and a successful report command does not by itself establish the separate native replacement gate.
 
 Conformance failure accounting now makes unexpected interaction assertion failures and stale expected-failure marks fail both the corpus tests and report command. Four actual-command regressions cover failed assertions, explicit expected failures, valid assertions without references and stale marks with a matching synthetic reference. Both incorrect successful-exit behaviors were reproduced before their fixes. The stricter Release solution run passed 3,199 tests with one local symbolic-link privilege skip. Ordinary image mismatches remain report-only; shared sandbox matrix issue #526 is closed, while feature-specific sandbox evidence remains open in the child issues.
 
@@ -227,7 +278,7 @@ The 2026-10-21 failure-presentation repair adds one typed feature/reason model f
 
 The 2026-10-21 Windows sandbox repair replaces inherited-token process startup with a unique AppContainer, a restricted environment and explicit pipe inheritance. A strict Job Object applies memory, CPU, child-process and desktop limits before resume. Host-owned frame descriptors, process generation checks and view ownership retirement protect frame delivery. Actual-process regressions cover native file/network/child denial, memory termination, retained-frame watchdog behavior, forged descriptors, pre-handle UI delivery, process replacement/static retirement and cleanup after a throwing host callback. All twelve local capability rows passed. The repair adds thirteen regression cases; the final Release solution passed 3,491 tests with one local symbolic-link privilege skip, and all 872 scripting cases passed on one CPU. The native watchdog regression uses the existing five-second production default, including cold bootstrap; no production timeout changed. Three restarting reviews completed after the final correction with unchanged source hashes. CI runs the native base suite and complete WinForms assembly for every row. All fourteen CI jobs passed at commit `365d06c455a85e1008a26bd8bd971d750547f069`, and #526 is closed. See [the sandbox contract](content-process-sandbox.md). Native feature backends and non-Windows OS containment remain separate requirements.
 
-The current Windows corpus has 159 passes, nine explicit D5 Chart.js expected failures and five D9 media expected failures. D10 now has four checked-in worker sources and interaction scripts, all passing through the parent event loop. IPC fuzzing passed 1,762,658 mutations with no failures. CI exposed cold-start contention among concurrent UI scenarios; a one-CPU run reproduced three failures before test isolation and passed all eight UI cases afterward. The corrected full suite runs test executables serially and passed 3,491 cases with one local symlink-permission skip. The production watchdog and frame deadlines remain unchanged. These are regression results, not proof that the missing native backends are complete.
+The older Windows corpus snapshot had 159 passes, nine explicit D5 Chart.js expected failures and five D9 media expected failures. D10 now has four checked-in worker sources and interaction scripts, all passing through the parent event loop. IPC fuzzing passed 1,762,658 mutations with no failures. CI exposed cold-start contention among concurrent UI scenarios; a one-CPU run reproduced three failures before test isolation and passed all eight UI cases afterward. The corrected full suite runs test executables serially and passed 3,491 cases with one local symlink-permission skip. The production watchdog and frame deadlines remain unchanged. These are historical regression results, not proof that the missing native backends are complete.
 
 The 2026-10-22 native GPU surface work adds the #528 trusted clear-colour pipe through ANGLE/D3D11 inside the Windows AppContainer. Actual host-frame pixels verify canvas bounds, overlapping sibling order and surrounding content. Tests cover native WARP readback, shared-display device independence, aggregate resource reservations, refusal before raster allocation, missing-library fallback, resize, revocation/regrant and recovery. A new regression reproduced a stale `ResourceLimit` placeholder after successful native recovery before its fix. The benchmark records actual DXGI content-process usage separately from reservations. Three fresh restarting reviews completed after the final source correction with identical hashes; all 894 scripting cases passed on one CPU with unchanged production deadlines. Native GPU and sandbox tests share the existing isolated process-test collection to avoid cold-start contention. See [native GPU surfaces](native-gpu-surfaces.md). The final Release solution run passed 3,513 tests with one local symlink-permission skip and no failures. All fourteen CI jobs passed at commit `af77d65e4efec03b154c3f1265a6dfb0dcb0ed5c` ([run 39633619621](https://github.com/Yuuzulight/Folio/actions/runs/39633619621)), including the Windows sandbox GPU benchmark; #528 is closed.
 

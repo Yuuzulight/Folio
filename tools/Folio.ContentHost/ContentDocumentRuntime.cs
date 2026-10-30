@@ -7,6 +7,7 @@ using Folio.Scripting.Dom;
 using Folio.Scripting.Gpu;
 using Folio.Scripting.Ipc;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 using Folio.Skia;
 using System.Text.Json;
 using System.Collections.Concurrent;
@@ -110,6 +111,10 @@ public sealed class ContentDocumentRuntime : IDisposable
             _session.SetStorageLimit(options.Limits.MaxServiceWorkerCacheBytes);
             _document = Document.Parse(htmlElement.GetString() ?? "", options);
             _engine = _engineFactory();
+            if (_engine is NativeJavaScriptEngine)
+            {
+                _engine.SetGlobalProperty("__folio_native_content_host", ScriptValue.True);
+            }
             _eventLoop = new HtmlEventLoop(_engine);
             _taskDiagnostics.Clear();
             _eventLoop.UncaughtException += error => _taskDiagnostics.Add(error.GetType().Name + ": " + error.Message);
@@ -150,6 +155,8 @@ public sealed class ContentDocumentRuntime : IDisposable
     private void DisposeDocument()
     {
         _captureProvider?.Dispose(); _captureProvider = null;
+        if (_engine is not null)
+            DomBindings.Dispose(_engine);
         _runner?.Dispose(); _runner = null;
         _engine?.Dispose(); _engine = null;
         _eventLoop?.Dispose(); _eventLoop = null;

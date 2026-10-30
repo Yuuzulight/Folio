@@ -15,7 +15,6 @@ input[type=hidden i] { display: none !important; }
 input, textarea, select, button { font-size: 13.3333px; display: inline-block; }
 input:is(:not([type]), [type=text i], [type=email i], [type=search i], [type=url i], [type=tel i], [type=password i], [type=number i]), textarea, select { padding: 1px 2px; border: 1px solid #767676; border-radius: 2px; background-color: white; color: black; }
 input:is(:not([type]), [type=text i], [type=email i], [type=search i], [type=url i], [type=tel i], [type=password i], [type=number i]), select { white-space: pre; overflow: hidden; }
-input:is(:not([type]), [type=text i], [type=email i], [type=search i], [type=url i], [type=tel i], [type=password i], [type=number i]) { width: 20ch; }
 textarea { white-space: pre-wrap; overflow: auto; width: 20ch; height: 2.6em; }
 button, input:is([type=button i], [type=submit i], [type=reset i]) { padding: 1px 6px; border: 1px solid #767676; border-radius: 2px; background-color: #efefef; color: black; text-align: center; box-sizing: border-box; }
 button:active, input:is([type=button i], [type=submit i], [type=reset i]):active { background-color: #e5e5e5; border-color: #4f4f4f; }

@@ -53,7 +53,7 @@ public sealed class ContentCacheTests
         Assert.Contains(storage.Values.Keys, key => key.Contains("service-worker-registration", StringComparison.Ordinal));
         Assert.Contains("artifact:service-worker-registration/__index__", storage.Values.Keys);
         Assert.Equal("[\"/\"]", storage.Values["artifact:service-worker-registration/__index__"]);
-        Assert.Equal("/sw.js", JsonDocument.Parse(storage.Values["artifact:service-worker-registration/%2F"]).RootElement.GetProperty("scriptURL").GetString());
+        Assert.Equal("https://cache.example/sw.js", JsonDocument.Parse(storage.Values["artifact:service-worker-registration/%2F"]).RootElement.GetProperty("scriptURL").GetString());
 
         await using var reopened = Client(storage, loader: new WorkerLoader());
         Assert.Equal("offline-body", await Load(reopened, "result = await (await fetch('/offline')).text();", true, true));

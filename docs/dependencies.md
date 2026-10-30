@@ -28,7 +28,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | ICO decoder | **Folio builds it** | Bounded selection of the largest 16/24/32-bit DIB or embedded PNG entry, with alpha-mask handling; broader differential corpus remains open |
 | Display list, paint order, border/gradient/shadow geometry | **Folio builds it** | [study](study/12-painting.md) |
 | 2D rasterisation | **Dependency for now**: SkiaSharp | Behind `IRasterBackend`/`ICanvas` |
-| Native GPU surface and GLSL translation | **Dependency for now**: ANGLE | Windows surface pipe uses D3D11 hardware or explicitly identified WARP; native WebGL shader/draw integration remains unfinished |
+| Native GPU surface and GLSL translation | **Temporary mandatory dependency**: ANGLE (`Avalonia.Angle.Windows.Natives`) | Windows surface pipe uses D3D11 hardware or explicitly identified WARP; replacement is tracked by M7 issue #682 and is required before Folio completion |
 | Glyph rasterisation (outlines, hinting, colour glyph formats) | **Folio-owned for glyf/loca, CFF Type 2, CFF2, CBDT/CBLC, PNG sbix and COLR v0 plus bounded COLR v1 solid/linear/radial/sweep-gradient/composite paint graphs and variable-wrapper base formats**; Skia remains for variation outlines and unsupported COLR v1 paint formats | SoftwareCanvas draws Folio-parsed outlines and bounded COLR v1 PaintSolid/PaintGlyph/PaintColrLayers/PaintColrGlyph/PaintLinearGradient/PaintRadialGradient/PaintSweepGradient/PaintComposite graphs, including PaintTranslate/PaintVarTranslate, PaintTransform/PaintVarTransform, PaintScale/PaintVarScale variants, PaintRotate/PaintVarRotate variants, and PaintSkew/PaintVarSkew variants; synthetic COLR v1 pixel coverage, translation/transform/scale/rotate/skew, variable-wrapper default-instance, linear/radial/sweep gradient, composite, CBDT/CBLC, sbix and CFF2 differential/malformed-limit checks pass (SoftwareRasterTests 39/39, including the cache-cap stress test); PNG bitmap strikes and layered palette glyphs use Folio parsers; parsed outlines and flattened paths share an 8 MiB per-font LRU budget; non-default variation deltas, unsupported composite modes and broader malformed/limit corpus remain required |
 | Font discovery and last-resort system fallback | **System-provided**: Windows (DirectWrite font collection and fallback) | Reached through `IFontSource`; the first implementation uses SkiaSharp's font manager, which calls DirectWrite on Windows |
 | Hit testing, selection, input routing, form editing | **Folio builds it** | [study](study/15-interaction.md) |
@@ -282,10 +282,11 @@ SkiaSharp in the render-test suite.
 1. **Extend the in-house shaper** script by script: bounded Hebrew base and isolated-mark runs now meet the differential bar; multiple-mark Hebrew, then Arabic (joining forms, mark positioning, contextual lookups), Indic and South-East Asian scripts (reordering) follow. *Good enough*: for each added script, glyph ids and positions identical to HarfBuzzSharp's output over the text corpus for the bundled and default system fonts; then that script stops routing to HarfBuzzSharp.
 2. **Folio's own rasteriser** behind `IRasterBackend`: scanline coverage rasteriser with SIMD (`Vector256`), stroker, gradients, blur, compositing and blend modes, clip masks, image resampling, and glyph rasterisation from `glyf`/`CFF`/`CFF2` outlines plus colour formats (`COLR`, bitmap glyphs through Folio's PNG decoder). Default-instance COLR v1 variable solid/gradient paint wrappers now retain their base paint values; non-default variation deltas remain part of the open gate. *Good enough*: all reftests and goldens pass within their existing tolerances, text is judged equal in side-by-side review at 100% and 150% scale, and scroll and animation frame targets still hold at 1920×1080.
 3. **In-house GIF and WebP decoders**. Both decoders are production-selected and bounded. GIF covers first-frame GIF87a/GIF89a with interlace/transparency; WebP covers VP8L lossless, VP8 key-frame lossy, ALPH alpha, extended and animated first-frame files. Differential corpus and fuzz evidence are checked in; this image-codec replacement gate is complete.
-4. **JavaScript engine**: planned removal of the temporary Jint dependency after
-   the Folio-owned engine passes the full scripting and conformance suites.
-5. **WebAssembly runtime**: replace Wasmtime and the compatibility interpreter
-   with Folio-owned validation, compilation and execution covering imports,
-   linear memory, tables, globals, streaming, workers, traps, limits and
-   teardown. The native Wasmtime bridge is an intermediate M6 backend, never a
-   completion substitute.
+4. **JavaScript engine**: [#685](https://github.com/Yuuzulight/Folio/issues/685)
+   tracks removal of the temporary Jint dependency after the Folio-owned engine
+   passes the full scripting and conformance suites.
+5. **WebAssembly runtime**: [#686](https://github.com/Yuuzulight/Folio/issues/686)
+   tracks replacing Wasmtime and the compatibility interpreter with Folio-owned
+   validation, compilation and execution covering imports, linear memory, tables,
+   globals, streaming, workers, traps, limits and teardown. The native Wasmtime
+   bridge is an intermediate M6 backend, never a completion substitute.

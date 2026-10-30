@@ -1,10 +1,17 @@
 # Milestones 0–5 acceptance audit
 
-Tracker refresh (2026-10-28): the GitHub milestones for M0 (Study and
-architecture) and M4 (Scripting foundations) are closed because all of their
-issues are closed. M5 remains open: its dependency-backed parity is verified,
+Tracker refresh (2026-10-30): M0 (Study and architecture) remains closed. The
+revert-reconciliation implementation for #481 and #482 is present again on
+the audit branch in PR #672, but is not merged to `main`; those issues are
+closed while #484 remains open for the measured scripted performance gap.
+#676 records the recovery evidence. M4 remains open
+for that performance gate and the four strict D1 interaction raster mismatches
+(#678–#681). M5 remains open: its dependency-backed parity is verified,
 but the canvas frame-time gate and mandatory Folio-owned native replacement
 gate remain unresolved.
+
+PR #672's current head is `1c58848c`; CI run `40909686820` is in progress, so
+the branch has no completed current-HEAD CI conclusion yet.
 
 The latest direct Release verification (2026-10-30) passes 4,249 tests with
 zero failures and one environment-dependent skip (the local symbolic-link
@@ -18,6 +25,18 @@ The latest compatibility-engine canvas-frame run records
 against the 16.70 ms requirement; this keeps M5 open under #519. Native
 conformance remains a separate differential result and does not waive the M5
 compatibility-path gate.
+
+The current scripted-process benchmark also keeps M4 open. The CI path now
+publishes the content host with ReadyToRun before measuring it, as required by
+the original cold-start target. A local Release run of that same published
+host recorded cold first frame at 1,032.6 ms against the 400 ms target, warm D1
+first frames from 12.5 to 113.6 ms against the 50 ms target, and reused-process
+working set from 62.8 MB to 97.1 MB against the 80 MB target. This is a
+material improvement over the build-only host, but it does not pass the gate.
+The calibrated script-size samples are measured after a dedicated warm-up so
+the first row does not include process/JIT bootstrap. These measurements are
+recorded in #677; the benchmark emits warnings and does not silently waive the
+gate.
 
 Historical snapshot (2026-10-27): the focused pre-M6 Release runs passed
 `Folio.Tests` 1,961/1,961 with one documented symbolic-link privilege skip,
@@ -44,7 +63,7 @@ mandatory Folio-owned replacement gate in [replacement-gate.md](replacement-gate
 | 1 — Static rendering | HTML/DOM/CSS, layout, text, painting, resources, host view, reftests, fuzzing and CI | `docs/roadmap.md` M1 acceptance section; `Milestone1AcceptanceTests`; `Folio.Tests`, `Folio.RenderTests`, `Folio.Fuzz`, `Folio.WinForms.Tests`; S1/S3 12/12 conformance; Release benchmark | Verified; CI/static corpus wiring, reference pairs, and integration/safety projects are executable checks |
 | 2 — Static parity | transforms, filters, SVG, fonts, animation, selectors and static corpus parity | `Milestone2AcceptanceTests` enforces 12 reference-backed artifacts in each S1–S6 corpus and the SVG/font/image fuzz targets; S1–S6 conformance 12/12 each; 140 focused typography/SVG/allowlist tests; 123 focused reftest/headless/font tests; SVG and font fuzzing (0 failures) | Verified |
 | 3 — Interaction | scrolling, input, focus, selection, forms, accessibility, invalidation and incremental equivalence | `Milestone3AcceptanceTests` checks the M3 audit claim and executable interaction/equivalence suites; `docs/roadmap.md` M3 audit note; 115 focused interaction/accessibility/invalidation tests; 164 incremental-equivalence tests; S1–S6 interaction scripts and three-iteration performance evidence | Verified |
-| 4 — Scripting foundations | sandbox/content process, event loop, DOM bindings, timers/promises, observers, storage and classifier routing | `Milestone4AcceptanceTests` checks the content-process safety claims and executable process/scripting suites; `docs/milestone-4-scripting.md`; D1 2/2; 116 focused scripting/process tests; 4 focused WinForms watchdog/lifecycle tests; IPC fuzz 503,085 mutations with 0 failures | Verified |
+| 4 — Scripting foundations | sandbox/content process, event loop, DOM bindings, timers/promises, observers, storage and classifier routing | Recovery implementation is verified by `Milestone4AcceptanceTests`, D1 compatibility conformance 12/12, `ScriptedProcessBenchmark`, `WhatwgUrl`, `IArtifactStorage`, classifier tests, and focused process/scripting suites; scripted startup and memory targets remain open under #484/#677 | Open — performance gate |
 | 5 — Scripted parity | mutation observers, CSSOM, canvas, fetch, diagrams, JSX/library artifacts and D2–D7 corpus | `Milestone5AcceptanceTests` enforces ten reference-backed artifacts in each D2–D7 category and the qualified native/dependency status; `docs/roadmap.md` M5 audit result; dependency-backed and native D2–D7 60/60; the artifact-level canvas benchmark reports per-stage p95 and currently exposes misses against 16.7 ms; 370 focused scripting tests passed with 6 documented software-backend skips; 26 diagram and 17 cache/golden tests passed | Dependency-backed corpus and native conformance are verified, but the frame-time gate remains open (#519) and the broader Folio-owned replacement gate remains open |
 
 The M5 result is intentionally qualified: its acceptance is complete for the

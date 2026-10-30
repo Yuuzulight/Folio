@@ -314,6 +314,11 @@ internal sealed class DomContext : IFetchContext
         foreach (var media in _media.Values) media.StopPlayback();
         _media.Clear();
     }
+    public void DisposeCanvases()
+    {
+        foreach (var canvas in _canvases.Values) canvas.Dispose();
+        _canvases.Clear();
+    }
     internal void DisposeGpu() { _gpu?.Dispose(); _gpu = null; _gpuCreationFailure = null; }
 
     public void DisposeIframes()

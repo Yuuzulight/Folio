@@ -84,15 +84,20 @@ internal static class CacheBindings
             'use strict';
             const apply = Reflect.apply, create = Object.create, DOMExceptionCtor = DOMException;
             const host = create(null);
-            const methods = ['open','has','names','deleteName','query','put','deleteEntry'];
-            for (let i = 0; i < methods.length; i++) {
-                const name = methods[i], callback = rawHost[name];
+            function bind(name, callback) {
                 host[name] = function() {
                     const result = apply(callback, rawHost, arguments);
                     if (result[0]) return result[1];
                     throw result[1] === 'DOMException' ? new DOMExceptionCtor(result[3], result[2]) : new TypeErrorCtor(result[3]);
                 };
             }
+            bind('open', rawHost.open);
+            bind('has', rawHost.has);
+            bind('names', rawHost.names);
+            bind('deleteName', rawHost.deleteName);
+            bind('query', rawHost.query);
+            bind('put', rawHost.put);
+            bind('deleteEntry', rawHost.deleteEntry);
             const PromiseCtor = Promise, StringCtor = String, TypeErrorCtor = TypeError;
             const then = Promise.prototype.then, resolve = Promise.resolve, reject = Promise.reject, all = Promise.all;
             const arrayFrom = Array.from, ArrayCtor = Array, parse = JSON.parse;

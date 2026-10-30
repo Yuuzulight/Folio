@@ -81,6 +81,10 @@ internal static class WindowsContentLauncher
                     var pathValue = Path.GetDirectoryName(fileName) + ";" + Path.Combine(Environment.GetEnvironmentVariable("SystemRoot") ?? "C:\\Windows", "System32");
                     var env = EnvironmentBlock.Create(("FOLIO_CONTENT_FRAME_PATH", framePath), ("TEMP", profilePath), ("TMP", profilePath), ("PATH", pathValue),
                         ("USERPROFILE", profilePath), ("LOCALAPPDATA", profilePath), ("APPDATA", profilePath),
+                        // The launcher uses an explicit, minimal environment block.
+                        // Preserve the test/diagnostic engine selector so a native
+                        // content-process run actually exercises Folio's engine.
+                        ("FOLIO_SCRIPT_ENGINE", Environment.GetEnvironmentVariable("FOLIO_SCRIPT_ENGINE") ?? ""),
                         ("DOTNET_ROOT", runtimeRoot), ("DOTNET_ROOT_" + RuntimeInformation.ProcessArchitecture.ToString().ToUpperInvariant(), runtimeRoot),
                         ("COMPlus_EnableDiagnostics", "0"), ("DOTNET_EnableDiagnostics", "0"), ("DOTNET_EnableDiagnostics_IPC", "0"),
                         ("DOTNET_EnableDiagnostics_Debugger", "0"), ("DOTNET_EnableDiagnostics_Profiler", "0"));

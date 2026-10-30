@@ -2,16 +2,202 @@ using Folio.Scripting.Native;
 using Folio.Scripting.Dom;
 using Folio.Dom;
 using Folio.Html;
+using Folio.Resources;
+using System.Text.Json;
 
 namespace Folio.Scripting.Tests;
 
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void NativeDeniedWebGlProbeReturnsNull()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = false },
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        using var runner = new ScriptRunner(document, engine, loop, new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = false } });
+        Assert.True(engine.Evaluate("document.createElement('canvas').getContext('webgl2') === null").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeArrayFromPreservesDomHostMethods()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body><button id='a'></button><button id='b'></button></body></html>", new FolioOptions
+        {
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        Assert.Equal("2|object|function|function", engine.Evaluate("const a=Array.from(document.querySelectorAll('button')); [a.length,typeof a[0],typeof a[0].addEventListener,typeof a.forEach].join('|')").AsString());
+    }
+
+    [Fact]
+    public void NativeSvgDomCreationAndAppendWork()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body><svg id='plot'></svg></body></html>", new FolioOptions { Limits = ResourceLimits.Default });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        Assert.Equal("1|circle|blue", engine.Evaluate("const svg=document.getElementById('plot'); const c=document.createElementNS('http://www.w3.org/2000/svg','circle'); c.setAttribute('fill','blue'); svg.append(c); [svg.children.length,c.localName,c.getAttribute('fill')].join('|')").AsString());
+    }
+
+    [Fact]
+    public void NativeConditionalFractionIsNotOptionalChaining()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(0.5, engine.Evaluate("var value=undefined; value ? 1 : .5").AsNumber());
+    }
+
+    [Fact]
+    public void NativeDeniedWorkerConstructorThrows()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = false },
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        using var runner = new ScriptRunner(document, engine, loop, new FolioOptions { Capabilities = new FeatureCapabilities { Workers = false } });
+        Assert.True(engine.Evaluate("try { new Worker('data:text/javascript,'); false; } catch (_) { true; }").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeDeniedWebAssemblyConstructorThrows()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebAssembly = false },
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        using var runner = new ScriptRunner(document, engine, loop, new FolioOptions { Capabilities = new FeatureCapabilities { WebAssembly = false } });
+        Assert.True(engine.Evaluate("try { new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0])); false; } catch (_) { true; }").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeDeniedIframeDocumentIsNull()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Iframes = false },
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        using var runner = new ScriptRunner(document, engine, loop, new FolioOptions { Capabilities = new FeatureCapabilities { Iframes = false } });
+        Assert.True(engine.Evaluate("var frame=document.createElement('iframe'); document.body.appendChild(frame); frame.contentDocument === null").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeDeniedWebRtcConstructorThrows()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebRtc = false },
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        using var runner = new ScriptRunner(document, engine, loop, new FolioOptions { Capabilities = new FeatureCapabilities { WebRtc = false } });
+        Assert.True(engine.Evaluate("try { new RTCPeerConnection(); false; } catch (_) { true; }").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeDeniedWorkerProbeAfterScriptRunnerLoadCompletes()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var options = new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = false },
+            Limits = ResourceLimits.Default
+        };
+        using var document = Document.Parse("<html><body><canvas id='c'></canvas><script>var soundResult='pending';</script></body></html>", options);
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        using var runner = new ScriptRunner(document, engine, loop, options);
+        runner.Run();
+        Assert.True(engine.Evaluate("var p=document.createElement('canvas').getContext('webgl')!==null,w=false;try{var worker=new Worker('data:text/javascript,');worker.terminate();w=true;}catch(_){};w===false").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeCacheMethodsSurviveAwait()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://cache.example/"),
+            ArtifactStorage = new TinyStorage(),
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        engine.Evaluate("var result=''; caches.open('x').then(c => c.put('/one', new Response('value'))).then(() => caches.open('x')).then(c => c.match('/one')).then(r => r.text()).then(v => result = v, e => result = 'error:' + e.message); true");
+        for (var i = 0; i < 10; i++) { engine.PerformMicrotaskCheckpoint(); loop.SpinUntilIdle(); }
+        var actual = engine.GetGlobalProperty("result").AsString();
+        Assert.True(actual == "value", actual);
+    }
+
+    [Fact]
+    public void NativeNestedBlobWorkerRoundTrip()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true },
+            Limits = ResourceLimits.Default with { MaxWorkers = 2 }
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        var child = "onmessage=()=>{var bytes=new Uint8Array(8),identity=crypto.getRandomValues(bytes)===bytes;var target=new EventTarget(),abort=new AbortController(),count=0;target.addEventListener('x',()=>count++,{signal:abort.signal});target.dispatchEvent(new Event('x'));abort.abort();target.dispatchEvent(new Event('x'));fetch('data:text/plain,%E2%98%83').then(r=>r.text()).then(text=>postMessage(new TextDecoder().decode(new TextEncoder().encode(text))+':'+identity+':'+count+':'+typeof document+':'+typeof window));};";
+        var parent = "var n=new Worker(URL.createObjectURL(new Blob([" + JsonSerializer.Serialize(child) + "])));n.onmessage=e=>postMessage(e.data);onmessage=()=>n.postMessage(0);";
+        engine.Evaluate("var responses=[];var worker=new Worker('data:text/javascript,'+encodeURIComponent(" + JsonSerializer.Serialize(parent) + "));worker.onmessage=e=>responses.push(String(e.data)); true");
+        engine.Evaluate("worker.postMessage(0); true");
+        for (var i = 0; i < 200 && engine.Evaluate("responses.length").AsNumber() == 0; i++) { loop.SpinUntilIdle(); Thread.Sleep(1); }
+        var actual = engine.Evaluate("responses.join('|')").AsString();
+        Assert.Equal("☃:true:1:undefined:undefined", actual);
+    }
+
+    private sealed class TinyStorage : IArtifactStorage
+    {
+        private readonly Dictionary<string, string> _values = [];
+        public string? Read(string key) => _values.GetValueOrDefault(key);
+        public void Write(string key, string value) => _values[key] = value;
+        public void Delete(string key) => _values.Remove(key);
+        public IReadOnlyList<string> Keys(string prefix) => _values.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+    }
+    [Fact]
+    public void DecodesUnicodeAndHexStringEscapes()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(">:A", engine.Evaluate("'\\u003E' + ':' + '\\x41'").AsString());
+    }
+
+    [Fact]
     public void ExecutesThroughTheScriptEngineInterface()
     {
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal(7d, engine.Evaluate("let value = 2; value += 5; return value;").AsNumber());
+    }
+
+    [Fact]
+    public void TryCatchExpressionPreservesCompletionValue()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("caught", engine.Evaluate("try { throw new Error('caught'); } catch (error) { error.message; }").AsString());
     }
 
     [Fact]
@@ -849,8 +1035,61 @@ public sealed class NativeJavaScriptEngineTests
         using var engine = new NativeJavaScriptEngine();
         engine.Evaluate("let result = 0; Promise.resolve(4).then(value => result = value + 1);");
         Assert.Equal(0d, engine.Evaluate("result").AsNumber());
-        engine.PerformMicrotaskCheckpoint();
+        for (var i = 0; i < 5; i++) engine.PerformMicrotaskCheckpoint();
         Assert.Equal(5d, engine.Evaluate("result").AsNumber());
+    }
+
+    [Fact]
+    public void ArrowFunctionsCaptureClassThis()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate("class Store { constructor() { this.value = 'ok'; } read() { const callback = () => this.value; return callback(); } } let result = new Store().read();");
+        Assert.Equal("ok", engine.Evaluate("result").AsString());
+    }
+
+    [Fact]
+    public void GuardedArrowCallbackSeesClassWeakMapState()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate("const states = new WeakMap(), INTERNAL = {}; function invoke(callback) { try { return Promise.resolve(callback()); } catch (e) { return Promise.reject(e); } } class Store { constructor() { Reflect.apply(WeakMap.prototype.set, states, [this, INTERNAL]); } open() { return invoke(() => { if (Reflect.apply(WeakMap.prototype.get, states, [this]) !== INTERNAL) throw new TypeError('guard'); return 1; }); } } let result = await new Store().open();");
+        Assert.Equal(1d, engine.Evaluate("result").AsNumber());
+    }
+
+    [Fact]
+    public void HostObjectBridgeWorksThroughReflectApplyInsideArrowCallback()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var template = new HostObjectTemplate("Raw").DefineMethod("open", (_, _, _) => ScriptValue.FromString("ok"));
+        engine.SetGlobalProperty("raw", engine.CreateHostObject(template, new object()));
+        engine.Evaluate("function invoke(callback) { return Promise.resolve(callback()); } let result = await invoke(() => Reflect.apply(raw.open, raw, []));");
+        Assert.Equal("ok", engine.Evaluate("result").AsString());
+    }
+
+    [Fact]
+    public void ConstructorPropagatesThrownDomExceptionName()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate("class DOMException extends Error { constructor(message, name) { super(message); this.name = name; } } let result; function Disabled() { throw new DOMException('disabled', 'NotSupportedError'); } try { new Disabled(); } catch (error) { result = error.name; }");
+        Assert.Equal("NotSupportedError", engine.Evaluate("result").AsString());
+    }
+
+    [Fact]
+    public void PromiseResolveDoesNotNestAnExistingPromise()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate("let p = Promise.resolve(4); let same = Promise.resolve(p) === p;");
+        Assert.True(engine.Evaluate("same").AsBoolean());
+    }
+
+    [Fact]
+    public void EvaluatesAsyncFunctionsAndSettledAwaitExpressions()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate("let result = 'unfinished';");
+        Assert.Equal("unfinished", engine.Evaluate("result").AsString());
+        engine.Evaluate("(async () => { result = await Promise.resolve('done'); })().catch(error => result = 'error');");
+        engine.PerformMicrotaskCheckpoint();
+        Assert.Equal("done", engine.Evaluate("result").AsString());
     }
 
     [Fact]

@@ -81,6 +81,13 @@ Current audit note: the interaction behavior, accessibility tree, incremental-eq
 - IPC protocol fuzz harness clean.
 - Scripted documents keep the static rendering targets for first paint when their scripts are small.
 
+**Current audit:** The M4 recovery implementation is complete: the twelve-artifact D1
+corpus, fail-closed classifier routing, scripted process benchmark, standards URL parser,
+artifact-scoped persistent storage, and the `elementsFromPoint`, `scrollIntoView`, and
+`setCustomValidity` bindings are wired and covered by executable checks. The milestone
+remains open because the current scripted-process benchmark misses the cold/warm startup
+and working-set targets; #484/#677 track that performance gate.
+
 ## 5. Scripted parity
 
 **Scope**: `MutationObserver`, the CSS object model (`document.styleSheets`, `insertRule`, `CSS.supports`), canvas 2D (full context API, `Path2D`, shared-memory frames to the host), restricted `fetch`, script loading from the host's allowlisted CDN origins with integrity pins and cache, custom elements and shadow DOM if the corpus needs them. Folio's own diagram renderer for diagram-description languages, used instead of running a large diagram library in the sandbox. Component code written with JSX arrives already compiled by the host. The dependency-backed engine is sufficient for this milestone, but it must later be replaced by the required Folio-owned engine track.

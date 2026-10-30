@@ -64,6 +64,18 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }));
         var arrayPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
+            ["join"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                var separator = args.Count > 0 && args[0] is not null && args[0] is not JavaScriptEvaluator.UndefinedValue ? StringValue(args[0]) : ",";
+                var values = receiver switch
+                {
+                    IReadOnlyList<object?> list => list,
+                    IReadOnlyDictionary<string, object?> properties when properties.TryGetValue("length", out var length)
+                        => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length))).Select(index => properties.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance)).ToArray(),
+                    _ => Array.Empty<object?>(),
+                };
+                return string.Join(separator, values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? "" : StringValue(value)));
+            }),
             ["push"] = new NativeReceiverFunction((receiver, args) =>
             {
                 if (receiver is IDictionary<string, object?> properties)
@@ -128,6 +140,22 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
                 return values.Select((value, index) => InvokeCallable(args[0], [value, (double)index, values])).ToList();
+            }),
+            ["forEach"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                if (receiver is not IReadOnlyList<object?> values) return JavaScriptEvaluator.UndefinedValue.Instance;
+                if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
+                for (var index = 0; index < values.Count; index++)
+                    InvokeCallable(args[0]!, [values[index], (double)index, values]);
+                return JavaScriptEvaluator.UndefinedValue.Instance;
+            }),
+            ["filter"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
+                if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
+                return values
+                    .Where((value, index) => JavaScriptEvaluator.Truth(InvokeCallable(args[0]!, [value, (double)index, values])))
+                    .ToList();
             }),
             ["flatMap"] = new NativeReceiverFunction((receiver, args) =>
             {
@@ -469,7 +497,21 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }
             return promise;
         });
-        promiseConstructor.SetProperty("resolve", (Func<IReadOnlyList<object?>, object?>)(args => new NativePromise(this, args.Count > 0 ? args[0] : null, false)));
+        var promisePrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["then"] = new NativeReceiverFunction((receiver, args) => receiver is NativePromise promise
+                ? promise.Chain(args.Count > 0 ? args[0] : null, args.Count > 1 ? args[1] : null)
+                : throw WebIdlException.TypeError("Promise.prototype.then called on a non-Promise.")),
+            ["catch"] = new NativeReceiverFunction((receiver, args) => receiver is NativePromise promise
+                ? promise.Chain(null, args.Count > 0 ? args[0] : null)
+                : throw WebIdlException.TypeError("Promise.prototype.catch called on a non-Promise.")),
+            ["finally"] = new NativeReceiverFunction((receiver, args) => receiver is NativePromise promise
+                ? promise.Finally(args.Count > 0 ? args[0] : null)
+                : throw WebIdlException.TypeError("Promise.prototype.finally called on a non-Promise.")),
+        };
+        promiseConstructor.SetProperty("prototype", promisePrototype);
+        promiseConstructor.SetProperty("resolve", (Func<IReadOnlyList<object?>, object?>)(args =>
+            args.Count > 0 && args[0] is NativePromise existing ? existing : new NativePromise(this, args.Count > 0 ? args[0] : null, false)));
         promiseConstructor.SetProperty("reject", (Func<IReadOnlyList<object?>, object?>)(args => new NativePromise(this, args.Count > 0 ? args[0] : null, true)));
         _bindings["Promise"] = promiseConstructor;
         _bindings["queueMicrotask"] = (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -736,6 +778,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         if (target.Raw is NativeHostValue host && host.TryGetValue(name, out var hostValue))
             return ToScriptValue(hostValue);
+        if (target.Raw is INativeCallable callable && callable.TryGetProperty(name, out var callableValue))
+            return ToScriptValue(callableValue);
         if (target.Raw is JavaScriptEvaluator.RegexValue regex && regex.TryGetProperty(name, out var regexValue))
             return ToScriptValue(regexValue);
         if (target.Raw is NativeMap map && map.TryGetProperty(name, out var mapValue))
@@ -883,7 +927,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         {
             if (!_domPrototypes.TryGetValue(prototypeName, out var prototypeValue) || prototypeValue is not Dictionary<string, object?> prototype) return;
             foreach (var methodName in methodNames)
-                prototype[methodName] = new NativeReceiverFunction((receiver, args) => InvokeDomPrototypeMethod(receiver, methodName, args));
+            prototype[methodName] = new NativeReceiverFunction((receiver, args) => InvokeDomPrototypeMethod(receiver, methodName, args));
         }
 
         AddPrototypeMethods("Document", "createElement", "createElementNS", "createTextNode", "createComment", "createDocumentFragment", "getElementById", "querySelector", "querySelectorAll", "getElementsByTagName", "getElementsByClassName", "createEvent", "createRange", "addEventListener", "removeEventListener", "dispatchEvent");
@@ -1033,11 +1077,25 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         });
     }
 
-    private static object? InvokeDomPrototypeMethod(object? receiver, string name, IReadOnlyList<object?> args)
+    private object? InvokeDomPrototypeMethod(object? receiver, string name, IReadOnlyList<object?> args)
     {
-        if (receiver is not NativeHostValue host || !host.Template.TryGetMethod(name, out var method))
-            return null;
-        return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+        if (receiver is not NativeHostValue host) return null;
+        if (host.Template.TryGetMethod(name, out var method))
+            return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+
+        // Generic DOM nodes use the script-level EventTarget dispatch tables.
+        // The native host prototypes are installed before DomEvents, so expose
+        // the EventTarget prototype methods here instead of silently returning
+        // undefined for add/remove/dispatchEvent.
+        if (name is "addEventListener" or "removeEventListener" or "dispatchEvent"
+            && _bindings.TryGetValue("EventTarget", out var eventTarget)
+            && eventTarget is INativeCallable eventTargetCallable
+            && eventTargetCallable.TryGetProperty("prototype", out var prototype)
+            && prototype is IReadOnlyDictionary<string, object?> properties
+            && properties.TryGetValue(name, out var eventMethod))
+            return JavaScriptEvaluator.InvokeWithReceiver(ReadProperty(eventMethod)!, host, args);
+
+        return null;
     }
     public void PerformMicrotaskCheckpoint()
     {
@@ -1394,9 +1452,63 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         bool TryGetProperty(string name, out object? value);
     }
 
+    internal static object? UnwrapAwait(object? value)
+    {
+        // Promise resolution is recursive: Promise.resolve(promise) and an
+        // awaited promise must expose the eventual value rather than a nested
+        // promise wrapper.
+        while (value is NativePromise promise)
+        {
+            if (!promise.IsSettled)
+            {
+                for (var turn = 0; turn < 32 && !promise.IsSettled; turn++)
+                    promise._engine.PerformMicrotaskCheckpoint();
+                if (!promise.IsSettled) return JavaScriptEvaluator.UndefinedValue.Instance;
+            }
+            if (promise.IsRejected)
+            {
+                var reason = promise.SettledValue;
+                if (reason is IReadOnlyDictionary<string, object?> properties
+                    && properties.TryGetValue("name", out var nameValue)
+                    && properties.TryGetValue("message", out var messageValue))
+                {
+                    var name = nameValue?.ToString() ?? "Error";
+                    var message = messageValue?.ToString() ?? string.Empty;
+                    return new RejectedPromiseValue(new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["name"] = name,
+                        ["message"] = message,
+                    });
+                }
+                if (reason is Exception exception)
+                {
+                    var message = exception.Message;
+                    const string prefix = "JavaScript throw: ";
+                    if (message.StartsWith(prefix, StringComparison.Ordinal))
+                    {
+                        var text = message[prefix.Length..];
+                        var separator = text.IndexOf(':');
+                        var name = separator > 0 ? text[..separator] : "Error";
+                        var detail = separator > 0 ? text[(separator + 1)..].TrimStart() : text;
+                        return new RejectedPromiseValue(new Dictionary<string, object?>(StringComparer.Ordinal)
+                        {
+                            ["name"] = name,
+                            ["message"] = detail,
+                        });
+                    }
+                }
+                return new RejectedPromiseValue(reason);
+            }
+            var settled = promise.SettledValue;
+            if (ReferenceEquals(settled, promise)) break;
+            value = settled;
+        }
+        return value;
+    }
+
     private sealed class NativePromise : INativePromise
     {
-        private readonly NativeJavaScriptEngine _engine;
+        internal readonly NativeJavaScriptEngine _engine;
         private object? _value;
         private bool _rejected;
         private bool _settled;
@@ -1407,6 +1519,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
         internal void Resolve(object? value) => Settle(value, rejected: false);
         internal void Reject(object? value) => Settle(value, rejected: true);
+        internal object? SettledValue => _settled ? _value : JavaScriptEvaluator.UndefinedValue.Instance;
+        internal bool IsSettled => _settled;
+        internal bool IsRejected => _settled && _rejected;
         public bool TryGetProperty(string name, out object? value)
         {
             value = name switch
@@ -1418,7 +1533,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             };
             return value is not null;
         }
-        private NativePromise Chain(object? onFulfilled, object? onRejected)
+        internal NativePromise Chain(object? onFulfilled, object? onRejected)
         {
             var next = new NativePromise(_engine, null, false);
             next._settled = false;
@@ -1426,7 +1541,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             else _continuations.Add((onFulfilled, onRejected, next));
             return next;
         }
-        private NativePromise Finally(object? callback)
+        internal NativePromise Finally(object? callback)
         {
             var next = new NativePromise(_engine, null, false);
             next._settled = false;
@@ -1474,6 +1589,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         {
             ScheduleContinuation(callback, null, next);
         }
+    }
+
+    internal sealed class RejectedPromiseValue(object? value)
+    {
+        internal object? Value { get; } = value;
     }
 
     private sealed class NativeBuffer : INativeBuffer
@@ -1664,13 +1784,26 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     receiverMethod = new NativeReceiverFunction((receiver, args) =>
                     {
                         var host = receiver as NativeHostValue ?? this;
-                        return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+                        try
+                        {
+                            return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+                        }
+                        catch (WebIdlException error)
+                        {
+                            throw JavaScriptEvaluator.ConvertHostException(error);
+                        }
                     });
                     _methods[name] = receiverMethod;
                 }
                 value = receiverMethod;
                 return true;
             }
+            // Indexed host collections (NodeList/HTMLCollection and typed DOM
+            // views) are array-like.  Expose numeric property names through the
+            // same lookup path so Array.from(collection) preserves each host
+            // object instead of producing undefined entries.
+            if (int.TryParse(name, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+                && index >= 0 && TryGetIndex(index, out value)) return true;
             if (Template.NamedGetter is not null)
             {
                 value = ToObject(Template.NamedGetter(Target, ScriptValue.FromObject(this), name));

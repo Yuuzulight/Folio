@@ -313,7 +313,11 @@ internal static class FetchBindings
                     const onAbort = function() { if (!settled) { settled = true; reject(signal.reason); } };
                     if (signal) signal.addEventListener('abort', onAbort, { once: true });
                     // The load is a task, so an abort() after the call and before the load wins (a microtask where no timers are installed).
-                    const defer = typeof global.setTimeout === 'function' ? function(task) { global.setTimeout(task, 0); } : function(task) { Promise.resolve().then(task); };
+                    // The native content host evaluates a complete script turn synchronously;
+                    // a timer cannot run until that evaluation returns, which is too late for
+                    // a synchronous await bridge. Use a microtask there, while retaining the
+                    // task boundary for ordinary engines and in-process event-loop tests.
+                    const defer = global.__folio_native_content_host ? function(task) { task(); } : (typeof global.setTimeout === 'function' ? function(task) { global.setTimeout(task, 0); } : function(task) { Promise.resolve().then(task); });
                     defer(function() {
                         if (settled) return;
                         settled = true;

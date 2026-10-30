@@ -4,6 +4,10 @@
     <OutputType Condition="'$(OS)' == 'Windows_NT'">WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- ReadyToRun apphosts fail-fast inside the Windows AppContainer on the
+         supported runner. Keep the published host framework-dependent and
+         runnable; startup targets are measured on this exact artifact. -->
+    <PublishReadyToRun>false</PublishReadyToRun>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Folio.Scripting\Folio.Scripting.csproj" />

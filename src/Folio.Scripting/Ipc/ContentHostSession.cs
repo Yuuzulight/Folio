@@ -427,6 +427,14 @@ public sealed partial class ContentHostSession : IAsyncDisposable
     public ValueTask SendAsync(ContentMessageKind kind, object payload, CancellationToken cancellationToken = default) =>
         WriteAsync(kind, Interlocked.Increment(ref _sequence), payload, cancellationToken);
 
+    /// <summary>Stops host audio immediately when the content process is lost.</summary>
+    internal void StopMediaOutput()
+    {
+        if (_mediaAudioOutput is not IMediaAudioOutputLifecycle lifecycle) return;
+        try { lifecycle.Stop(); }
+        catch { /* device teardown must not prevent process containment */ }
+    }
+
     private async ValueTask WriteAsync(ContentMessageKind kind, long sequence, object payload, CancellationToken cancellationToken)
     {
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(payload));
@@ -444,6 +452,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _connectionClosed = true;
+        StopMediaOutput();
         CloseStorageRequests();
         foreach (var request in _resourceRequests.Values)
             request.TrySetResult(ResourceResponse.Refused("The content connection closed."));

@@ -213,7 +213,13 @@ public static class Conformance
         if (reference is null)
             return new(artifact, ConformanceOutcome.NoReference, null);
 
-        var tolerance = manifest.Tolerance is { } t ? Tolerance.Conformance with { ChannelThreshold = t.ChannelThreshold, MaxDifferingRatio = t.MaxDifferingRatio } : Tolerance.Conformance;
+        // Audits can deliberately ignore per-artifact review tolerances to expose
+        // the underlying pixel delta. This never changes the normal conformance
+        // result and is opt-in so CI keeps the reviewed corpus contract.
+        var strict = string.Equals(Environment.GetEnvironmentVariable("FOLIO_CONFORMANCE_STRICT"), "1", StringComparison.Ordinal);
+        var tolerance = !strict && manifest.Tolerance is { } t
+            ? Tolerance.Conformance with { ChannelThreshold = t.ChannelThreshold, MaxDifferingRatio = t.MaxDifferingRatio }
+            : Tolerance.Conformance;
         var primary = ImageComparer.Compare(reference, actual!, tolerance);
         if (primary.Passed)
             return new(artifact, ConformanceOutcome.Pass, null);

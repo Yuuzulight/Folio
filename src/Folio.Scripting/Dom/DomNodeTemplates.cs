@@ -1283,6 +1283,26 @@ internal sealed class DomNodeTemplates
             _context.SetScroll(element, current.X + x, current.Y + y);
             return ScriptValue.Undefined;
         });
+        t.DefineMethod("scrollIntoView", (target, _, args) =>
+        {
+            var element = (ElementNode)target;
+            var rect = DomGeometry.Rect(element);
+            var ancestor = element.Parent as ElementNode;
+            while (ancestor is not null)
+            {
+                var current = _context.GetScroll(ancestor);
+                var viewport = DomGeometry.Rect(ancestor);
+                var nextX = current.X;
+                var nextY = current.Y;
+                if (rect.Top < viewport.Top) nextY = Math.Max(0, current.Y - (viewport.Top - rect.Top));
+                else if (rect.Bottom > viewport.Bottom) nextY = Math.Max(0, current.Y + (rect.Bottom - viewport.Bottom));
+                if (rect.Left < viewport.Left) nextX = Math.Max(0, current.X - (viewport.Left - rect.Left));
+                else if (rect.Right > viewport.Right) nextX = Math.Max(0, current.X + (rect.Right - viewport.Right));
+                _context.SetScroll(ancestor, nextX, nextY);
+                ancestor = ancestor.Parent as ElementNode;
+            }
+            return ScriptValue.Undefined;
+        });
         t.DefineProperty("innerText",
             (target, _) => ScriptValue.FromString(DomText.InnerText((ElementNode)target)),
             (target, _, value) =>
@@ -1311,16 +1331,12 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("elements", (target, _) => _context.WrapHtmlCollection((ElementNode)target));
         t.DefineMethod("checkValidity", (target, _, _) =>
         {
-            var valid = ((ElementNode)target).Descendants.OfType<ElementNode>().Where(e => e.LocalName is "input" or "textarea" or "select").All(control =>
-            {
-                var value = control.Value ?? control.GetAttribute("value") ?? "";
-                return control.GetAttribute("disabled") is not null || control.GetAttribute("required") is null || value.Length > 0;
-            });
+            var valid = ((ElementNode)target).Descendants.OfType<ElementNode>().Where(e => e.LocalName is "input" or "textarea" or "select").All(IsConstraintValid);
             return ScriptValue.FromBoolean(valid);
         });
         t.DefineMethod("reportValidity", (target, thisValue, args) =>
         {
-            return ScriptValue.FromBoolean(((ElementNode)target).Descendants.OfType<ElementNode>().Where(e => e.LocalName is "input" or "textarea" or "select").All(control => control.GetAttribute("required") is null || (control.Value ?? control.GetAttribute("value") ?? "").Length > 0));
+            return ScriptValue.FromBoolean(((ElementNode)target).Descendants.OfType<ElementNode>().Where(e => e.LocalName is "input" or "textarea" or "select").All(IsConstraintValid));
         });
         t.DefineMethod("reset", (target, _, _) =>
         {
@@ -2233,6 +2249,20 @@ internal sealed class DomNodeTemplates
             });
             return _context.Wrap(match);
         });
+        t.DefineMethod("elementsFromPoint", (target, _, args) =>
+        {
+            if (args.Length < 2) throw WebIdlException.TypeError("elementsFromPoint requires 2 arguments.");
+            var x = (float)WebIdlConversions.ToDouble(args[0]);
+            var y = (float)WebIdlConversions.ToDouble(args[1]);
+            var doc = (DocumentNode)target;
+            var matches = doc.Descendants.OfType<ElementNode>().Where(element =>
+            {
+                if (element.ComputedStyle()?.Box.Display == Display.None) return false;
+                var rect = DomGeometry.Rect(element);
+                return x >= rect.Left && x <= rect.Right && y >= rect.Top && y <= rect.Bottom;
+            }).Reverse().Select(_context.Wrap).ToArray();
+            return _context.Engine.CreateArray(matches);
+        });
 
         t.DefineMethod("append", (target, _, args) =>
         {
@@ -2864,14 +2894,25 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("validationMessage", (target, _) =>
         {
             var el = (ElementNode)target;
+            var custom = el.GetAttribute("data-folio-custom-validity");
+            if (!string.IsNullOrEmpty(custom)) return ScriptValue.FromString(custom);
             var value = el.Value ?? el.GetAttribute("value") ?? "";
             if (el.GetAttribute("required") is not null && value.Length == 0) return ScriptValue.FromString("Please fill out this field.");
             if (el.GetAttribute("type")?.Equals("email", StringComparison.OrdinalIgnoreCase) == true && value.Length > 0 && !value.Contains('@')) return ScriptValue.FromString("Please enter an email address.");
             return ScriptValue.FromString("");
         });
+        t.DefineMethod("setCustomValidity", (target, _, args) =>
+        {
+            var el = (ElementNode)target;
+            var message = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
+            if (message.Length == 0) el.RemoveAttribute("data-folio-custom-validity");
+            else el.SetAttribute("data-folio-custom-validity", message);
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("checkValidity", (target, _, _) =>
         {
             var el = (ElementNode)target;
+            if (!string.IsNullOrEmpty(el.GetAttribute("data-folio-custom-validity"))) return ScriptValue.False;
             var value = el.Value ?? el.GetAttribute("value") ?? "";
             var valid = el.GetAttribute("disabled") is not null || el.GetAttribute("readonly") is not null ||
                         (el.GetAttribute("required") is null || value.Length > 0) &&
@@ -2881,12 +2922,24 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("reportValidity", (target, _, _) =>
         {
             var el = (ElementNode)target;
-            var value = el.Value ?? el.GetAttribute("value") ?? "";
-            var valid = el.GetAttribute("required") is null || value.Length > 0;
-            return ScriptValue.FromBoolean(valid);
+            return ScriptValue.FromBoolean(IsConstraintValid(el));
         });
 
         return t;
+    }
+
+    private static bool IsConstraintValid(ElementNode control)
+    {
+        if (control.GetAttribute("disabled") is not null || control.GetAttribute("readonly") is not null)
+            return true;
+        if (!string.IsNullOrEmpty(control.GetAttribute("data-folio-custom-validity")))
+            return false;
+        var value = control.Value ?? control.GetAttribute("value") ?? "";
+        if (control.GetAttribute("required") is not null && value.Length == 0)
+            return false;
+        return !string.Equals(control.GetAttribute("type"), "email", StringComparison.OrdinalIgnoreCase)
+            || value.Length == 0
+            || value.Contains('@');
     }
 
     private HostObjectTemplate CreateHtmlButtonElementTemplate(IHostObjectTemplate htmlElementProto)

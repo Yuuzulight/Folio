@@ -29,6 +29,8 @@ public static class Program
             return Wasm(wasmRest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 5);
         if (args is ["media", .. var mediaRest])
             return MediaFrameBenchmark.Run(mediaRest is [var n] ? Math.Max(30, int.Parse(n, CultureInfo.InvariantCulture)) : 120);
+        if (args is ["scripted", .. var scriptedRest])
+            return ScriptedProcessBenchmark.RunAsync(scriptedRest).GetAwaiter().GetResult();
         if (args is ["gc", .. var gcRest])
             return Gc(gcRest is [var n] ? Math.Max(3, int.Parse(n, CultureInfo.InvariantCulture)) : 7);
 

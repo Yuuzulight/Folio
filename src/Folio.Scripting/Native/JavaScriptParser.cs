@@ -76,6 +76,14 @@ internal sealed class JavaScriptParser
             var name = _current.Text; Take();
             return new JavaScriptFunctionDeclarationStatement(name, ParseFunctionTail());
         }
+        if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "async" && Peek(0).Text == "function")
+        {
+            Take(); Take();
+            if (_current.Kind != JavaScriptTokenKind.Identifier)
+                return new JavaScriptExpressionStatement(ParseFunctionTail(asyncFunction: true));
+            var name = _current.Text; Take();
+            return new JavaScriptFunctionDeclarationStatement(name, ParseFunctionTail(asyncFunction: true));
+        }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "class")
         {
             Take();
@@ -326,14 +334,18 @@ internal sealed class JavaScriptParser
             var body = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "{"
                 ? ParseBlockStatement().Statements
                 : [new JavaScriptReturnStatement(ParseBinary(0))];
-            left = Node(new JavaScriptFunctionExpression([parameter.Name], body));
+            left = Node(new JavaScriptFunctionExpression([parameter.Name], body, IsArrow: true));
         }
         return left;
     }
 
     private JavaScriptExpression ParsePostfix()
     {
-        var expression = ParseUnary();
+        return ParsePostfixTail(ParseUnary());
+    }
+
+    private JavaScriptExpression ParsePostfixTail(JavaScriptExpression expression)
+    {
         while (true)
         {
             if (_current.Kind == JavaScriptTokenKind.Template)
@@ -348,6 +360,13 @@ internal sealed class JavaScriptParser
                 if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a member name");
                 var name = _current.Text; Take();
                 expression = Node(new JavaScriptMemberExpression(expression, name));
+                continue;
+            }
+            if (Match("?."))
+            {
+                if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a member name after optional chaining");
+                var name = _current.Text; Take();
+                expression = Node(new JavaScriptMemberExpression(expression, name, Optional: true));
                 continue;
             }
             if (Match("("))
@@ -405,6 +424,37 @@ internal sealed class JavaScriptParser
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier)
         {
+            if (_current.Text == "await")
+            {
+                Take();
+                // Await consumes a complete unary/postfix operand (for example
+                // `await Promise.resolve(value)`), while keeping the postfix
+                // operations attached to the awaited expression rather than to
+                // the resulting value.
+                return Node(new JavaScriptAwaitExpression(ParsePostfixTail(ParseUnary())));
+            }
+            if (_current.Text == "async")
+            {
+                Take();
+                if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "function")
+                {
+                    Take();
+                    return Node(ParseFunctionTail(asyncFunction: true));
+                }
+                if (_current.Kind == JavaScriptTokenKind.Identifier && Peek(0).Text == "=>")
+                {
+                    var parameter = _current.Text;
+                    Take(); Expect("=>");
+                    var body = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "{"
+                        ? ParseBlockStatement().Statements
+                        : [new JavaScriptReturnStatement(ParseBinary(0))];
+                    return Node(new JavaScriptFunctionExpression([parameter], body, IsAsync: true, IsArrow: true));
+                }
+                if (IsArrowParameterList(out var asyncArrowParameters))
+                    return Node(ParseArrowFunction(asyncArrowParameters, isAsync: true));
+                // `async` is also a valid ordinary identifier.
+                return Node(new JavaScriptIdentifierExpression("async"));
+            }
             if (Peek(0).Text == "=>")
             {
                 var parameter = _current.Text;
@@ -413,7 +463,7 @@ internal sealed class JavaScriptParser
                 var body = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "{"
                     ? ParseBlockStatement().Statements
                     : [new JavaScriptReturnStatement(ParseBinary(0))];
-                return Node(new JavaScriptFunctionExpression([parameter], body));
+                return Node(new JavaScriptFunctionExpression([parameter], body, IsArrow: true));
             }
             var name = _current.Text; Take();
             if (name == "yield")
@@ -442,35 +492,7 @@ internal sealed class JavaScriptParser
         }
         if (IsArrowParameterList(out var arrowParameters))
         {
-            Expect("(");
-            var parsedParameters = new List<string>();
-            var defaults = new List<JavaScriptExpression?>();
-            for (var i = 0; i < arrowParameters.Count; i++)
-            {
-                var parameter = arrowParameters[i];
-                var rest = parameter.StartsWith("...", StringComparison.Ordinal);
-                if (rest) Expect("...");
-                var expectedName = rest ? parameter[3..] : parameter;
-                if (expectedName.StartsWith("[", StringComparison.Ordinal) || expectedName.StartsWith("{", StringComparison.Ordinal))
-                {
-                    if (ParseBindingName() != expectedName) throw Error("Expected an arrow binding parameter");
-                }
-                else
-                {
-                    if (_current.Kind != JavaScriptTokenKind.Identifier || _current.Text != expectedName) throw Error("Expected an arrow parameter");
-                    Take();
-                }
-                JavaScriptExpression? defaultValue = null;
-                if (!rest && Match("=")) defaultValue = ParseBinary(0);
-                parsedParameters.Add(parameter);
-                defaults.Add(defaultValue);
-                if (i + 1 < arrowParameters.Count) Expect(",");
-            }
-            Expect(")"); Expect("=>");
-            var body = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "{"
-                ? ParseBlockStatement().Statements
-                : [new JavaScriptReturnStatement(ParseBinary(0))];
-            return Node(new JavaScriptFunctionExpression(parsedParameters, body, defaults));
+            return Node(ParseArrowFunction(arrowParameters, isAsync: false));
         }
         if (Match("("))
         {
@@ -568,7 +590,7 @@ internal sealed class JavaScriptParser
         return new JavaScriptBlockStatement(statements);
     }
 
-    private JavaScriptFunctionExpression ParseFunctionTail(bool generatorAlreadyConsumed = false)
+    private JavaScriptFunctionExpression ParseFunctionTail(bool generatorAlreadyConsumed = false, bool asyncFunction = false)
     {
         var generator = generatorAlreadyConsumed || Match("*");
         // Function expressions may carry an internal name (for recursion and
@@ -598,7 +620,40 @@ internal sealed class JavaScriptParser
             Expect(")");
         }
         var body = ParseBlockStatement();
-        return new JavaScriptFunctionExpression(parameters, body.Statements, defaults, generator, functionName);
+        return new JavaScriptFunctionExpression(parameters, body.Statements, defaults, generator, functionName, asyncFunction);
+    }
+
+    private JavaScriptFunctionExpression ParseArrowFunction(IReadOnlyList<string> arrowParameters, bool isAsync)
+    {
+        Expect("(");
+        var parsedParameters = new List<string>();
+        var defaults = new List<JavaScriptExpression?>();
+        for (var i = 0; i < arrowParameters.Count; i++)
+        {
+            var parameter = arrowParameters[i];
+            var rest = parameter.StartsWith("...", StringComparison.Ordinal);
+            if (rest) Expect("...");
+            var expectedName = rest ? parameter[3..] : parameter;
+            if (expectedName.StartsWith("[", StringComparison.Ordinal) || expectedName.StartsWith("{", StringComparison.Ordinal))
+            {
+                if (ParseBindingName() != expectedName) throw Error("Expected an arrow binding parameter");
+            }
+            else
+            {
+                if (_current.Kind != JavaScriptTokenKind.Identifier || _current.Text != expectedName) throw Error("Expected an arrow parameter");
+                Take();
+            }
+            JavaScriptExpression? defaultValue = null;
+            if (!rest && Match("=")) defaultValue = ParseBinary(0);
+            parsedParameters.Add(parameter);
+            defaults.Add(defaultValue);
+            if (i + 1 < arrowParameters.Count) Expect(",");
+        }
+        Expect(")"); Expect("=>");
+        var body = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "{"
+            ? ParseBlockStatement().Statements
+            : [new JavaScriptReturnStatement(ParseBinary(0))];
+        return new JavaScriptFunctionExpression(parsedParameters, body, defaults, IsAsync: isAsync, IsArrow: true);
     }
 
     private JavaScriptClassExpression ParseClassTail()

@@ -1000,6 +1000,21 @@ public sealed class DomStyleDeclarationTests
         Assert.True(intercepted.Evaluate("let inScopeText = ''; navigator.serviceWorker.register('sw.js', { scope: '/app/' }).then(() => fetch('/app/offline')).then(r => r.text()).then(text => inScopeText = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("from worker", intercepted.Evaluate("inScopeText").AsString());
+        Assert.True(intercepted.Evaluate("let defaultScope = ''; navigator.serviceWorker.register('/scripts/sw.js').then(r => defaultScope = r.scope); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("/scripts/", intercepted.Evaluate("defaultScope").AsString());
+        Assert.True(intercepted.Evaluate("let broadScopeError = ''; navigator.serviceWorker.register('/scripts/sw.js', { scope: '/' }).catch(error => broadScopeError = error.name); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("SecurityError", intercepted.Evaluate("broadScopeError").AsString());
+        Assert.True(intercepted.Evaluate("let boundaryText = ''; navigator.serviceWorker.register('sw.js', { scope: '/app/' }).then(() => fetch('/apple/offline')).then(r => r.text()).then(text => boundaryText = text); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("from host", intercepted.Evaluate("boundaryText").AsString());
+        Assert.True(intercepted.Evaluate("let relativeScope = ''; navigator.serviceWorker.register('sw.js', { scope: 'app' }).then(r => navigator.serviceWorker.getRegistration('app').then(found => relativeScope = r.scope + ':' + (found === r))); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("/app/:true", intercepted.Evaluate("relativeScope").AsString());
+        Assert.True(intercepted.Evaluate("let foreignRegistration = 'pending'; navigator.serviceWorker.getRegistration('https://evil.example/app/').then(found => foreignRegistration = String(found)); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("undefined", intercepted.Evaluate("foreignRegistration").AsString());
         Assert.True(intercepted.Evaluate("let crossOriginText = ''; fetch('https://other.example/offline').then(r => r.text()).then(text => crossOriginText = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("from host", intercepted.Evaluate("crossOriginText").AsString());
@@ -1150,7 +1165,7 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(reopened, Document.Parse("<html></html>", Options()));
         Assert.True(reopened.Evaluate("let restoredUrl = ''; navigator.serviceWorker.register('sw.js').then(r => restoredUrl = r.scriptURL); true").AsBoolean());
         reopened.PerformMicrotaskCheckpoint();
-        Assert.Equal("sw.js", reopened.Evaluate("restoredUrl").AsString());
+        Assert.Equal("https://worker.example/sw.js", reopened.Evaluate("restoredUrl").AsString());
         Assert.True(DomBindings.Dispose(reopened));
         Assert.True(reopened.Evaluate("navigator.serviceWorker.getRegistrations().then(items => items.length === 0); true").AsBoolean());
         reopened.PerformMicrotaskCheckpoint();
@@ -1767,6 +1782,23 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void LocalStoragePersistsThroughArtifactStorage()
+    {
+        var storage = new ArtifactMemoryStorage();
+        var document = TreeBuilder.Parse("<div></div>");
+        using (var first = new JintScriptEngine())
+        {
+            DomBindings.Install(first, document, artifactStorage: storage);
+            Assert.Equal("saved", first.Evaluate("localStorage.setItem('answer', 'saved'); localStorage.getItem('answer')").AsString());
+        }
+
+        using var second = new JintScriptEngine();
+        DomBindings.Install(second, TreeBuilder.Parse("<div></div>"), artifactStorage: storage);
+        Assert.Equal("saved", second.Evaluate("localStorage.getItem('answer')").AsString());
+        Assert.Equal(1, second.Evaluate("localStorage.length").AsNumber());
+    }
+
+    [Fact]
     public void UrlSearchParamsSupportsBasicParsingAndMutation()
     {
         var document = TreeBuilder.Parse("<div></div>");
@@ -1777,6 +1809,18 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal("a=one&b=changed", engine.Evaluate("params.set('b','changed'); params.toString()").AsString());
         Assert.Equal("https:", engine.Evaluate("const url = new URL('https://example.test/path?a=one#top'); url.protocol").AsString());
         Assert.Equal("one", engine.Evaluate("url.searchParams.get('a')").AsString());
+    }
+
+    [Fact]
+    public void RestoredFormAndPointApisAreAvailable()
+    {
+        var document = TreeBuilder.Parse("<form><input id='field' required></form><div id='box'></div>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        Assert.True(engine.Evaluate("const field=document.getElementById('field'); field.setCustomValidity('no'); !field.checkValidity() && !field.reportValidity()").AsBoolean());
+        Assert.True(engine.Evaluate("field.setCustomValidity(''); field.value='ok'; field.checkValidity()").AsBoolean());
+        Assert.True(engine.Evaluate("field.setCustomValidity('form error'); !document.querySelector('form').reportValidity()").AsBoolean());
+        Assert.True(engine.Evaluate("Array.isArray(document.elementsFromPoint(0,0)); document.getElementById('box').scrollIntoView(); true").AsBoolean());
     }
 
     [Fact]
@@ -1798,6 +1842,7 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(engine, document);
 
         Assert.False(engine.Evaluate("const input = document.getElementById('email'); input.checkValidity()").AsBoolean());
+        Assert.False(engine.Evaluate("input.reportValidity()").AsBoolean());
         engine.Evaluate("input.value = 'person@example.com';");
         Assert.True(engine.Evaluate("input.reportValidity()").AsBoolean());
     }

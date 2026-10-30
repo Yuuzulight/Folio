@@ -90,26 +90,37 @@ internal sealed class ContentCacheBroker(IArtifactStorage storage, string artifa
     private object? Metadata(Request request)
     {
         var key = request.Key ?? "";
-        if (!key.StartsWith(_registrationPrefix, StringComparison.Ordinal)) throw WebIdlException.TypeError("Invalid registration storage scope.");
-        var suffix = key[_registrationPrefix.Length..];
-        if (suffix.Length > 32768 || suffix.Contains(':') || suffix.Contains('/')) throw WebIdlException.TypeError("Invalid registration storage key.");
+        const string localPrefix = "folio/local-storage/";
+        var registration = key.StartsWith(_registrationPrefix, StringComparison.Ordinal);
+        var local = key.StartsWith(localPrefix, StringComparison.Ordinal);
+        if (!registration && !local)
+            throw WebIdlException.TypeError($"Invalid artifact storage scope for '{key}'.");
+        var logicalPrefix = registration ? _registrationPrefix : localPrefix;
+        var backingPrefix = registration ? _registrationPrefix : artifact + ":" + localPrefix;
+        var suffix = key[logicalPrefix.Length..];
+        if (suffix.Length > 32768 || (registration && (suffix.Contains(':') || suffix.Contains('/'))))
+            throw WebIdlException.TypeError(registration ? "Invalid registration storage key." : "Invalid local storage key.");
         // Metadata is small and uses a disjoint key namespace. Serializing it on
         // the provider also prevents concurrent sessions bypassing its quota.
         lock (storage)
         {
-            var keys = storage.Keys(_registrationPrefix).Where(k => k.StartsWith(_registrationPrefix, StringComparison.Ordinal)
-                && !k[_registrationPrefix.Length..].Contains(':') && !k[_registrationPrefix.Length..].Contains('/')).Take(1025).ToArray();
+            var keys = storage.Keys(backingPrefix).Where(k => k.StartsWith(backingPrefix, StringComparison.Ordinal)
+                && (!registration || !k[backingPrefix.Length..].Contains(':') && !k[backingPrefix.Length..].Contains('/'))).Take(1025).ToArray();
+            string StoredKey(string logical) => registration ? logical : artifact + ":" + logical;
+            string LogicalKey(string stored) => registration ? stored : localPrefix + stored[backingPrefix.Length..];
             switch (request.Operation)
             {
-                case "metadataRead": return storage.Read(key);
-                case "metadataKeys": return keys.Where(k => k.StartsWith(key, StringComparison.Ordinal)).ToArray();
-                case "metadataDelete": storage.Delete(key); return null;
+                case "metadataRead": return storage.Read(StoredKey(key));
+                case "metadataKeys": return keys.Where(k => k.StartsWith(StoredKey(key), StringComparison.Ordinal)).Select(LogicalKey).ToArray();
+                case "metadataDelete": storage.Delete(StoredKey(key)); return null;
                 case "metadataWrite":
                     var value = request.Value ?? "";
-                    if (value.Length > 65536 || keys.Length > 1024 || !keys.Contains(key) && keys.Length == 1024
-                        || keys.Where(k => k != key).Sum(k => (long)k.Length + (storage.Read(k)?.Length ?? 0)) + key.Length + value.Length > 1024 * 1024)
-                        throw WebIdlException.DomException("QuotaExceededError", "Registration metadata exceeds its storage limit.");
-                    storage.Write(key, value); return null;
+                    var maxBytes = registration ? 1024 * 1024 : 5 * 1024 * 1024;
+                    var storedKey = StoredKey(key);
+                    if (value.Length > 65536 || keys.Length > 1024 || !keys.Contains(storedKey) && keys.Length == 1024
+                        || keys.Where(k => k != storedKey).Sum(k => (long)k.Length + (storage.Read(k)?.Length ?? 0)) + storedKey.Length + value.Length > maxBytes)
+                        throw WebIdlException.DomException("QuotaExceededError", registration ? "Registration metadata exceeds its storage limit." : "Storage quota exceeded.");
+                    storage.Write(storedKey, value); return null;
                 default: throw WebIdlException.TypeError("Unknown metadata operation.");
             }
         }

@@ -45,6 +45,13 @@ Time targets on a mid-range desktop CPU, warm process (JIT done), typical artifa
 | Paint-only animation frame (M2) | ≤ 8 ms |
 | Canvas 2D animation (M5, conformance category) | p95 frame ≤ 16.7 ms |
 
+The restored scripted-process benchmark does not yet meet these M4/M5 startup
+and memory targets: the 2026-10-29 Windows run measured 963.4 ms cold first
+frame, several warm loads above 50 ms, and working-set growth from 63.2 MB to
+105.6 MB. This is tracked as [#677](https://github.com/Yuuzulight/Folio/issues/677)
+and remains an acceptance gap; the targets are not waived by the benchmark's
+successful execution.
+
 ## Hard parts and pitfalls
 
 - **.NET allocation churn** in hot loops (tokenizers, selector matching, line breaking) causes GC pauses that show as scroll jank.

@@ -37,13 +37,18 @@ internal sealed class CanvasPath
         _hasSubpath = false;
     }
 
-    private static bool Finite(params double[] values)
-    {
-        foreach (var v in values)
-            if (!double.IsFinite(v))
-                return false;
-        return true;
-    }
+    // Canvas path construction is a per-frame hot path. Avoid allocating a
+    // params array for every move, curve, arc, and ellipse validation.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double a, double b) => double.IsFinite(a) && double.IsFinite(b);
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double a, double b, double c, double d) => double.IsFinite(a) && double.IsFinite(b) && double.IsFinite(c) && double.IsFinite(d);
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double a, double b, double c, double d, double e) => Finite(a, b, c, d) && double.IsFinite(e);
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double a, double b, double c, double d, double e, double f) => Finite(a, b, c, d, e) && double.IsFinite(f);
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double a, double b, double c, double d, double e, double f, double g) => Finite(a, b, c, d, e, f) && double.IsFinite(g);
 
     private static Vector2 Map(Matrix3x2 m, double x, double y) => Vector2.Transform(new Vector2((float)x, (float)y), m);
 

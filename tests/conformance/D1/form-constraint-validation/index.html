@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account Registration</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --brand: #2563eb;
+    --error: #ef4444;
+    --success: #10b981;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 40px 20px;
+  }
+  .form-card {
+    max-width: 480px;
+    margin: 0 auto;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 32px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.04);
+  }
+  h2 { margin-top: 0; font-size: 22px; }
+  .field {
+    margin-bottom: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  label { font-size: 14px; font-weight: 600; }
+  input[type="text"], input[type="password"] {
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: 14px;
+  }
+  input:focus { outline: 2px solid var(--brand); border-color: var(--brand); }
+  .error-text {
+    font-size: 12px;
+    color: var(--error);
+  }
+  .error-text[hidden] { display: none; }
+  .checkbox-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .checkbox-field label { font-size: 13px; font-weight: 400; }
+  button {
+    width: 100%;
+    padding: 12px;
+    background: var(--brand);
+    color: #ffffff;
+    border: none;
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: #1d4ed8; }
+  .alert-success {
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    color: #065f46;
+    padding: 12px 16px;
+    border-radius: var(--radius);
+    margin-top: 16px;
+    font-size: 14px;
+  }
+  .alert-success[hidden] { display: none; }
+</style>
+</head>
+<body>
+  <div class="form-card">
+    <h2>Create an Account</h2>
+    <form id="reg-form" novalidate>
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" placeholder="johndoe">
+        <span class="error-text" id="username-error" hidden>Username is required.</span>
+      </div>
+      <div class="field">
+        <label for="email">Email address</label>
+        <input type="text" id="email" placeholder="john@example.com">
+        <span class="error-text" id="email-error" hidden>Please provide a valid email format.</span>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="At least 8 characters">
+        <span class="error-text" id="password-error" hidden>Password must be at least 8 characters.</span>
+      </div>
+      <div class="field">
+        <label for="confirm">Confirm Password</label>
+        <input type="password" id="confirm" placeholder="Re-type password">
+        <span class="error-text" id="confirm-error" hidden>Passwords do not match.</span>
+      </div>
+      <div class="checkbox-field">
+        <input type="checkbox" id="terms">
+        <label for="terms">I accept the terms and conditions</label>
+      </div>
+      <button type="submit" id="btn-submit">Register</button>
+      <div class="alert-success" id="success-msg" hidden>Registration successful! Welcome aboard.</div>
+    </form>
+  </div>
+<script>
+  const form = document.getElementById('reg-form');
+  const u = document.getElementById('username');
+  const e = document.getElementById('email');
+  const p = document.getElementById('password');
+  const c = document.getElementById('confirm');
+  const t = document.getElementById('terms');
+  const s = document.getElementById('success-msg');
+
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    let valid = true;
+
+    if (!u.value.trim()) {
+      document.getElementById('username-error').hidden = false;
+      valid = false;
+    } else {
+      document.getElementById('username-error').hidden = true;
+    }
+
+    const emailVal = e.value.trim();
+    if (!emailVal || !emailVal.includes('@') || !emailVal.includes('.')) {
+      document.getElementById('email-error').hidden = false;
+      valid = false;
+    } else {
+      document.getElementById('email-error').hidden = true;
+    }
+
+    if (p.value.length < 8) {
+      document.getElementById('password-error').hidden = false;
+      valid = false;
+    } else {
+      document.getElementById('password-error').hidden = true;
+    }
+
+    if (c.value !== p.value || !c.value) {
+      document.getElementById('confirm-error').hidden = false;
+      valid = false;
+    } else {
+      document.getElementById('confirm-error').hidden = true;
+    }
+
+    if (!t.checked) {
+      valid = false;
+    }
+
+    if (valid) {
+      s.hidden = false;
+    }
+  });
+</script>
+</body>
+</html>

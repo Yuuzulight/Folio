@@ -8,7 +8,7 @@ This document records the current M5 implementation and verification baseline.
 
 The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, pinned library cache, and JSX hand-off are merged. The public D2–D7 corpus now contains ten reviewed, library-backed artifacts per category (60 total), each with an interaction script and reference. D6's ten Mermaid artifacts exercise flowchart, sequence, class, state, entity-relationship, timeline, Gantt and pie syntax. The dependency-backed compatibility baseline passes every D2–D7 category at 100%, including all ten Chart.js canvas artifacts in D5.
 
-The native Folio-engine run now matches the dependency-backed corpus: the latest fresh result is 60/60 (D2–D7 each 10/10), including the React reconciliation interaction. This is conformance evidence only; the mandatory Folio-owned replacement gate remains open for the broader engine and dependency-removal work.
+The latest native Folio-engine run now matches the dependency-backed compatibility baseline for D2–D7 (60/60), including all ten D4 library-card artifacts after correcting compact conditional-expression lexing in the native JavaScript parser. This is conformance evidence only; the mandatory Folio-owned replacement gate remains open for the broader engine and dependency-removal work.
 
 `ArtifactClassifier` retains Folio's scripted path for the canvas features covered by the parity corpus, including the pinned Chart.js artifacts.
 
@@ -36,13 +36,23 @@ The canvas frame-time harness now uses the retained `PaintFrame` path for canvas
 script mutations and reuses the document text shaper, so it no longer measures a full
 layout rebuild for every draw. In the 30-frame Windows run on 2026-10-28, every D5/D7
 library-card artifact stayed below the 16.70 ms p95 target; the deliberately heavy
-`D5/canvas-animated-bars` case remains above target: a fresh 100-frame Release
-run after the Canvas2D identity-transform hot-path optimization measured 26.46 ms total p95 (23.79 ms script/update). Issue #519 remains open until that workload
+`D5/canvas-animated-bars` case remains above target. The earlier 100-frame
+Release sample measured 26.46 ms total p95 (23.79 ms script/update); the later
+authoritative audit sample measured 50.09 ms total p95 (45.98 ms script/update)
+on the same compatibility path. The numbers are separate dated runs, not
+contradictory acceptance results: both exceed the 16.70 ms gate. Issue #519 remains open until that workload
 is genuinely within budget.
 
-The current sample remains a real miss: `canvas-animated-bars` measures
+The earlier sample remains a real miss: `canvas-animated-bars` measured
 26.46 ms total p95, dominated by script/update. The benchmark exits non-zero when any artifact exceeds 16.70 ms; no
 threshold relaxation or routing workaround was applied.
+
+After the bounded canvas text-layout cache in commit `2b6635f5`, a fresh
+30-frame Release run measured `canvas-animated-bars` at 35.26 ms script/update
+p95, 2.14 ms display-list build, 2.21 ms host paint, and 38.77 ms total p95.
+This is an improvement, but it remains above the 16.70 ms acceptance gate.
+A longer 100-frame Release run measured 40.55 ms script/update p95 and 44.25 ms
+total p95, confirming that the gate miss is not a short-run artifact.
 
 The same 30-frame run with `FOLIO_CONFORMANCE_ENGINE=native` keeps every D5/D7
 artifact within budget, including `canvas-animated-bars` at 6.17 ms p95 and

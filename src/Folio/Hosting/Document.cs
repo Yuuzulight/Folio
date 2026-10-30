@@ -300,6 +300,8 @@ public sealed class Document : IDisposable
         element.Checked = next;
         SetState(element, NodeFlags.Checked, next);
         Update();
+        DispatchFormControlEvent(element, "input");
+        DispatchFormControlEvent(element, "change");
     }
 
     internal void CheckRadio(ElementNode element)
@@ -321,6 +323,18 @@ public sealed class Document : IDisposable
         element.Checked = true;
         SetState(element, NodeFlags.Checked, true);
         Update();
+        DispatchFormControlEvent(element, "input");
+        DispatchFormControlEvent(element, "change");
+    }
+
+    private void DispatchFormControlEvent(ElementNode element, string type)
+    {
+        Node.EventDispatcher?.Invoke(element, type, new EventDispatchArgs
+        {
+            Bubbles = true,
+            Cancelable = false,
+            Composed = true
+        });
     }
 
     internal void SelectAdjacentRadio(ElementNode current, int offset)
@@ -433,6 +447,19 @@ public sealed class Document : IDisposable
     internal void SubmitForm(ElementNode form, ElementNode? submitter = null)
     {
         if (form.Name.Namespace != Namespaces.Html || form.LocalName != "form")
+            return;
+
+        // The submit event is dispatched before the host's navigation/submission
+        // default action.  Script handlers commonly call preventDefault() to
+        // validate or handle the form entirely in-page; skipping this dispatch
+        // made real form interactions silently bypass those handlers.
+        if (Node.EventDispatcher is { } dispatcher && !dispatcher(form, "submit", new EventDispatchArgs
+        {
+            Bubbles = true,
+            Cancelable = true,
+            Composed = true,
+            Detail = 0
+        }))
             return;
 
         var action = form.GetAttribute("action") ?? "";

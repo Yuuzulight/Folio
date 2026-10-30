@@ -89,6 +89,8 @@ public static class ArtifactClassifier
     {
         public readonly HashSet<string> Unsupported = [];
         public readonly HashSet<string> Scripts = [];
+        private const int ScriptSizeThreshold = 50 * 1024;
+        private int _totalScriptSize;
         private bool _diagramBlockSeen;
 
         // Media blocks count when they match some screen: a phone or a wide window.
@@ -159,6 +161,8 @@ public static class ArtifactClassifier
 
             foreach (var script in document.QuerySelectorAll("script"))
                 ScriptSource(script.TextContent);
+            if (_totalScriptSize > ScriptSizeThreshold)
+                Unsupported.Add($"script text size ({_totalScriptSize / 1024} KB) exceeds the scripted start-up threshold ({ScriptSizeThreshold / 1024} KB); heavy scripts must run in the browser");
         }
 
         private void Element(Element element)
@@ -183,7 +187,7 @@ public static class ArtifactClassifier
                 else if (name is "href" or "src" or "action" or "formaction" or "xlink:href"
                          && value.Trim().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
                 {
-                    Scripts.Add("runs scripts: a javascript: link");
+                    Unsupported.Add("uses a javascript: URL; Folio ignores javascript: URLs");
                     ScriptSource(value.Trim()["javascript:".Length..]);
                 }
             }
@@ -225,12 +229,13 @@ public static class ArtifactClassifier
                     break;
                 case "script" when ScriptTypes.Contains((element.GetAttribute("type") ?? "").Trim()):
                     Scripts.Add("runs scripts: a script element");
+                    if (string.Equals((element.GetAttribute("type") ?? "").Trim(), "module", StringComparison.OrdinalIgnoreCase)
+                        && HasModuleDependency(element.TextContent))
+                        Unsupported.Add("uses module imports; Folio's content process does not load JavaScript modules");
                     if (element.GetAttribute("src") is { } src)
                     {
-                        if (IsKnownCanvasLibrary(src) && document.QuerySelectorAll("canvas").Count > 0)
-                            Unsupported.Add("uses a canvas library whose painting is not yet pixel-equivalent: Chart.js");
                         if (!IsConfiguredDiagramLibrary(src) || !_diagramBlockSeen)
-                            Load(src, "a script");
+                            Load(src, "a script", allowConfiguredLoader: true);
                         else
                             Scripts.Add("renders diagram blocks through Folio.Diagrams");
                     }
@@ -263,10 +268,6 @@ public static class ArtifactClassifier
             return false;
         }
 
-        private static bool IsKnownCanvasLibrary(string url) =>
-            url.Contains("chart.js", StringComparison.OrdinalIgnoreCase) ||
-            url.Contains("chart.umd", StringComparison.OrdinalIgnoreCase);
-
         private static bool HasDiagramBlock(Element element)
         {
             var classes = element.GetAttribute("class") ?? "";
@@ -280,6 +281,7 @@ public static class ArtifactClassifier
             if (string.IsNullOrWhiteSpace(source))
                 return;
             var text = source;
+            _totalScriptSize += text.Length;
             // Whitespace and quote style do not change these API calls. Compacting first keeps this scan
             // conservative without attempting to parse arbitrary JavaScript.
             var compact = string.Concat(text.Where(character => !char.IsWhiteSpace(character)));
@@ -307,6 +309,13 @@ public static class ArtifactClassifier
                 Require(ImplementedFeatures.WebRtc, options.Capabilities.WebRtc, "uses WebRTC", "WebRTC");
             if (Contains(compact, "navigator.serviceWorker") || Contains(compact, "serviceWorker.register("))
                 Require(ImplementedFeatures.ServiceWorkers, options.Capabilities.ServiceWorkers, "uses service workers", "service workers");
+        }
+
+        private static bool HasModuleDependency(string source)
+        {
+            var compact = string.Concat(source.Where(character => !char.IsWhiteSpace(character)));
+            return compact.Contains("import", StringComparison.OrdinalIgnoreCase)
+                || compact.Contains("export", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool Contains(string source, string value) => source.Contains(value, StringComparison.OrdinalIgnoreCase);
@@ -375,15 +384,18 @@ public static class ArtifactClassifier
                 .Contains(token, StringComparer.OrdinalIgnoreCase) == true;
 
         /// <summary>
-        /// True when the options' loader would load the URL. The only loader is the default one, which loads
-        /// <c>data:</c> URLs alone; this follows the public loader when it joins <see cref="FolioOptions"/>.
+        /// True when the default data URL path can handle the URL, or when the
+        /// caller explicitly delegates this resource kind to its configured
+        /// host loader. The classifier remains conservative for other external
+        /// resources because it cannot inspect an arbitrary loader's allowlist.
         /// </summary>
-        private static bool Loadable(string url) => url.StartsWith("data:", StringComparison.OrdinalIgnoreCase);
+        private bool Loadable(string url, bool allowConfiguredLoader = false) => url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+            || (allowConfiguredLoader && options.ResourceLoader is not null);
 
-        private void Load(string url, string what)
+        private void Load(string url, string what, bool allowConfiguredLoader = false)
         {
             url = url.Trim();
-            if (!Loadable(url))
+            if (!Loadable(url, allowConfiguredLoader))
                 Unsupported.Add($"loads {what} these options do not allow: {Shorten(url)}");
         }
 

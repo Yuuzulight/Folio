@@ -116,6 +116,30 @@ public sealed class ContentResourceBrokerTests
     }
 
     [Fact]
+    public async Task ContentProcessDeathStopsHostAudioOutput()
+    {
+        var loader = new RecordingLoader((request, _) => ResourceResponse.Loaded(Encoding.ASCII.GetBytes("RIFFxxxxWAVE"), "audio/test"));
+        var decoder = new DebugDecoder();
+        var output = new DebugAudioOutput();
+        var client = ContentProcessClient.Start("dotnet", $"\"{ContentHostPath()}\"",
+            new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)), resourceLoader: loader,
+            resourcePolicy: AllowExampleOrigin(), mediaDecoder: decoder, mediaAudioOutput: output);
+        try
+        {
+            await Load(client, new { html = "<audio id='a' src='clip'></audio>", script = "document.getElementById('a').play(); 'loaded'", url = "https://example.test/index.html", capabilities = new FeatureCapabilities { Media = true, Sound = true } });
+            Assert.Contains("start", output.Lifecycle);
+
+            client.Process.Kill(entireProcessTree: true);
+            await client.Completion.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!output.Lifecycle.Contains("stop") && DateTime.UtcNow < deadline)
+                await Task.Delay(25, TestContext.Current.CancellationToken);
+            Assert.Contains("stop", output.Lifecycle);
+        }
+        finally { await client.DisposeAsync(); }
+    }
+
+    [Fact]
     public async Task ContentProcessMediaCapabilityRevocationAndRegrantSwitchesTheLiveElement()
     {
         var loader = new RecordingLoader((request, _) =>

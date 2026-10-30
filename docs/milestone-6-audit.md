@@ -21,6 +21,12 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 ## Verification refresh — 2026-10-30
 
+**Current-result correction:** the fresh native D1–D14 run passes 102/102
+artifacts. D1–D14 all pass after correcting compact conditional-expression
+lexing in the native JavaScript parser. Earlier 85/85, 94/94 and 93/102 figures
+below are historical
+snapshots, not current results.
+
 Latest focused checks on the audit head: WebRTC/capture/media-capture 30/30,
 software raster/filter and Skia canvas behavior 124/124, native WebGL
 page/object/ANGLE slices 87/87, and the full native D1–D14 conformance sweep
@@ -398,7 +404,7 @@ Workers now have a persistent owning thread and HTML event loop, timer/microtask
 
 Nested workers use the same native factory and root worker-count registry; capability updates reach descendants, and parent close/termination retires its children. Registration precedes artifact loading, and revocation cancels pending startup/import/fetch loads. Existing initially denied workers observe later WebAssembly grants, retained APIs observe revocation/regrant, and retired document contexts cannot authorize old workers. Failed loads release their slots. Terminated workers unregister from both root and parent registries. Weak-reference tests also prove cached Jint host methods do not keep their original receiver alive after a nested worker is dropped; callbacks capture the engine and resolve the actual invocation receiver.
 
-Actual content-process tests cover initial grants, runtime changes, nested Blob workers, fetch, encoding, crypto, events, tagged diagnostics and recreation after worker revocation. A native-engine worker now has a separate owning runtime and passes real parent-to-worker-to-parent message round trips for primitives, objects, arrays, cycles, Map/Set, aliases and transferred ArrayBuffers; native workers use the shared graph codec through the bounded worker-platform/event-target path. Both engines cover startup, execution, worker errors, busy-loop interruption and document-close teardown. URL/form/encoding support remains a bounded subset, module imports still use simplified preprocessing, constructor startup remains synchronous, and complete worker-global/Web-platform conformance is unproven; these are follow-ups beyond the issue's acceptance. D10 and the Windows sandbox worker row now verify the feature through the conformance and content-process paths.
+Actual content-process tests cover initial grants, runtime changes, fetch, encoding, crypto, events, tagged diagnostics and recreation after worker revocation. A native-engine worker has a separate owning runtime and passes parent-to-worker-to-parent message round trips for primitives, objects, arrays, cycles, Map/Set, aliases and transferred ArrayBuffers; native workers use the shared graph codec through the bounded worker-platform/event-target path. The direct worker, capability, and real native content-process nested Blob-worker suites are green, including parent-to-worker-to-parent callbacks after process isolation. URL/form/encoding support remains a bounded subset, module imports still use simplified preprocessing, constructor startup remains synchronous, and complete worker-global/Web-platform conformance is unproven. D10 and the Windows sandbox worker row verify the covered paths; broader worker-global conformance remains a follow-up.
 
 Original acceptance:
 
@@ -648,11 +654,11 @@ Original acceptance:
 
 ### #558 — Service workers: the Cache API with host storage limits
 
-**Acceptance verified; service-worker isolation remains tracked separately.** Evidence: `CacheBindings.cs`, `CacheStorageState.cs`, `ContentCacheBroker.cs`, `ContentStorageTransport.cs`, `CacheApiTests`, and `ContentCacheTests`.
+**Partial; service-worker isolation remains tracked separately.** Evidence: `CacheBindings.cs`, `CacheStorageState.cs`, `ContentCacheBroker.cs`, `ContentStorageTransport.cs`, `CacheApiTests`, and `ContentCacheTests`.
 
 The native host owns the canonical per-artifact cache and quota ledger. All Cache/CacheStorage methods, request URL/method/search/Vary matching, independent binary responses and atomic addAll have direct regressions. A transaction is persisted with one atomic provider write before publishing memory; failure and quota tests establish rollback. Quota includes metadata, encoded bodies, unopened persisted caches and live retired handles. Private Fetch state and an inaccessible storage bridge prevent script-visible quota bypasses. Length-delimited artifact snapshot keys prevent colon/slash collisions.
 
-Real content processes now receive host-owned artifact storage and limits through FolioView and ContentProcessClient. Semantic storage operations reach the same canonical host state as in-process documents, preserving concurrent writes. Tests cover process restart without network, service-worker-originated cache writes, parent profile forgery, namespace isolation, failed writes, remote retired-handle collection, incomplete/corrupt uploads, connection closure, blocked host callbacks and terminal handling of uncertain commits. A 13 MiB binary payload exercises chunked requests and replies larger than the unchanged 16 MiB frame limit. Prototype cache entries migrate atomically, preserve backups on failure and fail closed when old Vary metadata cannot be recovered. See [storage configuration and limits](cache-api-storage.md).
+Real content processes now receive host-owned artifact storage and limits through FolioView and ContentProcessClient. The native bridge fix in `a0a1346f` preserves Cache methods across an awaited `caches.open()`. A historical checkpoint at `d277f346` exposed 13/23 `ContentCacheTests` failures on both engines; `ced4c474` corrected the broker's registration/local-storage key namespace, and the current focused matrix is 23/23 on the branch. The cache issue remains open only for the broader isolation/sandbox acceptance under #556/#559, not because those 13 regressions are still present. See [storage configuration and limits](cache-api-storage.md).
 
 These checks verify the Cache API contract, including service-worker-originated writes, host quotas, rollback and artifact isolation. They do not establish the separate isolated service-worker engine, full subresource interception or the sandbox matrix required by #556/#557/#559; those remain separate issues.
 
@@ -690,11 +696,15 @@ media/WebRTC/service-worker 115/115 locally. These are verified implementation
 slices; M6 remains incomplete until the open device/process, optional WebGL,
 interruption, production-routing, and dependency-removal requirements are met.
 
-Hosted CI run `40820835338` is now fully green across all 26 jobs, including
+The latest recorded hosted CI run, `40820835338`, completed green across all 26 jobs, including
 both compatibility and native capability matrices. The complete scripting suite
 also passes 1,412/1,412 with `FOLIO_SCRIPT_ENGINE=native`, confirming that the
 native runtime evidence covers the full suite rather than only the focused
 parity corpus. This is an audit checkpoint, not an M6 completion claim.
+
+The current branch's Release compatibility run has since grown to 1,436/1,436
+passing; that newer local result does not replace the hosted native evidence
+above and does not close the remaining acceptance gates.
 
 The native RegExp implementation now honors sticky `y` matching with
 `lastIndex` advancement and reset semantics; the focused regression and full

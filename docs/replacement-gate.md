@@ -5,6 +5,18 @@ implementations are allowed as intermediate delivery steps, but they do not
 count as Folio completion. No milestone, release, or completion report may
 waive, defer, or reclassify this gate as optional.
 
+## Current audit head — 2026-10-30
+
+The native worker, nested-worker, iframe, and WebRTC capability slices are
+green (54/54, 7/7, 27/27, and 11/11 respectively), and the full native
+scripting runner is 1,412/1,412. These are compatibility and Folio-owned
+runtime slices, not proof that production dependencies can be removed. Jint,
+SkiaSharp, HarfBuzzSharp, Wasmtime, and ANGLE
+(`Avalonia.Angle.Windows.Natives`) remain in the production graph until
+the complete replacement gates below are met. The WARP float-renderbuffer
+probe also confirms that the current WebGL fallback is RGBA8 emulation, so it
+cannot be counted as a Folio-owned float backend.
+
 Folio is complete only when every replacement below is selected by production,
 has passed differential and failure-behavior verification, and its superseded
 production dependency has been removed:
@@ -21,12 +33,19 @@ production dependency has been removed:
    The shared `Folio.Imaging.ImageDecoder` entry point is also used by canvas
    still-media fallback, so video/canvas decode no longer has a narrower
    PNG/JPEG-only format matrix.
-4. **JavaScript** — Folio's parser, VM, DOM host layer and hot-path execution
-   replace Jint in production and pass the complete scripting and conformance
-   suites, including sandbox and resource-limit behavior.
-5. **WebAssembly** — Folio-owned validation, compilation and execution replace
-   Wasmtime and the compatibility interpreter, including imports, linear memory,
-   tables, globals, streaming, workers, traps, limits and teardown behavior.
+4. **JavaScript** — [#685](https://github.com/Yuuzulight/Folio/issues/685): Folio's
+   parser, VM, DOM host layer and hot-path execution replace Jint in production
+   and pass the complete scripting and conformance suites, including sandbox and
+   resource-limit behavior.
+5. **WebAssembly** — [#686](https://github.com/Yuuzulight/Folio/issues/686): Folio-owned
+   validation, compilation and execution replace Wasmtime and the compatibility
+   interpreter, including imports, linear memory, tables, globals, streaming,
+   workers, traps, limits and teardown behavior.
+6. **GPU backend and shader translation** — Folio-owned WebGL/GPU backend and
+   shader translation replace ANGLE, including texture/framebuffer formats,
+   float/integer paths, device loss/recovery, budgets, sandboxing and host-frame
+   transport. The dependency must be absent from production projects and
+   published artifacts after differential verification.
 
 ## Evidence required for each replacement
 
@@ -67,6 +86,11 @@ covered solid spans, while preserving the 37/37 `SoftwareRasterTests` result.
 A short 20-frame Release run measured software replay at 73.4 ms versus 9.2
 ms for Skia at 800×600 and 49.3 ms versus 16.6 ms at 1920×1080. The spread is
 still noisy and the default-backend performance gate remains open.
+
+Commit `fd8e8e4d` removes a second identity-transform glyph polygon copy during
+software replay. `SoftwareRasterTests` remains 39/39; a short Release run then
+measured approximately 55 ms at 800×600. The 1920×1080 replay remained above
+the target, so this is an optimization result, not completion of #575.
 
 The latest audit head (`9f417579`) bulk-fills integral opaque RGBA rectangles
 in the Folio-owned software canvas. `SoftwareRasterTests` remains green at

@@ -72,6 +72,11 @@ internal static class FlexLayout
             CalculateLineCrossSize(line, row, lines.Count == 1 && flex.Wrap == FlexWrap.Nowrap ? crossSpace : null);
         // A row container with an auto height is as tall as its lines, within its min and max heights.
         var crossSize = crossSpace ?? Math.Clamp(lines.Sum(l => l.Cross) + gapCross * Math.Max(0, lines.Count - 1), minHeight, maxHeight);
+        // A single nowrap line fills an auto-sized flex container's used cross size
+        // (including min-height). This is what lets align-items:center center a
+        // child in a viewport-sized body.
+        if (flex.Wrap == FlexWrap.Nowrap && lines.Count == 1 && crossSpace is null)
+            lines[0].Cross = crossSize;
         HandleAlignContentStretch(lines, flex, crossSize, gapCross);
         foreach (var line in lines)
         {

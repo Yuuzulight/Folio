@@ -55,6 +55,7 @@ internal sealed class JavaScriptEvaluator
             JavaScriptTemplateExpression template => Template(template.Text),
             JavaScriptRegexExpression regex => RegexValue.Create(regex.Text),
             JavaScriptIdentifierExpression identifier => Lookup(identifier.Name),
+            JavaScriptAwaitExpression awaited => UnwrapAwait(Evaluate(awaited.Operand)),
             JavaScriptYieldExpression yielded => EvaluateYield(yielded),
             JavaScriptUnaryExpression unary => Unary(unary),
             JavaScriptUpdateExpression update => Update(update),
@@ -70,6 +71,14 @@ internal sealed class JavaScriptEvaluator
             JavaScriptClassExpression @class => Class(@class),
             _ => throw new InvalidDataException("Unknown JavaScript expression node."),
         };
+    }
+
+    private static object? UnwrapAwait(object? value)
+    {
+        var unwrapped = NativeJavaScriptEngine.UnwrapAwait(value);
+        return unwrapped is NativeJavaScriptEngine.RejectedPromiseValue rejected
+            ? throw new JavaScriptThrownException(rejected.Value)
+            : unwrapped;
     }
 
     private object Template(string text)
@@ -248,7 +257,7 @@ internal sealed class JavaScriptEvaluator
                 case JavaScriptFunctionDeclarationStatement function: _bindings[function.Name] = Evaluate(function.Function); break;
                 case JavaScriptClassDeclarationStatement @class: _bindings[@class.Name] = Evaluate(@class.Class); break;
                 case JavaScriptBlockStatement block:
-                    ExecuteCore(block.Statements);
+                    lastResult = ExecuteCore(block.Statements);
                     break;
                 case JavaScriptWithStatement with:
                     var scope = Evaluate(with.Scope);
@@ -344,16 +353,18 @@ internal sealed class JavaScriptEvaluator
                     break;
                 case JavaScriptThrowStatement thrown: throw new JavaScriptThrownException(Evaluate(thrown.Expression));
                 case JavaScriptTryStatement guarded:
-                    try { ExecuteCore([guarded.Body]); }
+                    object? tryResult = UndefinedValue.Instance;
+                    try { tryResult = ExecuteCore([guarded.Body]); }
                     catch (JavaScriptThrownException error) when (guarded.CatchBody is not null)
                     {
                         if (guarded.CatchName is not null) _bindings[guarded.CatchName] = error.Value;
-                        ExecuteCore([guarded.CatchBody]);
+                        tryResult = ExecuteCore([guarded.CatchBody]);
                     }
                     finally
                     {
                         if (guarded.FinallyBody is not null) ExecuteCore([guarded.FinallyBody]);
                     }
+                    lastResult = tryResult;
                     break;
                 case JavaScriptSwitchStatement selection:
                     var switchValue = Evaluate(selection.Expression);
@@ -498,9 +509,9 @@ internal sealed class JavaScriptEvaluator
         var instance = new Dictionary<string, object?>(StringComparer.Ordinal) { ["__constructor"] = constructor };
         object? result = constructor switch
         {
-            NativeJavaScriptEngine.NativeReceiverFunction receiverFunction => receiverFunction.Invoke(instance, arguments),
-            NativeJavaScriptEngine.INativeCallable callable => callable.Invoke(arguments),
-            Func<IReadOnlyList<object?>, object?> function => InvokeFunction(function, instance, arguments),
+            NativeJavaScriptEngine.NativeReceiverFunction receiverFunction => InvokeWithReceiver(receiverFunction, instance, arguments),
+            NativeJavaScriptEngine.INativeCallable callable => InvokeWithReceiver(callable, instance, arguments),
+            Func<IReadOnlyList<object?>, object?> function => InvokeWithReceiver(function, instance, arguments),
             _ => throw new NotSupportedException($"Constructor is not callable (callee: {call.Callee})."),
         };
         if (instance is IDictionary<string, object?> properties && TryGetPrototype(constructor, out var prototype))
@@ -756,11 +767,12 @@ internal sealed class JavaScriptEvaluator
             else expandedArguments.Add(value);
         }
         var arguments = expandedArguments.ToArray();
-        if (target is NativeJavaScriptEngine.NativeReceiverFunction receiverCallable)
-            return receiverCallable.Invoke(receiver, arguments);
-        return target is NativeJavaScriptEngine.INativeCallable callable
-            ? callable.Invoke(arguments)
-            : InvokeFunction((Func<IReadOnlyList<object?>, object?>)target, receiver, arguments);
+        return target switch
+        {
+            NativeJavaScriptEngine.NativeReceiverFunction receiverCallable => InvokeWithReceiver(receiverCallable, receiver, arguments),
+            NativeJavaScriptEngine.INativeCallable callable => InvokeWithReceiver(callable, receiver, arguments),
+            _ => InvokeWithReceiver((Func<IReadOnlyList<object?>, object?>)target, receiver, arguments),
+        };
     }
 
     private object? Index(JavaScriptIndexExpression index)
@@ -787,7 +799,10 @@ internal sealed class JavaScriptEvaluator
 
     private object? Member(JavaScriptMemberExpression member)
     {
-        return MemberValue(Evaluate(member.Target), member.Name);
+        var target = Evaluate(member.Target);
+        return member.Optional && target is null or UndefinedValue
+            ? UndefinedValue.Instance
+            : MemberValue(target, member.Name);
     }
 
     private object? MemberValue(object? target, string name)
@@ -1677,6 +1692,10 @@ internal sealed class JavaScriptEvaluator
     {
         var captured = _bindings;
         var capturedWithScopes = _withScopes.ToArray();
+        // Arrow functions capture the lexical receiver. This matters for
+        // host bootstrap code such as CacheStorage, whose promise callbacks
+        // intentionally close over the class instance via `this`.
+        var lexicalThis = function.IsArrow && TryLookup("this", out var capturedThis) ? capturedThis : null;
         Func<IReadOnlyList<object?>, object?>? functionValue = null;
         functionValue = arguments => InvokeBody(null, arguments);
         ReceiverBindings.Add(functionValue, new ReceiverBinding((receiver, arguments) => InvokeBody(receiver, arguments)));
@@ -1704,10 +1723,48 @@ internal sealed class JavaScriptEvaluator
             // invoked without an explicit receiver. UMD libraries rely on this
             // for their `(function(){ ... })(this)` wrapper; method calls still
             // supply their actual receiver through ReceiverBindings.
-            local["this"] = receiver ?? captured;
+            local["this"] = function.IsArrow ? lexicalThis : receiver ?? captured;
             local["arguments"] = arguments.ToList();
             if (function.IsGenerator) return RunGenerator(local, function.Body);
-            return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
+            try
+            {
+                var result = new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
+                if (!function.IsAsync) return result;
+                return ResolvePromise(result);
+            }
+            catch (Exception error) when (function.IsAsync)
+            {
+                return RejectPromise(error);
+            }
+        }
+
+        object? ResolvePromise(object? value) => PromiseCall("resolve", value);
+        object? RejectPromise(Exception error) => PromiseCall("reject", new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["name"] = error is WebIdlException web ? web.Name : ThrownName(error),
+            ["message"] = error is WebIdlException ? error.Message : ThrownMessage(error),
+        });
+        static string ThrownName(Exception error)
+        {
+            const string prefix = "JavaScript throw: ";
+            var text = error.Message.StartsWith(prefix, StringComparison.Ordinal) ? error.Message[prefix.Length..] : string.Empty;
+            var separator = text.IndexOf(':');
+            return separator > 0 ? text[..separator] : "Error";
+        }
+        static string ThrownMessage(Exception error)
+        {
+            const string prefix = "JavaScript throw: ";
+            var text = error.Message.StartsWith(prefix, StringComparison.Ordinal) ? error.Message[prefix.Length..] : error.Message;
+            var separator = text.IndexOf(':');
+            return separator > 0 ? text[(separator + 1)..].TrimStart() : text;
+        }
+        object? PromiseCall(string name, object? value)
+        {
+            if (captured.TryGetValue("Promise", out var promise)
+                && promise is NativeJavaScriptEngine.INativeCallable callable
+                && callable.TryGetProperty(name, out var method))
+                return NativeJavaScriptEngine.InvokeCallable(method!, [value]);
+            return value;
         }
 
         List<object?> RunGenerator(IDictionary<string, object?> local, IReadOnlyList<JavaScriptStatement> body)
@@ -1739,10 +1796,19 @@ internal sealed class JavaScriptEvaluator
         local[parameter] = value;
     }
 
-    internal static object? InvokeWithReceiver(object function, object? receiver, IReadOnlyList<object?> arguments) =>
-        function is Func<IReadOnlyList<object?>, object?> callback ? InvokeFunction(callback, receiver, arguments) :
-        function is NativeJavaScriptEngine.NativeReceiverFunction receiverCallable ? receiverCallable.Invoke(receiver, arguments) :
-        function is NativeJavaScriptEngine.INativeCallable callable ? callable.Invoke(arguments) : null;
+    internal static object? InvokeWithReceiver(object function, object? receiver, IReadOnlyList<object?> arguments)
+    {
+        return function is Func<IReadOnlyList<object?>, object?> callback ? InvokeFunction(callback, receiver, arguments) :
+            function is NativeJavaScriptEngine.NativeReceiverFunction receiverCallable ? receiverCallable.Invoke(receiver, arguments) :
+            function is NativeJavaScriptEngine.INativeCallable callable ? callable.Invoke(arguments) : null;
+    }
+
+    internal static Exception ConvertHostException(WebIdlException error) =>
+        new JavaScriptThrownException(new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["name"] = error.Name,
+            ["message"] = error.Message,
+        });
 
     private static object? InvokeFunction(Func<IReadOnlyList<object?>, object?> function, object? receiver, IReadOnlyList<object?> arguments)
         => ReceiverBindings.TryGetValue(function, out var binding) ? binding.Invoke(receiver, arguments) : function(arguments);

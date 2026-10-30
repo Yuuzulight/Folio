@@ -116,6 +116,25 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll bench
 
+      # M4 scripted startup, first-paint and content-process working-set evidence.
+      # The command reports target misses as warnings while #677 is open; keeping it
+      # in the Windows matrix prevents the recovery gate from becoming stale.
+      # ReadyToRun apphosts currently fail-fast inside the AppContainer on the
+      # Windows runner (0xC0000602), before the protocol can emit a frame. The
+      # framework-dependent published apphost is the same shipped layout and
+      # remains runnable under the sandbox, so benchmark that artifact instead.
+      - name: Publish content host for scripted benchmarks
+        if: matrix.os == 'windows-latest'
+        # This runtime-specific publish needs its own assets file entry. The
+        # solution restore above is framework-only, so --no-restore produces
+        # NETSDK1047 before the benchmark can run.
+        run: dotnet publish tools/Folio.ContentHost/Folio.ContentHost.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=false -o tools/Folio.ContentHost/bin/Release/net10.0/win-x64/publish
+      - name: Scripted process benchmarks
+        if: matrix.os == 'windows-latest'
+        env:
+          FOLIO_CONTENT_HOST: ${{ github.workspace }}\tools\Folio.ContentHost\bin\Release\net10.0\win-x64\publish\Folio.ContentHost.exe
+        run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll scripted
+
       - name: Sandboxed GPU memory
         if: matrix.os == 'windows-latest'
         run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll gpu
@@ -150,10 +169,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Mutation fuzzing of the parsers and decoders, per target: 10 seconds on pull requests and main, 120 in the
-      # nightly run. The aggregate nightly suite takes over 20 minutes, so leave room for all targets to finish.
+      # nightly run. The aggregate nightly suite has sixteen targets and needs more than the old 30-minute step cap;
+      # keep it below the 60-minute job cap while leaving room for setup and result upload.
       - name: Fuzz
         if: matrix.os == 'ubuntu-latest'
-        timeout-minutes: ${{ github.event_name == 'schedule' && 30 || 10 }}
+        timeout-minutes: ${{ github.event_name == 'schedule' && 55 || 10 }}
         run: dotnet tests/Folio.Fuzz/bin/Release/net10.0/Folio.Fuzz.dll fuzz ${{ github.event_name == 'schedule' && 120 || 10 }}
 
       # Inputs the fuzzer failed on; add them to tests/Folio.Fuzz/Regressions/<target>/ with the fix.

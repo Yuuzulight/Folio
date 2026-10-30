@@ -314,7 +314,15 @@ internal static class ServiceWorkerBindings
                         if (pageOrigin && scriptOrigin && pageOrigin !== scriptOrigin)
                             return Promise.reject(new DOMException('The service-worker script is cross-origin.', 'SecurityError'));
                     } catch (_) { }
-                    var scope = (options && options.scope) || '/';
+                    var scope = options && options.scope;
+                    if (!scope) {
+                        try {
+                            var scriptUrl = new URL(url, base || undefined);
+                            var scriptPath = scriptUrl.pathname || '/';
+                            var separator = scriptPath.lastIndexOf('/');
+                            scope = separator >= 0 ? scriptPath.slice(0, separator + 1) : '/';
+                        } catch (_) { scope = '/'; }
+                    }
                     try {
                         var scopeText = String(scope);
                         // Relative and root scopes are already constrained by the registering
@@ -327,8 +335,26 @@ internal static class ServiceWorkerBindings
                             if (scopeUrl.origin && scopeOrigin && scopeUrl.origin !== scopeOrigin)
                                 return Promise.reject(new DOMException('The service-worker scope is cross-origin.', 'SecurityError'));
                             scope = scopeUrl.pathname;
+                        } else if (base) {
+                            var relativeScopeUrl = new URL(scopeText, base);
+                            var relativeScopeOrigin = new URL(base).origin;
+                            if (relativeScopeUrl.origin && relativeScopeOrigin && relativeScopeUrl.origin !== relativeScopeOrigin)
+                                return Promise.reject(new DOMException('The service-worker scope is cross-origin.', 'SecurityError'));
+                            scope = relativeScopeUrl.pathname;
                         } else scope = scopeText;
                     } catch (_) { scope = String(scope); }
+                    if (scope.length === 0 || scope.charAt(0) !== '/') scope = '/' + scope;
+                    if (scope.charAt(scope.length - 1) !== '/') scope += '/';
+                    // Without a Service-Worker-Allowed response header, a worker
+                    // cannot control paths above its script directory.
+                    try {
+                        var resolvedScript = new URL(url, base || undefined);
+                        var scriptPath = resolvedScript.pathname || '/';
+                        var scriptSeparator = scriptPath.lastIndexOf('/');
+                        var scriptDirectory = scriptSeparator >= 0 ? scriptPath.slice(0, scriptSeparator + 1) : '/';
+                        if (scope.indexOf(scriptDirectory) !== 0)
+                            return Promise.reject(new DOMException('The service-worker scope is outside the script directory.', 'SecurityError'));
+                    } catch (_) { }
                     var registrationKey = 'service-worker-registration/' + encodeURIComponent(String(scope));
                     if (registrationStorage) { var persisted = registrationStorage.read(registrationKey); if (persisted) { try { var metadata = JSON.parse(persisted); if (metadata && metadata.scriptURL === url) url = String(metadata.scriptURL); } catch (_) { } } }
                     var existing = __folio_service_worker_registrations.find(function(r) { return r.scope === scope; });
@@ -395,14 +421,18 @@ internal static class ServiceWorkerBindings
                         return new Function('scope', 'with (scope) { ' + source + '\n }')(isolatedScope);
                     };
                     var scopePath = String(scope); if (scopePath.length === 0 || scopePath.charAt(0) !== '/') scopePath = '/' + scopePath; if (scopePath.charAt(scopePath.length - 1) !== '/') scopePath += '/';
+                    // Service-worker scopes are path-prefix matches on a path-segment
+                    // boundary. A naive prefix check would let /app/ intercept
+                    // /apple/... requests, which violates the scope restriction.
+                    var scopeMatches = function(path, candidate) { if (candidate === '/') return path.charAt(0) === '/'; var prefix = candidate.slice(0, -1); return path === prefix || path.indexOf(candidate) === 0; };
                     var originOf = function(value) { var text = String(value), scheme = text.indexOf('://'); if (scheme < 1) return ''; var end = text.indexOf('/', scheme + 3); return text.slice(0, end < 0 ? text.length : end).toLowerCase(); };
                     var worker = { scriptURL: url, state: 'installing', onstatechange: null, onmessage: null, _self: workerSelf,
                         addEventListener: function(type, handler) { if (type === 'message' && typeof handler === 'function' && workerListeners.indexOf(handler) < 0) workerListeners.push(handler); },
                         removeEventListener: function(type, handler) { if (type === 'message') { var index = workerListeners.indexOf(handler); if (index >= 0) workerListeners.splice(index, 1); } },
                         postMessage: function(data) { ensureLive(); if (nativeDispatchMessage) { var outgoing = nativeDispatchMessage(data); if (outgoing !== undefined && outgoing !== null) { var responseEvent = { type: 'message', data: outgoing, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(responseEvent); workerListeners.slice().forEach(function(handler) { ensureLive(); handler(responseEvent); }); } return; } if (typeof workerSelf._nativePostMessage === 'function') { var outgoing = workerSelf._nativePostMessage(data); if (outgoing !== undefined && outgoing !== null) { var responseEvent = { type: 'message', data: outgoing, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(responseEvent); workerListeners.slice().forEach(function(handler) { ensureLive(); handler(responseEvent); }); } return; } var event = { type: 'message', data: data, target: workerSelf, source: null, origin: '' }; var handled = !!workerSelf.onmessage || workerSelfListeners.length > 0; if (workerSelf.onmessage) workerSelf.onmessage(event); workerSelfListeners.slice().forEach(function(handler) { ensureLive(); handler(event); }); if (!handled) { if (worker.onmessage) worker.onmessage({ type: 'message', data: data, target: worker, source: null, origin: '' }); workerListeners.slice().forEach(function(handler) { ensureLive(); handler({ type: 'message', data: data, target: worker, source: null, origin: '' }); }); } },
                         _retire: function() { workerSelf.onmessage = null; workerSelf.onfetch = null; workerSelf.oninstall = null; workerSelf.onactivate = null; workerSelf._nativeDispatch = null; workerSelf._nativePostMessage = null; workerSelfListeners = []; workerFetchListeners = []; workerLifecycleListeners = { install: [], activate: [] }; workerListeners = []; worker.onmessage = null; worker.state = 'redundant'; },
-                        _dispatchFetchSync: function(request) { ensureLive(); var requestPath = ''; var requestOrigin = originOf(request.url); var workerOrigin = originOf(url); try { var requestUrl = new URL(request.url); requestPath = requestUrl.pathname; } catch (_) { var requestText = String(request.url); var authorityEnd = requestText.indexOf('://'); var pathStart = authorityEnd < 0 ? requestText.indexOf('/') : requestText.indexOf('/', authorityEnd + 3); requestPath = pathStart < 0 ? '/' : requestText.slice(pathStart); } if ((requestOrigin && workerOrigin && requestOrigin !== workerOrigin) || requestPath.indexOf(scopePath) !== 0) return null; if (nativeDispatchFetchSync) return nativeDispatchFetchSync(request); return undefined; },
-                        _dispatchFetch: function(request) { return new Promise(function(resolve, reject) { ensureLive(); var sync = typeof worker._dispatchFetchSync === 'function' ? worker._dispatchFetchSync(request) : undefined; if (sync !== undefined) { resolve(sync); return; } var requestPath = ''; var requestOrigin = originOf(request.url); var workerOrigin = originOf(url); try { var requestUrl = new URL(request.url); requestPath = requestUrl.pathname; } catch (_) { var requestText = String(request.url); var authorityEnd = requestText.indexOf('://'); var pathStart = authorityEnd < 0 ? requestText.indexOf('/') : requestText.indexOf('/', authorityEnd + 3); requestPath = pathStart < 0 ? '/' : requestText.slice(pathStart); } if ((requestOrigin && workerOrigin && requestOrigin !== workerOrigin) || requestPath.indexOf(scopePath) !== 0) { resolve(null); return; } if (nativeDispatchFetch) { nativeDispatchFetch(request).then(resolve, reject); return; } if (typeof workerSelf._nativeDispatch === 'function') { workerSelf._nativeDispatch(request).then(resolve, reject); return; } var settled = false; var event = { type: 'fetch', request: request, target: workerSelf, respondWith: function(value) { if (settled) return; settled = true; Promise.resolve(value).then(function(response){try{ensureLive();resolve(response);}catch(error){reject(error);}}, reject); } }; try { if (typeof workerSelf.onfetch === 'function') workerSelf.onfetch(event); workerFetchListeners.slice().forEach(function(handler) { ensureLive(); handler(event); }); if (!settled) resolve(null); } catch (error) { reject(error); } }); }
+                        _dispatchFetchSync: function(request) { ensureLive(); var requestPath = ''; var requestOrigin = originOf(request.url); var workerOrigin = originOf(url); try { var requestUrl = new URL(request.url); requestPath = requestUrl.pathname; } catch (_) { var requestText = String(request.url); var authorityEnd = requestText.indexOf('://'); var pathStart = authorityEnd < 0 ? requestText.indexOf('/') : requestText.indexOf('/', authorityEnd + 3); requestPath = pathStart < 0 ? '/' : requestText.slice(pathStart); } if ((requestOrigin && workerOrigin && requestOrigin !== workerOrigin) || !scopeMatches(requestPath, scopePath)) return null; if (nativeDispatchFetchSync) return nativeDispatchFetchSync(request); return undefined; },
+                        _dispatchFetch: function(request) { return new Promise(function(resolve, reject) { ensureLive(); var sync = typeof worker._dispatchFetchSync === 'function' ? worker._dispatchFetchSync(request) : undefined; if (sync !== undefined) { resolve(sync); return; } var requestPath = ''; var requestOrigin = originOf(request.url); var workerOrigin = originOf(url); try { var requestUrl = new URL(request.url); requestPath = requestUrl.pathname; } catch (_) { var requestText = String(request.url); var authorityEnd = requestText.indexOf('://'); var pathStart = authorityEnd < 0 ? requestText.indexOf('/') : requestText.indexOf('/', authorityEnd + 3); requestPath = pathStart < 0 ? '/' : requestText.slice(pathStart); } if ((requestOrigin && workerOrigin && requestOrigin !== workerOrigin) || !scopeMatches(requestPath, scopePath)) { resolve(null); return; } if (nativeDispatchFetch) { nativeDispatchFetch(request).then(resolve, reject); return; } if (typeof workerSelf._nativeDispatch === 'function') { workerSelf._nativeDispatch(request).then(resolve, reject); return; } var settled = false; var event = { type: 'fetch', request: request, target: workerSelf, respondWith: function(value) { if (settled) return; settled = true; Promise.resolve(value).then(function(response){try{ensureLive();resolve(response);}catch(error){reject(error);}}, reject); } }; try { if (typeof workerSelf.onfetch === 'function') workerSelf.onfetch(event); workerFetchListeners.slice().forEach(function(handler) { ensureLive(); handler(event); }); if (!settled) resolve(null); } catch (error) { reject(error); } }); }
                     };
                     if (workerScript !== null && workerScript !== undefined) { var validation = validator.check(workerScript, url); if (validation === 'timeout') throw new DOMException('Service worker execution exceeded the host limit.', 'TimeoutError'); if (validation !== 'ok') throw new DOMException('Service worker script failed validation.', 'SyntaxError'); runWorkerScript(workerScript, url); }
                     var installEvent = { type: 'install', target: workerSelf, waitUntil: function(promise) { return Promise.resolve(promise); } }; if (workerSelf.oninstall) workerSelf.oninstall(installEvent); workerLifecycleListeners.install.slice().forEach(function(handler) { ensureLive(); handler(installEvent); });
@@ -417,7 +447,7 @@ internal static class ServiceWorkerBindings
                     ensureLive(); if (registrationStorage) { registrationStorage.write(registrationKey, JSON.stringify({ scope: scope, scriptURL: url })); rememberScope(scope); }
                     __folio_service_worker_registrations.push(registration); navigator.serviceWorker.controller = worker; navigator.serviceWorker.dispatchEvent({ type: 'controllerchange', target: navigator.serviceWorker }); navigator.serviceWorker.ready = Promise.resolve(registration); return Promise.resolve(registration); } catch(error) {lease.release();return Promise.reject(error);}
                 },
-                getRegistration: function(scope) { var value = String(scope || '/'); return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
+                getRegistration: function(scope) { var value = String(scope || '/'); try { if (base) { var resolved = new URL(value, base); if (resolved.origin !== new URL(base).origin) return Promise.resolve(undefined); value = resolved.pathname; } } catch (_) { } if (value.length === 0 || value.charAt(0) !== '/') value = '/' + value; if (value.charAt(value.length - 1) !== '/') value += '/'; return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
                 getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
             }; })(registrationStorage, isolatedRuntime);
             var container=globalThis.navigator.serviceWorker;
