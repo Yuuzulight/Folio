@@ -2,6 +2,8 @@
 
 ## Canvas animation performance (#519)
 
+Latest compatibility-engine measurement (PR #692, 2026-10-30): `D5/canvas-animated-bars` measured 27.05 ms script/update p95 and 29.89 ms total p95 in the 30-frame gate, down from 35.89 ms and 39.13 ms after caching canvas text styles and pooling glyph-origin buffers. The 16.70 ms target is still not met; this remains an open performance gate.
+
 The frame harness supports both the compatibility engine and an explicit
 Folio-native mode through `FOLIO_CONFORMANCE_ENGINE=native`, and reports
 per-artifact script/update, display-list, host-paint and total p95 timings.
