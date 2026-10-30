@@ -8,13 +8,17 @@ internal static class WebAssemblyBindings
         // The Folio-owned interpreter is the default for the native engine's
         // replacement audit. Wasmtime remains selectable only as an explicit
         // differential oracle while parity is being completed.
+        #if FOLIO_WASM_ORACLE
         var useOracle = engine is not Folio.Scripting.Native.NativeJavaScriptEngine
             || string.Equals(Environment.GetEnvironmentVariable("FOLIO_WASM_ENGINE"), "wasmtime", StringComparison.OrdinalIgnoreCase);
-        var native = useOracle ? NativeWebAssemblyBridge.Install(engine, context, context.MaxWebAssemblyBytes) : null;
+        object? native = useOracle ? NativeWebAssemblyBridge.Install(engine, context, context.MaxWebAssemblyBytes) : null;
+        #else
+        object? native = null;
+        #endif
         Install(engine, () => context.CheckCapability("WebAssembly", context.Capabilities.WebAssembly), context.MaxWebAssemblyBytes, native);
     }
 
-    internal static void Install(IScriptEngine engine, Func<bool> enabled, int maxBytes, NativeWebAssemblyBridge? native = null)
+    internal static void Install(IScriptEngine engine, Func<bool> enabled, int maxBytes, object? native = null)
     {
         var host = new HostObjectTemplate("WebAssemblyHost")
             .DefineMethod("enabled", (_, _, _) => ScriptValue.FromBoolean(enabled()))
