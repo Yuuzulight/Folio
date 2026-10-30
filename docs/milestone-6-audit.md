@@ -102,7 +102,7 @@ The native conformance runner independently passes D8 6/6, D9 5/5, D10 4/4,
 D11 4/4, D12 4/4, D13 4/4 and D14 3/3, with the document-named-property
 scope now wired for native inline handlers.
 
-- The latest direct Release suites pass 4,249 tests with 0 failures and one documented environment skip (4,250 discovered). This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
+- The latest direct Release solution passes 4,350/4,352 with 0 failures and two documented skips (symbolic-link privilege and the explicit Wasmtime oracle benchmark). This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
 - Compatibility and native D9 both pass their current 5/5 corpus. A fresh native sweep passes D1 2/2 and D8–D14 at 30/30 (32/32 combined). These category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
 - Compatibility and native D2–D7 both pass 60/60. The final `D2/pantry-react-jsx` interaction now passes after the native evaluator was corrected to propagate labeled breaks out of switches; issue #645 is resolved. The broader Folio-owned engine replacement gate remains open.
