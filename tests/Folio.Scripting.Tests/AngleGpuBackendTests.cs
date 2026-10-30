@@ -236,6 +236,24 @@ public sealed class AngleGpuBackendTests
     }
 
     [Fact]
+    public void FloatMultisampleRenderbufferStorageFallsBackWhenAngleRejectsTheFormat()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var device = (AngleGpuDevice)CreateDevice(GpuRendererPreference.WarpOnly, 64 * 1024 * 1024);
+        var attrs = new WebGlContextAttributes(WebGlContextVersion.WebGl2, true, false, false, false, true, true);
+        Assert.True(device.TryCreateNativeWebGlContext(new(WebGlContextVersion.WebGl2, 2, 2, attrs, 64 * 1024 * 1024), out var context, out var createFailure), createFailure?.Message);
+        using var native = Assert.IsType<AngleNativeWebGlContext>(context);
+        Assert.True(native.TryCreateRenderbuffer(out var renderbuffer, out var failure), failure?.Message);
+        Assert.True(native.TryBindRenderbuffer(0x8D41, renderbuffer, out failure), failure?.Message);
+        Assert.True(native.TryRenderbufferStorageMultisample(0x8D41, 4, 0x881A, 2, 2, out failure), failure?.Message);
+        Assert.True(native.TryCreateFramebuffer(out var framebuffer, out failure), failure?.Message);
+        Assert.True(native.TryBindFramebuffer(0x8D40, framebuffer, out failure), failure?.Message);
+        Assert.True(native.TryFramebufferRenderbuffer(0x8D40, 0x8CE0, 0x8D41, renderbuffer, out failure), failure?.Message);
+        Assert.True(native.TryCheckFramebufferStatus(0x8D40, out var status, out failure), failure?.Message);
+        Assert.Equal(0x8CD5u, status);
+    }
+
+    [Fact]
     public async Task ConcurrentSurfaceDisposalAndUseIsBoundedAndSafe()
     {
         if (!OperatingSystem.IsWindows()) return;
