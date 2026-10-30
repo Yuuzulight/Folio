@@ -191,9 +191,9 @@ only as an explicit differential oracle until its package can be removed after
 the remaining parity gates.
 
 The production `win-x64` content-host publish now excludes both `Wasmtime.Dotnet`
-and `wasmtime.dll`; the production Folio.Scripting build keeps Wasmtime only as a
-compile-time bridge with runtime/native assets excluded. An explicit
-`FolioWasmOracle=true` test/oracle build enables the bridge at runtime.
+and `wasmtime.dll`; the production Folio.Scripting build no longer references the
+Wasmtime package or bridge at all. An explicit `FolioWasmOracle=true` test/oracle
+build enables the bridge at runtime.
 The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
 

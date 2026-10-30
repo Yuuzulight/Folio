@@ -129,7 +129,7 @@ This follows the dependency-first plan. Replacing ANGLE later would require a Fo
 
 ### WebAssembly execution — Wasmtime
 
-**M6 native-path repair (2026-10-26):** the Folio-owned interpreter is the production WebAssembly path. Granted modules execute through Folio's validator/interpreter with document limits and watchdog handling; the Wasmtime bridge remains compile-time available with runtime/native assets excluded from production. An explicit oracle/test build enables it for differential runs. Broader module parity and final package-removal evidence remain tracked under Milestone 7 and the [replacement gate](replacement-gate.md).
+**M6 native-path repair (2026-10-26):** the Folio-owned interpreter is the production WebAssembly path. Granted modules execute through Folio's validator/interpreter with document limits and watchdog handling; Wasmtime is now isolated to an explicit oracle/test configuration and is not referenced by the production Folio.Scripting build. Broader module parity and final runtime-removal evidence remain tracked under Milestone 7 and the [replacement gate](replacement-gate.md).
 
 ### JavaScript engine — Jint
 
