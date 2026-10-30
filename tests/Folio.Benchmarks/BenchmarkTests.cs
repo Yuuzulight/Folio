@@ -54,6 +54,12 @@ public class BenchmarkTests
     [Fact]
     public void NativeWebAssemblyCacheBenchmarkProducesColdAndWarmMeasurements()
     {
+        // Wasmtime is an explicit oracle only. Production test runs deliberately
+        // exclude its runtime/native assets; the Wasmtime-backed benchmark is
+        // exercised by the oracle capability matrix instead of failing merely
+        // because the optional oracle assembly is absent.
+        Assert.SkipWhen(!string.Equals(Environment.GetEnvironmentVariable("FOLIO_WASM_ORACLE"), "1", StringComparison.Ordinal),
+            "The Wasmtime-backed benchmark requires the explicit Folio WebAssembly oracle.");
         var result = WebAssemblyBenchmark.Measure(2);
         Assert.True(result.Cold > TimeSpan.Zero);
         Assert.True(result.Warm > TimeSpan.Zero);
