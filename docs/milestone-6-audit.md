@@ -74,6 +74,9 @@ remaining content-process, sandbox and dependency-removal requirements.
 The real native content-process/cache/worker/sandbox slice also passes **52/52**;
 the shipping content-host default is now Folio's native engine; Jint remains only
 in the explicit differential/oracle build.
+The production classifier now also admits WebAssembly when the host grants the
+capability, using Folio's native interpreter; all other partial M6 capabilities
+remain fail-closed until their acceptance rows close.
 
 The current audit branch was rechecked after the shaping changes: the Release
 render suite passes 758/758 and the Release scripting suite passes 1,401/1,407
