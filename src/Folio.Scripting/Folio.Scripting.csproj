@@ -13,11 +13,18 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Angle.Windows.Natives" Version="2.1.27548.20260419" />
-    <!-- Keep Wasmtime compile-time available for the explicit oracle build, but
-         never ship its managed/native runtime assets in the production host. -->
-    <PackageReference Include="Wasmtime" Version="48.0.2" ExcludeAssets="runtime;native" Condition="'$(FolioWasmOracle)' != 'true'" />
+    <!-- Wasmtime is an explicit differential oracle only. The production
+         assembly excludes the bridge source and therefore carries no package. -->
     <PackageReference Include="Wasmtime" Version="48.0.2" Condition="'$(FolioWasmOracle)' == 'true'" />
   </ItemGroup>
+
+  <ItemGroup Condition="'$(FolioWasmOracle)' != 'true'">
+    <Compile Remove="Dom\NativeWebAssemblyRuntime.cs" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(FolioWasmOracle)' == 'true'">
+    <DefineConstants>$(DefineConstants);FOLIO_WASM_ORACLE</DefineConstants>
+  </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Folio.Scripting.Tests" />
