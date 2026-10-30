@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics;
 using Folio.Imaging;
 using Folio.Painting;
@@ -64,6 +65,8 @@ internal sealed partial class Canvas2DContext
     private readonly Stack<CanvasDrawingState> _saved = [];
     private int _unsaved;
     private readonly Hosting.CanvasStyleEngine? _styles;
+    private string? _textStyleKey;
+    private Folio.Style.ComputedStyle? _textStyle;
 
     public Canvas2DContext(IRasterSurface surface, bool alpha, Func<Rgba> currentColor, Hosting.CanvasStyleEngine? styles)
     {
@@ -94,6 +97,17 @@ internal sealed partial class Canvas2DContext
     }
 
     public Func<Rgba> CurrentColor { get; }
+
+    private Folio.Style.ComputedStyle? ResolveTextStyle()
+    {
+        if (_styles is null)
+            return null;
+        var key = string.Concat(State.Font, "\0", State.LetterSpacing, "\0", State.WordSpacing, "\0", State.FontKerning);
+        if (string.Equals(_textStyleKey, key, StringComparison.Ordinal))
+            return _textStyle;
+        _textStyleKey = key;
+        return _textStyle = _styles.Resolve(State.Font, State.LetterSpacing, State.WordSpacing, State.FontKerning);
+    }
 
     public CanvasDrawingState State { get; private set; } = new();
 

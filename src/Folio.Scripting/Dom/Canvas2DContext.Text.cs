@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics;
 using Folio.Painting;
 
@@ -56,9 +57,9 @@ internal sealed partial class Canvas2DContext
     /// <summary>fillText and strokeText (HTML §4.12.5.1.10).</summary>
     public void DrawText(string text, double x, double y, double? maxWidth, bool stroke)
     {
-        if (!Finite(x, y) || maxWidth is { } limit && (double.IsNaN(limit) || limit <= 0) || _styles is null || _styles.Resolve(State.Font, State.LetterSpacing, State.WordSpacing, State.FontKerning) is not { } style)
+        if (!Finite(x, y) || maxWidth is { } limit && (double.IsNaN(limit) || limit <= 0) || ResolveTextStyle() is not { } style)
             return;
-        var layout = _styles.Layout(Flatten(text), style, RightToLeft);
+        var layout = _styles!.Layout(Flatten(text), style, RightToLeft);
         if (layout.Runs.Count == 0)
             return;
         var (offsetX, offsetY) = Anchor(layout);
@@ -72,13 +73,20 @@ internal sealed partial class Canvas2DContext
             canvas.Transform(place);
             foreach (var run in layout.Runs)
             {
-                var origins = new Vector2[run.Origins.Length];
-                for (var i = 0; i < origins.Length; i++)
-                    origins[i] = run.Origins[i] + new Vector2(offsetX, 0);
-                if (stroke)
-                    canvas.StrokeGlyphs(run.Font, run.Size, run.Glyphs, origins, strokeStyle, paint);
-                else
-                    canvas.DrawGlyphs(run.Font, run.Size, run.Glyphs, origins, paint);
+                var origins = ArrayPool<Vector2>.Shared.Rent(run.Origins.Length);
+                try
+                {
+                    for (var i = 0; i < run.Origins.Length; i++)
+                        origins[i] = run.Origins[i] + new Vector2(offsetX, 0);
+                    if (stroke)
+                        canvas.StrokeGlyphs(run.Font, run.Size, run.Glyphs, origins.AsSpan(0, run.Origins.Length), strokeStyle, paint);
+                    else
+                        canvas.DrawGlyphs(run.Font, run.Size, run.Glyphs, origins.AsSpan(0, run.Origins.Length), paint);
+                }
+                finally
+                {
+                    ArrayPool<Vector2>.Shared.Return(origins);
+                }
             }
             canvas.Restore();
         });
@@ -88,9 +96,9 @@ internal sealed partial class Canvas2DContext
     // ponytail: actualBoundingBox* use the font's ascent and descent and the advance width, not the glyph outlines.
     public CanvasTextMetrics MeasureText(string text)
     {
-        if (_styles is null || _styles.Resolve(State.Font, State.LetterSpacing, State.WordSpacing, State.FontKerning) is not { } style)
+        if (ResolveTextStyle() is not { } style)
             return new CanvasTextMetrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
-        var layout = _styles.Layout(Flatten(text), style, RightToLeft);
+        var layout = _styles!.Layout(Flatten(text), style, RightToLeft);
         var (offsetX, offsetY) = Anchor(layout);
         return new CanvasTextMetrics(layout.Width, -offsetX, layout.Width + offsetX, layout.Ascent - offsetY, layout.Descent + offsetY,
             layout.Ascent - offsetY, layout.Descent + offsetY, layout.Ascent - offsetY, layout.Descent + offsetY);
