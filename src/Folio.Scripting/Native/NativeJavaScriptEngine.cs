@@ -607,7 +607,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             var offset = i * size;
             switch (kind)
             {
-                case ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped: bytes[offset] = (byte)Math.Clamp((int)number, 0, 255); break;
+                case ScriptBufferSourceKind.Uint8: bytes[offset] = ToUint8(number); break;
+                case ScriptBufferSourceKind.Uint8Clamped: bytes[offset] = (byte)Math.Clamp((int)number, 0, 255); break;
                 case ScriptBufferSourceKind.Int8: bytes[offset] = unchecked((byte)(sbyte)number); break;
                 case ScriptBufferSourceKind.Uint16: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 2), (ushort)number); break;
                 case ScriptBufferSourceKind.Int16: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 2), (short)number); break;
@@ -1184,6 +1185,15 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _ => 1,
     };
 
+    private static byte ToUint8(double number)
+    {
+        if (double.IsNaN(number) || double.IsInfinity(number) || number == 0) return 0;
+        var truncated = Math.Truncate(number);
+        var modulo = truncated % 256;
+        if (modulo < 0) modulo += 256;
+        return (byte)modulo;
+    }
+
     private static double Number(IReadOnlyList<object?> args, int index) => index < args.Count && args[index] is double number ? number : 0;
     private static double NumberValue(object? value) => value switch
     {
@@ -1725,7 +1735,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             var span = Bytes.AsSpan(_offset + index * ElementSize, ElementSize);
             switch (Kind)
             {
-                case ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped:
+                case ScriptBufferSourceKind.Uint8:
+                    span[0] = NativeJavaScriptEngine.ToUint8(number); break;
+                case ScriptBufferSourceKind.Uint8Clamped:
                     span[0] = unchecked((byte)Math.Clamp((int)number, 0, 255)); break;
                 case ScriptBufferSourceKind.Int8:
                     span[0] = unchecked((byte)(sbyte)Math.Clamp((int)number, -128, 127)); break;
@@ -1738,6 +1750,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 default: span[0] = unchecked((byte)number); break;
             }
         }
+
     }
 
     internal interface INativeHostObject
