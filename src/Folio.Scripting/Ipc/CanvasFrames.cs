@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.IO.MemoryMappedFiles;
 
 namespace Folio.Scripting.Ipc;
@@ -71,7 +72,16 @@ public sealed class CanvasFrameStore : IDisposable
         var active = _view.ReadInt32(24);
         if (active is < 0 or > 1) throw new InvalidDataException("The canvas frame has an invalid active buffer.");
         var inactive = active == 0 ? 1 : 0;
-        _view.WriteArray(HeaderBytes + inactive * Stride * Height, pixels.ToArray(), 0, pixels.Length);
+        var copy = ArrayPool<byte>.Shared.Rent(pixels.Length);
+        try
+        {
+            pixels.CopyTo(copy);
+            _view.WriteArray(HeaderBytes + inactive * Stride * Height, copy, 0, pixels.Length);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(copy);
+        }
         Sequence++;
         _view.Write(16, Sequence);
         _view.Write(24, inactive);
