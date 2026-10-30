@@ -262,14 +262,14 @@ public static class Program
         var compared = 0;
         var failures = 0;
         Console.WriteLine("Folio shaping differential report (local system-font corpus)");
-        Console.WriteLine("| Family | Glyphs | Clusters | Advances | Result |");
-        Console.WriteLine("|---|---:|---:|---:|---|");
+        Console.WriteLine("| Family | Script | Glyphs | Clusters | Advances | Result |");
+        Console.WriteLine("|---|---|---:|---:|---:|---|");
         foreach (var (family, text) in corpus)
         {
             var face = fonts.Match(family, FaceStyle.Normal, 400, 100);
             if (face is null)
             {
-                Console.WriteLine($"| {family} | - | - | - | SKIP (family unavailable) |");
+                Console.WriteLine($"| {family} | - | - | - | - | SKIP (family unavailable) |");
                 continue;
             }
             compared++;
@@ -284,7 +284,7 @@ public static class Program
                 && folio.Advances.SequenceEqual(oracle.Advances)
                 && folio.Offsets.Length == oracle.Offsets.Length
                 && folio.Offsets.Zip(oracle.Offsets).All(pair => MathF.Abs(pair.First.X - pair.Second.X) <= 0.001f && MathF.Abs(pair.First.Y - pair.Second.Y) <= 0.001f);
-            Console.WriteLine($"| {family} | {folio.Glyphs.Length} | {folio.Clusters.Length} | {folio.Advances.Length} | {(pass ? "PASS" : "FAIL")} |");
+            Console.WriteLine($"| {family} | {script} | {folio.Glyphs.Length} | {folio.Clusters.Length} | {folio.Advances.Length} | {(pass ? "PASS" : "FAIL")} |");
             if (!pass) failures++;
         }
         if (compared == 0)
