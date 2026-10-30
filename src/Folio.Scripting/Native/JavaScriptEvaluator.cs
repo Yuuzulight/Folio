@@ -702,6 +702,15 @@ internal sealed class JavaScriptEvaluator
                 if (!host.TrySetSetValue(StringValue(Evaluate(index.Index)), assigned))
                     throw new InvalidDataException("Host indexed property is read-only.");
                 break;
+            case JavaScriptIndexExpression index when Evaluate(index.Target) is NativeJavaScriptEngine.NativeFunction function:
+                function.SetProperty(StringValue(Evaluate(index.Index)), assigned);
+                break;
+            case JavaScriptIndexExpression index when Evaluate(index.Target) is NativeJavaScriptEngine.NativeReceiverFunction receiverFunction:
+                receiverFunction.SetProperty(StringValue(Evaluate(index.Index)), assigned);
+                break;
+            case JavaScriptIndexExpression index when Evaluate(index.Target) is Func<IReadOnlyList<object?>, object?> callable:
+                CallableProperties.GetOrCreateValue(callable)[StringValue(Evaluate(index.Index))] = assigned;
+                break;
             default:
                 throw new InvalidDataException($"Only lexical, object-property, and array-index assignment is supported (target: {target}).");
         }
