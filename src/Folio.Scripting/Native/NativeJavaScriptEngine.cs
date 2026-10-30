@@ -616,6 +616,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 case ScriptBufferSourceKind.Int32: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 4), (int)number); break;
                 case ScriptBufferSourceKind.Float32: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 4), (float)number); break;
                 case ScriptBufferSourceKind.Float64: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 8), number); break;
+                case ScriptBufferSourceKind.BigInt64: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 8), (long)number); break;
+                case ScriptBufferSourceKind.BigUint64: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 8), (ulong)number); break;
                 default: break;
             }
         }
@@ -1737,6 +1739,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 ScriptBufferSourceKind.Int32 => BinaryPrimitives.ReadInt32LittleEndian(span),
                 ScriptBufferSourceKind.Float32 => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(span)),
                 ScriptBufferSourceKind.Float64 => BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(span)),
+                ScriptBufferSourceKind.BigInt64 => BinaryPrimitives.ReadInt64LittleEndian(span),
+                ScriptBufferSourceKind.BigUint64 => BinaryPrimitives.ReadUInt64LittleEndian(span),
                 _ => span[0],
             };
         }
@@ -1757,6 +1761,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 case ScriptBufferSourceKind.Int32: BinaryPrimitives.WriteInt32LittleEndian(span, unchecked((int)number)); break;
                 case ScriptBufferSourceKind.Float32: BinaryPrimitives.WriteInt32LittleEndian(span, BitConverter.SingleToInt32Bits((float)number)); break;
                 case ScriptBufferSourceKind.Float64: BinaryPrimitives.WriteInt64LittleEndian(span, BitConverter.DoubleToInt64Bits(number)); break;
+                case ScriptBufferSourceKind.BigInt64: BinaryPrimitives.WriteInt64LittleEndian(span, (long)number); break;
+                case ScriptBufferSourceKind.BigUint64: BinaryPrimitives.WriteUInt64LittleEndian(span, (ulong)number); break;
                 default: span[0] = unchecked((byte)number); break;
             }
         }
