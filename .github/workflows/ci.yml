@@ -34,7 +34,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      - run: dotnet build Folio.slnx -c Release -p:FolioOracleHost=${{ matrix.engine == 'jint' }}
+      - run: dotnet build Folio.slnx -c Release -p:FolioOracleHost=${{ matrix.engine == 'jint' }} -p:FolioWasmOracle=${{ matrix.engine == 'jint' }}
 
       # The dependency-first path is allowed during development, but the Folio-owned replacement track is a hard
       # completion gate. Keep the roadmap from regressing to the old optional-track wording.
