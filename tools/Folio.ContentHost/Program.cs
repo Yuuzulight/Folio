@@ -7,10 +7,17 @@ var framePath = Environment.GetEnvironmentVariable("FOLIO_CONTENT_FRAME_PATH")
     ?? Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}.bin");
 using var frameStore = new CanvasFrameStore(framePath, 1280, 720, 1280 * 4);
 await using var session = new ContentHostSession(Console.OpenStandardInput(), Console.OpenStandardOutput());
-Func<IScriptEngine>? engineFactory = string.Equals(Environment.GetEnvironmentVariable("FOLIO_SCRIPT_ENGINE"), "native", StringComparison.OrdinalIgnoreCase)
-    ? static () => new NativeJavaScriptEngine()
+Func<IScriptEngine>? engineFactory = string.Equals(Environment.GetEnvironmentVariable("FOLIO_SCRIPT_ENGINE"), "jint", StringComparison.OrdinalIgnoreCase)
+    ? CreateOracleEngine
     : null;
 using var runtime = new ContentDocumentRuntime(session, frameStore, engineFactory);
+
+static IScriptEngine CreateOracleEngine()
+{
+    var type = Type.GetType("Folio.Scripting.Jint.JintScriptEngine, Folio.Scripting.Jint", throwOnError: true)
+        ?? throw new InvalidOperationException("The Jint oracle is not present in this production host.");
+    return (IScriptEngine)Activator.CreateInstance(type)!;
+}
 
 session.MessageReceived += async (message, cancellationToken) =>
 {

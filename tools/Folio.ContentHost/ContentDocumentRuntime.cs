@@ -6,7 +6,6 @@ using Folio.Scripting;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Gpu;
 using Folio.Scripting.Ipc;
-using Folio.Scripting.Jint;
 using Folio.Scripting.Native;
 using Folio.Skia;
 using System.Text.Json;
@@ -33,7 +32,9 @@ public sealed class ContentDocumentRuntime : IDisposable
         _session = session;
         _frameStore = frameStore;
         _resourceLoader = new BrokerResourceLoader(session);
-        _engineFactory = engineFactory ?? (() => new JintScriptEngine());
+        // The shipped content host uses Folio's native engine.  The optional
+        // Jint oracle is loaded only by an explicitly configured test host.
+        _engineFactory = engineFactory ?? (() => new NativeJavaScriptEngine());
     }
 
     public FeatureCapabilities Capabilities { get; private set; } = FeatureCapabilities.Default;
