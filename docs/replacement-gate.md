@@ -366,3 +366,10 @@ opt-in probe.
 The Windows build also runs the complete conformance report with
 `FOLIO_CONFORMANCE_ENGINE=native`; native conformance is therefore a hosted CI
 requirement rather than a local-only verification command.
+
+Verification refresh — 2026-10-30: the complete `Folio.Scripting.Tests` assembly
+passes 1,478/1,478 with `FOLIO_SCRIPT_ENGINE=native` (103.6 seconds). The full
+Release solution passes 4,351/4,351 with one environment-only symbolic-link
+skip. These are implementation-slice results; the mandatory replacement gate
+still requires the broader corpus, sandbox/watchdog evidence and dependency
+removal criteria below.
