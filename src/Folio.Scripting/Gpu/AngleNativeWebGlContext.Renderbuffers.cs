@@ -120,6 +120,26 @@ internal sealed partial class AngleNativeWebGlContext
                 if (!_device.TryReserve(required, out replacement)) { failure = new(GpuFailureKind.BudgetExceeded, "The GPU budget was exceeded."); return false; }
             }
             var result = StateCall(() => _gl.RenderbufferStorageMultisample(target, samples, internalFormat, width, height), out failure);
+            if (!result && internalFormat is 0x881A or 0x8814)
+            {
+                // Some ANGLE/WARP builds reject float multisample renderbuffers
+                // even though the corresponding float texture formats are
+                // usable. Keep the public renderbuffer complete by using the
+                // same bounded texture-backed fallback as single-sample float
+                // storage. The sample count remains part of the reservation;
+                // the fallback is intentionally conservative and resolves to a
+                // single texture for readback on implementations without native
+                // float-MSAA support.
+                if (!Begin(out var beginFailure))
+                {
+                    replacement?.Dispose(); failure = beginFailure; return false;
+                }
+                try
+                {
+                    result = TryCreateFloatRenderbufferTextureLocked(bound, internalFormat, width, height, out failure);
+                }
+                finally { End(); }
+            }
             if (!result) { replacement?.Dispose(); return false; }
             if (replacement is not null)
             {
