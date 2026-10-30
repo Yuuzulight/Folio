@@ -206,6 +206,11 @@ also remained green. A production-default cutover was then checked locally;
 it exposed 25 content-process/cache/worker failures, so Jint remains the
 shipping default until those parity gaps are fixed.
 
+Follow-up on 2026-10-30 reran the complete assembly with
+`FOLIO_SCRIPT_ENGINE=native`: **1,478/1,478 passed**. This confirms the native
+unit/in-process suite has no current failures; production cutover is still
+blocked by the separate content-process parity and dependency-removal gates.
+
 The latest native D2–D7 probe passes 60/60: all library-card and canvas
 artifacts pass, including `D2/pantry-react-jsx`, which now mounts and reaches
 the click handler. Native `var` declarations are hoisted across conditional
