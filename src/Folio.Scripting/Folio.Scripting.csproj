@@ -13,7 +13,10 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Angle.Windows.Natives" Version="2.1.27548.20260419" />
-    <PackageReference Include="Wasmtime" Version="48.0.2" />
+    <!-- Keep Wasmtime compile-time available for the explicit oracle build, but
+         never ship its managed/native runtime assets in the production host. -->
+    <PackageReference Include="Wasmtime" Version="48.0.2" ExcludeAssets="runtime;native" Condition="'$(FolioWasmOracle)' != 'true'" />
+    <PackageReference Include="Wasmtime" Version="48.0.2" Condition="'$(FolioWasmOracle)' == 'true'" />
   </ItemGroup>
 
   <ItemGroup>

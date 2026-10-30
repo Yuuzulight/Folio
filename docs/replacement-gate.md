@@ -183,6 +183,11 @@ HarfBuzz and rasterisation still uses SkiaSharp. Jint is now oracle-only, and
 Folio's native WebAssembly interpreter is the production path; Wasmtime remains
 only as an explicit differential oracle until its package can be removed after
 the remaining parity gates.
+
+The production `win-x64` content-host publish now excludes both `Wasmtime.Dotnet`
+and `wasmtime.dll`; an explicit `FolioWasmOracle=true` publish retains them for
+differential runs. This keeps the dependency out of shipped artifacts while the
+oracle remains available for parity testing.
 The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
 
