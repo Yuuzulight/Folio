@@ -715,8 +715,9 @@ media/WebRTC/service-worker 115/115 locally. These are verified implementation
 slices; M6 remains incomplete until the open device/process, optional WebGL,
 interruption, production-routing, and dependency-removal requirements are met.
 
-The latest recorded hosted CI run, `40976204286`, completed green across all 26 jobs, including
-both compatibility and native capability matrices. The complete scripting suite
+Historical hosted run `40976204286` completed green across all 26 jobs, including
+both compatibility and native capability matrices. The current hosted verification
+is tracked by the latest CI run. The complete scripting suite
 also passes 1,412/1,412 with `FOLIO_SCRIPT_ENGINE=native`, confirming that the
 native runtime evidence covers the full suite rather than only the focused
 parity corpus. This is an audit checkpoint, not an M6 completion claim.
