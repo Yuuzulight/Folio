@@ -154,6 +154,12 @@ typical dashboard at 63.7 ms median versus Skia's 7.2 ms at 800x600, and 46.0
 ms versus 15.3 ms at 1920x1080. Busy-dashboard paint-only p95 is 24.2 ms
 against the 8.0 ms typical target. #575 therefore remains open.
 
+Latest local rerun of the same benchmark (2026-10-30) measured typical
+paint-only p95 at 5.5 ms and scroll p95 at 7.4 ms, while the busy dashboard
+paint-only p95 was 20.7 ms. Software replay measured 62.5 ms at 800x600 and
+53.8 ms at 1920x1080 versus Skia's 6.5 ms and 12.2 ms. The typical and scroll
+checks pass, but the busy case and software-backend gap still keep #575 open.
+
 Commit `d8ff8db5` adds a direct-copy fast path for fully opaque normal-source-over
 software layers; the focused software raster suite remains 46/46. Follow-up
 30-frame benchmark samples measured 61.8 ms at 800x600 and 39.3 ms at
