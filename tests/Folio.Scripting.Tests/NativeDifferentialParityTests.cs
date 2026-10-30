@@ -15,6 +15,9 @@ public sealed class NativeDifferentialParityTests
         yield return ["map-set", "const m=new Map([['a',1],['b',2]]); const s=new Set([1,2,2]); m.get('b')+':'+s.size", "2:2"];
         yield return ["classes", "class Box { constructor(v){this.v=v;} value(){return this.v*2;} } new Box(4).value()", "8"];
         yield return ["destructuring", "const [a,...rest]=[1,2,3]; a+rest.join('')", "123"];
+        yield return ["object-rest", "const {a,...rest}={a:1,b:2}; a+':'+Object.keys(rest).join('')", "1:b"];
+        yield return ["function-rest", "((a,...rest)=>a+rest.join(''))(1,2,3)", "123"];
+        yield return ["nested-destructuring", "const [[a],{b}]=[[1],{b:2}]; a+b", "3"];
         yield return ["optional-chain", "const x={nested:{value:4}}; (x.missing?.value ?? x.nested.value)", "4"];
     }
 
@@ -26,6 +29,7 @@ public sealed class NativeDifferentialParityTests
         using var native = new NativeJavaScriptEngine();
 
         Assert.Equal(expected, jint.Evaluate(source).ToString());
-        Assert.Equal(expected, native.Evaluate(source).ToString());
+        var nativeResult = native.Evaluate(source).ToString();
+        Assert.True(expected == nativeResult, $"{name}: expected '{expected}', got '{nativeResult}'");
     }
 }

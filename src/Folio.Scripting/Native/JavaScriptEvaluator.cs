@@ -202,16 +202,17 @@ internal sealed class JavaScriptEvaluator
     {
         if (name.StartsWith("[", StringComparison.Ordinal) && name.EndsWith("]", StringComparison.Ordinal))
         {
-            foreach (var item in name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var item in SplitBindingItems(name[1..^1], keepEmpty: true))
                 if (!item.StartsWith("...", StringComparison.Ordinal)) HoistBinding(item.Trim());
             return;
         }
         if (name.StartsWith("{", StringComparison.Ordinal) && name.EndsWith("}", StringComparison.Ordinal))
         {
-            foreach (var item in name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var item in SplitBindingItems(name[1..^1]))
             {
                 var parts = item.Split(':', 2);
-                HoistBinding((parts.Length == 2 ? parts[1] : parts[0]).Trim());
+                var binding = (parts.Length == 2 ? parts[1] : parts[0]).Trim();
+                if (!binding.StartsWith("...", StringComparison.Ordinal)) HoistBinding(binding);
             }
             return;
         }
@@ -236,7 +237,7 @@ internal sealed class JavaScriptEvaluator
                     var value = variable.Initializer is null ? UndefinedOrNull() : Evaluate(variable.Initializer);
                     if (variable.Name.StartsWith("[", StringComparison.Ordinal) && variable.Name.EndsWith("]", StringComparison.Ordinal))
                     {
-                        var names = variable.Name[1..^1].Split(',', StringSplitOptions.None);
+                        var names = SplitBindingItems(variable.Name[1..^1], keepEmpty: true);
                         for (var index = 0; index < names.Length; index++)
                         {
                             if (string.IsNullOrEmpty(names[index])) continue;
@@ -248,18 +249,33 @@ internal sealed class JavaScriptEvaluator
                                 _bindings[names[index][3..]] = rest;
                                 break;
                             }
-                            _bindings[names[index]] = value is IList<object?> list && index < list.Count ? list[index] : value is IReadOnlyList<object?> values && index < values.Count ? values[index] : UndefinedValue.Instance;
+                            var item = value is IList<object?> list && index < list.Count ? list[index] : value is IReadOnlyList<object?> values && index < values.Count ? values[index] : UndefinedValue.Instance;
+                            if (names[index].StartsWith("[", StringComparison.Ordinal) || names[index].StartsWith("{", StringComparison.Ordinal)) BindPattern(names[index], item);
+                            else _bindings[names[index]] = item;
                         }
                     }
                     else if (variable.Name.StartsWith("{", StringComparison.Ordinal) && variable.Name.EndsWith("}", StringComparison.Ordinal))
                     {
-                        foreach (var entry in variable.Name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+                        var entries = SplitBindingItems(variable.Name[1..^1]);
+                        var excluded = entries.Where(entry => !entry.StartsWith("...", StringComparison.Ordinal))
+                            .Select(entry => entry.Split(':', 2)[0].Trim()).ToHashSet(StringComparer.Ordinal);
+                        foreach (var entry in entries)
                         {
+                            if (entry.StartsWith("...", StringComparison.Ordinal))
+                            {
+                                var rest = new Dictionary<string, object?>(StringComparer.Ordinal);
+                                if (value is IReadOnlyDictionary<string, object?> map)
+                                    foreach (var pair in map)
+                                        if (!excluded.Contains(pair.Key)) rest[pair.Key] = pair.Value;
+                                _bindings[entry[3..].Trim()] = rest;
+                                continue;
+                            }
                             var parts = entry.Split(':', 2);
                             var property = parts[0];
                             var local = parts.Length == 2 ? parts[1] : property;
                             var propertyValue = MemberValue(value, property);
-                            _bindings[local] = propertyValue is UndefinedValue ? UndefinedValue.Instance : propertyValue;
+                            if (local.StartsWith("[", StringComparison.Ordinal) || local.StartsWith("{", StringComparison.Ordinal)) BindPattern(local, propertyValue);
+                            else _bindings[local] = propertyValue is UndefinedValue ? UndefinedValue.Instance : propertyValue;
                         }
                     }
                     else _bindings[variable.Name] = value;
@@ -347,7 +363,7 @@ internal sealed class JavaScriptEvaluator
                             if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
                             if (each.Name.StartsWith("[", StringComparison.Ordinal) && each.Name.EndsWith("]", StringComparison.Ordinal))
                             {
-                                var names = each.Name[1..^1].Split(',', StringSplitOptions.None);
+                                var names = SplitBindingItems(each.Name[1..^1], keepEmpty: true);
                                 var values = item as IReadOnlyList<object?>;
                                 for (var index = 0; index < names.Length; index++) if (!string.IsNullOrEmpty(names[index])) _bindings[names[index]] = values is not null && index < values.Count ? values[index] : null;
                             }
@@ -1790,8 +1806,13 @@ internal sealed class JavaScriptEvaluator
     {
         if (parameter.StartsWith("{", StringComparison.Ordinal) && parameter.EndsWith("}", StringComparison.Ordinal))
         {
-            foreach (var entry in parameter[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var entry in SplitBindingItems(parameter[1..^1]))
             {
+                if (entry.StartsWith("...", StringComparison.Ordinal))
+                {
+                    local[entry[3..].Trim()] = value is IReadOnlyDictionary<string, object?> source ? source.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal) : new Dictionary<string, object?>();
+                    continue;
+                }
                 var parts = entry.Split(':', 2);
                 local[parts.Length == 2 ? parts[1] : parts[0]] = MemberValue(value, parts[0]);
             }
@@ -1800,7 +1821,7 @@ internal sealed class JavaScriptEvaluator
         if (parameter.StartsWith("[", StringComparison.Ordinal) && parameter.EndsWith("]", StringComparison.Ordinal))
         {
             var values = value as IReadOnlyList<object?>;
-            var names = parameter[1..^1].Split(',', StringSplitOptions.None);
+            var names = SplitBindingItems(parameter[1..^1], keepEmpty: true);
             for (var i = 0; i < names.Length; i++)
             {
                 if (string.IsNullOrEmpty(names[i])) continue;
@@ -1809,11 +1830,39 @@ internal sealed class JavaScriptEvaluator
                     local[names[i][3..]] = values is null ? Array.Empty<object?>() : values.Skip(i).ToArray();
                     break;
                 }
-                local[names[i]] = values is not null && i < values.Count ? values[i] : UndefinedOrNull();
+                var item = values is not null && i < values.Count ? values[i] : UndefinedOrNull();
+                if (names[i].StartsWith("[", StringComparison.Ordinal) || names[i].StartsWith("{", StringComparison.Ordinal)) BindParameter(local, names[i], item);
+                else local[names[i]] = item;
             }
             return;
         }
         local[parameter] = value;
+    }
+
+    private void BindPattern(string pattern, object? value)
+    {
+        var local = new Dictionary<string, object?>(StringComparer.Ordinal);
+        BindParameter(local, pattern, value);
+        foreach (var pair in local) _bindings[pair.Key] = pair.Value;
+    }
+
+    private static string[] SplitBindingItems(string source, bool keepEmpty = false)
+    {
+        var items = new List<string>();
+        var start = 0;
+        var depth = 0;
+        for (var i = 0; i < source.Length; i++)
+        {
+            if (source[i] is '[' or '{') depth++;
+            else if (source[i] is ']' or '}') depth--;
+            else if (source[i] == ',' && depth == 0)
+            {
+                items.Add(source[start..i].Trim());
+                start = i + 1;
+            }
+        }
+        items.Add(source[start..].Trim());
+        return keepEmpty ? items.ToArray() : items.Where(item => item.Length > 0).ToArray();
     }
 
     internal static object? InvokeWithReceiver(object function, object? receiver, IReadOnlyList<object?> arguments)
