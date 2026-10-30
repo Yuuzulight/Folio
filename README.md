@@ -32,7 +32,7 @@ Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/miles
 | 2. Static parity: gradients, shadows, transforms, transitions and animations, web fonts, and SVG. | Done | 0 |
 | 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done; performance target remains an advisory measurement | 0 |
 | 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | In progress: D1 compatibility/native conformance is 12/12 with zero mismatches; scripted startup and working-set targets remain open under #484/#677 | 2 |
-| 5. Scripted parity: canvas 2D, mutation observers, diagrams, and the UI and charting library artifacts load from a host-approved list of CDNs. | In progress: dependency-backed path is verified; the canvas frame-time gate remains open | 1 |
+| 5. Scripted parity: canvas 2D, mutation observers, diagrams, and the UI and charting library artifacts load from a host-approved list of CDNs. | In progress: dependency-backed path and native canvas frame-time gate are verified; mandatory Folio-owned replacement remains | 1 |
 | 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress: capability slices pass, but backend, device, transport and isolation acceptance remains open | 15 |
 | 7. Folio-owned replacements: replace the dependency-backed shaper, rasteriser, image codecs, script engine, WebAssembly runtime and ANGLE GPU backend with Folio-owned implementations. **Mandatory, non-waivable completion gate after Milestone 6.** | In progress, incomplete (mandatory) | 12 |
 
