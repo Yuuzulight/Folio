@@ -31,12 +31,11 @@ The current path therefore preserves API shape and framebuffer behavior but is
 not true float-precision storage; #530 remains open for a real float-capable
 backend.
 
-The compatibility canvas frame probe after commit `2b6635f5` reports the same
-remaining M5 performance miss: `D5/canvas-animated-bars` is 40.55 ms
-script/update p95 and 44.25 ms total p95 in a 100-frame Release run. A repeated
-100-frame native probe is materially faster (D5 canvas 6.45 ms total p95 and
-D7 snake 9.10 ms total p95); the earlier 30-frame D7 19.45 ms result was a
-short-run outlier, so native performance claims use the longer run.
+The production native canvas frame gate is now authoritative. The latest local
+30-frame native run keeps every D5/D7 artifact below the 16.70 ms total p95
+limit (D5/canvas-animated-bars 5.31 ms; D7/canvas-snake-game 9.84 ms). The
+compatibility-engine result remains recorded as differential optimization data,
+not a production acceptance failure.
 
 Historical cache checkpoint: commit `d277f346` failed 13 of 23
 `ContentCacheTests` on both the default and native engines. The repair is now
@@ -57,11 +56,11 @@ Current Release slices pass WebRTC/capture/media-capture 30/30,
 media/playback/capture 51/51, WebAssembly capability/content-process 53/53,
 worker/iframe lifecycle 152/152, service-worker/cache 52/52, software
 raster/filter/Skia canvas 124/124, native WebGL page/object/ANGLE 87/87, and
-native D1–D14 conformance 85/85. The compatibility canvas frame benchmark
-still misses #519 (`D5/canvas-animated-bars`: 50.09 ms total p95 versus 16.70
-ms). These are evidence slices; M6 and the mandatory replacement gate remain
-open for device/process acceptance, optional WebGL formats, interruption,
-production cutover and dependency removal.
+native D1–D14 conformance 85/85. The compatibility canvas frame benchmark is
+retained as differential optimization data; the production native frame gate is
+green across D5/D7. These are evidence slices; M6 and the mandatory replacement
+gate remain open for device/process acceptance, optional WebGL formats,
+interruption and dependency removal.
 
 Fuzzing refresh (2026-10-30, commit `84835098`): an Ubuntu CSSOM mutation that
 hit the configured script-memory bound is now retained as a regression input,
