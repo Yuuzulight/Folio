@@ -2,6 +2,8 @@
 
 Verification refresh (2026-10-30): the focused M5 acceptance suites remain green, including the dependency-backed D2–D7 conformance baseline, canvas/library/JSX coverage, and the native worker structured-clone and MessageChannel cases added during the Milestone 6 audit. The direct Release runners pass 4,249 tests with 0 failures and 1 environment-dependent skip (symbolic-link privilege). Folio's software canvas now exports and round-trips JPEG through its own baseline encoder; the former JPEG-specific skip is gone. Native-engine parity is reported separately below and remains incomplete.
 
+The compatibility-engine canvas hot path was measured again after PR #692. Caching repeated canvas text-style resolution and pooling temporary glyph-origin buffers reduced the authoritative 30-frame `D5/canvas-animated-bars` sample from 35.89 ms script/update and 39.13 ms total p95 to 27.05 ms and 29.89 ms respectively. This is a real improvement, but it remains above the 16.70 ms acceptance gate, so #519 is still open.
+
 This document records the current M5 implementation and verification baseline.
 
 ## Conformance
