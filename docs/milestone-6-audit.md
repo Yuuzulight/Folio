@@ -72,7 +72,8 @@ failures or skips. This supersedes the older 1,421-count snapshot below for
 the native assembly, but it does not by itself prove production cutover or the
 remaining content-process, sandbox and dependency-removal requirements.
 The real native content-process/cache/worker/sandbox slice also passes **52/52**;
-the shipping default is still Jint pending the explicit replacement cutover.
+the shipping content-host default is now Folio's native engine; Jint remains only
+in the explicit differential/oracle build.
 
 The current audit branch was rechecked after the shaping changes: the Release
 render suite passes 758/758 and the Release scripting suite passes 1,401/1,407
