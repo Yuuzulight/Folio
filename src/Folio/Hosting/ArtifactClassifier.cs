@@ -297,6 +297,13 @@ public static class ArtifactClassifier
             if (Contains(compact, "getContext('webgl") || Contains(compact, "getContext(\"webgl") || Contains(compact, "getContext(`webgl")
                 || Contains(compact, "getContext('experimental-webgl") || Contains(compact, "getContext(\"experimental-webgl") || Contains(compact, "getContext(`experimental-webgl"))
                 Require(ImplementedFeatures.WebGl, options.Capabilities.WebGl, "uses WebGL", "WebGL");
+            // These APIs are deliberately still fail-closed.  Folio has a real
+            // fetch implementation, but it does not yet provide WebSocket or
+            // custom-elements/shadow-DOM semantics equivalent to a browser.
+            if (Constructs(compact, "WebSocket"))
+                Unsupported.Add("uses WebSocket; WebSocket is not implemented in Folio");
+            if (Contains(compact, "customElements.") || Contains(compact, ".attachShadow("))
+                Unsupported.Add("uses custom elements or shadow DOM; web components are not implemented in Folio");
             if (Contains(text, "Babel.transform(") || Contains(text, "Babel.transformScriptTags(") || Contains(text, "ts.transpileModule(") || Contains(text, "ts.transpile("))
                 Unsupported.Add("compiles code in the page; JSX and TypeScript must be compiled by the host");
             if (Constructs(compact, "SharedWorker"))
