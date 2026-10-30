@@ -5,6 +5,46 @@ namespace Folio.Scripting.Tests;
 [Collection("Content process round trips")]
 public sealed class CapabilityHostBoundaryTests
 {
+    [Fact]
+    public async Task WebAssemblyMemoryLimitIsEnforcedInsideTheContentProcess()
+    {
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
+        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+            "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        await using var client = ContentProcessClient.Start(host,
+            limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
+            documentLimits: ResourceLimits.Default with { MaxWebAssemblyBytes = 65536 });
+
+        var frame = await Exchange(new
+        {
+            html = "<p>wasm limit</p>",
+            capabilities = new FeatureCapabilities { WebAssembly = true },
+            script = "let result = ''; try { new WebAssembly.Memory({initial:2}); } catch (error) { result = error.name; } result"
+        });
+
+        Assert.Equal("RangeError", frame.Payload.GetProperty("value").GetString());
+
+        async Task<ContentMessage> Exchange(object payload)
+        {
+            var completion = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+            ValueTask Handler(ContentMessage message, CancellationToken _)
+            {
+                if (message.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
+                    completion.TrySetResult(message);
+                return ValueTask.CompletedTask;
+            }
+            client.MessageReceived += Handler;
+            try
+            {
+                await client.SendAsync(ContentMessageKind.Load, payload, TestContext.Current.CancellationToken);
+                var result = await completion.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+                Assert.Equal(ContentMessageKind.Frame, result.Kind);
+                return result;
+            }
+            finally { client.MessageReceived -= Handler; }
+        }
+    }
+
     [Theory]
     [InlineData("dedicated")]
     [InlineData("observation")]
