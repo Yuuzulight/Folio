@@ -38,8 +38,8 @@ Latest focused checks on the audit head: WebRTC/capture/media-capture 30/30,
 software raster/filter and Skia canvas behavior 124/124, native WebGL
 page/object/ANGLE slices 87/87, and the full native D1–D14 conformance sweep
 85/85. The compatibility-engine canvas frame benchmark still exceeds the
-16.70 ms target for `D5/canvas-animated-bars`, so #519 remains open until the
-Folio-owned engine is authoritative. The latest native 30-frame run records
+16.70 ms target for `D5/canvas-animated-bars`; this is historical oracle data,
+not the production gate. The latest native 30-frame run records
 every D5/D7 artifact below target (worst case 10.81 ms). These are verified
 slices; device
 transport, optional-format, interruption and production dependency-removal
@@ -740,7 +740,8 @@ native D5/D7 artifacts all stay below the 16.7 ms p95 target (D5 animated bars
 5.99 ms, D7 snake 10.41 ms), while compatibility/Jint still misses D5 animated
 bars at 31.83 ms because of script/update time. This isolates the remaining
 performance issue to the compatibility path and keeps #519 open until that
-path is retired or brought under the target.
+path remains historical oracle data; #519 is closed because the production
+native path is below the target.
 The Windows build also runs the complete conformance report with
 `FOLIO_CONFORMANCE_ENGINE=native`, so the native D1–D14 and S1–S6 evidence is
 continuously checked in hosted CI.
