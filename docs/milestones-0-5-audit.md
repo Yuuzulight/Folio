@@ -8,14 +8,14 @@ closed. M5 remains open: its dependency-backed parity is verified, but
 the canvas frame-time gate and mandatory Folio-owned replacement gate remain
 unresolved.
 
-Hosted CI run `40976204286` is complete and green (26/26 checks). It includes
-the Windows runtime-specific content-host publish, scripted process benchmark,
-GPU memory check, native WebGL shader fuzzing and full fuzz stages.
+Hosted CI run `41005717729` is the current verification run; its capability-
+matrix jobs are green, while the build/test jobs were still running when this
+audit was refreshed. The local Release verification below is the authoritative
+completed run for this commit.
 
-The latest direct Release verification (2026-10-30) passes 4,249 tests with
-zero failures and one environment-dependent skip (the local symbolic-link
-privilege limitation): Folio.Tests 1,998/1,999, Folio.Scripting.Tests
-1,421/1,421, Folio.RenderTests 822/822 and Folio.WinForms.Tests 8/8. The
+The latest direct Release verification (2026-10-30) passes 4,350 tests with
+zero failures and two documented skips (the local symbolic-link privilege
+limitation and the explicit Wasmtime oracle benchmark): 4,352 discovered. The
 software-canvas JPEG follow-up is complete: Folio's own baseline encoder now
 round-trips through the Folio decoder and the scripting suite has no skips.
 
