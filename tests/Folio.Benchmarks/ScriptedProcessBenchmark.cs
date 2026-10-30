@@ -53,15 +53,12 @@ public static class ScriptedProcessBenchmark
         if (string.IsNullOrWhiteSpace(host))
         {
             var hostRoot = Path.Combine(RepoPaths.Root, "tools", "Folio.ContentHost", "bin", configuration, "net10.0");
-            // CI publishes the content host with ReadyToRun because the M4
-            // cold-start gate measures the shipped Windows host. Prefer that
-            // exact artifact for an unconfigured local run as well; falling
-            // back to the ordinary build keeps the benchmark usable before a
-            // publish has been produced.
-            var published = Path.Combine(hostRoot, "win-x64", "publish", "Folio.ContentHost.exe");
-            host = File.Exists(published)
-                ? published
-                : Path.Combine(hostRoot, "Folio.ContentHost.dll");
+            // CI supplies FOLIO_CONTENT_HOST explicitly after publishing the
+            // shipped Windows host. An unconfigured local run must use the
+            // ordinary framework-dependent build: a stale apphost from an
+            // earlier publish can fail before emitting a diagnostic (and make
+            // the benchmark look like a content-process regression).
+            host = Path.Combine(hostRoot, "Folio.ContentHost.dll");
             if (!File.Exists(host))
                 host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
                     "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
