@@ -358,7 +358,8 @@ public sealed class DomStyleDeclarationTests
             Assert.True(allowed.Evaluate("bytes[0]===1 && bytes[3]===4 && gl.getError()===gl.NO_ERROR").AsBoolean());
             allowed.Evaluate("gl.bufferData(gl.ARRAY_BUFFER,4096,gl.STATIC_DRAW);");
             Assert.Equal(0x0505, allowed.Evaluate("gl.getError()").AsNumber());
-            Assert.Equal(16, allowed.Evaluate("gl.getBufferParameter(gl.ARRAY_BUFFER,gl.BUFFER_SIZE)").AsNumber());
+            Assert.True(allowed.Evaluate("gl.isContextLost()").AsBoolean());
+            Assert.Equal(0, allowed.Evaluate("gl.getBufferParameter(gl.ARRAY_BUFFER,gl.BUFFER_SIZE)").AsNumber());
             allowed.Evaluate("gl.deleteBuffer(buffer);");
             Assert.False(allowed.Evaluate("gl.isBuffer(buffer)").AsBoolean());
             Assert.Throws<ScriptRuntimeException>(() => allowed.Evaluate("gl.bufferSubData(gl.ARRAY_BUFFER,0,8)"));
