@@ -21,6 +21,9 @@ public sealed class NativeDifferentialParityTests
         yield return ["array-spread", "[...[1,2],3].join(',')", "1,2,3"];
         yield return ["object-spread", "const x={a:1,...{b:2}}; x.a+x.b", "3"];
         yield return ["typed-array", "const x=new Uint8Array([1,255,256]); Array.from(x).join(',')", "1,255,0"];
+        yield return ["signed-typed-array", "Array.from(new Int8Array([128,-129])).join(',')", "-128,127"];
+        yield return ["wide-typed-array", "Array.from(new Uint16Array([65536,-1])).join(',')", "0,65535"];
+        yield return ["float-typed-array", "Array.from(new Float32Array([1.5, -2.25])).join(',')", "1.5,-2.25"];
         yield return ["date-json", "JSON.stringify({d:new Date('2020-01-02T03:04:05Z').toISOString()})", "{\"d\":\"2020-01-02T03:04:05.000Z\"}"];
         yield return ["promise", "var result='pending'; Promise.resolve(4).then(v => result=String(v+1)); result", "pending"];
         yield return ["bitwise", "((0xff & 15) << 1) | 1", "31"];
