@@ -452,6 +452,7 @@ public sealed class NativeWebGlPageTests
             engine.Evaluate("var gl=document.getElementById('c').getContext('webgl2',{antialias:false,depth:false});var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,4,4,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(64));var before=gl.getError();gl.generateMipmap(gl.TEXTURE_2D);var after=gl.getError();");
             Assert.Equal(0, engine.Evaluate("before").AsNumber());
             Assert.Equal(0x0505, engine.Evaluate("after").AsNumber());
+            Assert.True(engine.Evaluate("gl.isContextLost()").AsBoolean());
         }
         finally { DomBindings.Dispose(engine); }
     }
