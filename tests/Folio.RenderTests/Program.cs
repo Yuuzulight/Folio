@@ -251,6 +251,12 @@ public static class Program
             ("Arial", "מִשְׁפָּחָה, חֲבֵרִים וְשָׁלוֹם"),
             ("Arial", "مرحباً بكم في مركز الواحة الثقافي"),
             ("Arial", "مُسْتَقْبَلٌ مُشْرِقٌ"),
+            ("Arial", "नमस्ते दुनिया"),
+            ("Arial", "বাংলা ভাষা"),
+            ("Arial", "ภาษาไทย"),
+            ("Arial", "ພາສາລາວ"),
+            ("Arial", "ភាសាខ្មែរ"),
+            ("Arial", "မြန်မာဘာသာ"),
         };
         var fonts = FontCollection.For(new FontSettings { Source = new SystemFontSource() });
         var compared = 0;
@@ -267,12 +273,12 @@ public static class Program
                 continue;
             }
             compared++;
-            var complex = text.Any(c => c is >= '\u0590' and <= '\u08FF');
-            var language = text.Any(c => c is >= '\u0600' and <= '\u08FF') ? "ar" : "he";
-            var folio = complex
-                ? ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, true, language)
-                : SimpleToShapedText(SimpleShaper.Shape(text, 0, text.Length, face, 16));
-            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, complex, complex ? language : null);
+            var script = ClassifyScript(text.AsSpan());
+            var complex = script is "Arabic" or "Hebrew" or "Indic" or "Southeast Asian";
+            var rightToLeft = script is "Arabic" or "Hebrew";
+            var language = script == "Arabic" ? "ar" : script == "Hebrew" ? "he" : null;
+            var folio = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
+            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
             var pass = folio.Glyphs.SequenceEqual(oracle.Glyphs)
                 && folio.Clusters.SequenceEqual(oracle.Clusters)
                 && folio.Advances.SequenceEqual(oracle.Advances)
@@ -291,6 +297,27 @@ public static class Program
 
     private static ShapedText SimpleToShapedText(ShapedRun run) =>
         new(run.Glyphs, run.Clusters, run.Advances, new System.Numerics.Vector2[run.Glyphs.Length]);
+
+    private static string ClassifyScript(ReadOnlySpan<char> text)
+    {
+        string? script = null;
+        foreach (var rune in text.EnumerateRunes())
+        {
+            var current = rune.Value switch
+            {
+                >= 0x0590 and <= 0x05FF => "Hebrew",
+                >= 0x0600 and <= 0x06FF or >= 0x0750 and <= 0x077F or >= 0x08A0 and <= 0x08FF => "Arabic",
+                >= 0x0900 and <= 0x0DFF => "Indic",
+                >= 0x0E00 and <= 0x0EFF => "Southeast Asian",
+                >= 0x0041 and <= 0x005A or >= 0x0061 and <= 0x007A => "Latin",
+                _ => null,
+            };
+            if (current is null) continue;
+            if (script is not null && !string.Equals(script, current, StringComparison.Ordinal)) return "Mixed";
+            script = current;
+        }
+        return script ?? "Latin";
+    }
 
     private static int CanvasSharedMemory(int frameCount)
     {
