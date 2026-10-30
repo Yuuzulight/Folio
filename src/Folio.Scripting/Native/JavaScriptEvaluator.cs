@@ -611,19 +611,6 @@ internal sealed class JavaScriptEvaluator
         var right = Evaluate(binary.Right);
         if (binary.Operator == "in") return ContainsProperty(left, right);
         if (binary.Operator == "+" && (left is string || right is string)) return StringValue(left) + StringValue(right);
-        if (left is BigInteger leftBig && right is BigInteger rightBig)
-            return binary.Operator switch
-            {
-                "+" => leftBig + rightBig, "-" => leftBig - rightBig, "*" => leftBig * rightBig,
-                "/" => rightBig == 0 ? throw new DivideByZeroException() : leftBig / rightBig,
-                "%" => rightBig == 0 ? throw new DivideByZeroException() : leftBig % rightBig,
-                "**" => rightBig < 0 ? throw new ArithmeticException("BigInt negative exponent") : BigInteger.Pow(leftBig, (int)rightBig),
-                "<" => leftBig < rightBig, ">" => leftBig > rightBig, "<=" => leftBig <= rightBig, ">=" => leftBig >= rightBig,
-                "==" or "===" => leftBig == rightBig, "!=" or "!==" => leftBig != rightBig,
-                "&" => leftBig & rightBig, "|" => leftBig | rightBig, "^" => leftBig ^ rightBig,
-                "<<" => leftBig << (int)rightBig, ">>" => leftBig >> (int)rightBig,
-                _ => throw new NotSupportedException($"Unsupported BigInt binary operator '{binary.Operator}'.")
-            };
         var l = Number(left); var r = Number(right);
         return binary.Operator switch
         {
