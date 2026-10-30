@@ -127,8 +127,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         # This runtime-specific publish needs its own assets file entry. The
         # solution restore above is framework-only, so --no-restore produces
-        # NETSDK1047 before the benchmark can run.
-        run: dotnet publish tools/Folio.ContentHost/Folio.ContentHost.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=false -o tools/Folio.ContentHost/bin/Release/net10.0/win-x64/publish
+        # NETSDK1047 before the benchmark can run. The benchmark explicitly
+        # uses FOLIO_UNSANDBOXED=1, so ReadyToRun is safe here and removes the
+        # CLI/JIT bootstrap from the measured cold-start path.
+        run: dotnet publish tools/Folio.ContentHost/Folio.ContentHost.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=true -o tools/Folio.ContentHost/bin/Release/net10.0/win-x64/publish
       - name: Scripted process benchmarks
         if: matrix.os == 'windows-latest'
         env:
