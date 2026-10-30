@@ -264,7 +264,8 @@ ComplexShaper by default; Indic, South-East Asian and other unproven scripts
 remain on the HarfBuzz oracle until their per-script corpus and routing gates
 are met.
 
-The same bundled-font evidence is reproducible without the test runner:
+The same bundled-font evidence is reproducible without the test runner and is
+now executed in CI on every build:
 `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release
 -- shaping-differential` reports the complete checked-in bundled case list plus a
 deliberate kerning perturbation check. This is the checked-in harness evidence for #561;
