@@ -40,7 +40,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | WinForms control | **Folio builds it** | On .NET WinForms |
 | Content process, IPC protocol, event loop, DOM bindings, canvas 2D API | **Folio builds it** (M4–M5) | [study](study/17-scripting.md) |
 | Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided** | Set up by Folio through Windows APIs |
-| JavaScript engine | **Temporary compatibility dependency**: Jint | Behind `IScriptEngine`; the production engine is planned as Folio-owned code |
+| JavaScript engine | **Differential oracle only**: Jint | Folio's native engine is the production content-host default; Jint is included only by the explicit oracle/test build |
 | WebRTC signalling and loopback transport | **Folio builds it** | Capability-gated offer/answer, ICE state, tracks and data channels; external ICE/peer transport remains a host-owned seam |
 | Diagram renderer (diagram-description languages → SVG) | **Folio builds it** (M5) | `Folio.Diagrams`, instead of running a diagram library in the sandbox |
 | JSX compilation | **Host** (Mana) | Done before content reaches Folio |

@@ -8,9 +8,9 @@ waive, defer, or reclassify this gate as optional.
 ## Current audit head — 2026-10-30
 
 The native worker, nested-worker, iframe, and WebRTC capability slices are
-green (54/54, 7/7, 27/27, and 11/11 respectively), and the full native
-scripting runner is 1,412/1,412. These are compatibility and Folio-owned
-runtime slices, not proof that production dependencies can be removed. Jint,
+green (54/54, 7/7, 27/27, and 11/11 respectively), and the latest full native
+scripting runner is 1,478/1,478. Jint is now excluded from the shipped content
+host and retained only in the explicitly built differential/oracle host.
 SkiaSharp, HarfBuzzSharp, Wasmtime, and ANGLE
 (`Avalonia.Angle.Windows.Natives`) remain in the production graph until
 the complete replacement gates below are met. The WARP float-renderbuffer
@@ -203,8 +203,8 @@ The full native scripting assembly was completed on 2026-10-29 with
 `FOLIO_SCRIPT_ENGINE=native`: `Folio.Scripting.Tests` passed 1,422/1,422 in
 116.7 seconds, while the focused native suite and capability-matrix slices
 also remained green. A production-default cutover was then checked locally;
-it exposed 25 content-process/cache/worker failures, so Jint remains the
-shipping default until those parity gaps are fixed.
+it exposed 25 content-process/cache/worker failures. That historical result
+blocked cutover at the time and is retained as context below.
 
 Follow-up on 2026-10-30 reran the complete assembly with
 `FOLIO_SCRIPT_ENGINE=native`: **1,478/1,478 passed**. This confirms the native
@@ -212,9 +212,8 @@ unit/in-process suite has no current failures; production cutover is still
 blocked by the separate content-process parity and dependency-removal gates.
 
 The same native-engine run also passed the real content-process/cache/worker/
-sandbox slice **52/52**. This removes the earlier observed worker/cache
-regression from the current branch, but the shipping default remains Jint until
-the explicit production-selection review and Jint removal are completed.
+sandbox slice **52/52**. The shipped content host now defaults to Folio's native
+engine; Jint is retained only in the explicitly built differential/oracle host.
 
 The latest native D2–D7 probe passes 60/60: all library-card and canvas
 artifacts pass, including `D2/pantry-react-jsx`, which now mounts and reaches
