@@ -66,6 +66,12 @@ optional-format behavior beyond the local harness.
 
 ## Verification refresh — 2026-10-28
 
+Follow-up native-engine rerun on 2026-10-30 with `FOLIO_SCRIPT_ENGINE=native`
+passes the complete `Folio.Scripting.Tests` assembly: **1,478/1,478**, with no
+failures or skips. This supersedes the older 1,421-count snapshot below for
+the native assembly, but it does not by itself prove production cutover or the
+remaining content-process, sandbox and dependency-removal requirements.
+
 The current audit branch was rechecked after the shaping changes: the Release
 render suite passes 758/758 and the Release scripting suite passes 1,401/1,407
 with six documented software-backend skips. The complete CI run
