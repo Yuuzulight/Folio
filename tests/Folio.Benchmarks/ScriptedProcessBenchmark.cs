@@ -49,7 +49,8 @@ public static class ScriptedProcessBenchmark
     private static async Task<int> RunCoreAsync(string[]? args)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Parent!.Name;
-        var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST");
+        var configuredHost = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST");
+        var host = configuredHost;
         if (string.IsNullOrWhiteSpace(host))
         {
             var hostRoot = Path.Combine(RepoPaths.Root, "tools", "Folio.ContentHost", "bin", configuration, "net10.0");
@@ -72,7 +73,12 @@ public static class ScriptedProcessBenchmark
         // dotnet host for every measurement. The apphost uses the same output
         // directory and dependencies, but removes the CLI bootstrap from the
         // cold first-frame path being measured.
-        if (OperatingSystem.IsWindows())
+        // Only use an apphost when the caller explicitly selected the shipped
+        // publish layout (CI does this through FOLIO_CONTENT_HOST).  An
+        // unconfigured local run must stay on the framework-dependent DLL:
+        // stale apphosts in a developer bin directory can fail before the IPC
+        // protocol emits its first diagnostic or frame.
+        if (OperatingSystem.IsWindows() && !string.IsNullOrWhiteSpace(configuredHost))
         {
             var appHost = Path.ChangeExtension(host, ".exe");
             if (File.Exists(appHost))
