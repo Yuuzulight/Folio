@@ -203,9 +203,10 @@ frame measured 958.6 ms after the change (down from 1,027.1 ms), while the
 #677.
 
 CI benchmark publish refresh (commit `0a435535`): the benchmark-only
-framework-dependent Windows publish now enables ReadyToRun. A local equivalent
-measured 500.7 ms cold and brought most D1 warm rows under 50 ms/80 MB; the
-cold <=400 ms target remains open under #677.
+framework-dependent Windows publish now enables ReadyToRun. The latest local
+equivalent measured 510.3 ms cold; published-host D1 working sets were 64.9–76.9
+MB, while 5/12 D1 rows met both warm targets. The cold <=400 ms target and the
+remaining warm rows remain open under #677.
 
 Historical snapshot (2026-10-27): after the native evaluator and WebAssembly bridge repairs, a complete Release solution passed 4,147 tests (0 failed, 7 documented skips; 4,154 discovered). That run also included worker, WebAssembly, WebRTC, iframe and service-worker content-process sandbox coverage. These results proved the covered subsets only; the remaining native backend, interruption and routing requirements remain open. The 2026-10-28 refresh at the top supersedes this count.
 

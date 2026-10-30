@@ -25,11 +25,10 @@ against the 16.70 ms requirement on the compatibility oracle; the production nat
 conformance remains a separate differential result and does not waive the M5
 compatibility-path gate.
 
-The current scripted-process benchmark keeps M4 open. CI measures cold first
-frame at 1,393.8 ms against the 400 ms target, warm D1 first frames from 22.3
-to 856.0 ms against the 50 ms target, and reused-process working set from
-63.0 MB to 107.4 MB against the 80 MB target. The benchmark emits warnings and
-does not silently waive the gate.
+The current scripted-process benchmark keeps M4 open. The latest published
+ReadyToRun host run measures cold first frame at 510.3 ms against the 400 ms
+target; 5/12 D1 rows meet both the 50 ms warm-first-frame and 80 MB working-set
+targets. The benchmark emits warnings and does not silently waive the gate.
 The calibrated script-size samples are measured after a dedicated warm-up so
 the first row does not include process/JIT bootstrap. These measurements are
 recorded in #677; the benchmark emits warnings and does not silently waive the
