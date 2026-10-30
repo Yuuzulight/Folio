@@ -211,6 +211,11 @@ Follow-up on 2026-10-30 reran the complete assembly with
 unit/in-process suite has no current failures; production cutover is still
 blocked by the separate content-process parity and dependency-removal gates.
 
+The same native-engine run also passed the real content-process/cache/worker/
+sandbox slice **52/52**. This removes the earlier observed worker/cache
+regression from the current branch, but the shipping default remains Jint until
+the explicit production-selection review and Jint removal are completed.
+
 The latest native D2–D7 probe passes 60/60: all library-card and canvas
 artifacts pass, including `D2/pantry-react-jsx`, which now mounts and reaches
 the click handler. Native `var` declarations are hoisted across conditional
