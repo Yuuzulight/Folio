@@ -2,6 +2,11 @@
 
 ## Canvas animation performance (#519)
 
+**Acceptance closed (2026-10-30).** Hosted CI run 1817 on the production native
+engine reported per-artifact D5/D7 stage times with every total p95 below 16.70 ms;
+#519 is complete. The compatibility-engine measurements below remain historical
+oracle evidence and are not the production acceptance path.
+
 Latest compatibility-engine measurement (PR #692, 2026-10-30): `D5/canvas-animated-bars` measured 27.05 ms script/update p95 and 29.89 ms total p95 in the 30-frame gate, down from 35.89 ms and 39.13 ms after caching canvas text styles and pooling glyph-origin buffers. The 16.70 ms target is still not met; this remains an open performance gate.
 
 The frame harness supports both the compatibility engine and an explicit

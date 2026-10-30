@@ -21,7 +21,7 @@ round-trips through the Folio decoder and the scripting suite has no skips.
 
 The latest compatibility-engine canvas-frame run records
 `D5/canvas-animated-bars` at 50.09 ms total p95 (45.98 ms script/update)
-against the 16.70 ms requirement; this keeps M5 open under #519. Native
+against the 16.70 ms requirement on the compatibility oracle; the production native gate is now verified and #519 is closed. Native
 conformance remains a separate differential result and does not waive the M5
 compatibility-path gate.
 
@@ -51,7 +51,7 @@ below are historical snapshots.
 
 This is the requirement-to-evidence index for the pre-M6 milestone surfaces. It
 records the verified slices, but does not mark Milestone 5 complete while its
-frame-time gate remains open. It does not waive the M6 acceptance audit or the
+frame-time gate is verified for the production native engine. It does not waive the M6 acceptance audit or the
 mandatory Folio-owned replacement gate in [replacement-gate.md](replacement-gate.md).
 
 | Milestone | Requirement group | Current evidence | Result |
@@ -61,7 +61,7 @@ mandatory Folio-owned replacement gate in [replacement-gate.md](replacement-gate
 | 2 — Static parity | transforms, filters, SVG, fonts, animation, selectors and static corpus parity | `Milestone2AcceptanceTests` enforces 12 reference-backed artifacts in each S1–S6 corpus and the SVG/font/image fuzz targets; S1–S6 conformance 12/12 each; 140 focused typography/SVG/allowlist tests; 123 focused reftest/headless/font tests; SVG and font fuzzing (0 failures) | Verified |
 | 3 — Interaction | scrolling, input, focus, selection, forms, accessibility, invalidation and incremental equivalence | `Milestone3AcceptanceTests` checks the M3 audit claim and executable interaction/equivalence suites; `docs/roadmap.md` M3 audit note; 115 focused interaction/accessibility/invalidation tests; 164 incremental-equivalence tests; S1–S6 interaction scripts and three-iteration performance evidence | Verified |
 | 4 — Scripting foundations | sandbox/content process, event loop, DOM bindings, timers/promises, observers, storage and classifier routing | Recovery implementation is verified by `Milestone4AcceptanceTests`, D1 compatibility and native conformance 12/12 with zero mismatches, `ScriptedProcessBenchmark`, `WhatwgUrl`, `IArtifactStorage`, classifier tests, and focused process/scripting suites; scripted startup and memory targets remain open under #484/#677 | Open — performance gate |
-| 5 — Scripted parity | mutation observers, CSSOM, canvas, fetch, diagrams, JSX/library artifacts and D2–D7 corpus | `Milestone5AcceptanceTests` enforces ten reference-backed artifacts in each D2–D7 category and the qualified native/dependency status; `docs/roadmap.md` M5 audit result; dependency-backed and native D2–D7 60/60; the artifact-level canvas benchmark reports per-stage p95 and currently exposes misses against 16.7 ms; 370 focused scripting tests passed with 6 documented software-backend skips; 26 diagram and 17 cache/golden tests passed | Dependency-backed corpus and native conformance are verified, but the frame-time gate remains open (#519) and the broader Folio-owned replacement gate remains open |
+| 5 — Scripted parity | mutation observers, CSSOM, canvas, fetch, diagrams, JSX/library artifacts and D2–D7 corpus | `Milestone5AcceptanceTests` enforces ten reference-backed artifacts in each D2–D7 category and the qualified native/dependency status; dependency-backed and native D2–D7 60/60; hosted native canvas benchmark reports every D5/D7 artifact below 16.7 ms and #519 is closed; focused scripting, diagram and cache/golden suites pass | Dependency-backed corpus and native conformance are verified; the broader Folio-owned replacement gate remains open |
 
 The M5 result is intentionally qualified: its acceptance is complete for the
 dependency-backed product, while replacement of the dependency-backed scripting
