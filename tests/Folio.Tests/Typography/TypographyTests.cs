@@ -47,6 +47,18 @@ public class TypographyTests
     }
 
     [Fact]
+    public void ColorEmojiBitmapGlyphPaintsPixelsOnSoftwareSurface()
+    {
+        var face = FontFace.Parse(File.ReadAllBytes(Path.Combine(FontsFolder, "NotoColorEmoji.ttf")))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        var glyph = face.GlyphFor('\u2764');
+
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new System.Numerics.Vector2(16, 76)], new Paint(new Rgba(1, 1, 1, 1)));
+
+        Assert.Contains(surface.ReadPixels(0, 0, 96, 96).Chunk(4), pixel => pixel[3] > 0);
+    }
+
+    [Fact]
     public void ReadsTheBoxFontNamesAndMetrics()
     {
         Assert.Equal("Folio Box", Box.Family);
