@@ -1,10 +1,10 @@
 # Milestones 0–5 acceptance audit
 
 Tracker refresh (2026-10-30): M0 (Study and architecture) remains closed. The
-revert-reconciliation implementation for #481 and #482 was merged to `main`
-through PR #672 at `014475eb`. M4 remains open for the measured scripted
-performance gate (#677) and the four strict D1 interaction raster mismatches
-(#678–#681). M5 remains open: its dependency-backed parity is verified, but
+current branch contains the recovered #481/#482 implementation. M4 remains
+open only for the measured scripted performance gate (#484/#677); the current
+strict D1 interaction run is 12/12 with zero mismatches and #678–#681 are
+closed. M5 remains open: its dependency-backed parity is verified, but
 the canvas frame-time gate and mandatory Folio-owned replacement gate remain
 unresolved.
 
@@ -60,7 +60,7 @@ mandatory Folio-owned replacement gate in [replacement-gate.md](replacement-gate
 | 1 — Static rendering | HTML/DOM/CSS, layout, text, painting, resources, host view, reftests, fuzzing and CI | `docs/roadmap.md` M1 acceptance section; `Milestone1AcceptanceTests`; `Folio.Tests`, `Folio.RenderTests`, `Folio.Fuzz`, `Folio.WinForms.Tests`; S1/S3 12/12 conformance; Release benchmark | Verified; CI/static corpus wiring, reference pairs, and integration/safety projects are executable checks |
 | 2 — Static parity | transforms, filters, SVG, fonts, animation, selectors and static corpus parity | `Milestone2AcceptanceTests` enforces 12 reference-backed artifacts in each S1–S6 corpus and the SVG/font/image fuzz targets; S1–S6 conformance 12/12 each; 140 focused typography/SVG/allowlist tests; 123 focused reftest/headless/font tests; SVG and font fuzzing (0 failures) | Verified |
 | 3 — Interaction | scrolling, input, focus, selection, forms, accessibility, invalidation and incremental equivalence | `Milestone3AcceptanceTests` checks the M3 audit claim and executable interaction/equivalence suites; `docs/roadmap.md` M3 audit note; 115 focused interaction/accessibility/invalidation tests; 164 incremental-equivalence tests; S1–S6 interaction scripts and three-iteration performance evidence | Verified |
-| 4 — Scripting foundations | sandbox/content process, event loop, DOM bindings, timers/promises, observers, storage and classifier routing | Recovery implementation is verified by `Milestone4AcceptanceTests`, D1 compatibility conformance 12/12, `ScriptedProcessBenchmark`, `WhatwgUrl`, `IArtifactStorage`, classifier tests, and focused process/scripting suites; scripted startup and memory targets remain open under #484/#677 | Open — performance gate |
+| 4 — Scripting foundations | sandbox/content process, event loop, DOM bindings, timers/promises, observers, storage and classifier routing | Recovery implementation is verified by `Milestone4AcceptanceTests`, D1 compatibility and native conformance 12/12 with zero mismatches, `ScriptedProcessBenchmark`, `WhatwgUrl`, `IArtifactStorage`, classifier tests, and focused process/scripting suites; scripted startup and memory targets remain open under #484/#677 | Open — performance gate |
 | 5 — Scripted parity | mutation observers, CSSOM, canvas, fetch, diagrams, JSX/library artifacts and D2–D7 corpus | `Milestone5AcceptanceTests` enforces ten reference-backed artifacts in each D2–D7 category and the qualified native/dependency status; `docs/roadmap.md` M5 audit result; dependency-backed and native D2–D7 60/60; the artifact-level canvas benchmark reports per-stage p95 and currently exposes misses against 16.7 ms; 370 focused scripting tests passed with 6 documented software-backend skips; 26 diagram and 17 cache/golden tests passed | Dependency-backed corpus and native conformance are verified, but the frame-time gate remains open (#519) and the broader Folio-owned replacement gate remains open |
 
 The M5 result is intentionally qualified: its acceptance is complete for the
