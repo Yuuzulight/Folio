@@ -80,7 +80,7 @@ remain required probes even though native routing is now the production default;
 Jint is retained only in the explicit oracle configuration.
 
 Audit refresh (2026-10-30): the complete `Folio.Scripting.Tests` assembly
-passes 1,478/1,478 with `FOLIO_SCRIPT_ENGINE=native`; the native content-host
+passes 1,449/1,449 with `FOLIO_SCRIPT_ENGINE=native`; the native content-host
 default and the explicit Jint oracle both build successfully. The replacement
 gate remains open for the broader feature matrix and final production-dependency
 removal evidence, not because Jint is still selected in production.

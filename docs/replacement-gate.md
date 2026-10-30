@@ -9,7 +9,7 @@ waive, defer, or reclassify this gate as optional.
 
 The native worker, nested-worker, iframe, and WebRTC capability slices are
 green (54/54, 7/7, 27/27, and 11/11 respectively), and the latest full native
-scripting runner is 1,478/1,478. Jint is now excluded from the shipped content
+scripting runner is 1,449/1,449 on the current checkout. Jint is now excluded from the shipped content
 host and retained only in the explicitly built differential/oracle host.
 SkiaSharp, HarfBuzzSharp, Wasmtime, and ANGLE
 (`Avalonia.Angle.Windows.Natives`) remain in the production graph until
@@ -211,9 +211,9 @@ suite passes 1,411/1,411. A fresh native conformance report passes D1–D14
 script failures.
 
 These results strengthen the Folio-owned JavaScript evidence only. Production
-still selects Jint, and the complete DOM/sandbox/resource-limit/failure corpus,
-Folio-owned raster/shaper/WebAssembly cutovers, and dependency removal remain
-mandatory before Folio completion.
+now selects Folio's native engine; the complete DOM/sandbox/resource-limit/
+failure corpus, Folio-owned raster/shaper/WebAssembly cutovers, and dependency
+removal remain mandatory before Folio completion.
 
 The full native scripting assembly was completed on 2026-10-29 with
 `FOLIO_SCRIPT_ENGINE=native`: `Folio.Scripting.Tests` passed 1,422/1,422 in
@@ -223,9 +223,9 @@ it exposed 25 content-process/cache/worker failures. That historical result
 blocked cutover at the time and is retained as context below.
 
 Follow-up on 2026-10-30 reran the complete assembly with
-`FOLIO_SCRIPT_ENGINE=native`: **1,478/1,478 passed**. This confirms the native
-unit/in-process suite has no current failures; production cutover is still
-blocked by the separate content-process parity and dependency-removal gates.
+`FOLIO_SCRIPT_ENGINE=native`: **1,449/1,449 passed**. This confirms the native
+unit/in-process suite has no current failures; the remaining blockers are the
+separate content-process parity breadth and final dependency-removal gates.
 
 The same native-engine run also passed the real content-process/cache/worker/
 sandbox slice **52/52**. The shipped content host now defaults to Folio's native
@@ -378,7 +378,7 @@ The Windows build also runs the complete conformance report with
 requirement rather than a local-only verification command.
 
 Verification refresh — 2026-10-30: the complete `Folio.Scripting.Tests` assembly
-passes 1,478/1,478 with `FOLIO_SCRIPT_ENGINE=native` (103.6 seconds). The full
+passes 1,449/1,449 with `FOLIO_SCRIPT_ENGINE=native` (106.4 seconds). The full
 Release solution passes 4,350/4,352 with two documented skips (one
 environment-only symbolic-link skip and one explicit Wasmtime oracle
 benchmark skip). These are implementation-slice results; the mandatory replacement gate
