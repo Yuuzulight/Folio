@@ -5,13 +5,12 @@ current branch contains the recovered #481/#482 implementation. M4 remains
 open only for the measured scripted performance gate (#484/#677); the current
 strict D1 interaction run is 12/12 with zero mismatches and #678–#681 are
 closed. M5 remains open: its dependency-backed parity is verified, but
-the canvas frame-time gate and mandatory Folio-owned replacement gate remain
-unresolved.
+the native canvas frame-time gate is closed (#519), while the mandatory
+Folio-owned replacement gate remains unresolved.
 
-Hosted CI run `41005717729` is the current verification run; its capability-
-matrix jobs are green, while the build/test jobs were still running when this
-audit was refreshed. The local Release verification below is the authoritative
-completed run for this commit.
+Hosted CI run `41010869345` is queued for the current head and has not produced
+a completed result yet. The local Release verification below is the
+authoritative completed run for this commit.
 
 The latest direct Release verification (2026-10-30) passes 4,350 tests with
 zero failures and two documented skips (the local symbolic-link privilege
