@@ -27,6 +27,7 @@ public sealed class NativeDifferentialParityTests
         yield return ["float-typed-array", "Array.from(new Float32Array([1.5, -2.25])).join(',')", "1.5,-2.25"];
         yield return ["bigint-typed-array", "Array.from(new BigInt64Array([1n,-2n])).map(String).join(',')", "1,-2"];
         yield return ["bigint-type", "typeof BigInt(2) + ':' + typeof 2n + ':' + String(2n)", "bigint:bigint:2"];
+        yield return ["bigint-arithmetic", "String(2n + 3n) + ':' + String(8n >> 1n)", "5:4"];
         yield return ["date-json", "JSON.stringify({d:new Date('2020-01-02T03:04:05Z').toISOString()})", "{\"d\":\"2020-01-02T03:04:05.000Z\"}"];
         yield return ["promise", "var result='pending'; Promise.resolve(4).then(v => result=String(v+1)); result", "pending"];
         yield return ["bitwise", "((0xff & 15) << 1) | 1", "31"];
