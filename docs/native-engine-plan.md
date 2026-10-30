@@ -32,11 +32,12 @@ existing artifact corpus remains runnable. It is a compatibility backend, not th
 native completion criterion.
 
 The content-host executable exposes the staged engine through the explicit
-`FOLIO_SCRIPT_ENGINE=native` environment switch. The default remains Jint until
-the native engine passes the complete content-process DOM, sandbox,
-resource-limit and failure-behavior gates. The switch lets real content-host
-paths run against Folio's engine without changing the shipping default
-prematurely.
+`FOLIO_SCRIPT_ENGINE=native` environment switch. The content-host default is now
+Folio's native engine; Jint is retained only when an explicit oracle host is
+built with `FolioOracleHost=true` and selected with `FOLIO_SCRIPT_ENGINE=jint`.
+The native engine still must pass the complete content-process DOM, sandbox,
+resource-limit and failure-behavior gates before the replacement track can be
+closed.
 
 The render conformance harness also accepts `FOLIO_CONFORMANCE_ENGINE=native`.
 On 2026-10-26 the first D1 differential run was crash-free and produced 1/2
