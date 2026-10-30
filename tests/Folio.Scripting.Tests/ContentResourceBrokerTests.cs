@@ -252,15 +252,55 @@ public sealed class ContentResourceBrokerTests
         Assert.Equal("undefined:object", second.Payload.GetProperty("value").GetString());
     }
 
+    [Fact]
+    public async Task ServiceWorkerRegistrationSurvivesContentProcessRestartForTheSameArtifact()
+    {
+        var storage = new BrokerMemoryStorage();
+        var loader = new RecordingLoader((request, _) => request.Kind switch
+        {
+            ResourceKind.Script when request.Url == "https://example.test/sw.js" =>
+                ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('fetch', e => e.respondWith(new Response('from persisted worker')));"), "application/javascript"),
+            _ => ResourceResponse.Refused("unexpected request")
+        });
+        var policy = AllowExampleOrigin();
+        var limits = ResourceLimits.Default;
+
+        await using (var first = StartClient(loader, policy, storage, "restart-artifact", limits))
+        {
+            var registered = await Load(first, new
+            {
+                html = "<script>navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.getRegistrations()).then(items => globalThis.registrationCount = items.length);</script>",
+                script = "registrationCount",
+                url = "https://example.test/index.html",
+                capabilities = new FeatureCapabilities { ServiceWorkers = true }
+            });
+            Assert.Equal("1", registered.Payload.GetProperty("value").GetString());
+        }
+
+        Assert.Contains(storage.Keys("restart-artifact:"), key => key.Contains("service-worker-registration", StringComparison.Ordinal));
+
+        await using (var reopened = StartClient(loader, policy, storage, "restart-artifact", limits))
+        {
+            var restored = await Load(reopened, new
+            {
+                html = "<script>fetch('/offline').then(r => r.text()).then(text => globalThis.restoredText = text);</script><p>reopened</p>",
+                script = "restoredText",
+                url = "https://example.test/index.html",
+                capabilities = new FeatureCapabilities { ServiceWorkers = true }
+            });
+            Assert.Equal("from persisted worker", restored.Payload.GetProperty("value").GetString());
+        }
+    }
+
     private static ContentResourcePolicy AllowExampleOrigin() => new()
     {
         AllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "https://example.test" }
     };
 
-    private static ContentProcessClient StartClient(RecordingLoader loader, ContentResourcePolicy policy) =>
+    private static ContentProcessClient StartClient(RecordingLoader loader, ContentResourcePolicy policy, IArtifactStorage? storage = null, string artifactId = "default", ResourceLimits? limits = null) =>
         ContentProcessClient.Start("dotnet", $"\"{ContentHostPath()}\"",
             new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
-            resourceLoader: loader, resourcePolicy: policy);
+            resourceLoader: loader, resourcePolicy: policy, artifactStorage: storage, artifactId: artifactId, documentLimits: limits);
 
     private static async Task<ContentMessage> Load(ContentProcessClient client, object payload)
     {
@@ -319,6 +359,16 @@ public sealed class ContentResourceBrokerTests
             Requests.Enqueue(request);
             return Task.FromResult<ResourceResponse?>(load(request, cancellationToken));
         }
+    }
+
+    private sealed class BrokerMemoryStorage : IArtifactStorage
+    {
+        private readonly ConcurrentDictionary<string, string> _values = new(StringComparer.Ordinal);
+
+        public string? Read(string key) => _values.TryGetValue(key, out var value) ? value : null;
+        public void Write(string key, string value) => _values[key] = value;
+        public void Delete(string key) => _values.TryRemove(key, out _);
+        public IReadOnlyList<string> Keys(string prefix) => _values.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(key => key, StringComparer.Ordinal).ToArray();
     }
 
     private sealed class DebugDecoder : IMediaDecoder

@@ -1,17 +1,16 @@
 # Milestones 0–5 acceptance audit
 
 Tracker refresh (2026-10-30): M0 (Study and architecture) remains closed. The
-revert-reconciliation implementation for #481 and #482 is present again on
-the audit branch in PR #672, but is not merged to `main`; those issues are
-closed while #484 remains open for the measured scripted performance gap.
-#676 records the recovery evidence. M4 remains open
-for that performance gate and the four strict D1 interaction raster mismatches
-(#678–#681). M5 remains open: its dependency-backed parity is verified,
-but the canvas frame-time gate and mandatory Folio-owned native replacement
-gate remain unresolved.
+revert-reconciliation implementation for #481 and #482 was merged to `main`
+through PR #672 at `014475eb`. M4 remains open for the measured scripted
+performance gate (#677) and the four strict D1 interaction raster mismatches
+(#678–#681). M5 remains open: its dependency-backed parity is verified, but
+the canvas frame-time gate and mandatory Folio-owned replacement gate remain
+unresolved.
 
-PR #672's current head is `1c58848c`; CI run `40909686820` is in progress, so
-the branch has no completed current-HEAD CI conclusion yet.
+Hosted CI run `40976204286` is complete and green (26/26 checks). It includes
+the Windows runtime-specific content-host publish, scripted process benchmark,
+GPU memory check, native WebGL shader fuzzing and full fuzz stages.
 
 The latest direct Release verification (2026-10-30) passes 4,249 tests with
 zero failures and one environment-dependent skip (the local symbolic-link
@@ -26,13 +25,11 @@ against the 16.70 ms requirement; this keeps M5 open under #519. Native
 conformance remains a separate differential result and does not waive the M5
 compatibility-path gate.
 
-The current scripted-process benchmark also keeps M4 open. The CI path now
-publishes the content host with ReadyToRun before measuring it, as required by
-the original cold-start target. A local Release run of that same published
-host recorded cold first frame at 1,032.6 ms against the 400 ms target, warm D1
-first frames from 12.5 to 113.6 ms against the 50 ms target, and reused-process
-working set from 62.8 MB to 97.1 MB against the 80 MB target. This is a
-material improvement over the build-only host, but it does not pass the gate.
+The current scripted-process benchmark keeps M4 open. CI measures cold first
+frame at 1,393.8 ms against the 400 ms target, warm D1 first frames from 22.3
+to 856.0 ms against the 50 ms target, and reused-process working set from
+63.0 MB to 107.4 MB against the 80 MB target. The benchmark emits warnings and
+does not silently waive the gate.
 The calibrated script-size samples are measured after a dedicated warm-up so
 the first row does not include process/JIT bootstrap. These measurements are
 recorded in #677; the benchmark emits warnings and does not silently waive the
