@@ -20,6 +20,10 @@ public sealed class NativeDifferentialParityTests
         yield return ["nested-destructuring", "const [[a],{b}]=[[1],{b:2}]; a+b", "3"];
         yield return ["array-spread", "[...[1,2],3].join(',')", "1,2,3"];
         yield return ["object-spread", "const x={a:1,...{b:2}}; x.a+x.b", "3"];
+        yield return ["typed-array", "const x=new Uint8Array([1,255,256]); Array.from(x).join(',')", "1,255,0"];
+        yield return ["date-json", "JSON.stringify({d:new Date('2020-01-02T03:04:05Z').toISOString()})", "{\"d\":\"2020-01-02T03:04:05.000Z\"}"];
+        yield return ["promise", "var result='pending'; Promise.resolve(4).then(v => result=String(v+1)); result", "pending"];
+        yield return ["bitwise", "((0xff & 15) << 1) | 1", "31"];
         yield return ["optional-chain", "const x={nested:{value:4}}; (x.missing?.value ?? x.nested.value)", "4"];
     }
 
