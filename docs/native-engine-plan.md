@@ -3,8 +3,8 @@
 > **Current evidence correction (2026-10-30):** the historical 94/94 and 93/102
 > claims in this document are superseded. The latest native sweep passes
 > 102/102 D1–D14 artifacts after correcting compact conditional-expression
-> lexing in the native JavaScript parser. The
-> native engine remains differential and is not production-cutover complete.
+> lexing in the native JavaScript parser. The native engine is now the
+> production content-host default; Jint remains an explicit differential oracle.
 
 Folio's production scripting path must not depend on Jint, V8, ClearScript, QuickJS,
 Node, or another external JavaScript runtime. `IScriptEngine` remains the seam, but
@@ -52,10 +52,11 @@ the corrected assignment parser now preserves the full conditional RHS used by
 `innerHTML` updates. The D1 result is accepted as evidence for this corpus
 slice only; full-corpus DOM, sandbox, limit, and failure-behavior gates remain.
 
-The native corpus has since advanced materially. A fresh full sweep is now
+The native corpus has since advanced materially. An earlier full sweep was
 green across D1-D14: D1 `2/2`, D2-D7 `60/60` (including the React pantry
-artifact), and D8-D14 `32/32`, for `94/94` exact passes. These are verified
-corpus results, not a claim that the engine is production-complete.
+artifact), and D8-D14 `32/32`, for `94/94` exact passes. The current recorded
+baseline is 102/102; these historical numbers are retained for the progression
+record, not as the current completion claim.
 The same native run also passes the scripting-focused S1-S6 corpus `72/72`
 with no mismatches, crashes, hangs, limit hits, or script failures.
 
@@ -63,7 +64,7 @@ The follow-on parity slice now also covers native string replacement expansion
 (`$&`, `$$`, prefix/suffix, numbered and named capture groups), array iteration
 helpers, Unicode normalization, locale-case helpers, and the remaining common
 string/array accessors. The focused native suite is `82/82`, and the full
-`Folio.Scripting.Tests` suite is `1,412/1,412` on the audit branch.
+`Folio.Scripting.Tests` suite reached `1,412/1,412` on the earlier audit branch.
 Recent numeric coverage also includes radix conversion and precision/exponential
 formatting; these remain differential evidence until the complete corpus and
 production cutover gates pass.
@@ -72,13 +73,14 @@ source text across both replace variants.
 Native regular expressions also honor the sticky `y` flag with stateful
 `lastIndex` advancement and reset behavior.
 
-The replacement gate remains open because the production content-host default
-is still Jint and native content-process parity is incomplete. The native
-switch and conformance harness therefore remain differential probes until
-those requirements are met.
+The replacement gate remains open because the complete Folio-owned JavaScript
+replacement still requires broader differential corpus, sandbox, limit,
+cancellation and teardown evidence. The native switch and conformance harness
+remain required probes even though native routing is now the production default;
+Jint is retained only in the explicit oracle configuration.
 
-Audit refresh (2026-10-29): the complete `Folio.Scripting.Tests` assembly
-passes 1,422/1,422 with `FOLIO_SCRIPT_ENGINE=native` in 116.7 seconds, and the
-focused native suite remains 82/82. However, forcing the native engine as the
-content-host default causes 25 content-process/cache/worker failures, so the
-production cutover remains blocked on DOM-host and content-process parity.
+Audit refresh (2026-10-30): the complete `Folio.Scripting.Tests` assembly
+passes 1,478/1,478 with `FOLIO_SCRIPT_ENGINE=native`; the native content-host
+default and the explicit Jint oracle both build successfully. The replacement
+gate remains open for the broader feature matrix and final production-dependency
+removal evidence, not because Jint is still selected in production.
