@@ -369,7 +369,8 @@ requirement rather than a local-only verification command.
 
 Verification refresh — 2026-10-30: the complete `Folio.Scripting.Tests` assembly
 passes 1,478/1,478 with `FOLIO_SCRIPT_ENGINE=native` (103.6 seconds). The full
-Release solution passes 4,351/4,351 with one environment-only symbolic-link
-skip. These are implementation-slice results; the mandatory replacement gate
+Release solution passes 4,350/4,352 with two documented skips (one
+environment-only symbolic-link skip and one explicit Wasmtime oracle
+benchmark skip). These are implementation-slice results; the mandatory replacement gate
 still requires the broader corpus, sandbox/watchdog evidence and dependency
 removal criteria below.
