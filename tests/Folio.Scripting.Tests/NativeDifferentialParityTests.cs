@@ -18,6 +18,8 @@ public sealed class NativeDifferentialParityTests
         yield return ["object-rest", "const {a,...rest}={a:1,b:2}; a+':'+Object.keys(rest).join('')", "1:b"];
         yield return ["function-rest", "((a,...rest)=>a+rest.join(''))(1,2,3)", "123"];
         yield return ["nested-destructuring", "const [[a],{b}]=[[1],{b:2}]; a+b", "3"];
+        yield return ["array-spread", "[...[1,2],3].join(',')", "1,2,3"];
+        yield return ["object-spread", "const x={a:1,...{b:2}}; x.a+x.b", "3"];
         yield return ["optional-chain", "const x={nested:{value:4}}; (x.missing?.value ?? x.nested.value)", "4"];
     }
 
