@@ -270,6 +270,12 @@ internal sealed class JavaScriptParser
                 while (true)
                 {
                     if (Match(",")) { names.Add(string.Empty); continue; }
+                    if (Match("..."))
+                    {
+                        if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a rest binding name");
+                        names.Add("..." + _current.Text); Take();
+                        break;
+                    }
                     if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name");
                     names.Add(_current.Text); Take();
                     if (!Match(",")) break;
