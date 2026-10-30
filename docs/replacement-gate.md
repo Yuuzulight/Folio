@@ -257,7 +257,7 @@ scripts plus promoted Hebrew and Arabic complex runs, explicit Arabic joining
 forms, and a deliberately perturbed kerning value that the report detects. The
 focused shaping suite passes 19/19, and native S6 remains 12/12. The standalone
 bundled report currently passes every listed case, and the Windows system-font
-report passes all twenty-four available cases, including Devanagari, Bengali,
+report passes all twenty-three available cases, including Devanagari, Bengali,
 Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada, Malayalam, Thai,
 Lao, Khmer and Myanmar. Hebrew and Arabic now route through Folio's
 ComplexShaper by default; Indic, South-East Asian and other unproven scripts
@@ -273,7 +273,7 @@ before the shaping replacement as a whole can be considered complete.
 On Windows, `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj
 -c Release -- shaping-differential-system` compares Arial, Times New Roman and
 Segoe UI simple runs plus Hebrew, Arabic, Indic and South-East Asian runs against
-HarfBuzzSharp; the current host reports all twenty-four PASS. The system corpus remains a local
+HarfBuzzSharp; the current host reports all twenty-three PASS. The system corpus remains a local
 evidence run because installed fonts vary by host.
 
 The artifact classifier now shares the image-format contract with `ImageLoader`:
