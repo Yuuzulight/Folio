@@ -183,7 +183,7 @@ artifact-prefixed storage isolation, capability revocation and disposal tests.
 The original issue's artifact-scoped persistence, offline request interception,
 host limits and no-background-work requirements are covered in real content
 processes. Richer interruption, nested-frame budgeting and full sandbox
-matrix requirements remain tracked by #556/#559 and are not used to reopen
+matrix requirements remain tracked by #559 and are not used to reopen
 this completed umbrella scope.
 
 ### #523 — Hosting: feature capabilities the host grants
@@ -677,9 +677,9 @@ Original acceptance:
 
 The native host owns the canonical per-artifact cache and quota ledger. All Cache/CacheStorage methods, request URL/method/search/Vary matching, independent binary responses and atomic addAll have direct regressions. A transaction is persisted with one atomic provider write before publishing memory; failure and quota tests establish rollback. Quota includes metadata, encoded bodies, unopened persisted caches and live retired handles. Private Fetch state and an inaccessible storage bridge prevent script-visible quota bypasses. Length-delimited artifact snapshot keys prevent colon/slash collisions.
 
-Real content processes now receive host-owned artifact storage and limits through FolioView and ContentProcessClient. The native bridge fix in `a0a1346f` preserves Cache methods across an awaited `caches.open()`. A historical checkpoint at `d277f346` exposed 13/23 `ContentCacheTests` failures on both engines; `ced4c474` corrected the broker's registration/local-storage key namespace, and the current focused matrix is 23/23 on the branch. The cache issue remains open only for the broader isolation/sandbox acceptance under #556/#559, not because those 13 regressions are still present. See [storage configuration and limits](cache-api-storage.md).
+Real content processes now receive host-owned artifact storage and limits through FolioView and ContentProcessClient. The native bridge fix in `a0a1346f` preserves Cache methods across an awaited `caches.open()`. A historical checkpoint at `d277f346` exposed 13/23 `ContentCacheTests` failures on both engines; `ced4c474` corrected the broker's registration/local-storage key namespace, and the current focused matrix is 23/23 on the branch. The cache issue remains open only for the broader isolation/sandbox acceptance under #559, not because those 13 regressions are still present. See [storage configuration and limits](cache-api-storage.md).
 
-These checks verify the Cache API contract, including service-worker-originated writes, host quotas, rollback and artifact isolation. They do not establish the separate isolated service-worker engine, full subresource interception or the sandbox matrix required by #556/#557/#559; those remain separate issues.
+These checks verify the Cache API contract, including service-worker-originated writes, host quotas, rollback and artifact isolation. They do not establish the sandbox matrix required by #559; fetch interception and isolated lifecycle acceptance are covered by #557 and the now-closed #556.
 
 Original acceptance:
 
