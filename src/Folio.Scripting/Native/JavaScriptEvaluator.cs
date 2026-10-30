@@ -238,7 +238,18 @@ internal sealed class JavaScriptEvaluator
                     {
                         var names = variable.Name[1..^1].Split(',', StringSplitOptions.None);
                         for (var index = 0; index < names.Length; index++)
-                            if (!string.IsNullOrEmpty(names[index])) _bindings[names[index]] = value is IList<object?> list && index < list.Count ? list[index] : value is IReadOnlyList<object?> readOnly && index < readOnly.Count ? readOnly[index] : UndefinedValue.Instance;
+                        {
+                            if (string.IsNullOrEmpty(names[index])) continue;
+                            if (names[index].StartsWith("...", StringComparison.Ordinal))
+                            {
+                                var rest = value is IReadOnlyList<object?> readOnly
+                                    ? readOnly.Skip(index).ToArray()
+                                    : Array.Empty<object?>();
+                                _bindings[names[index][3..]] = rest;
+                                break;
+                            }
+                            _bindings[names[index]] = value is IList<object?> list && index < list.Count ? list[index] : value is IReadOnlyList<object?> values && index < values.Count ? values[index] : UndefinedValue.Instance;
+                        }
                     }
                     else if (variable.Name.StartsWith("{", StringComparison.Ordinal) && variable.Name.EndsWith("}", StringComparison.Ordinal))
                     {
@@ -1790,7 +1801,16 @@ internal sealed class JavaScriptEvaluator
         {
             var values = value as IReadOnlyList<object?>;
             var names = parameter[1..^1].Split(',', StringSplitOptions.None);
-            for (var i = 0; i < names.Length; i++) if (!string.IsNullOrEmpty(names[i])) local[names[i]] = values is not null && i < values.Count ? values[i] : UndefinedOrNull();
+            for (var i = 0; i < names.Length; i++)
+            {
+                if (string.IsNullOrEmpty(names[i])) continue;
+                if (names[i].StartsWith("...", StringComparison.Ordinal))
+                {
+                    local[names[i][3..]] = values is null ? Array.Empty<object?>() : values.Skip(i).ToArray();
+                    break;
+                }
+                local[names[i]] = values is not null && i < values.Count ? values[i] : UndefinedOrNull();
+            }
             return;
         }
         local[parameter] = value;
