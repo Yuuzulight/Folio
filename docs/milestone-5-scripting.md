@@ -61,7 +61,8 @@ artifact within budget, including `canvas-animated-bars` at 6.17 ms p95 and
 `canvas-snake-game` at 12.53 ms p95 in the latest run. CI now runs this command
 on Windows and fails if any native D5/D7 artifact exceeds 16.70 ms. This
 demonstrates that the native engine has the required frame-time headroom, but
-does not close #519 while Jint remains the compatibility default.
+does not close #519 because the dependency-backed benchmark still misses its
+16.7 ms p95 target.
 
 ## Milestone status
 
