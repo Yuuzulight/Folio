@@ -131,6 +131,18 @@ jobs:
         # uses FOLIO_UNSANDBOXED=1, so ReadyToRun is safe here and removes the
         # CLI/JIT bootstrap from the measured cold-start path.
         run: dotnet publish tools/Folio.ContentHost/Folio.ContentHost.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=true -o tools/Folio.ContentHost/bin/Release/net10.0/win-x64/publish
+      - name: Verify production publish excludes oracle runtimes
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $publish = Join-Path $env:GITHUB_WORKSPACE 'tools/Folio.ContentHost/bin/Release/net10.0/win-x64/publish'
+          $oracleFiles = Get-ChildItem -Path $publish -File -Recurse |
+            Where-Object { $_.Name -match '^(Jint|Folio\.Scripting\.Jint|Wasmtime)(\.|$)' }
+          if ($oracleFiles) {
+            $oracleFiles | ForEach-Object { Write-Error "Oracle runtime leaked into production publish: $($_.FullName)" }
+            exit 1
+          }
+          Write-Host 'Production publish contains no Jint or Wasmtime oracle assemblies.'
       - name: Scripted process benchmarks
         if: matrix.os == 'windows-latest'
         env:
