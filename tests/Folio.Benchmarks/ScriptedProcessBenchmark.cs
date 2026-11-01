@@ -198,7 +198,7 @@ th { font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; white-
 .dept { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; }
 .btn[aria-expanded='true'] .chv { transform: rotate(45deg); transition: transform 0.2s; }
 .person { display: flex; align-items: center; gap: 8px; }
-.avatar { width: 24px; height: 24px; border-radius: 50%; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; }
 </style>
 <h1>Product Architecture and Warm-up</h1>
 <p class='sub'>Explore core modules and deployment capabilities with realistic text paragraphs and multi-word sentences.</p>

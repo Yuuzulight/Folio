@@ -707,7 +707,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         if (previousDeadline == 0) _deadlineTicks = NewDeadline();
         try
         {
-            var values = args.ToArray().Select(ToObject).ToArray();
+            var values = new object?[args.Length];
+            for (var i = 0; i < args.Length; i++)
+                values[i] = ToObject(args[i]);
             var receiver = ToObject(thisValue);
             return function.Raw switch
             {

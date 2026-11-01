@@ -165,11 +165,7 @@ internal static class DomHtml
         var container = target is TemplateElement template ? (ContainerNode)template.Content : target;
 
         var parsedNodes = TreeBuilder.ParseFragment(markup, target, target.OwnerDocument);
-
-        var fragment = target.OwnerDocument.CreateFragment();
-        foreach (var node in parsedNodes)
-            fragment.AppendChild(node);
-        container.ReplaceAll(fragment);
+        container.ReplaceAll(parsedNodes);
     }
 
     /// <summary>

@@ -43,13 +43,34 @@ internal static class IntrinsicSizes
             // multi-line rows and columns take their largest item.
             var style = flex.Style.Flex;
             var row = style.Direction is FlexDirection.Row or FlexDirection.RowReverse;
-            var items = flex.Children.Where(c => !c.IsAbsolutelyPositioned).Select(c => Contribution(c, context)).ToList();
-            var gaps = row && items.Count > 1 ? (style.ColumnGap.HasPercent ? 0 : style.ColumnGap.Px) * (items.Count - 1) : 0;
-            if (items.Count > 0)
+            var itemCount = 0;
+            float minSum = 0, maxSum = 0, minMax = 0, maxMax = 0;
+            for (var i = 0; i < flex.Children.Count; i++)
             {
-                sizes = !row ? (items.Max(i => i.Min), items.Max(i => i.Max))
-                    : style.Wrap == FlexWrap.Nowrap ? (items.Sum(i => i.Min) + gaps, items.Sum(i => i.Max) + gaps)
-                    : (items.Max(i => i.Min), items.Sum(i => i.Max) + gaps);
+                var c = flex.Children[i];
+                if (c.IsAbsolutelyPositioned) continue;
+                var item = Contribution(c, context);
+                if (itemCount == 0)
+                {
+                    minMax = item.Min;
+                    maxMax = item.Max;
+                }
+                else
+                {
+                    if (item.Min > minMax) minMax = item.Min;
+                    if (item.Max > maxMax) maxMax = item.Max;
+                }
+                minSum += item.Min;
+                maxSum += item.Max;
+                itemCount++;
+            }
+            if (itemCount > 0)
+            {
+                var gap = style.ColumnGap.HasPercent ? 0 : style.ColumnGap.Px;
+                var gaps = row && itemCount > 1 ? gap * (itemCount - 1) : 0;
+                sizes = !row ? (minMax, maxMax)
+                    : style.Wrap == FlexWrap.Nowrap ? (minSum + gaps, maxSum + gaps)
+                    : (minMax, maxSum + gaps);
             }
         }
         else if (box is ReplacedBox replaced && BlockLayout.ReplacedSize(replaced, 0, null, 0, 0) is { } natural)
