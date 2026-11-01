@@ -699,44 +699,62 @@ internal sealed class DomContext : IFetchContext
         return UnwrapNode(value);
     }
 
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ContainerNode, LiveNodeList> _childNodeListCache = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ContainerNode, LiveHtmlCollection> _htmlCollectionCache = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ElementNode, LiveDomTokenList> _classListCache = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ElementNode, LiveDomStringMap> _datasetCache = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ElementNode, LiveNamedNodeMap> _attributesCache = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ElementNode, LiveStyleDeclaration> _styleCache = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ElementNode, LiveComputedStyle> _computedStyleCache = new();
+
     public ScriptValue WrapNodeList(ContainerNode container)
     {
         ArgumentNullException.ThrowIfNull(container);
-        return WrapperCache.GetOrCreate(Engine, Templates.NodeListTemplate, new LiveNodeList(container));
+        var list = _childNodeListCache.GetValue(container, c => new LiveNodeList(c));
+        return WrapperCache.GetOrCreate(Engine, Templates.NodeListTemplate, list);
     }
 
     public ScriptValue WrapHtmlCollection(ContainerNode container)
     {
         ArgumentNullException.ThrowIfNull(container);
-        return WrapperCache.GetOrCreate(Engine, Templates.HtmlCollectionTemplate, new LiveHtmlCollection(container));
+        var col = _htmlCollectionCache.GetValue(container, c => new LiveHtmlCollection(c));
+        return WrapperCache.GetOrCreate(Engine, Templates.HtmlCollectionTemplate, col);
     }
 
     public ScriptValue WrapClassList(ElementNode element)
     {
         ArgumentNullException.ThrowIfNull(element);
-        return WrapperCache.GetOrCreate(Engine, Templates.DomTokenListTemplate, new LiveDomTokenList(element));
+        var list = _classListCache.GetValue(element, el => new LiveDomTokenList(el));
+        return WrapperCache.GetOrCreate(Engine, Templates.DomTokenListTemplate, list);
     }
 
     public ScriptValue WrapDataset(ElementNode element)
     {
         ArgumentNullException.ThrowIfNull(element);
-        return WrapperCache.GetOrCreate(Engine, Templates.DomStringMapTemplate, new LiveDomStringMap(element));
+        var map = _datasetCache.GetValue(element, el => new LiveDomStringMap(el));
+        return WrapperCache.GetOrCreate(Engine, Templates.DomStringMapTemplate, map);
     }
 
     public ScriptValue WrapAttributes(ElementNode element)
     {
         ArgumentNullException.ThrowIfNull(element);
-        return WrapperCache.GetOrCreate(Engine, Templates.NamedNodeMapTemplate, new LiveNamedNodeMap(element));
+        var map = _attributesCache.GetValue(element, el => new LiveNamedNodeMap(el));
+        return WrapperCache.GetOrCreate(Engine, Templates.NamedNodeMapTemplate, map);
     }
 
     public ScriptValue WrapStyle(ElementNode element)
     {
         ArgumentNullException.ThrowIfNull(element);
-        return WrapperCache.GetOrCreate(Engine, Templates.StyleDeclarationTemplate, new LiveStyleDeclaration(element));
+        var style = _styleCache.GetValue(element, el => new LiveStyleDeclaration(el));
+        return WrapperCache.GetOrCreate(Engine, Templates.StyleDeclarationTemplate, style);
     }
 
-    public ScriptValue WrapComputedStyle(ElementNode element) =>
-        WrapperCache.GetOrCreate(Engine, Templates.ComputedStyleDeclarationTemplate, new LiveComputedStyle(element));
+    public ScriptValue WrapComputedStyle(ElementNode element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        var style = _computedStyleCache.GetValue(element, el => new LiveComputedStyle(el));
+        return WrapperCache.GetOrCreate(Engine, Templates.ComputedStyleDeclarationTemplate, style);
+    }
 
     public ScriptValue WrapRect(DomRect rect) =>
         WrapperCache.GetOrCreate(Engine, Templates.DomRectTemplate, rect);

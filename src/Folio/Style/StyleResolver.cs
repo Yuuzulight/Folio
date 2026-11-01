@@ -100,10 +100,18 @@ internal static class StyleResolver
         }
         origins.Add(author);
 
-        var registered = origins.SelectMany(o => o.Registered).GroupBy(p => p.Key).ToDictionary(g => g.Key, g => g.Last().Value, StringComparer.Ordinal);
+        var registered = new Dictionary<string, RegisteredProperty>(StringComparer.Ordinal);
+        for (var i = 0; i < origins.Count; i++)
+        {
+            foreach (var (k, v) in origins[i].Registered)
+                registered[k] = v;
+        }
         var keyframes = new Dictionary<string, List<Keyframe>>(StringComparer.Ordinal);
-        foreach (var (name, blocks) in origins.SelectMany(o => o.Keyframes))
-            keyframes[name] = blocks;
+        for (var i = 0; i < origins.Count; i++)
+        {
+            foreach (var (name, blocks) in origins[i].Keyframes)
+                keyframes[name] = blocks;
+        }
         var restyler = new Restyler(origins, media, measure, registered, sources.BaseUrl, keyframes, animationTime);
         document.StyleState = restyler;
         if (document.DocumentElement is { } root)

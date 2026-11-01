@@ -8,15 +8,23 @@ namespace Folio.Scripting.Dom;
 /// </summary>
 internal static class DomSelectors
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<DocumentNode, Dictionary<string, SelectorList>> SelectorCache = new();
+
     public static SelectorList ParseSelectorList(DocumentNode doc, ScriptValue selectorVal)
     {
         var str = WebIdlConversions.ToDOMString(selectorVal);
         if (string.IsNullOrWhiteSpace(str))
             throw WebIdlException.DomException(DomExceptionNames.SyntaxError, "The provided selector string is empty.");
 
-        var (source, values) = CssParser.ParseComponentValues(str);
-        return SelectorParser.Parse(source, values, doc.Intern)
-            ?? throw WebIdlException.DomException(DomExceptionNames.SyntaxError, $"'{str}' is not a valid selector.");
+        var dict = SelectorCache.GetOrCreateValue(doc);
+        if (!dict.TryGetValue(str, out var list))
+        {
+            var (source, values) = CssParser.ParseComponentValues(str);
+            list = SelectorParser.Parse(source, values, doc.Intern)
+                ?? throw WebIdlException.DomException(DomExceptionNames.SyntaxError, $"'{str}' is not a valid selector.");
+            dict[str] = list;
+        }
+        return list;
     }
 
     public static ElementNode? QuerySelector(ContainerNode scope, ScriptValue selectorVal)

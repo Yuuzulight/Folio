@@ -1391,7 +1391,8 @@ internal sealed class JavaScriptEvaluator
             var item = values[0];
             return item is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(item);
         }
-        var sb = new StringBuilder();
+        var initialCap = values.Count * (separator.Length + (values[0] is string s0 ? s0.Length : 16));
+        var sb = new StringBuilder(Math.Max(16, Math.Min(initialCap, 1024 * 1024)));
         for (var i = 0; i < values.Count; i++)
         {
             if (i > 0) sb.Append(separator);
