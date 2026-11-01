@@ -12,17 +12,25 @@ internal sealed class RuleIndex<T>
     /// <param name="AncestorHashes">Tags, ids and classes some ancestor must have, for the ancestor filter.</param>
     public sealed record Entry(ComplexSelector Selector, T Data, int Order, int[] AncestorHashes);
 
-    private readonly Dictionary<Atom, List<Entry>> _byId = [];
-    private readonly Dictionary<Atom, List<Entry>> _byClass = [];
-    private readonly Dictionary<Atom, List<Entry>> _byTag = [];
-    private readonly List<Entry> _universal = [];
-    private readonly HashSet<PseudoElement> _pseudoElements = [];
+    private sealed class BucketSet
+    {
+        public readonly Dictionary<Atom, List<Entry>> ById = [];
+        public readonly Dictionary<Atom, List<Entry>> ByClass = [];
+        public readonly Dictionary<Atom, List<Entry>> ByTag = [];
+        public readonly List<Entry> Universal = [];
+    }
+
+    private readonly BucketSet?[] _buckets = new BucketSet?[(int)PseudoElement.FirstLetter + 1];
     private int _count;
 
     public int Count => _count;
 
     /// <summary>Whether any rule targets this pseudo-element (so styles for it are worth computing).</summary>
-    public bool HasRulesFor(PseudoElement pseudoElement) => _pseudoElements.Contains(pseudoElement);
+    public bool HasRulesFor(PseudoElement pseudoElement)
+    {
+        var idx = (int)pseudoElement;
+        return (uint)idx < (uint)_buckets.Length && _buckets[idx] is not null;
+    }
 
     /// <summary>The selectors that mention a user-action state pseudo-class, for the state invalidation sets (#417).</summary>
     public List<ComplexSelector> StateSelectors { get; } = [];
@@ -30,32 +38,33 @@ internal sealed class RuleIndex<T>
     public void Add(ComplexSelector selector, T data)
     {
         var entry = new Entry(selector, data, _count++, AncestorHashes(selector));
-        _pseudoElements.Add(selector.PseudoElement);
+        var pIdx = (int)selector.PseudoElement;
+        var bucket = _buckets[pIdx] ??= new BucketSet();
         if (Folio.Style.StateInvalidation.Mentions(selector))
             StateSelectors.Add(selector);
         var rightmost = selector.Rightmost.Simples;
         if (rightmost.OfType<IdSelector>().FirstOrDefault() is { } id)
-            Bucket(_byId, id.Atom).Add(entry);
+            Bucket(bucket.ById, id.Atom).Add(entry);
         else if (rightmost.OfType<ClassSelector>().FirstOrDefault() is { } c)
-            Bucket(_byClass, c.Atom).Add(entry);
+            Bucket(bucket.ByClass, c.Atom).Add(entry);
         else if (rightmost.OfType<TypeSelector>().FirstOrDefault() is { } type)
-            AddByTag(type, entry);
+            AddByTag(bucket, type, entry);
         else if (rightmost.OfType<LogicalSelector>().FirstOrDefault(IsTypeList) is { } list)
         {
             // :is() or :where() over plain tag names (the UA's nested list rules): under each of those tags.
             foreach (var argument in list.Arguments.Selectors)
-                AddByTag((TypeSelector)argument.Rightmost.Simples[0], entry);
+                AddByTag(bucket, (TypeSelector)argument.Rightmost.Simples[0], entry);
         }
         else
-            _universal.Add(entry);
+            bucket.Universal.Add(entry);
     }
 
     // HTML elements match the lowercased name, others the name as written; no element matches both.
-    private void AddByTag(TypeSelector type, Entry entry)
+    private static void AddByTag(BucketSet bucket, TypeSelector type, Entry entry)
     {
-        Bucket(_byTag, type.Lower).Add(entry);
+        Bucket(bucket.ByTag, type.Lower).Add(entry);
         if (type.Exact != type.Lower)
-            Bucket(_byTag, type.Exact).Add(entry);
+            Bucket(bucket.ByTag, type.Exact).Add(entry);
     }
 
     private static bool IsTypeList(LogicalSelector selector) =>
@@ -65,17 +74,21 @@ internal sealed class RuleIndex<T>
     /// <summary>Appends the entries matching <paramref name="element"/> (and <paramref name="pseudoElement"/>), in order of appearance.</summary>
     public void Collect(ElementNode element, PseudoElement pseudoElement, MatchContext context, List<Entry> matches)
     {
+        var pIdx = (int)pseudoElement;
+        if ((uint)pIdx >= (uint)_buckets.Length || _buckets[pIdx] is not { } bucket)
+            return;
+
         var start = matches.Count;
-        if (!element.Id.IsNone && _byId.TryGetValue(element.Id, out var byId))
-            CollectFrom(byId, element, pseudoElement, context, matches);
+        if (!element.Id.IsNone && bucket.ById.TryGetValue(element.Id, out var byId))
+            CollectFrom(byId, element, context, matches);
         foreach (var c in element.Classes)
         {
-            if (_byClass.TryGetValue(c, out var byClass))
-                CollectFrom(byClass, element, pseudoElement, context, matches);
+            if (bucket.ByClass.TryGetValue(c, out var byClass))
+                CollectFrom(byClass, element, context, matches);
         }
-        if (_byTag.TryGetValue(element.Name.LocalName, out var byTag))
-            CollectFrom(byTag, element, pseudoElement, context, matches);
-        CollectFrom(_universal, element, pseudoElement, context, matches);
+        if (bucket.ByTag.TryGetValue(element.Name.LocalName, out var byTag))
+            CollectFrom(byTag, element, context, matches);
+        CollectFrom(bucket.Universal, element, context, matches);
 
         // Entries from one bucket are in order already; only matches from several buckets need sorting.
         for (var i = start + 1; i < matches.Count; i++)
@@ -92,12 +105,10 @@ internal sealed class RuleIndex<T>
 
     // ponytail: quirks-mode documents match ids and classes case-insensitively, so their rules may sit in a bucket
     // this lookup misses; they are rare for artifacts, and the universal bucket would be the fix if they matter.
-    private static void CollectFrom(List<Entry> entries, ElementNode element, PseudoElement pseudoElement, MatchContext context, List<Entry> matches)
+    private static void CollectFrom(List<Entry> entries, ElementNode element, MatchContext context, List<Entry> matches)
     {
         foreach (var entry in entries)
         {
-            if (entry.Selector.PseudoElement != pseudoElement)
-                continue;
             if (context.Filter is { } filter && !filter.MightContainAll(entry.AncestorHashes))
                 continue;
             if (SelectorMatcher.Matches(entry.Selector, element, context))

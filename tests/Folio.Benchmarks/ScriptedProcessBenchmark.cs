@@ -186,11 +186,12 @@ public static class ScriptedProcessBenchmark
 .f { display: flex; color: var(--c); }
 .g { display: grid; grid-template-columns: 1fr 1fr; }
 table { border-collapse: collapse; }
+.btn[aria-expanded='true'] .chv { transform: rotate(45deg); transition: transform 0.2s; }
 </style>
-<div class='f'><button id='b'>warm</button></div>
+<div class='f'><button id='b' class='btn' aria-expanded='true'><span class='chv'>warm</span></button></div>
 <div class='g'><div>g1</div><div>g2</div></div>
 <table><tr><td>t1</td></tr></table>",
-                    script = "document.body.dataset.warm = '1'; document.getElementById('b')?.addEventListener('click', () => {}); document.querySelector('table').innerHTML += '<tr><td>t2</td></tr>';"
+                    script = "document.body.dataset.warm = '1'; document.getElementById('b')?.addEventListener('click', () => {}); document.querySelector('table').innerHTML += '<tr><td>t2</td></tr>'; document.querySelectorAll('.btn').forEach(b => { b.getAttribute('aria-expanded'); b.setAttribute('aria-expanded', 'false'); });"
                 });
                 await warmupTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
             }
