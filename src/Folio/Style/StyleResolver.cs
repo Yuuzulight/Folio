@@ -48,8 +48,6 @@ internal static class StyleResolver
         return data;
     });
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ElementNode, Tuple<string, CssStyleSheet>> ParsedSheets = [];
-
     // The UA sheet is shared by every document, so its names are interned in the process-wide table.
     private static Atom Shared(string name) => AtomTable.Shared.TryIntern(name, out var atom) ? atom : Atom.None;
 
@@ -85,13 +83,7 @@ internal static class StyleResolver
                 continue;
             if (element.LocalName == "style")
             {
-                var text = element.SheetText ?? element.TextContent ?? "";
-                if (!ParsedSheets.TryGetValue(element, out var cached) || cached.Item1 != text)
-                {
-                    cached = Tuple.Create(text, CssParser.ParseStyleSheet(text));
-                    ParsedSheets.AddOrUpdate(element, cached);
-                }
-                author.Add(cached.Item2);
+                author.Add(CssParser.ParseStyleSheet(element.SheetText ?? element.TextContent ?? ""));
                 continue;
             }
             // https://html.spec.whatwg.org/multipage/links.html#link-type-stylesheet
@@ -104,14 +96,7 @@ internal static class StyleResolver
             if (element.SheetText is { } edited)
                 author.Add(CssParser.ParseStyleSheet(edited), url);
             else if (sources.LoadStyleSheet(url) is { } css)
-            {
-                if (!ParsedSheets.TryGetValue(element, out var cached) || cached.Item1 != css)
-                {
-                    cached = Tuple.Create(css, CssParser.ParseStyleSheet(css));
-                    ParsedSheets.AddOrUpdate(element, cached);
-                }
-                author.Add(cached.Item2, url);
-            }
+                author.Add(CssParser.ParseStyleSheet(css), url);
         }
         origins.Add(author);
 
