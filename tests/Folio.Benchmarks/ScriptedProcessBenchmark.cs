@@ -185,14 +185,28 @@ public static class ScriptedProcessBenchmark
                         html = @"<!DOCTYPE html><title>Warm-up</title>
 <style>
 :root { --c: #000; }
+body { font-family: system-ui, -apple-system, sans-serif; }
+h1 { font-size: 24px; font-weight: bold; }
+.sub { font-size: 14px; color: #64748b; }
+.bld { font-weight: 600; }
 .f { display: flex; color: var(--c); margin: 8px; padding: 4px; border: 1px solid #ccc; border-radius: 4px; gap: 4px; box-sizing: border-box; font: 14px sans-serif; line-height: 1.5; outline: none; }
 .g { display: grid; grid-template-columns: 1fr 1fr; }
-table { border-collapse: collapse; }
+table { border-collapse: collapse; width: 100%; }
+th { font-weight: 600; text-transform: uppercase; }
+td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
 .btn[aria-expanded='true'] .chv { transform: rotate(45deg); transition: transform 0.2s; }
+.person { display: flex; align-items: center; gap: 8px; }
+.avatar { width: 24px; height: 24px; border-radius: 50%; }
 </style>
-<div class='f'><button id='b' class='btn acc-header' aria-expanded='true' aria-controls='p1'><span class='chv'>warm</span></button></div>
+<h1>Product Architecture and Warm-up</h1>
+<p class='sub'>Explore core modules and deployment capabilities with realistic text paragraphs and multi-word sentences.</p>
+<div class='f'><button id='b' class='btn acc-header bld' aria-expanded='true' aria-controls='p1'><span class='chv'>warm</span></button></div>
 <div class='g'><div>g1</div><div>g2</div></div>
-<table><tbody id='rows'><tr><td>t1</td></tr></tbody></table>
+<select id='dept'><option value=''>All</option></select>
+<table>
+  <thead><tr><th>Name</th><th>Role</th></tr></thead>
+  <tbody id='rows'><tr><td><div class='person'><span class='avatar' style='background:#2563eb'>AB</span>Alice Bob</div></td><td>Lead</td></tr></tbody>
+</table>
 <div id='p1' hidden>content</div>
 <script>
 document.body.dataset.warm = '1';
@@ -203,7 +217,16 @@ buttons.forEach(btn => {
   btn.setAttribute('aria-expanded', 'false');
   document.getElementById(btn.getAttribute('aria-controls'));
 });
-document.getElementById('rows').innerHTML += '<tr><td>t2</td></tr>';
+const opt = document.createElement('option');
+opt.value = 'eng';
+opt.textContent = 'Engineering';
+document.getElementById('dept').appendChild(opt);
+const mockPeople = [
+  { name: 'Alice Bob', role: 'Dev', dept: 'Engineering' },
+  { name: 'Charlie Dave', role: 'Design', dept: 'Design' }
+];
+function esc(s) { return String(s).replace(/[&<>""']/g, c => c); }
+document.getElementById('rows').innerHTML = mockPeople.map(p => `<tr><td><div class=""person""><span class=""avatar"" style=""background:#2563eb"">${p.name.slice(0, 2)}</span>${esc(p.name)}</div></td><td>${esc(p.role)}</td></tr>`).join('');
 const arr = [{x: 1, y: 'a'}, {x: 2, y: 'b'}];
 arr.filter(a => a.x > 0).sort((a, b) => a.y.localeCompare(b.y)).map(a => `<span>${a.y}</span>`).join('');
 </script>"

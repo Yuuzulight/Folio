@@ -1088,6 +1088,8 @@ internal sealed class JavaScriptEvaluator
             foreach (var name in names) groups[name] = match.Groups[name].Success ? match.Groups[name].Value : JavaScriptEvaluator.UndefinedValue.Instance;
             return groups;
         }
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Pattern, RegexOptions Options), Regex> CompiledCache = new();
+
         internal static RegexValue Create(string source)
         {
             var slash = source.LastIndexOf('/');
@@ -1097,7 +1099,8 @@ internal sealed class JavaScriptEvaluator
             if (flags.Contains('i')) options |= RegexOptions.IgnoreCase;
             if (flags.Contains('m')) options |= RegexOptions.Multiline;
             if (flags.Contains('s')) options |= RegexOptions.Singleline;
-            return new RegexValue(new Regex(pattern, options, TimeSpan.FromMilliseconds(100)), pattern, flags);
+            var regex = CompiledCache.GetOrAdd((pattern, options), static key => new Regex(key.Pattern, key.Options, TimeSpan.FromMilliseconds(100)));
+            return new RegexValue(regex, pattern, flags);
         }
         internal bool TryGetProperty(string name, out object? value)
         {

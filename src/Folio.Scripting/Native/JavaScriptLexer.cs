@@ -55,46 +55,185 @@ internal sealed class JavaScriptLexer
         if (c == '`') return ReadTemplate(offset, line, column);
         if (c == '/' && IsRegexStart()) return ReadRegex(offset, line, column);
 
-        var two = _index + 1 < _source.Length ? _source.Substring(_index, 2) : string.Empty;
-        var three = _index + 2 < _source.Length ? _source.Substring(_index, 3) : string.Empty;
-        var four = _index + 3 < _source.Length ? _source.Substring(_index, 4) : string.Empty;
-        if (four == ">>>=")
+        var rem = _source.AsSpan(_index);
+        if (rem.StartsWith(">>>="))
         {
             Advance(); Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, four, offset, line, column);
+            return new(JavaScriptTokenKind.Punctuation, ">>>=", offset, line, column);
         }
-        if (three == ">>>")
+        if (rem.StartsWith(">>>"))
         {
             Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, three, offset, line, column);
+            return new(JavaScriptTokenKind.Punctuation, ">>>", offset, line, column);
         }
-        if (three is "===" or "!==" or "...")
+        if (rem.StartsWith("==="))
         {
             Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, three, offset, line, column);
+            return new(JavaScriptTokenKind.Punctuation, "===", offset, line, column);
         }
-        if (three is "&&=" or "||=" or "??=" or "<<=" or ">>=")
+        if (rem.StartsWith("!=="))
         {
             Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, three, offset, line, column);
+            return new(JavaScriptTokenKind.Punctuation, "!==", offset, line, column);
         }
-        // `e?.5` is the conditional operator followed by a fractional literal,
-        // not optional chaining.  Keep the question mark separate in that case.
-        var optionalChain = two == "?." && !(_index + 2 < _source.Length && char.IsDigit(_source[_index + 2]));
-        if (two is "=>" or "==" or "!=" or "<=" or ">=" or "&&" or "||" or "??" or "++" or "--" or "**" or "<<" or ">>" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=" or "^=" || optionalChain)
+        if (rem.StartsWith("..."))
+        {
+            Advance(); Advance(); Advance();
+            return new(JavaScriptTokenKind.Punctuation, "...", offset, line, column);
+        }
+        if (rem.StartsWith("&&="))
+        {
+            Advance(); Advance(); Advance();
+            return new(JavaScriptTokenKind.Punctuation, "&&=", offset, line, column);
+        }
+        if (rem.StartsWith("||="))
+        {
+            Advance(); Advance(); Advance();
+            return new(JavaScriptTokenKind.Punctuation, "||=", offset, line, column);
+        }
+        if (rem.StartsWith("??="))
+        {
+            Advance(); Advance(); Advance();
+            return new(JavaScriptTokenKind.Punctuation, "??=", offset, line, column);
+        }
+        if (rem.StartsWith("<<="))
+        {
+            Advance(); Advance(); Advance();
+            return new(JavaScriptTokenKind.Punctuation, "<<=", offset, line, column);
+        }
+        if (rem.StartsWith(">>="))
+        {
+            Advance(); Advance(); Advance();
+            return new(JavaScriptTokenKind.Punctuation, ">>=", offset, line, column);
+        }
+        var optionalChain = rem.StartsWith("?.") && !(rem.Length > 2 && char.IsDigit(rem[2]));
+        if (optionalChain)
         {
             Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, two, offset, line, column);
+            return new(JavaScriptTokenKind.Punctuation, "?.", offset, line, column);
+        }
+        if (rem.Length >= 2)
+        {
+            var twoOp = rem[..2] switch
+            {
+                "=>" => "=>",
+                "==" => "==",
+                "!=" => "!=",
+                "<=" => "<=",
+                ">=" => ">=",
+                "&&" => "&&",
+                "||" => "||",
+                "??" => "??",
+                "++" => "++",
+                "--" => "--",
+                "**" => "**",
+                "<<" => "<<",
+                ">>" => ">>",
+                "+=" => "+=",
+                "-=" => "-=",
+                "*=" => "*=",
+                "/=" => "/=",
+                "%=" => "%=",
+                "&=" => "&=",
+                "|=" => "|=",
+                "^=" => "^=",
+                _ => null
+            };
+            if (twoOp is not null)
+            {
+                Advance(); Advance();
+                return new(JavaScriptTokenKind.Punctuation, twoOp, offset, line, column);
+            }
         }
         Advance();
-        return new(JavaScriptTokenKind.Punctuation, _source[offset.._index], offset, line, column);
+        var single = c switch
+        {
+            ';' => ";",
+            '(' => "(",
+            ')' => ")",
+            '{' => "{",
+            '}' => "}",
+            '[' => "[",
+            ']' => "]",
+            ',' => ",",
+            '.' => ".",
+            ':' => ":",
+            '?' => "?",
+            '+' => "+",
+            '-' => "-",
+            '*' => "*",
+            '/' => "/",
+            '%' => "%",
+            '=' => "=",
+            '<' => "<",
+            '>' => ">",
+            '!' => "!",
+            '&' => "&",
+            '|' => "|",
+            '^' => "^",
+            '~' => "~",
+            _ => _source[offset.._index]
+        };
+        return new(JavaScriptTokenKind.Punctuation, single, offset, line, column);
     }
 
     private JavaScriptToken ReadIdentifier(int offset, int line, int column)
     {
         Advance();
         while (_index < _source.Length && IsIdentifierPart(_source[_index])) Advance();
-        return new(JavaScriptTokenKind.Identifier, _source[offset.._index], offset, line, column);
+        var span = _source.AsSpan(offset, _index - offset);
+        var text = span switch
+        {
+            "function" => "function",
+            "return" => "return",
+            "var" => "var",
+            "let" => "let",
+            "const" => "const",
+            "if" => "if",
+            "else" => "else",
+            "for" => "for",
+            "while" => "while",
+            "do" => "do",
+            "switch" => "switch",
+            "case" => "case",
+            "default" => "default",
+            "break" => "break",
+            "continue" => "continue",
+            "this" => "this",
+            "new" => "new",
+            "true" => "true",
+            "false" => "false",
+            "null" => "null",
+            "undefined" => "undefined",
+            "typeof" => "typeof",
+            "instanceof" => "instanceof",
+            "in" => "in",
+            "of" => "of",
+            "try" => "try",
+            "catch" => "catch",
+            "finally" => "finally",
+            "throw" => "throw",
+            "class" => "class",
+            "extends" => "extends",
+            "super" => "super",
+            "static" => "static",
+            "async" => "async",
+            "await" => "await",
+            "yield" => "yield",
+            "get" => "get",
+            "set" => "set",
+            "prototype" => "prototype",
+            "constructor" => "constructor",
+            "length" => "length",
+            "name" => "name",
+            "value" => "value",
+            "target" => "target",
+            "document" => "document",
+            "window" => "window",
+            "globalThis" => "globalThis",
+            _ => _source[offset.._index]
+        };
+        return new(JavaScriptTokenKind.Identifier, text, offset, line, column);
     }
 
     private JavaScriptToken ReadNumber(int offset, int line, int column)
