@@ -883,7 +883,7 @@ internal static class InlineLayout
     private static ShapedRun ShapeRunCached(string text, int start, int length, FontFace? face, ComputedStyle style, LayoutContext context, bool rightToLeft,
                                             bool upright)
     {
-        if (face is null || upright || length > 32 || !SimpleShaper.CanShape(text.AsSpan(start, length), face))
+        if (face is null || upright || length > 64 || !SimpleShaper.CanShape(text.AsSpan(start, length), face))
             return ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
         var cache = ShapeCaches.GetValue(context.Fonts, _ => new ShapeCache());
         var spacing = style.TextSpacing;

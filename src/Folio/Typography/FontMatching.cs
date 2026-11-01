@@ -426,47 +426,56 @@ internal static class SimpleShaper
     /// <param name="features">Space-separated feature tags whose single substitutions apply (such as "tnum"), or "".</param>
     public static ShapedRun Shape(string text, int start, int length, FontFace face, float size, string features = "")
     {
-        var glyphs = new List<ushort>(length);
-        var clusters = new List<int>(length);
-        var markFlags = new List<bool>(length);
+        var glyphs = new ushort[length];
+        var clusters = new int[length];
+        var markFlags = new bool[length];
+        var count = 0;
+        var hasMarks = false;
         for (var i = start; i < start + length;)
         {
             var rune = Rune.GetRuneAt(text, i);
             var glyph = face.GlyphFor(rune.Value);
             var isMark = IsSimpleMark(rune.Value);
-            glyphs.Add(features.Length == 0 ? glyph : face.Substitute(glyph, features));
-            clusters.Add(isMark && clusters.Count > 0 ? clusters[^1] : i);
-            markFlags.Add(isMark);
+            if (isMark) hasMarks = true;
+            glyphs[count] = features.Length == 0 ? glyph : face.Substitute(glyph, features);
+            clusters[count] = isMark && count > 0 ? clusters[count - 1] : i;
+            markFlags[count] = isMark;
+            count++;
             i += rune.Utf16SequenceLength;
         }
 
+        if (count < length)
+        {
+            Array.Resize(ref glyphs, count);
+            Array.Resize(ref clusters, count);
+        }
+
         var scale = size / face.UnitsPerEm;
-        var advances = new float[glyphs.Count];
-        var offsets = new System.Numerics.Vector2[glyphs.Count];
-        var hasOffsets = false;
-        for (var g = 0; g < glyphs.Count; g++)
+        var advances = new float[count];
+        System.Numerics.Vector2[]? offsets = null;
+        for (var g = 0; g < count; g++)
         {
             var units = face.Advance(glyphs[g]);
-            if (g + 1 < glyphs.Count)
+            if (g + 1 < count)
                 units += face.Kerning(glyphs[g], glyphs[g + 1]);
-            if (markFlags[g])
+            if (hasMarks && markFlags[g])
                 units = 0;
             advances[g] = units * scale;
-            if (g > 0
+            if (hasMarks && g > 0
                 && markFlags[g]
                 && (markFlags[g - 1]
                     ? face.MarkToMarkOffset(glyphs[g - 1], glyphs[g])
                     : face.MarkOffset(glyphs[g - 1], glyphs[g])) is { } mark)
             {
+                offsets ??= new System.Numerics.Vector2[count];
                 offsets[g] = new(mark.X * scale, -mark.Y * scale);
                 if (markFlags[g - 1])
                     offsets[g] += offsets[g - 1];
-                hasOffsets = true;
             }
         }
-        return new ShapedRun(face, size, [.. glyphs], [.. clusters], advances)
+        return new ShapedRun(face, size, glyphs, clusters, advances)
         {
-            Offsets = hasOffsets ? offsets : null,
+            Offsets = offsets,
         };
     }
 
