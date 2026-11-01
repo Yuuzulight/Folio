@@ -200,10 +200,12 @@ internal sealed class StyleBuilder
     // Reuses an equal instance (the parent's or initial group, or one built earlier in the pass).
     private static T Share<T>(T built, T existing, Dictionary<object, object>? groups) where T : class
     {
-        if (ReferenceEquals(built, existing) || built.Equals(existing))
+        if (ReferenceEquals(built, existing))
             return existing;
         if (groups is null)
             return built;
+        if (built.Equals(existing))
+            return existing;
         if (groups.TryGetValue(built, out var shared))
             return (T)shared;
         groups[built] = built;

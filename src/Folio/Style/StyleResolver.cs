@@ -186,7 +186,7 @@ internal static class StyleResolver
         private readonly string? _baseUrl;
         private readonly Dictionary<string, List<Keyframe>> _keyframes;
         private readonly double? _animationTime;
-        private readonly Dictionary<object, object> _groups = [];
+        private readonly Dictionary<object, object>? _groups = null;
         // Inline declarations are immutable for the lifetime of a restyle pass. State-only invalidation
         // revisits the same inline style text repeatedly; keep the parsed block instead of reparsing it
         // for every hover/focus transition.

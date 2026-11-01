@@ -28,6 +28,7 @@ internal static class TableLayout
         public List<(TablePartBox? Group, List<TablePartBox> Rows)> Groups { get; } = [];
         public List<TablePartBox> Rows { get; } = [];
         public List<Cell> Cells { get; } = [];
+        public int[] RowCellStarts { get; set; } = [];
         public List<float?> ColumnWidths { get; } = []; // from col and colgroup
         public List<float> ColumnPercents { get; } = []; // percentage widths from col and colgroup, 0 for none
         public int Columns;
@@ -243,9 +244,7 @@ internal static class TableLayout
         rowY[0] = frame.Top + spacing.Y;
         for (var r = 1; r <= rowCount; r++)
             rowY[r] = rowY[r - 1] + heights[r - 1] + spacing.Y;
-        var cellsByRow = new List<Cell>[rowCount];
-        foreach (var cell in grid.Cells)
-            (cellsByRow[cell.Row] ??= []).Add(cell);
+
 
         // Fragments: row groups hold rows, rows hold the cells that start in them.
         var gridSpan = n == 0 ? 0 : columnX[n - 1] + columns[n - 1] - columnX[0];
@@ -261,12 +260,11 @@ internal static class TableLayout
             {
                 var r = rowIndex++;
                 var cells = new List<ChildFragment>();
-                if (cellsByRow[r] is { } rowCells)
+                var rowStart = grid.RowCellStarts.Length > r ? grid.RowCellStarts[r] : 0;
+                var rowEnd = grid.RowCellStarts.Length > r + 1 ? grid.RowCellStarts[r + 1] : 0;
+                for (var ci = rowStart; ci < rowEnd; ci++)
                 {
-                    for (var ci = 0; ci < rowCells.Count; ci++)
-                    {
-                        var cell = rowCells[ci];
-                {
+                    var cell = grid.Cells[ci];
                     var height = rowY[r + cell.RowSpan] - rowY[r] - spacing.Y;
                     var content = cell.Fragment!;
                     var offset = cell.Box.Style.Box.VerticalAlign.Kind switch
@@ -298,8 +296,6 @@ internal static class TableLayout
                     {
                         var positioned = content.OutOfFlow[o];
                         carried.Add(positioned with { StaticX = positioned.StaticX + CellX(cell), StaticY = positioned.StaticY + rowY[r] + offset });
-                    }
-                }
                     }
                 }
                 rowFragments.Add(new ChildFragment(0, rowY[r] - rowY[first],
@@ -608,6 +604,16 @@ internal static class TableLayout
             }
         }
         grid.Columns = Math.Max(grid.ColumnWidths.Count, maxColSeen);
+        var starts = new int[grid.Rows.Count + 1];
+        var cellIdx = 0;
+        for (var r = 0; r < grid.Rows.Count; r++)
+        {
+            starts[r] = cellIdx;
+            while (cellIdx < grid.Cells.Count && grid.Cells[cellIdx].Row == r)
+                cellIdx++;
+        }
+        starts[grid.Rows.Count] = grid.Cells.Count;
+        grid.RowCellStarts = starts;
         return grid;
 
         static void AddCol(Grid grid, TablePartBox column)
