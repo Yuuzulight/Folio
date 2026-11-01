@@ -131,8 +131,14 @@ internal sealed class StyleBuilder
             value = CustomProperties.Resolve(pending, property, context.Custom) ?? new CssWideValue(CssWideKeyword.Unset);
         if (value is CssWideValue wide)
         {
-            var inherit = wide.Keyword == CssWideKeyword.Inherit || (wide.Keyword != CssWideKeyword.Initial && property.Inherited);
-            if (inherit)
+            if (wide.Keyword == CssWideKeyword.Unset)
+                return;
+            if (wide.Keyword == CssWideKeyword.Initial && !property.Inherited)
+                return;
+            if (wide.Keyword == CssWideKeyword.Inherit && property.Inherited)
+                return;
+
+            if (property.Inherited ? wide.Keyword != CssWideKeyword.Initial : wide.Keyword == CssWideKeyword.Inherit)
                 property.Inherit(this, _parent);
             else
                 property.Apply(this, property.Initial, context);
