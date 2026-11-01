@@ -219,11 +219,13 @@ buttons.forEach(btn => {
   btn.setAttribute('aria-expanded', 'false');
   document.getElementById(btn.getAttribute('aria-controls'));
 });
-const opt = document.createElement('option');
-opt.value = 'eng';
-opt.textContent = 'Engineering';
-document.getElementById('dept').appendChild(opt);
 const depts = ['Engineering', 'Design', 'Sales', 'Finance', 'Operations'];
+[...new Set(depts)].sort().forEach(d => {
+  const opt = document.createElement('option');
+  opt.value = d;
+  opt.textContent = d;
+  document.getElementById('dept').appendChild(opt);
+});
 const cities = ['Rotterdam', 'Lyon', 'Bologna', 'Tallinn', 'Busan'];
 const mockPeople = [];
 for (let i = 0; i < 20; i++) {
@@ -242,6 +244,7 @@ function fmtDate(iso) { const [y, m] = iso.split('-'); return m + '/' + y; }
 document.getElementById('rows').innerHTML = mockPeople.map(p => `<tr><td><div class=""person""><span class=""avatar"" style=""background:#2563eb"">${initials(p.name)}</span>${esc(p.name)}</div></td><td>${esc(p.role)}</td><td><span class=""dept"">${esc(p.dept)}</span></td><td>${esc(p.city)}</td><td class=""num"">${fmtDate(p.start)}</td><td class=""num"">${p.projects}</td></tr>`).join('');
 const arr = [{x: 1, y: 'a'}, {x: 2, y: 'b'}];
 arr.filter(a => a.x > 0).sort((a, b) => a.y.localeCompare(b.y)).map(a => `<span>${a.y}</span>`).join('');
+mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))).sort((a, b) => a.name.localeCompare(b.name));
 </script>"
                     });
                     await warmupTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
