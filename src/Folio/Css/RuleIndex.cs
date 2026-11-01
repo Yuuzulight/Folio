@@ -20,7 +20,7 @@ internal sealed class RuleIndex<T>
         public readonly List<Entry> Universal = [];
     }
 
-    private readonly BucketSet?[] _buckets = new BucketSet?[(int)PseudoElement.FirstLetter + 1];
+    private readonly BucketSet?[] _buckets = new BucketSet?[(int)PseudoElement.Unknown + 1];
     private int _count;
 
     public int Count => _count;
@@ -39,6 +39,8 @@ internal sealed class RuleIndex<T>
     {
         var entry = new Entry(selector, data, _count++, AncestorHashes(selector));
         var pIdx = (int)selector.PseudoElement;
+        if ((uint)pIdx >= (uint)_buckets.Length)
+            return;
         var bucket = _buckets[pIdx] ??= new BucketSet();
         if (Folio.Style.StateInvalidation.Mentions(selector))
             StateSelectors.Add(selector);
