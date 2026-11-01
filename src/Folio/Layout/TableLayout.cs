@@ -181,8 +181,9 @@ internal static class TableLayout
         var rowCount = grid.Rows.Count;
         var heights = new float[rowCount];
         var ascents = new float[rowCount];
-        foreach (var cell in grid.Cells)
+        for (var i = 0; i < grid.Cells.Count; i++)
         {
+            var cell = grid.Cells[i];
             var w = SpanWidth(cell);
             cell.Fragment = BlockLayout.Layout(cell.Box, new ConstraintSpace(w, null, FixedWidth: w, Border: Half(cell)), context);
             cell.Baseline = FirstBaseline(cell.Fragment) ?? cell.Fragment.Height - (Half(cell) ?? cell.Box.Style.Border).BottomWidth
@@ -861,8 +862,10 @@ internal static class TableLayout
     // A cell's first baseline: its first line box's, from its top; null without line boxes.
     private static float? FirstBaseline(Fragment fragment)
     {
-        foreach (var child in fragment.Children)
+        var children = fragment.Children;
+        for (var i = 0; i < children.Count; i++)
         {
+            var child = children[i];
             if (child.Fragment.Kind == FragmentKind.Line && child.Fragment.Height > 0)
                 return child.Y + child.Fragment.Baseline;
             if (child.Fragment.Kind == FragmentKind.Box && child.Fragment.Box is { IsFloat: false, IsAbsolutelyPositioned: false }

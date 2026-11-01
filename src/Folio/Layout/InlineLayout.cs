@@ -518,8 +518,33 @@ internal static class InlineLayout
             var (unitMin, unitMax) = (unit.Width - unit.TrailingSpace + unit.HyphenWidth, unit.Width);
             // overflow-wrap: anywhere (and word-break: break-word) may break between any two characters for min-content;
             // break-word only when laying out.
-            if (unit.Pieces.Exists(p => p.Kind == PieceKind.Text && WrapsAnywhere(p.Style, forMinContent: true)))
-                unitMin = unit.Pieces.Where(p => p.Kind == PieceKind.Text).SelectMany(p => p.Run!.Advances[p.GlyphStart..p.GlyphEnd]).DefaultIfEmpty().Max();
+            var wrapsAnywhere = false;
+            for (var pIdx = 0; pIdx < unit.Pieces.Count; pIdx++)
+            {
+                var piece = unit.Pieces[pIdx];
+                if (piece.Kind == PieceKind.Text && WrapsAnywhere(piece.Style, forMinContent: true))
+                {
+                    wrapsAnywhere = true;
+                    break;
+                }
+            }
+            if (wrapsAnywhere)
+            {
+                var maxAdv = 0f;
+                for (var pIdx = 0; pIdx < unit.Pieces.Count; pIdx++)
+                {
+                    var piece = unit.Pieces[pIdx];
+                    if (piece.Kind == PieceKind.Text && piece.Run is { } r)
+                    {
+                        var adv = r.Advances;
+                        for (var a = piece.GlyphStart; a < piece.GlyphEnd; a++)
+                        {
+                            if (adv[a] > maxAdv) maxAdv = adv[a];
+                        }
+                    }
+                }
+                unitMin = maxAdv;
+            }
             if (first && block.Node is Dom.ElementNode && !block.Style.Text.TextIndent.Hanging)
             {
                 // The first line's indent (percentages count as zero with no width to resolve them against).
@@ -527,8 +552,9 @@ internal static class InlineLayout
                 (unitMin, line) = (unitMin + indent, line + indent);
             }
             first = false;
-            foreach (var piece in unit.Pieces)
+            for (var pIdx = 0; pIdx < unit.Pieces.Count; pIdx++)
             {
+                var piece = unit.Pieces[pIdx];
                 if (piece.Kind is PieceKind.Atomic or PieceKind.Float)
                 {
                     var c = IntrinsicSizes.Contribution(piece.Box!, context);
@@ -556,6 +582,7 @@ internal static class InlineLayout
     private sealed record Levels(byte[] Text, IReadOnlyDictionary<Box, byte> Atomics, int Paragraph);
 
     private static readonly IReadOnlyDictionary<Box, byte> NoAtomics = new Dictionary<Box, byte>();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<InlineFormattingContext, Levels> BidiCache = [];
 
     /// <summary>
     /// Resolves the paragraph's bidi levels (UAX #9) with the embeddings, isolates and overrides its inline boxes ask
@@ -563,11 +590,17 @@ internal static class InlineLayout
     /// </summary>
     private static Levels BidiLevels(BlockContainerBox block, InlineFormattingContext ifc)
     {
+        if (BidiCache.TryGetValue(ifc, out var cached))
+            return cached;
         var text = ifc.Text;
         int? paragraph = block.Style.Box.UnicodeBidi == UnicodeBidi.Plaintext ? null : block.Style.Text.Direction == Direction.Rtl ? 1 : 0;
         // Most paragraphs are left to right throughout: every level is 0, with nothing to collect or resolve.
         if (paragraph == 0 && !HasRightToLeft(ifc))
-            return new Levels(new byte[text.Length], NoAtomics, 0);
+        {
+            var ltr = new Levels(new byte[text.Length], NoAtomics, 0);
+            BidiCache.AddOrUpdate(ifc, ltr);
+            return ltr;
+        }
         var codePoints = new List<int>(text.Length + 8);
         var textIndex = new int[text.Length];
         var atomicIndex = new Dictionary<Box, int>();
@@ -587,7 +620,13 @@ internal static class InlineLayout
                     for (var i = item.Start; i < item.Start + item.Length; i++)
                     {
                         textIndex[i] = codePoints.Count;
-                        var cp = char.IsHighSurrogate(text[i]) && i + 1 < text.Length ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
+                        var ch = text[i];
+                        if (ch < 128)
+                        {
+                            codePoints.Add(ch);
+                            continue;
+                        }
+                        var cp = char.IsHighSurrogate(ch) && i + 1 < text.Length ? char.ConvertToUtf32(ch, text[i + 1]) : ch;
                         if (cp > 0xFFFF)
                             textIndex[++i] = codePoints.Count;
                         codePoints.Add(cp);
@@ -604,14 +643,20 @@ internal static class InlineLayout
             }
         }
         if (!needed)
-            return new Levels(new byte[text.Length], NoAtomics, 0);
+        {
+            var ltr = new Levels(new byte[text.Length], NoAtomics, 0);
+            BidiCache.AddOrUpdate(ifc, ltr);
+            return ltr;
+        }
 
         var (levels, resolved) = Bidi.Resolve(codePoints.ToArray(), paragraph);
         byte Level(int index) => levels[index] == Bidi.Removed ? (byte)resolved : levels[index];
         var textLevels = new byte[text.Length];
         for (var i = 0; i < text.Length; i++)
             textLevels[i] = Level(textIndex[i]);
-        return new Levels(textLevels, atomicIndex.ToDictionary(a => a.Key, a => Level(a.Value)), resolved);
+        var result = new Levels(textLevels, atomicIndex.ToDictionary(a => a.Key, a => Level(a.Value)), resolved);
+        BidiCache.AddOrUpdate(ifc, result);
+        return result;
     }
 
     // Whether a left-to-right paragraph needs its levels resolved: some inline box asks for bidi controls, or some text
@@ -627,7 +672,9 @@ internal static class InlineLayout
                 continue;
             for (var i = item.Start; i < item.Start + item.Length; i++)
             {
-                var cp = char.IsHighSurrogate(text[i]) && i + 1 < text.Length ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
+                var ch = text[i];
+                if (ch < 128) continue;
+                var cp = char.IsHighSurrogate(ch) && i + 1 < text.Length ? char.ConvertToUtf32(ch, text[i + 1]) : ch;
                 if (cp > 0xFFFF)
                     i++;
                 if (UnicodeData.Bidi(cp) is BidiClass.R or BidiClass.AL or BidiClass.AN)
