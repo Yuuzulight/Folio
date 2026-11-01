@@ -49,7 +49,7 @@ internal static class FetchBindings
         return System.Text.Encoding.UTF8.GetString(data, bom, data.Length - bom);
     }
 
-    private const string Source = """
+    internal const string Source = """
         (function(host) {
             'use strict';
             const global = globalThis;

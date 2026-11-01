@@ -191,9 +191,11 @@ h1 { font-size: 24px; font-weight: bold; }
 .bld { font-weight: 600; }
 .f { display: flex; color: var(--c); margin: 8px; padding: 4px; border: 1px solid #ccc; border-radius: 4px; gap: 4px; box-sizing: border-box; font: 14px sans-serif; line-height: 1.5; outline: none; }
 .g { display: grid; grid-template-columns: 1fr 1fr; }
-table { border-collapse: collapse; width: 100%; }
-th { font-weight: 600; text-transform: uppercase; }
-td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
+table { border-collapse: collapse; width: 100%; background: #fff; border: 1px solid #e6e8ee; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
+th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid #e6e8ee; font-size: 13px; }
+th { font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.dept { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; }
 .btn[aria-expanded='true'] .chv { transform: rotate(45deg); transition: transform 0.2s; }
 .person { display: flex; align-items: center; gap: 8px; }
 .avatar { width: 24px; height: 24px; border-radius: 50%; }

@@ -30,7 +30,7 @@ internal static class CssBindings
         return Conditions.SupportsOrInvalid(wrappedSource, wrapped) == true;
     }
 
-    private const string Source = """
+    internal const string Source = """
         (function(host) {
             'use strict';
             function escape(value) {

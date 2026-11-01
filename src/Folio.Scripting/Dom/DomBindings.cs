@@ -11,6 +11,182 @@ namespace Folio.Scripting.Dom;
 /// </summary>
 public static class DomBindings
 {
+    internal const string DomGlobalsScript = @"
+            // The script engine may pre-create a distinct Window-like object. For a top-level document it must be the
+            // actual global object so browser libraries see the same methods and globals through both names.
+            globalThis.window = globalThis;
+            globalThis.self = globalThis;
+            // Some libraries call the Window method rather than the global alias. Keep both views identical even
+            // when an embedding host supplied a distinct window proxy.
+            if (globalThis.window && typeof globalThis.window.getComputedStyle !== 'function' && typeof globalThis.getComputedStyle === 'function')
+                globalThis.window.getComputedStyle = globalThis.getComputedStyle;
+            globalThis.navigator = globalThis.navigator || {};
+            globalThis.MediaStream = function(tracks) { this.id = 'stream-' + Math.random().toString(16).slice(2); this._tracks = tracks && typeof tracks.getTracks === 'function' ? tracks.getTracks() : (tracks ? tracks.slice() : []); this.onaddtrack = null; this.onremovetrack = null; this._listeners = {}; this.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; var list = this._listeners[type] || (this._listeners[type] = []); if (list.indexOf(handler) < 0) list.push(handler); }; this.removeEventListener = function(type, handler) { var list = this._listeners[type] || []; this._listeners[type] = list.filter(function(item) { return item !== handler; }); }; this._dispatch = function(event) { var handler = event.type === 'addtrack' ? this.onaddtrack : this.onremovetrack; if (handler) handler(event); (this._listeners[event.type] || []).slice().forEach(function(listener) { listener(event); }); }; };
+            Object.defineProperty(MediaStream.prototype, 'active', { get: function() { return this._tracks.some(function(track) { return track.readyState === 'live'; }); } });
+            MediaStream.prototype.getTracks = function() { return this._tracks.slice(); };
+            MediaStream.prototype.getTrackById = function(id) { id = String(id); for (var i = 0; i < this._tracks.length; i++) if (this._tracks[i].id === id) return this._tracks[i]; return null; };
+            MediaStream.prototype.getAudioTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'audio'; }); };
+            MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
+            MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) { this._tracks.push(track); this._dispatch({ type: 'addtrack', target: this, track: track }); } };
+            MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); this._dispatch({ type: 'removetrack', target: this, track: track }); } };
+            globalThis.innerWidth = 800;
+            globalThis.innerHeight = 600;
+            globalThis.devicePixelRatio = 1;
+            globalThis.scrollX = 0;
+            globalThis.scrollY = 0;
+            Object.defineProperty(globalThis, 'pageXOffset', { get: function() { return globalThis.scrollX; } });
+            Object.defineProperty(globalThis, 'pageYOffset', { get: function() { return globalThis.scrollY; } });
+            globalThis.scrollTo = function(x, y) { globalThis.scrollX = Number(x) || 0; globalThis.scrollY = Number(y) || 0; };
+            globalThis.scrollBy = function(x, y) { globalThis.scrollX += Number(x) || 0; globalThis.scrollY += Number(y) || 0; };
+            globalThis.matchMedia = function(query) {
+                query = String(query);
+                const min = /min-width\s*:\s*(\d+)px/.exec(query);
+                const max = /max-width\s*:\s*(\d+)px/.exec(query);
+                const matches = (!min || globalThis.innerWidth >= Number(min[1])) && (!max || globalThis.innerWidth <= Number(max[1]));
+                const listeners = [];
+                return {
+                    media: query,
+                    matches: matches,
+                    onchange: null,
+                    addListener: function(fn) { if (typeof fn === 'function') listeners.push(fn); },
+                    removeListener: function(fn) { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); },
+                    addEventListener: function(type, fn) { if (type === 'change') this.addListener(fn); },
+                    removeEventListener: function(type, fn) { if (type === 'change') this.removeListener(fn); },
+                    dispatchEvent: function() { return true; }
+                };
+            };
+            globalThis.ResizeObserver = function(callback) {
+                if (typeof callback !== 'function') throw new TypeError('ResizeObserver callback must be callable');
+                this._callback = callback;
+                this._targets = [];
+            };
+            ResizeObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
+            ResizeObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
+            ResizeObserver.prototype.disconnect = function() { this._targets.length = 0; };
+            globalThis.IntersectionObserver = function(callback, options) {
+                if (typeof callback !== 'function') throw new TypeError('IntersectionObserver callback must be callable');
+                this._callback = callback;
+                this.root = options && options.root || null;
+                this.rootMargin = options && options.rootMargin || '0px';
+                this.thresholds = options && options.threshold !== undefined ? [].concat(options.threshold) : [0];
+                this._targets = [];
+            };
+            IntersectionObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
+            IntersectionObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
+            IntersectionObserver.prototype.disconnect = function() { this._targets.length = 0; };
+            IntersectionObserver.prototype.takeRecords = function() { return []; };
+            {
+                const resolved = Promise.resolve();
+                const then = Promise.prototype.then;
+                // The notification is a promise job, so it runs in order with the script's own promise callbacks.
+                globalThis.__folio_mo_queue = function() { then.call(resolved, function() { __folio_mutation_host.notify(); }); };
+                const flag = function(options, name) { return options[name] === undefined ? undefined : !!options[name]; };
+                const bad = function(why) { throw new TypeError(""Failed to execute 'observe' on 'MutationObserver': "" + why); };
+                globalThis.MutationObserver = class MutationObserver {
+                    constructor(callback) {
+                        if (typeof callback !== 'function') throw new TypeError(""Failed to construct 'MutationObserver': The callback provided as parameter 1 is not a function."");
+                        this._host = __folio_mutation_host.create(callback, this);
+                    }
+                    observe(target, options) {
+                        if (options === undefined || options === null) options = {};
+                        else if (typeof options !== 'object' && typeof options !== 'function') bad('The provided value is not of type MutationObserverInit.');
+                        let attributes = flag(options, 'attributes'), characterData = flag(options, 'characterData');
+                        const attributeOldValue = flag(options, 'attributeOldValue'), characterDataOldValue = flag(options, 'characterDataOldValue');
+                        const filter = options.attributeFilter === undefined ? undefined : Array.from(options.attributeFilter, String);
+                        if ((attributeOldValue !== undefined || filter !== undefined) && attributes === undefined) attributes = true;
+                        if (characterDataOldValue !== undefined && characterData === undefined) characterData = true;
+                        const childList = !!options.childList, subtree = !!options.subtree;
+                        if (!childList && !attributes && !characterData) bad('The options object must set at least one of ""attributes"", ""characterData"", or ""childList"" to true.');
+                        if (attributeOldValue && !attributes) bad('The options object may only set ""attributeOldValue"" to true when ""attributes"" is true or not present.');
+                        if (filter !== undefined && !attributes) bad('The options object may only set ""attributeFilter"" when ""attributes"" is true or not present.');
+                        if (characterDataOldValue && !characterData) bad('The options object may only set ""characterDataOldValue"" to true when ""characterData"" is true or not present.');
+                        this._host.observe(target, childList, subtree, !!attributes, !!attributeOldValue, !!characterData, !!characterDataOldValue, filter === undefined ? null : filter);
+                    }
+                    disconnect() { this._host.disconnect(); }
+                    takeRecords() { return this._host.takeRecords(); }
+                };
+            }
+            globalThis.Path2D = function(path) { return arguments.length ? __folio_canvas_host.createPath(path) : __folio_canvas_host.createPath(); };
+            globalThis.ImageData = function(a, b, c) { return __folio_canvas_host.imageData(a, b, c); };
+            globalThis.Audio = function(src) { const element = document.createElement('audio'); if (src !== undefined) element.src = String(src); return element; };
+            globalThis.FormData = function(form) {
+                this._entries = [];
+                if (form && form.elements) for (const control of form.elements) if (control.name) this.append(control.name, control.value || '');
+            };
+            FormData.prototype.append = function(name, value) { this._entries.push([String(name), value]); };
+            FormData.prototype.set = function(name, value) { this.delete(name); this.append(name, value); };
+            FormData.prototype.get = function(name) { const e = this._entries.find(x => x[0] === String(name)); return e ? e[1] : null; };
+            FormData.prototype.getAll = function(name) { return this._entries.filter(x => x[0] === String(name)).map(x => x[1]); };
+            FormData.prototype.has = function(name) { return this._entries.some(x => x[0] === String(name)); };
+            FormData.prototype.delete = function(name) { name = String(name); this._entries = this._entries.filter(x => x[0] !== name); };
+            FormData.prototype.entries = function() { return this._entries[Symbol.iterator](); };
+            FormData.prototype.keys = function() { return this._entries.map(x => x[0])[Symbol.iterator](); };
+            FormData.prototype.values = function() { return this._entries.map(x => x[1])[Symbol.iterator](); };
+            function makeStorage(persistent) {
+                const data = Object.create(null);
+                if (persistent) for (const key of __folio_storage.keys()) { const value = __folio_storage.read(key); if (value !== null) data[key] = value; }
+                const storage = {
+                    get length() { return Object.keys(data).length; },
+                    key: function(index) { return Object.keys(data)[index] ?? null; },
+                    getItem: function(key) { key = String(key); return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null; },
+                    setItem: function(key, value) { key = String(key); value = String(value); let size = 0; for (const k of Object.keys(data)) if (k !== key) size += k.length + data[k].length; size += key.length + value.length; if (size > 5 * 1024 * 1024) throw new DOMException('Storage quota exceeded', 'QuotaExceededError'); data[key] = value; if (persistent) __folio_storage.write(key, value); },
+                    removeItem: function(key) { key = String(key); delete data[key]; if (persistent) __folio_storage.delete(key); },
+                    clear: function() { for (const key of Object.keys(data)) { delete data[key]; if (persistent) __folio_storage.delete(key); } }
+                };
+                return new Proxy(storage, { get: function(target, key) { if (key in target) return target[key]; return target.getItem(key); }, set: function(target, key, value) { target.setItem(key, value); return true; }, deleteProperty: function(target, key) { target.removeItem(key); return true; }, ownKeys: function() { return Object.keys(data); } });
+            }
+            globalThis.localStorage = makeStorage(true);
+            globalThis.sessionStorage = makeStorage();
+            globalThis.URLSearchParams = function(init) {
+                const result = { _pairs: [] };
+                result.append = function(k,v) { result._pairs.push([String(k), String(v)]); };
+                result.set = function(k,v) { result.delete(k); result.append(k,v); };
+                result.get = function(k) { const p = result._pairs.find(x => x[0] === String(k)); return p ? p[1] : null; };
+                result.has = function(k) { return result._pairs.some(x => x[0] === String(k)); };
+                result.delete = function(k) { k = String(k); result._pairs = result._pairs.filter(x => x[0] !== k); };
+                result.toString = function() { return result._pairs.map(x => encodeURIComponent(x[0]) + '=' + encodeURIComponent(x[1])).join('&'); };
+                if (typeof init === 'string') for (const part of init.replace(/^\?/, '').split('&')) if (part) { const i = part.indexOf('='); result.append(decodeURIComponent(i < 0 ? part : part.slice(0, i)), decodeURIComponent(i < 0 ? '' : part.slice(i + 1))); }
+                return result;
+            };
+            URLSearchParams.prototype.append = function(k,v) { this._pairs.push([String(k), String(v)]); };
+            URLSearchParams.prototype.set = function(k,v) { this.delete(k); this.append(k,v); };
+            URLSearchParams.prototype.get = function(k) { const p = this._pairs.find(x => x[0] === String(k)); return p ? p[1] : null; };
+            URLSearchParams.prototype.has = function(k) { return this._pairs.some(x => x[0] === String(k)); };
+            URLSearchParams.prototype.delete = function(k) { k = String(k); this._pairs = this._pairs.filter(x => x[0] !== k); };
+            URLSearchParams.prototype.toString = function() { return this._pairs.map(x => encodeURIComponent(x[0]) + '=' + encodeURIComponent(x[1])).join('&'); };
+            globalThis.Blob = function(parts, options) { this._text = Array.from(parts || []).map(String).join(''); this.type = options && options.type ? String(options.type).toLowerCase() : ''; this.size = this._text.length; };
+            Blob.prototype.text = function() { return Promise.resolve(this._text); };
+            Blob.prototype.arrayBuffer = function() { const bytes = new Uint8Array(this._text.length); for (let i = 0; i < this._text.length; i++) bytes[i] = this._text.charCodeAt(i) & 255; return Promise.resolve(bytes.buffer); };
+            globalThis.URL = function(value, base) { const raw = String(value); const match = /^(?:(\w+):\/\/([^\/]+))?([^?#]*)(\?[^#]*)?(#.*)?$/.exec(raw); const result = {}; result.protocol = match && match[1] ? match[1] + ':' : ''; result.host = match && match[2] ? match[2] : ''; result.origin = result.protocol && result.host ? result.protocol + '//' + result.host : ''; result.pathname = match && match[3] ? match[3] : '/'; result.search = match && match[4] ? match[4] : ''; result.hash = match && match[5] ? match[5] : ''; result.href = result.origin + result.pathname + result.search + result.hash; result.searchParams = new URLSearchParams(result.search); return result; };
+            URL.createObjectURL = function(blob) { return __folio_blob_store.create(blob && blob._text); };
+            URL.revokeObjectURL = function(url) { __folio_blob_store.revoke(url); };
+            globalThis.Option = function(text, value, defaultSelected, selected) { const option = document.createElement('option'); option.text = text === undefined ? '' : String(text); if (value !== undefined) option.value = String(value); if (defaultSelected) option.defaultSelected = true; if (selected) option.selected = true; return option; };
+            globalThis.btoa = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const bytes = String(value); let out = ''; for (let i = 0; i < bytes.length; i += 3) { const a = bytes.charCodeAt(i), b = i + 1 < bytes.length ? bytes.charCodeAt(i + 1) : 0, c = i + 2 < bytes.length ? bytes.charCodeAt(i + 2) : 0; out += alphabet[a >> 2] + alphabet[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? alphabet[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? alphabet[c & 63] : '='); } return out; };
+            globalThis.atob = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const input = String(value).replace(/=+$/, ''); let out = ''; for (let i = 0; i < input.length; i += 4) { const a = alphabet.indexOf(input[i]), b = alphabet.indexOf(input[i + 1]), c = alphabet.indexOf(input[i + 2]), d = alphabet.indexOf(input[i + 3]); out += String.fromCharCode((a << 2) | (b >> 4)); if (c >= 0) out += String.fromCharCode(((b & 15) << 4) | (c >> 2)); if (d >= 0) out += String.fromCharCode(((c & 3) << 6) | d); } return out; };
+            globalThis.crypto = { getRandomValues: function(array) { for (let i = 0; i < array.length; i++) array[i] = Math.floor(Math.random() * 256); return array; } };
+            globalThis.TextEncoder = function() {};
+            TextEncoder.prototype.encode = function(value) { const text = String(value); const bytes = new Uint8Array(text.length); for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 255; return bytes; };
+            globalThis.TextDecoder = function() {};
+            TextDecoder.prototype.decode = function(value) { let text = ''; for (let i = 0; i < value.length; i++) text += String.fromCharCode(value[i]); return text; };
+            globalThis.console = globalThis.console || {};
+            for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
+        ";
+
+    internal static void Prime()
+    {
+        Folio.Scripting.Native.NativeJavaScriptEngine.GetOrParseProgram("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
+        Folio.Scripting.Native.NativeJavaScriptEngine.GetOrParseProgram(DomGlobalsScript);
+        Folio.Scripting.Native.NativeJavaScriptEngine.GetOrParseProgram(DomEvents.Source);
+        Folio.Scripting.Native.NativeJavaScriptEngine.GetOrParseProgram(CssBindings.Source);
+        Folio.Scripting.Native.NativeJavaScriptEngine.GetOrParseProgram(CssomBindings.Source);
+        Folio.Scripting.Native.NativeJavaScriptEngine.GetOrParseProgram(UrlBindings.Source);
+        Folio.Scripting.Native.NativeJavaScriptEngine.GetOrParseProgram(FetchBindings.Source);
+        Folio.Scripting.Native.NativeJavaScriptEngine.GetOrParseProgram(CacheBindings.Source);
+        Folio.Scripting.Native.NativeJavaScriptEngine.GetOrParseProgram(ScriptGlobalsInstaller.NativeTimerSource);
+        Folio.Scripting.Native.NativeJavaScriptEngine.GetOrParseProgram("URL.createObjectURL = function(blob) { return __folio_blob_store.create(blob && blob._text); }; URL.revokeObjectURL = function(url) { __folio_blob_store.revoke(url); };");
+        Folio.Scripting.Native.NativeJavaScriptEngine.GetOrParseProgram("document.body.dataset.warm = '1';");
+    }
+
     private static readonly ConditionalWeakTable<IScriptEngine, DomContext> Contexts = new();
     private static readonly ConditionalWeakTable<IScriptEngine, FactoryHolder> GpuFactories = new();
 
@@ -241,166 +417,7 @@ public static class DomBindings
         SharedWorkerBindings.Install(engine, context, context.Templates.MessageEventTemplate, messagePortTemplate,
             resourceLoader, baseUri, blobSources, eventLoop);
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
-        engine.EvaluateHostScript(@"
-            // The script engine may pre-create a distinct Window-like object. For a top-level document it must be the
-            // actual global object so browser libraries see the same methods and globals through both names.
-            globalThis.window = globalThis;
-            globalThis.self = globalThis;
-            // Some libraries call the Window method rather than the global alias. Keep both views identical even
-            // when an embedding host supplied a distinct window proxy.
-            if (globalThis.window && typeof globalThis.window.getComputedStyle !== 'function' && typeof globalThis.getComputedStyle === 'function')
-                globalThis.window.getComputedStyle = globalThis.getComputedStyle;
-            globalThis.navigator = globalThis.navigator || {};
-            globalThis.MediaStream = function(tracks) { this.id = 'stream-' + Math.random().toString(16).slice(2); this._tracks = tracks && typeof tracks.getTracks === 'function' ? tracks.getTracks() : (tracks ? tracks.slice() : []); this.onaddtrack = null; this.onremovetrack = null; this._listeners = {}; this.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; var list = this._listeners[type] || (this._listeners[type] = []); if (list.indexOf(handler) < 0) list.push(handler); }; this.removeEventListener = function(type, handler) { var list = this._listeners[type] || []; this._listeners[type] = list.filter(function(item) { return item !== handler; }); }; this._dispatch = function(event) { var handler = event.type === 'addtrack' ? this.onaddtrack : this.onremovetrack; if (handler) handler(event); (this._listeners[event.type] || []).slice().forEach(function(listener) { listener(event); }); }; };
-            Object.defineProperty(MediaStream.prototype, 'active', { get: function() { return this._tracks.some(function(track) { return track.readyState === 'live'; }); } });
-            MediaStream.prototype.getTracks = function() { return this._tracks.slice(); };
-            MediaStream.prototype.getTrackById = function(id) { id = String(id); for (var i = 0; i < this._tracks.length; i++) if (this._tracks[i].id === id) return this._tracks[i]; return null; };
-            MediaStream.prototype.getAudioTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'audio'; }); };
-            MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
-            MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) { this._tracks.push(track); this._dispatch({ type: 'addtrack', target: this, track: track }); } };
-            MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); this._dispatch({ type: 'removetrack', target: this, track: track }); } };
-            globalThis.innerWidth = 800;
-            globalThis.innerHeight = 600;
-            globalThis.devicePixelRatio = 1;
-            globalThis.scrollX = 0;
-            globalThis.scrollY = 0;
-            Object.defineProperty(globalThis, 'pageXOffset', { get: function() { return globalThis.scrollX; } });
-            Object.defineProperty(globalThis, 'pageYOffset', { get: function() { return globalThis.scrollY; } });
-            globalThis.scrollTo = function(x, y) { globalThis.scrollX = Number(x) || 0; globalThis.scrollY = Number(y) || 0; };
-            globalThis.scrollBy = function(x, y) { globalThis.scrollX += Number(x) || 0; globalThis.scrollY += Number(y) || 0; };
-            globalThis.matchMedia = function(query) {
-                query = String(query);
-                const min = /min-width\s*:\s*(\d+)px/.exec(query);
-                const max = /max-width\s*:\s*(\d+)px/.exec(query);
-                const matches = (!min || globalThis.innerWidth >= Number(min[1])) && (!max || globalThis.innerWidth <= Number(max[1]));
-                const listeners = [];
-                return {
-                    media: query,
-                    matches: matches,
-                    onchange: null,
-                    addListener: function(fn) { if (typeof fn === 'function') listeners.push(fn); },
-                    removeListener: function(fn) { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); },
-                    addEventListener: function(type, fn) { if (type === 'change') this.addListener(fn); },
-                    removeEventListener: function(type, fn) { if (type === 'change') this.removeListener(fn); },
-                    dispatchEvent: function() { return true; }
-                };
-            };
-            globalThis.ResizeObserver = function(callback) {
-                if (typeof callback !== 'function') throw new TypeError('ResizeObserver callback must be callable');
-                this._callback = callback;
-                this._targets = [];
-            };
-            ResizeObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
-            ResizeObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
-            ResizeObserver.prototype.disconnect = function() { this._targets.length = 0; };
-            globalThis.IntersectionObserver = function(callback, options) {
-                if (typeof callback !== 'function') throw new TypeError('IntersectionObserver callback must be callable');
-                this._callback = callback;
-                this.root = options && options.root || null;
-                this.rootMargin = options && options.rootMargin || '0px';
-                this.thresholds = options && options.threshold !== undefined ? [].concat(options.threshold) : [0];
-                this._targets = [];
-            };
-            IntersectionObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
-            IntersectionObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
-            IntersectionObserver.prototype.disconnect = function() { this._targets.length = 0; };
-            IntersectionObserver.prototype.takeRecords = function() { return []; };
-            {
-                const resolved = Promise.resolve();
-                const then = Promise.prototype.then;
-                // The notification is a promise job, so it runs in order with the script's own promise callbacks.
-                globalThis.__folio_mo_queue = function() { then.call(resolved, function() { __folio_mutation_host.notify(); }); };
-                const flag = function(options, name) { return options[name] === undefined ? undefined : !!options[name]; };
-                const bad = function(why) { throw new TypeError(""Failed to execute 'observe' on 'MutationObserver': "" + why); };
-                globalThis.MutationObserver = class MutationObserver {
-                    constructor(callback) {
-                        if (typeof callback !== 'function') throw new TypeError(""Failed to construct 'MutationObserver': The callback provided as parameter 1 is not a function."");
-                        this._host = __folio_mutation_host.create(callback, this);
-                    }
-                    observe(target, options) {
-                        if (options === undefined || options === null) options = {};
-                        else if (typeof options !== 'object' && typeof options !== 'function') bad('The provided value is not of type MutationObserverInit.');
-                        let attributes = flag(options, 'attributes'), characterData = flag(options, 'characterData');
-                        const attributeOldValue = flag(options, 'attributeOldValue'), characterDataOldValue = flag(options, 'characterDataOldValue');
-                        const filter = options.attributeFilter === undefined ? undefined : Array.from(options.attributeFilter, String);
-                        if ((attributeOldValue !== undefined || filter !== undefined) && attributes === undefined) attributes = true;
-                        if (characterDataOldValue !== undefined && characterData === undefined) characterData = true;
-                        const childList = !!options.childList, subtree = !!options.subtree;
-                        if (!childList && !attributes && !characterData) bad('The options object must set at least one of ""attributes"", ""characterData"", or ""childList"" to true.');
-                        if (attributeOldValue && !attributes) bad('The options object may only set ""attributeOldValue"" to true when ""attributes"" is true or not present.');
-                        if (filter !== undefined && !attributes) bad('The options object may only set ""attributeFilter"" when ""attributes"" is true or not present.');
-                        if (characterDataOldValue && !characterData) bad('The options object may only set ""characterDataOldValue"" to true when ""characterData"" is true or not present.');
-                        this._host.observe(target, childList, subtree, !!attributes, !!attributeOldValue, !!characterData, !!characterDataOldValue, filter === undefined ? null : filter);
-                    }
-                    disconnect() { this._host.disconnect(); }
-                    takeRecords() { return this._host.takeRecords(); }
-                };
-            }
-            globalThis.Path2D = function(path) { return arguments.length ? __folio_canvas_host.createPath(path) : __folio_canvas_host.createPath(); };
-            globalThis.ImageData = function(a, b, c) { return __folio_canvas_host.imageData(a, b, c); };
-            globalThis.Audio = function(src) { const element = document.createElement('audio'); if (src !== undefined) element.src = String(src); return element; };
-            globalThis.FormData = function(form) {
-                this._entries = [];
-                if (form && form.elements) for (const control of form.elements) if (control.name) this.append(control.name, control.value || '');
-            };
-            FormData.prototype.append = function(name, value) { this._entries.push([String(name), value]); };
-            FormData.prototype.set = function(name, value) { this.delete(name); this.append(name, value); };
-            FormData.prototype.get = function(name) { const e = this._entries.find(x => x[0] === String(name)); return e ? e[1] : null; };
-            FormData.prototype.getAll = function(name) { return this._entries.filter(x => x[0] === String(name)).map(x => x[1]); };
-            FormData.prototype.has = function(name) { return this._entries.some(x => x[0] === String(name)); };
-            FormData.prototype.delete = function(name) { name = String(name); this._entries = this._entries.filter(x => x[0] !== name); };
-            FormData.prototype.entries = function() { return this._entries[Symbol.iterator](); };
-            FormData.prototype.keys = function() { return this._entries.map(x => x[0])[Symbol.iterator](); };
-            FormData.prototype.values = function() { return this._entries.map(x => x[1])[Symbol.iterator](); };
-            function makeStorage(persistent) {
-                const data = Object.create(null);
-                if (persistent) for (const key of __folio_storage.keys()) { const value = __folio_storage.read(key); if (value !== null) data[key] = value; }
-                const storage = {
-                    get length() { return Object.keys(data).length; },
-                    key: function(index) { return Object.keys(data)[index] ?? null; },
-                    getItem: function(key) { key = String(key); return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null; },
-                    setItem: function(key, value) { key = String(key); value = String(value); let size = 0; for (const k of Object.keys(data)) if (k !== key) size += k.length + data[k].length; size += key.length + value.length; if (size > 5 * 1024 * 1024) throw new DOMException('Storage quota exceeded', 'QuotaExceededError'); data[key] = value; if (persistent) __folio_storage.write(key, value); },
-                    removeItem: function(key) { key = String(key); delete data[key]; if (persistent) __folio_storage.delete(key); },
-                    clear: function() { for (const key of Object.keys(data)) { delete data[key]; if (persistent) __folio_storage.delete(key); } }
-                };
-                return new Proxy(storage, { get: function(target, key) { if (key in target) return target[key]; return target.getItem(key); }, set: function(target, key, value) { target.setItem(key, value); return true; }, deleteProperty: function(target, key) { target.removeItem(key); return true; }, ownKeys: function() { return Object.keys(data); } });
-            }
-            globalThis.localStorage = makeStorage(true);
-            globalThis.sessionStorage = makeStorage();
-            globalThis.URLSearchParams = function(init) {
-                const result = { _pairs: [] };
-                result.append = function(k,v) { result._pairs.push([String(k), String(v)]); };
-                result.set = function(k,v) { result.delete(k); result.append(k,v); };
-                result.get = function(k) { const p = result._pairs.find(x => x[0] === String(k)); return p ? p[1] : null; };
-                result.has = function(k) { return result._pairs.some(x => x[0] === String(k)); };
-                result.delete = function(k) { k = String(k); result._pairs = result._pairs.filter(x => x[0] !== k); };
-                result.toString = function() { return result._pairs.map(x => encodeURIComponent(x[0]) + '=' + encodeURIComponent(x[1])).join('&'); };
-                if (typeof init === 'string') for (const part of init.replace(/^\?/, '').split('&')) if (part) { const i = part.indexOf('='); result.append(decodeURIComponent(i < 0 ? part : part.slice(0, i)), decodeURIComponent(i < 0 ? '' : part.slice(i + 1))); }
-                return result;
-            };
-            URLSearchParams.prototype.append = function(k,v) { this._pairs.push([String(k), String(v)]); };
-            URLSearchParams.prototype.set = function(k,v) { this.delete(k); this.append(k,v); };
-            URLSearchParams.prototype.get = function(k) { const p = this._pairs.find(x => x[0] === String(k)); return p ? p[1] : null; };
-            URLSearchParams.prototype.has = function(k) { return this._pairs.some(x => x[0] === String(k)); };
-            URLSearchParams.prototype.delete = function(k) { k = String(k); this._pairs = this._pairs.filter(x => x[0] !== k); };
-            URLSearchParams.prototype.toString = function() { return this._pairs.map(x => encodeURIComponent(x[0]) + '=' + encodeURIComponent(x[1])).join('&'); };
-            globalThis.Blob = function(parts, options) { this._text = Array.from(parts || []).map(String).join(''); this.type = options && options.type ? String(options.type).toLowerCase() : ''; this.size = this._text.length; };
-            Blob.prototype.text = function() { return Promise.resolve(this._text); };
-            Blob.prototype.arrayBuffer = function() { const bytes = new Uint8Array(this._text.length); for (let i = 0; i < this._text.length; i++) bytes[i] = this._text.charCodeAt(i) & 255; return Promise.resolve(bytes.buffer); };
-            globalThis.URL = function(value, base) { const raw = String(value); const match = /^(?:(\w+):\/\/([^\/]+))?([^?#]*)(\?[^#]*)?(#.*)?$/.exec(raw); const result = {}; result.protocol = match && match[1] ? match[1] + ':' : ''; result.host = match && match[2] ? match[2] : ''; result.origin = result.protocol && result.host ? result.protocol + '//' + result.host : ''; result.pathname = match && match[3] ? match[3] : '/'; result.search = match && match[4] ? match[4] : ''; result.hash = match && match[5] ? match[5] : ''; result.href = result.origin + result.pathname + result.search + result.hash; result.searchParams = new URLSearchParams(result.search); return result; };
-            URL.createObjectURL = function(blob) { return __folio_blob_store.create(blob && blob._text); };
-            URL.revokeObjectURL = function(url) { __folio_blob_store.revoke(url); };
-            globalThis.Option = function(text, value, defaultSelected, selected) { const option = document.createElement('option'); option.text = text === undefined ? '' : String(text); if (value !== undefined) option.value = String(value); if (defaultSelected) option.defaultSelected = true; if (selected) option.selected = true; return option; };
-            globalThis.btoa = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const bytes = String(value); let out = ''; for (let i = 0; i < bytes.length; i += 3) { const a = bytes.charCodeAt(i), b = i + 1 < bytes.length ? bytes.charCodeAt(i + 1) : 0, c = i + 2 < bytes.length ? bytes.charCodeAt(i + 2) : 0; out += alphabet[a >> 2] + alphabet[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? alphabet[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? alphabet[c & 63] : '='); } return out; };
-            globalThis.atob = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const input = String(value).replace(/=+$/, ''); let out = ''; for (let i = 0; i < input.length; i += 4) { const a = alphabet.indexOf(input[i]), b = alphabet.indexOf(input[i + 1]), c = alphabet.indexOf(input[i + 2]), d = alphabet.indexOf(input[i + 3]); out += String.fromCharCode((a << 2) | (b >> 4)); if (c >= 0) out += String.fromCharCode(((b & 15) << 4) | (c >> 2)); if (d >= 0) out += String.fromCharCode(((c & 3) << 6) | d); } return out; };
-            globalThis.crypto = { getRandomValues: function(array) { for (let i = 0; i < array.length; i++) array[i] = Math.floor(Math.random() * 256); return array; } };
-            globalThis.TextEncoder = function() {};
-            TextEncoder.prototype.encode = function(value) { const text = String(value); const bytes = new Uint8Array(text.length); for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 255; return bytes; };
-            globalThis.TextDecoder = function() {};
-            TextDecoder.prototype.decode = function(value) { let text = ''; for (let i = 0; i < value.length; i++) text += String.fromCharCode(value[i]); return text; };
-            globalThis.console = globalThis.console || {};
-            for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
-        ", "folio:dom-globals");
+        engine.EvaluateHostScript(DomGlobalsScript, "folio:dom-globals");
         // Use the URL Standard parser for page-visible URL objects. The host-backed
         // implementation replaces the historical regex shim above and also keeps
         // URLSearchParams mutations synchronized with the URL record.

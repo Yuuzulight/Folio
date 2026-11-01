@@ -658,9 +658,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     public static void Prime()
     {
-        GetOrParseProgram("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
-        GetOrParseProgram("URL.createObjectURL = function(blob) { return __folio_blob_store.create(blob && blob._text); }; URL.revokeObjectURL = function(url) { __folio_blob_store.revoke(url); };");
-        GetOrParseProgram("document.body.dataset.warm = '1';");
+        Folio.Scripting.Dom.DomBindings.Prime();
     }
 
     internal static IReadOnlyList<JavaScriptStatement> GetOrParseProgram(string source)
