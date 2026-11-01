@@ -20,6 +20,7 @@ internal static class TableLayout
         public float Min, Max;
         public Fragment Fragment; // default until laid out
         public float Baseline;
+        public BorderGroup? HalfBorder;
     }
 
     private sealed class Grid
@@ -144,20 +145,22 @@ internal static class TableLayout
         if (collapsed is not null)
             frame = CollapsedFrame(grid, collapsed);
         // Cells that share a resolved border share its half too.
-        var halves = new Dictionary<BorderGroup, BorderGroup>(ReferenceEqualityComparer.Instance);
-        BorderGroup? Half(Cell cell)
+        if (collapsed is not null)
         {
-            if (collapsed is null)
-                return null;
-            var border = collapsed[cell];
-            if (!halves.TryGetValue(border, out var half))
+            var halves = new Dictionary<BorderGroup, BorderGroup>(ReferenceEqualityComparer.Instance);
+            for (var i = 0; i < grid.Cells.Count; i++)
             {
-                halves[border] = half = border with
+                var cell = grid.Cells[i];
+                var border = collapsed[cell];
+                if (!halves.TryGetValue(border, out var half))
                 {
-                    TopWidthPx = border.TopWidth / 2, RightWidthPx = border.RightWidth / 2, BottomWidthPx = border.BottomWidth / 2, LeftWidthPx = border.LeftWidth / 2,
-                };
+                    halves[border] = half = border with
+                    {
+                        TopWidthPx = border.TopWidth / 2, RightWidthPx = border.RightWidth / 2, BottomWidthPx = border.BottomWidth / 2, LeftWidthPx = border.LeftWidth / 2,
+                    };
+                }
+                cell.HalfBorder = half;
             }
-            return half;
         }
         var n = grid.Columns;
         var columns = ColumnWidths(grid, style, Math.Max(0, width - frame.Horizontal - spacing.X * (n + 1)), context, collapsed, kept?.Ranges);
@@ -169,7 +172,7 @@ internal static class TableLayout
         columnX[0] = frame.Left + spacing.X;
         for (var c = 1; c <= n; c++)
             columnX[c] = columnX[c - 1] + columns[c - 1] + spacing.X;
-        float SpanWidth(Cell cell) => columnX[Math.Min(n, cell.Column + cell.ColumnSpan)] - columnX[cell.Column] - spacing.X;
+        float SpanWidth(Cell cell) => cell.ColumnSpan == 1 && cell.Column < n ? columns[cell.Column] : columnX[Math.Min(n, cell.Column + cell.ColumnSpan)] - columnX[cell.Column] - spacing.X;
         // Columns run from the inline start: from the right in a right-to-left table (CSS 2.2 §17.5), mirrored inside
         // the table's own right border and spacing.
         var rtl = style.Text.Direction == Direction.Rtl;
@@ -185,8 +188,8 @@ internal static class TableLayout
         {
             var cell = grid.Cells[i];
             var w = SpanWidth(cell);
-            cell.Fragment = BlockLayout.Layout(cell.Box, new ConstraintSpace(w, null, FixedWidth: w, Border: Half(cell)), context);
-            cell.Baseline = FirstBaseline(cell.Fragment) ?? cell.Fragment.Height - (Half(cell) ?? cell.Box.Style.Border).BottomWidth
+            cell.Fragment = BlockLayout.Layout(cell.Box, new ConstraintSpace(w, null, FixedWidth: w, Border: cell.HalfBorder), context);
+            cell.Baseline = FirstBaseline(cell.Fragment) ?? cell.Fragment.Height - (cell.HalfBorder ?? cell.Box.Style.Border).BottomWidth
                 - BlockLayout.Resolve(cell.Box.Style.Spacing.PaddingBottom, w);
             if (cell.RowSpan == 1 && IsBaseline(cell))
                 ascents[cell.Row] = Math.Max(ascents[cell.Row], cell.Baseline);
@@ -203,7 +206,7 @@ internal static class TableLayout
             if (cell.RowSpan == 1)
             {
                 var needed = IsBaseline(cell) ? ascents[cell.Row] - cell.Baseline + cell.Fragment!.Height : cell.Fragment!.Height;
-                heights[cell.Row] = Math.Max(heights[cell.Row], Math.Max(needed, SpecifiedHeight(cell, Half(cell), SpanWidth(cell))));
+                heights[cell.Row] = Math.Max(heights[cell.Row], Math.Max(needed, SpecifiedHeight(cell, cell.HalfBorder, SpanWidth(cell))));
             }
             else if (cell.RowSpan > 1)
             {
@@ -220,7 +223,7 @@ internal static class TableLayout
                 for (var r = cell.Row; r < cell.Row + cell.RowSpan; r++)
                     spanned += heights[r];
                 spanned += spacing.Y * (cell.RowSpan - 1);
-                var needed = Math.Max(cell.Fragment!.Height, SpecifiedHeight(cell, Half(cell), SpanWidth(cell)));
+                var needed = Math.Max(cell.Fragment!.Height, SpecifiedHeight(cell, cell.HalfBorder, SpanWidth(cell)));
                 if (needed > spanned)
                     heights[cell.Row + cell.RowSpan - 1] += needed - spanned;
             }
@@ -551,7 +554,7 @@ internal static class TableLayout
         ordered.AddRange(bodyGroups);
         if (footer is not null) ordered.Add(footer);
 
-        var taken = new HashSet<(int Row, int Column)>();
+        HashSet<(int Row, int Column)>? taken = null;
         var maxColSeen = 0;
         foreach (var group in ordered)
         {
@@ -572,20 +575,29 @@ internal static class TableLayout
                 {
                     if (row.Children[i] is TablePartBox box && box.Part == TablePart.Cell)
                     {
-                        while (taken.Contains((r, column)))
-                            column++;
+                        if (taken is not null)
+                        {
+                            while (taken.Contains((r, column)))
+                                column++;
+                        }
                         var rowSpan = Attribute(box, "rowspan", 1, 0, 65534);
+                        var colSpan = Attribute(box, "colspan", 1, 1, 1000);
+                        var actualRowSpan = rowSpan == 0 ? groupStart + rows.Count - r : Math.Min(rowSpan, groupStart + rows.Count - r);
                         var cell = new Cell(box)
                         {
                             Row = r,
                             Column = column,
-                            ColumnSpan = Attribute(box, "colspan", 1, 1, 1000),
-                            RowSpan = rowSpan == 0 ? groupStart + rows.Count - r : Math.Min(rowSpan, groupStart + rows.Count - r),
+                            ColumnSpan = colSpan,
+                            RowSpan = actualRowSpan,
                         };
-                        for (var a = r; a < r + cell.RowSpan; a++)
+                        if (actualRowSpan > 1 || colSpan > 1)
                         {
-                            for (var b = column; b < column + cell.ColumnSpan; b++)
-                                taken.Add((a, b));
+                            taken ??= [];
+                            for (var a = r; a < r + cell.RowSpan; a++)
+                            {
+                                for (var b = column; b < column + cell.ColumnSpan; b++)
+                                    taken.Add((a, b));
+                            }
                         }
                         if (column + cell.ColumnSpan > maxColSeen)
                             maxColSeen = column + cell.ColumnSpan;

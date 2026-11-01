@@ -1105,8 +1105,11 @@ internal static class InlineLayout
     /// ex and ch for style computation (https://www.w3.org/TR/css-values-4/#font-relative-lengths): the x-height and
     /// the advance of "0" of each font group's first available font, measured once per group.
     /// </summary>
+    private static readonly FontMeasure EmptyMeasure = static _ => null;
+
     public static FontMeasure MeasureWith(FontCollection fonts)
     {
+        if (!fonts.HasAnyFaces) return EmptyMeasure;
         var measured = new Dictionary<FontGroup, (float, float)?>();
         return font =>
         {
