@@ -102,6 +102,7 @@ internal sealed class FontCollection(IFontSource? source = null)
     };
 
     public IEnumerable<string> Families => _families.Keys;
+    public bool HasAnyFaces => _families.Count > 0 || _webFamilies.Count > 0 || source is not null;
 
     public void Add(FontFace face)
     {
@@ -157,6 +158,7 @@ internal sealed class FontCollection(IFontSource? source = null)
     /// <param name="cluster">When given, <c>@font-face</c> faces whose <c>unicode-range</c> misses a character of it are skipped.</param>
     public FontFace? Match(string family, FaceStyle style, int weight, float stretch, ReadOnlySpan<char> cluster = default)
     {
+        if (!HasAnyFaces) return null;
         if (_webFamilies.TryGetValue(family, out var webFaces))
         {
             var candidates = webFaces;
@@ -224,6 +226,7 @@ internal sealed class FontCollection(IFontSource? source = null)
     /// </summary>
     public FontFace? FaceForCluster(IReadOnlyList<string> families, FaceStyle style, int weight, float stretch, ReadOnlySpan<char> cluster)
     {
+        if (!HasAnyFaces) return null;
         if (cluster.Length != 1)
             return FindFaceForCluster(families, style, weight, stretch, cluster);
         var key = (families, style, weight, stretch, cluster[0]);

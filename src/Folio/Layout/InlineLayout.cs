@@ -839,6 +839,10 @@ internal static class InlineLayout
     // ponytail: scripts are told apart only as CJK or not, enough to keep shaping from reaching across that boundary.
     internal static List<ShapedRun> Shape(string text, int start, int length, ComputedStyle style, LayoutContext context, bool rightToLeft = false)
     {
+        if (!context.Fonts.HasAnyFaces && !style.Text.IsVertical)
+        {
+            return [ShapeRunCached(text, start, length, null, style, context, rightToLeft, false)];
+        }
         var font = style.Font;
         var faceStyle = FaceStyleOf(font.Style);
         var primary = PrimaryFace(style, context);
@@ -851,7 +855,20 @@ internal static class InlineLayout
         var end = start + length;
         for (var i = start; i < end;)
         {
-            var clusterLength = Math.Min(StringInfo.GetNextTextElementLength(text, i), end - i);
+            int clusterLength;
+            if (text[i] < 128)
+            {
+                if (text[i] == '\r' && i + 1 < end && text[i + 1] == '\n')
+                    clusterLength = 2;
+                else if (i + 1 == end || text[i + 1] < 128)
+                    clusterLength = 1;
+                else
+                    clusterLength = Math.Min(StringInfo.GetNextTextElementLength(text, i), end - i);
+            }
+            else
+            {
+                clusterLength = Math.Min(StringInfo.GetNextTextElementLength(text, i), end - i);
+            }
             var face = context.Fonts.FaceForCluster(font.Family, faceStyle, font.Weight, font.Stretch, text.AsSpan(i, clusterLength)) ?? primary;
             var c = char.IsSurrogatePair(text, i) ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
             var upright = vertical && IsUpright(c);
@@ -881,7 +898,7 @@ internal static class InlineLayout
 
     private sealed class ShapeCache
     {
-        public Dictionary<(FontFace Face, float Size, string Features, float Letter, float Word, TabSize Tab), Dictionary<string, ShapedRun>> Runs { get; } = [];
+        public Dictionary<(FontFace? Face, float Size, string Features, float Letter, float Word, TabSize Tab), Dictionary<string, ShapedRun>> Runs { get; } = [];
         public int Count { get; set; }
     }
 
@@ -892,7 +909,7 @@ internal static class InlineLayout
     private static ShapedRun ShapeRunCached(string text, int start, int length, FontFace? face, ComputedStyle style, LayoutContext context, bool rightToLeft,
                                             bool upright)
     {
-        if (face is null || upright || length > 64 || !SimpleShaper.CanShape(text.AsSpan(start, length), face))
+        if (upright || length > 64 || (face is not null && !SimpleShaper.CanShape(text.AsSpan(start, length), face)))
             return ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
         var cache = ShapeCaches.GetValue(context.Fonts, _ => new ShapeCache());
         var spacing = style.TextSpacing;
@@ -912,7 +929,9 @@ internal static class InlineLayout
                     cache.Runs[key] = byText;
                 }
                 var shaped = ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
-                kept = new ShapedRun(face, shaped.Size, shaped.Glyphs, [.. shaped.Clusters.Select(c => c - start)], shaped.Advances) { Offsets = shaped.Offsets };
+                var keptClusters = new int[shaped.Clusters.Length];
+                for (var ci = 0; ci < keptClusters.Length; ci++) keptClusters[ci] = shaped.Clusters[ci] - start;
+                kept = new ShapedRun(face, shaped.Size, shaped.Glyphs, keptClusters, shaped.Advances) { Offsets = shaped.Offsets };
                 byText[text.Substring(start, length)] = kept;
                 cache.Count++;
             }
@@ -960,7 +979,15 @@ internal static class InlineLayout
         ShapedRun run;
         if (face is null)
         {
-            run = new ShapedRun(null, size, new ushort[length], [.. Enumerable.Range(start, length)], [.. Enumerable.Repeat(size / 2, length)]);
+            var clusters = new int[length];
+            var advances = new float[length];
+            var advance = size / 2;
+            for (var i = 0; i < length; i++)
+            {
+                clusters[i] = start + i;
+                advances[i] = advance;
+            }
+            run = new ShapedRun(null, size, new ushort[length], clusters, advances);
         }
         else if (upright)
         {
@@ -1052,6 +1079,7 @@ internal static class InlineLayout
 
     private static FontFace? PrimaryFace(ComputedStyle style, LayoutContext context)
     {
+        if (!context.Fonts.HasAnyFaces) return null;
         // By index: an enumerator over the list interface is an allocation, and this runs for every run and line.
         var families = style.Font.Family;
         for (var i = 0; i < families.Count; i++)
