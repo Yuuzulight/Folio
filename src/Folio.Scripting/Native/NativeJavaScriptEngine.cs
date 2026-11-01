@@ -139,23 +139,53 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             {
                 if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
-                return values.Select((value, index) => InvokeCallable(args[0], [value, (double)index, values])).ToList();
+                var callback = args[0]!;
+                var count = values.Count;
+                var result = new List<object?>(count);
+                var callArgs = new object?[3];
+                callArgs[2] = values;
+                for (var index = 0; index < count; index++)
+                {
+                    callArgs[0] = values[index];
+                    callArgs[1] = (double)index;
+                    result.Add(InvokeCallable(callback, callArgs));
+                }
+                return result;
             }),
             ["forEach"] = new NativeReceiverFunction((receiver, args) =>
             {
                 if (receiver is not IReadOnlyList<object?> values) return JavaScriptEvaluator.UndefinedValue.Instance;
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
-                for (var index = 0; index < values.Count; index++)
-                    InvokeCallable(args[0]!, [values[index], (double)index, values]);
+                var callback = args[0]!;
+                var count = values.Count;
+                var callArgs = new object?[3];
+                callArgs[2] = values;
+                for (var index = 0; index < count; index++)
+                {
+                    callArgs[0] = values[index];
+                    callArgs[1] = (double)index;
+                    InvokeCallable(callback, callArgs);
+                }
                 return JavaScriptEvaluator.UndefinedValue.Instance;
             }),
             ["filter"] = new NativeReceiverFunction((receiver, args) =>
             {
                 if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
-                return values
-                    .Where((value, index) => JavaScriptEvaluator.Truth(InvokeCallable(args[0]!, [value, (double)index, values])))
-                    .ToList();
+                var callback = args[0]!;
+                var count = values.Count;
+                var result = new List<object?>(count);
+                var callArgs = new object?[3];
+                callArgs[2] = values;
+                for (var index = 0; index < count; index++)
+                {
+                    var val = values[index];
+                    callArgs[0] = val;
+                    callArgs[1] = (double)index;
+                    if (JavaScriptEvaluator.Truth(InvokeCallable(callback, callArgs)))
+                        result.Add(val);
+                }
+                return result;
             }),
             ["flatMap"] = new NativeReceiverFunction((receiver, args) =>
             {

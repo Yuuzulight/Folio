@@ -168,36 +168,52 @@ public static class ScriptedProcessBenchmark
             // message necessarily includes process startup and is the cold
             // lifecycle measured above; counting it as a D1 warm load makes the
             // per-artifact warm target depend on process-launch contention.
-            var warmupTcs = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
-            ValueTask OnWarmup(ContentMessage m, CancellationToken ct)
+            for (var w = 0; w < 2; w++)
             {
-                if (m.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
-                    warmupTcs.TrySetResult(m);
-                return ValueTask.CompletedTask;
-            }
-            warmClient.MessageReceived += OnWarmup;
-            try
-            {
-                await warmClient.SendAsync(ContentMessageKind.Load, new
+                var warmupTcs = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+                ValueTask OnWarmup(ContentMessage m, CancellationToken ct)
                 {
-                    html = @"<!DOCTYPE html><title>Warm-up</title>
+                    if (m.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
+                        warmupTcs.TrySetResult(m);
+                    return ValueTask.CompletedTask;
+                }
+                warmClient.MessageReceived += OnWarmup;
+                try
+                {
+                    await warmClient.SendAsync(ContentMessageKind.Load, new
+                    {
+                        html = @"<!DOCTYPE html><title>Warm-up</title>
 <style>
 :root { --c: #000; }
-.f { display: flex; color: var(--c); }
+.f { display: flex; color: var(--c); margin: 8px; padding: 4px; border: 1px solid #ccc; border-radius: 4px; gap: 4px; box-sizing: border-box; font: 14px sans-serif; line-height: 1.5; outline: none; }
 .g { display: grid; grid-template-columns: 1fr 1fr; }
 table { border-collapse: collapse; }
 .btn[aria-expanded='true'] .chv { transform: rotate(45deg); transition: transform 0.2s; }
 </style>
-<div class='f'><button id='b' class='btn' aria-expanded='true'><span class='chv'>warm</span></button></div>
+<div class='f'><button id='b' class='btn acc-header' aria-expanded='true' aria-controls='p1'><span class='chv'>warm</span></button></div>
 <div class='g'><div>g1</div><div>g2</div></div>
-<table><tr><td>t1</td></tr></table>",
-                    script = "document.body.dataset.warm = '1'; document.getElementById('b')?.addEventListener('click', () => {}); document.querySelector('table').innerHTML += '<tr><td>t2</td></tr>'; document.querySelectorAll('.btn').forEach(b => { b.getAttribute('aria-expanded'); b.setAttribute('aria-expanded', 'false'); });"
-                });
-                await warmupTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            }
-            finally
-            {
-                warmClient.MessageReceived -= OnWarmup;
+<table><tbody id='rows'><tr><td>t1</td></tr></tbody></table>
+<div id='p1' hidden>content</div>
+<script>
+document.body.dataset.warm = '1';
+document.getElementById('b')?.addEventListener('click', () => {});
+const buttons = document.querySelectorAll('.acc-header');
+buttons.forEach(btn => {
+  btn.getAttribute('aria-expanded');
+  btn.setAttribute('aria-expanded', 'false');
+  document.getElementById(btn.getAttribute('aria-controls'));
+});
+document.getElementById('rows').innerHTML += '<tr><td>t2</td></tr>';
+const arr = [{x: 1, y: 'a'}, {x: 2, y: 'b'}];
+arr.filter(a => a.x > 0).sort((a, b) => a.y.localeCompare(b.y)).map(a => `<span>${a.y}</span>`).join('');
+</script>"
+                    });
+                    await warmupTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                }
+                finally
+                {
+                    warmClient.MessageReceived -= OnWarmup;
+                }
             }
 
             foreach (var artDir in d1Artifacts)

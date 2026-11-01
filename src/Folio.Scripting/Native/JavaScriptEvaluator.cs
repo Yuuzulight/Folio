@@ -1298,11 +1298,14 @@ internal sealed class JavaScriptEvaluator
                 // Array.prototype.sort mutates the receiver and returns it.  Keep the
                 // comparison bounded and deterministic for the native engine; this is
                 // also required by the conformance corpus' interactive table artifact.
+                var callArgs = new object?[2];
                 Comparison<object?> comparison = (left, right) =>
                 {
                     if (args.Count > 0 && NativeJavaScriptEngine.IsCallable(args[0]))
                     {
-                        var result = NativeJavaScriptEngine.InvokeCallable(args[0], [left, right]);
+                        callArgs[0] = left;
+                        callArgs[1] = right;
+                        var result = NativeJavaScriptEngine.InvokeCallable(args[0], callArgs);
                         var number = result switch
                         {
                             double value => value,

@@ -167,7 +167,7 @@ internal static class StyleResolver
         private readonly MatchContext _context = new();
         private readonly List<RuleIndex<CascadeRule>.Entry> _matched = [];
         private readonly List<RuleIndex<CascadeRule>.Entry> _pseudoMatched = [];
-        private readonly bool _hasBefore, _hasAfter, _hasFirstLetter, _hasSelection;
+        private readonly bool _hasBefore, _hasAfter, _hasAuthorBefore, _hasAuthorAfter, _hasFirstLetter, _hasSelection;
         private float _rootFontSize = Folio.Style.ComputedStyle.Initial.Font.Size;
 
         public Restyler(List<CascadeData> origins, MediaContext media, FontMeasure? measure, Dictionary<string, RegisteredProperty> registered,
@@ -176,6 +176,7 @@ internal static class StyleResolver
             (_origins, _media, _measure, _registered, _baseUrl, _keyframes, _animationTime) = (origins, media, measure, registered, baseUrl, keyframes, animationTime);
             _walkContext = new MatchContext { Filter = _filter };
             (_hasBefore, _hasAfter) = (origins.Any(o => o.Rules.HasRulesFor(PseudoElement.Before)), origins.Any(o => o.Rules.HasRulesFor(PseudoElement.After)));
+            (_hasAuthorBefore, _hasAuthorAfter) = (origins.Skip(1).Any(o => o.Rules.HasRulesFor(PseudoElement.Before)), origins.Skip(1).Any(o => o.Rules.HasRulesFor(PseudoElement.After)));
             _hasFirstLetter = origins.Any(o => o.Rules.HasRulesFor(PseudoElement.FirstLetter));
             _hasSelection = origins.Any(o => o.Rules.HasRulesFor(PseudoElement.Selection));
             Invalidation = StateInvalidation.Build(origins.SelectMany(o => o.Rules.StateSelectors));
@@ -330,8 +331,29 @@ internal static class StyleResolver
 
         private ComputedStyle? Pseudo(ElementNode element, ComputedStyle style, PseudoElement pe, bool always = false)
         {
-            if (!always && !(pe switch { PseudoElement.Before => _hasBefore, PseudoElement.After => _hasAfter, PseudoElement.Selection => _hasSelection, _ => _hasFirstLetter }))
-                return null;
+            if (!always)
+            {
+                if (pe == PseudoElement.Before)
+                {
+                    if (!_hasBefore || (!_hasAuthorBefore && !element.LocalName.Equals("q", StringComparison.OrdinalIgnoreCase)))
+                        return null;
+                }
+                else if (pe == PseudoElement.After)
+                {
+                    if (!_hasAfter || (!_hasAuthorAfter && !element.LocalName.Equals("q", StringComparison.OrdinalIgnoreCase)))
+                        return null;
+                }
+                else if (pe == PseudoElement.Selection)
+                {
+                    if (!_hasSelection)
+                        return null;
+                }
+                else
+                {
+                    if (!_hasFirstLetter)
+                        return null;
+                }
+            }
             // With no rules for it, ::before or ::after would have content: normal and generate no box.
             _pseudoMatched.Clear();
             Cascade.Match(element, _origins, _walkContext, pe, _pseudoMatched);
