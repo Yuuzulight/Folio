@@ -502,7 +502,16 @@ internal static class InlineLayout
         var first = true;
         var levels = BidiLevels(block, ifc);
         var units = Units(block, ifc, 0, context, levels, layOutAtomics: false);
-        if (ifc.Items.All(i => i.Kind == InlineItemKind.Text))
+        var hasAtomics = false;
+        for (var i = 0; i < ifc.Items.Count; i++)
+        {
+            if (ifc.Items[i].Kind == InlineItemKind.Atomic)
+            {
+                hasAtomics = true;
+                break;
+            }
+        }
+        if (!hasAtomics)
             Measured.GetOrCreateValue(context)[ifc] = (units, levels);
         foreach (var unit in units)
         {
