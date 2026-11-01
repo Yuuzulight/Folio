@@ -803,14 +803,36 @@ internal sealed class JavaScriptEvaluator
             && target is not NativeJavaScriptEngine.INativeCallable
             && target is not NativeJavaScriptEngine.NativeReceiverFunction)
             throw new NotSupportedException($"Only explicitly supplied host functions can be called in the staged VM: {call.Callee} resolved to {target?.GetType().Name ?? "null"}.");
-        var expandedArguments = new List<object?>();
-        foreach (var argument in call.Arguments)
+        object?[] arguments;
+        var hasSpread = false;
+        for (var i = 0; i < call.Arguments.Count; i++)
         {
-            var value = Evaluate(argument is JavaScriptSpreadExpression spread ? spread.Operand : argument);
-            if (argument is JavaScriptSpreadExpression && value is IEnumerable<object?> sequence) expandedArguments.AddRange(sequence);
-            else expandedArguments.Add(value);
+            if (call.Arguments[i] is JavaScriptSpreadExpression) { hasSpread = true; break; }
         }
-        var arguments = expandedArguments.ToArray();
+        if (!hasSpread)
+        {
+            if (call.Arguments.Count == 0)
+            {
+                arguments = Array.Empty<object?>();
+            }
+            else
+            {
+                arguments = new object?[call.Arguments.Count];
+                for (var i = 0; i < arguments.Length; i++)
+                    arguments[i] = Evaluate(call.Arguments[i]);
+            }
+        }
+        else
+        {
+            var expandedArguments = new List<object?>();
+            foreach (var argument in call.Arguments)
+            {
+                var value = Evaluate(argument is JavaScriptSpreadExpression spread ? spread.Operand : argument);
+                if (argument is JavaScriptSpreadExpression && value is IEnumerable<object?> sequence) expandedArguments.AddRange(sequence);
+                else expandedArguments.Add(value);
+            }
+            arguments = expandedArguments.ToArray();
+        }
         return target switch
         {
             NativeJavaScriptEngine.NativeReceiverFunction receiverCallable => InvokeWithReceiver(receiverCallable, receiver, arguments),
@@ -1201,8 +1223,8 @@ internal sealed class JavaScriptEvaluator
     {
         method = name switch
         {
-            "join" => (Func<IReadOnlyList<object?>, object?>)(args => string.Join(args.Count > 0 ? StringValue(args[0]) : ",", values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(value)))),
-            "toString" => (Func<IReadOnlyList<object?>, object?>)(_ => string.Join(",", values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(value)))),
+            "join" => (Func<IReadOnlyList<object?>, object?>)(args => ArrayJoin(values, args.Count > 0 ? StringValue(args[0]) : ",")),
+            "toString" => (Func<IReadOnlyList<object?>, object?>)(_ => ArrayJoin(values, ",")),
             "keys" => (Func<IReadOnlyList<object?>, object?>)(_ => Enumerable.Range(0, values.Count).Select(index => (object?)(double)index).ToArray()),
             "values" => (Func<IReadOnlyList<object?>, object?>)(_ => values.ToArray()),
             "entries" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Select((item, index) => (object?)new object?[] { (double)index, item }).ToArray()),
@@ -1361,6 +1383,25 @@ internal sealed class JavaScriptEvaluator
         return method is not null;
     }
 
+    private static string ArrayJoin(IList<object?> values, string separator)
+    {
+        if (values.Count == 0) return string.Empty;
+        if (values.Count == 1)
+        {
+            var item = values[0];
+            return item is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(item);
+        }
+        var sb = new StringBuilder();
+        for (var i = 0; i < values.Count; i++)
+        {
+            if (i > 0) sb.Append(separator);
+            var item = values[i];
+            if (item is not null and not JavaScriptEvaluator.UndefinedValue)
+                sb.Append(StringValue(item));
+        }
+        return sb.ToString();
+    }
+
     internal static int RelativeArrayIndex(object? value, int length, int defaultIndex)
     {
         if (value is null or JavaScriptEvaluator.UndefinedValue) return defaultIndex;
@@ -1406,13 +1447,20 @@ internal sealed class JavaScriptEvaluator
     private static object? Map(IList<object?> values, IReadOnlyList<object?> args, bool filter, bool discard = false)
     {
         RequireCallable(args, "Array callback must be callable.");
-        var result = new List<object?>();
+        var result = discard ? null : new List<object?>(filter ? Math.Min(values.Count, 16) : values.Count);
+        var callbackArgs = new object?[3];
+        callbackArgs[2] = values;
         for (var i = 0; i < values.Count; i++)
         {
-            TryInvoke(args[0], [values[i], (double)i, values], out var mapped);
-            if (!filter || Truth(mapped)) result.Add(filter ? values[i] : mapped);
+            callbackArgs[0] = values[i];
+            callbackArgs[1] = (double)i;
+            TryInvoke(args[0], callbackArgs, out var mapped);
+            if (!discard)
+            {
+                if (!filter || Truth(mapped)) result!.Add(filter ? values[i] : mapped);
+            }
         }
-        return discard ? Array.Empty<object?>() : result.ToList();
+        return discard ? Array.Empty<object?>() : result!;
     }
 
     private static object?[] FlatMap(IList<object?> values, IReadOnlyList<object?> args)
@@ -1640,10 +1688,27 @@ internal sealed class JavaScriptEvaluator
                 if (args.Count == 0 || args[0] is UndefinedValue) return new List<object?> { value };
                 var limit = args.Count > 1 ? Math.Max(0, (int)Number(args[1])) : int.MaxValue;
                 if (limit == 0) return Array.Empty<object?>();
-                if (args[0] is RegexValue regex) return regex.Split(value).Take(limit).Cast<object?>().ToList();
+                if (args[0] is RegexValue regex)
+                {
+                    var regexParts = regex.Split(value);
+                    var regexCount = Math.Min(regexParts.Length, limit);
+                    var regexResult = new List<object?>(regexCount);
+                    for (var i = 0; i < regexCount; i++) regexResult.Add(regexParts[i]);
+                    return regexResult;
+                }
                 var separator = StringValue(args[0]);
-                if (separator.Length == 0) return value.Select(character => (object?)character.ToString()).Take(limit).ToList();
-                return value.Split(separator, StringSplitOptions.None).Take(limit).Cast<object?>().ToList();
+                if (separator.Length == 0)
+                {
+                    var charCount = Math.Min(value.Length, limit);
+                    var charResult = new List<object?>(charCount);
+                    for (var i = 0; i < charCount; i++) charResult.Add(value[i].ToString());
+                    return charResult;
+                }
+                var parts = value.Split(separator, StringSplitOptions.None);
+                var count = Math.Min(parts.Length, limit);
+                var result = new List<object?>(count);
+                for (var i = 0; i < count; i++) result.Add(parts[i]);
+                return result;
             }),
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
             "trimStart" => (Func<IReadOnlyList<object?>, object?>)(_ => value.TrimStart()),
