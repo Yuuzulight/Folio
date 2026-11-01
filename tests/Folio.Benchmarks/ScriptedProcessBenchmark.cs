@@ -180,8 +180,17 @@ public static class ScriptedProcessBenchmark
             {
                 await warmClient.SendAsync(ContentMessageKind.Load, new
                 {
-                    html = "<!DOCTYPE html><title>Warm-up</title><p>Warm-up</p>",
-                    script = "document.body.dataset.warm = '1';"
+                    html = @"<!DOCTYPE html><title>Warm-up</title>
+<style>
+:root { --c: #000; }
+.f { display: flex; color: var(--c); }
+.g { display: grid; grid-template-columns: 1fr 1fr; }
+table { border-collapse: collapse; }
+</style>
+<div class='f'><button id='b'>warm</button></div>
+<div class='g'><div>g1</div><div>g2</div></div>
+<table><tr><td>t1</td></tr></table>",
+                    script = "document.body.dataset.warm = '1'; document.getElementById('b')?.addEventListener('click', () => {}); document.querySelector('table').innerHTML += '<tr><td>t2</td></tr>';"
                 });
                 await warmupTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
             }

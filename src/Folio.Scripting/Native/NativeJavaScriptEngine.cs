@@ -624,6 +624,22 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         return bytes;
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<JavaScriptStatement>> AstCache = new();
+
+    private static IReadOnlyList<JavaScriptStatement> GetOrParseProgram(string source)
+    {
+        if (source.Length <= 65536)
+        {
+            if (AstCache.TryGetValue(source, out var cached))
+                return cached;
+            var parsed = new JavaScriptParser(source).ParseProgram();
+            if (AstCache.Count < 500)
+                AstCache.TryAdd(source, parsed);
+            return parsed;
+        }
+        return new JavaScriptParser(source).ParseProgram();
+    }
+
     public ScriptValue Evaluate(string source, string url = "eval")
     {
         EnsureLive();
@@ -632,7 +648,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         if (previousDeadline == 0) _deadlineTicks = NewDeadline();
         try
         {
-            var statements = new JavaScriptParser(source).ParseProgram();
+            var statements = GetOrParseProgram(source);
             var evaluator = new JavaScriptEvaluator(_bindings, _maxSteps, preserveUndefined: true, deadlineExceeded: IsDeadlineExceeded);
             var result = statements.Count == 1 && statements[0] is JavaScriptExpressionStatement expression
                 ? evaluator.Evaluate(expression.Expression)
