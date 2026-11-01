@@ -721,6 +721,34 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     private bool IsDeadlineExceeded() => _deadlineTicks != 0 && Stopwatch.GetTimestamp() >= _deadlineTicks;
 
+    internal T PauseDeadlineDuring<T>(Func<T> func)
+    {
+        var start = Stopwatch.GetTimestamp();
+        try
+        {
+            return func();
+        }
+        finally
+        {
+            if (_deadlineTicks != 0)
+                _deadlineTicks += Stopwatch.GetTimestamp() - start;
+        }
+    }
+
+    internal void PauseDeadlineDuring(Action action)
+    {
+        var start = Stopwatch.GetTimestamp();
+        try
+        {
+            action();
+        }
+        finally
+        {
+            if (_deadlineTicks != 0)
+                _deadlineTicks += Stopwatch.GetTimestamp() - start;
+        }
+    }
+
     public ScriptValue CreateHostObject(IHostObjectTemplate template, object target)
     {
         if (target.GetType().IsValueType) return ScriptValue.FromObject(new NativeHostValue(this, template, target));
@@ -1862,7 +1890,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             if (Engine.TryGetDomPrototypeValue(Template.Name, name, this, out value)) return true;
             if (Template.TryGetProperty(name, out var getter, out _))
             {
-                value = ToObject(getter(Target, ScriptValue.FromObject(this)));
+                value = ToObject(Engine.PauseDeadlineDuring(() => getter(Target, ScriptValue.FromObject(this))));
                 return true;
             }
             if (Template.TryGetMethod(name, out var method))
@@ -1874,7 +1902,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                         var host = receiver as NativeHostValue ?? this;
                         try
                         {
-                            return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+                            return ToObject(Engine.PauseDeadlineDuring(() => method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray())));
                         }
                         catch (WebIdlException error)
                         {
@@ -1906,7 +1934,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         {
             if (Template.TryGetProperty(name, out _, out var setter) && setter is not null)
             {
-                setter(Target, ScriptValue.FromObject(this), ToScriptValue(value));
+                Engine.PauseDeadlineDuring(() => setter(Target, ScriptValue.FromObject(this), ToScriptValue(value)));
                 return true;
             }
             // Script-installed Web IDL accessors live on the interface prototype
