@@ -204,8 +204,8 @@ td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
 <div class='g'><div>g1</div><div>g2</div></div>
 <select id='dept'><option value=''>All</option></select>
 <table>
-  <thead><tr><th>Name</th><th>Role</th></tr></thead>
-  <tbody id='rows'><tr><td><div class='person'><span class='avatar' style='background:#2563eb'>AB</span>Alice Bob</div></td><td>Lead</td></tr></tbody>
+  <thead><tr><th>Name</th><th>Role</th><th>Dept</th><th>City</th><th>Start</th><th>Projects</th></tr></thead>
+  <tbody id='rows'><tr><td><div class='person'><span class='avatar' style='background:#2563eb'>AB</span>Alice Bob</div></td><td>Lead</td><td><span class='dept'>Engineering</span></td><td>Rotterdam</td><td class='num'>Jan 2020</td><td class='num'>10</td></tr></tbody>
 </table>
 <div id='p1' hidden>content</div>
 <script>
@@ -221,12 +221,23 @@ const opt = document.createElement('option');
 opt.value = 'eng';
 opt.textContent = 'Engineering';
 document.getElementById('dept').appendChild(opt);
-const mockPeople = [
-  { name: 'Alice Bob', role: 'Dev', dept: 'Engineering' },
-  { name: 'Charlie Dave', role: 'Design', dept: 'Design' }
-];
+const depts = ['Engineering', 'Design', 'Sales', 'Finance', 'Operations'];
+const cities = ['Rotterdam', 'Lyon', 'Bologna', 'Tallinn', 'Busan'];
+const mockPeople = [];
+for (let i = 0; i < 20; i++) {
+  mockPeople.push({
+    name: 'Person ' + i + ' Name',
+    role: 'Engineer Role ' + i,
+    dept: depts[i % 5],
+    city: cities[i % 5],
+    start: '202' + (i % 5) + '-0' + ((i % 9) + 1) + '-15',
+    projects: i + 1
+  });
+}
 function esc(s) { return String(s).replace(/[&<>""']/g, c => c); }
-document.getElementById('rows').innerHTML = mockPeople.map(p => `<tr><td><div class=""person""><span class=""avatar"" style=""background:#2563eb"">${p.name.slice(0, 2)}</span>${esc(p.name)}</div></td><td>${esc(p.role)}</td></tr>`).join('');
+function initials(name) { return name.split(' ').map(w => w[0]).join('').slice(0, 2); }
+function fmtDate(iso) { const [y, m] = iso.split('-'); return m + '/' + y; }
+document.getElementById('rows').innerHTML = mockPeople.map(p => `<tr><td><div class=""person""><span class=""avatar"" style=""background:#2563eb"">${initials(p.name)}</span>${esc(p.name)}</div></td><td>${esc(p.role)}</td><td><span class=""dept"">${esc(p.dept)}</span></td><td>${esc(p.city)}</td><td class=""num"">${fmtDate(p.start)}</td><td class=""num"">${p.projects}</td></tr>`).join('');
 const arr = [{x: 1, y: 'a'}, {x: 2, y: 'b'}];
 arr.filter(a => a.x > 0).sort((a, b) => a.y.localeCompare(b.y)).map(a => `<span>${a.y}</span>`).join('');
 </script>"

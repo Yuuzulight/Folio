@@ -320,23 +320,29 @@ internal static class TableLayout
     // edge runs along, and the table at the outer edges.
     private static Dictionary<Cell, BorderGroup> ResolveCollapsedBorders(Grid grid, TablePartBox table)
     {
-        var slots = new Dictionary<(int Row, int Column), Cell>();
+        var rowCount = grid.Rows.Count;
+        var colCount = grid.Columns;
+        var slots = new Cell?[rowCount, colCount];
         foreach (var cell in grid.Cells)
         {
-            for (var r = cell.Row; r < cell.Row + cell.RowSpan; r++)
+            var maxR = Math.Min(rowCount, cell.Row + cell.RowSpan);
+            var maxC = Math.Min(colCount, cell.Column + cell.ColumnSpan);
+            for (var r = cell.Row; r < maxR; r++)
             {
-                for (var c = cell.Column; c < cell.Column + cell.ColumnSpan; c++)
-                    slots[(r, c)] = cell;
+                for (var c = cell.Column; c < maxC; c++)
+                    slots[r, c] = cell;
             }
         }
-        var groupOf = new Dictionary<int, TablePartBox>();
+        var groupOf = new TablePartBox[rowCount];
         var index = 0;
         foreach (var (group, rows) in grid.Groups)
         {
             foreach (var _ in rows)
-                groupOf[index++] = group!;
+            {
+                if (index < rowCount) groupOf[index++] = group!;
+            }
         }
-        var (lastRow, lastColumn) = (grid.Rows.Count - 1, grid.Columns - 1);
+        var (lastRow, lastColumn) = (rowCount - 1, colCount - 1);
 
         Side Resolve(Cell cell, Edge edge)
         {
@@ -352,7 +358,8 @@ internal static class TableLayout
                     if (top > 0)
                     {
                         side = Winner(side, SideOf(grid.Rows[top - 1], Edge.Bottom, 3));
-                        if (slots.TryGetValue((top - 1, left), out var above))
+                        var above = (left >= 0 && left < colCount) ? slots[top - 1, left] : null;
+                        if (above is not null)
                             side = Winner(side, SideOf(above.Box, Edge.Bottom, 4));
                         if (groupOf[top] != groupOf[top - 1])
                             side = Winner(side, SideOf(groupOf[top - 1], Edge.Bottom, 2));
@@ -369,7 +376,8 @@ internal static class TableLayout
                     if (bottom < lastRow)
                     {
                         side = Winner(side, SideOf(grid.Rows[bottom + 1], Edge.Top, 3));
-                        if (slots.TryGetValue((bottom + 1, left), out var below))
+                        var below = (left >= 0 && left < colCount) ? slots[bottom + 1, left] : null;
+                        if (below is not null)
                             side = Winner(side, SideOf(below.Box, Edge.Top, 4));
                         if (groupOf[bottom] != groupOf[bottom + 1])
                             side = Winner(side, SideOf(groupOf[bottom + 1], Edge.Top, 2));
@@ -380,13 +388,15 @@ internal static class TableLayout
                     }
                     break;
                 case Edge.Left:
-                    if (left > 0 && slots.TryGetValue((top, left - 1), out var before))
+                    var before = (left > 0 && top >= 0 && top < rowCount) ? slots[top, left - 1] : null;
+                    if (before is not null)
                         side = Winner(side, SideOf(before.Box, Edge.Right, 4));
                     else if (left == 0)
                         side = Winner(Winner(Winner(side, SideOf(grid.Rows[top], Edge.Left, 3)), SideOf(groupOf[top], Edge.Left, 2)), SideOf(table, Edge.Left, 0));
                     break;
                 default:
-                    if (right < lastColumn && slots.TryGetValue((top, right + 1), out var after))
+                    var after = (right < lastColumn && top >= 0 && top < rowCount) ? slots[top, right + 1] : null;
+                    if (after is not null)
                         side = Winner(side, SideOf(after.Box, Edge.Left, 4));
                     else if (right == lastColumn)
                         side = Winner(Winner(Winner(side, SideOf(grid.Rows[top], Edge.Right, 3)), SideOf(groupOf[top], Edge.Right, 2)), SideOf(table, Edge.Right, 0));

@@ -1934,8 +1934,11 @@ internal sealed class JavaScriptEvaluator
         foreach (var pair in local) _bindings[pair.Key] = pair.Value;
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Source, bool KeepEmpty), string[]> BindingItemsCache = new();
+
     private static string[] SplitBindingItems(string source, bool keepEmpty = false)
     {
+        if (BindingItemsCache.TryGetValue((source, keepEmpty), out var cached)) return cached;
         var items = new List<string>();
         var start = 0;
         var depth = 0;
@@ -1950,7 +1953,9 @@ internal sealed class JavaScriptEvaluator
             }
         }
         items.Add(source[start..].Trim());
-        return keepEmpty ? items.ToArray() : items.Where(item => item.Length > 0).ToArray();
+        var result = keepEmpty ? items.ToArray() : items.Where(item => item.Length > 0).ToArray();
+        if (BindingItemsCache.Count < 200) BindingItemsCache.TryAdd((source, keepEmpty), result);
+        return result;
     }
 
     internal static object? InvokeWithReceiver(object function, object? receiver, IReadOnlyList<object?> arguments)
