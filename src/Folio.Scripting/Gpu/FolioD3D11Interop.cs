@@ -80,6 +80,7 @@ internal static class FolioD3D11Interop
     internal const int ContextSlotUpdateSubresource = 48;
     internal const int ContextSlotClearRenderTargetView = 50;
     internal const int ContextSlotClearDepthStencilView = 53;
+    internal const int ContextSlotFlush = 111;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct DxgiSampleDesc
@@ -129,6 +130,17 @@ internal static class FolioD3D11Interop
         public int Top;
         public int Right;
         public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct D3D11Box
+    {
+        public uint Left;
+        public uint Top;
+        public uint Front;
+        public uint Right;
+        public uint Bottom;
+        public uint Back;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -200,6 +212,9 @@ internal static class FolioD3D11Interop
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     internal delegate void CopyResourceDelegate(IntPtr context, IntPtr dst, IntPtr src);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    internal delegate void UpdateSubresourceDelegate(IntPtr context, IntPtr dstResource, uint dstSubresource, ref D3D11Box pDstBox, IntPtr pSrcData, uint srcRowPitch, uint srcDepthPitch);
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     internal delegate int MapDelegate(IntPtr context, IntPtr resource, uint subresource, uint mapType, uint mapFlags, out D3D11MappedSubresource mapped);
