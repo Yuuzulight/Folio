@@ -78,7 +78,7 @@ internal sealed class SoftwareCanvas : ICanvas
                 if (MathF.Abs(p0.X - left) < 1e-4f && MathF.Abs(p0.Y - top) < 1e-4f
                     && MathF.Abs(p1.X - right) < 1e-4f && MathF.Abs(p1.Y - bottom) < 1e-4f)
                 {
-                    var rectBounds = new IntRect(left, top, right, bottom);
+                    var rectBounds = new IntRect(Math.Min(left, right), Math.Min(top, bottom), Math.Max(left, right), Math.Max(top, bottom));
                     if (_state.ClipMask is not null)
                     {
                         var old = _state.Clip;
@@ -98,7 +98,8 @@ internal sealed class SoftwareCanvas : ICanvas
                     }
                     else
                     {
-                        _state.Clip = IntRect.Intersect(_state.Clip, rectBounds);
+                        var newClip = IntRect.Intersect(_state.Clip, rectBounds);
+                        _state.Clip = newClip.IsEmpty ? new IntRect(0, 0, 0, 0) : newClip;
                     }
                     return;
                 }
@@ -195,6 +196,8 @@ internal sealed class SoftwareCanvas : ICanvas
         var area = IntRect.Intersect(_state.Clip, _targetBounds);
         area = IntRect.Intersect(area, new IntRect((int)topLeft.X, (int)topLeft.Y,
             (int)bottomRight.X, (int)bottomRight.Y));
+        if (area.IsEmpty)
+            return true;
         // The target is a tightly packed RGBA8 surface.  Once the geometry and paint
         // are known to be an integral opaque rectangle, fill whole pixels as words;
         // calling the general compositor for every pixel adds needless bounds and
@@ -244,6 +247,8 @@ internal sealed class SoftwareCanvas : ICanvas
         var area = IntRect.Intersect(_state.Clip, _targetBounds);
         area = IntRect.Intersect(area, new IntRect((int)topLeft.X, (int)topLeft.Y,
             (int)bottomRight.X, (int)bottomRight.Y));
+        if (area.IsEmpty)
+            return true;
         for (var y = area.Top; y < area.Bottom; y++)
         {
             var first = ((y - _targetBounds.Top) * _target.Width + (area.Left - _targetBounds.Left)) * 4;
