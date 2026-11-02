@@ -161,7 +161,7 @@ internal sealed class SoftwareCanvas : ICanvas
         // flattening a PathData when there are no corner curves; the rasterizer already has an exact rectangle path.
         if (rect.Radii.IsZero)
         {
-            if (TryFillOpaqueAxisAlignedRect(rect.Rect, paint))
+            if (TryFillAxisAlignedRect(rect.Rect, paint))
                 return;
             var r = rect.Rect;
             var polygons = new[]
@@ -181,10 +181,13 @@ internal sealed class SoftwareCanvas : ICanvas
         FillPath(new PathData().AddRoundedRect(rect), FillRule.NonZero, paint);
     }
 
-    private bool TryFillOpaqueAxisAlignedRect(RectF rect, in Paint paint)
+    private bool TryFillAxisAlignedRect(RectF rect, in Paint paint)
     {
-        if (paint.Blur > 0 || paint.Gradient is not null || paint.Pattern is not null || paint.Blend != BlendMode.Normal
-            || paint.Color.A < 1 || _state.ClipMask is not null || !_state.Transform.IsAffine)
+        if (paint.Blur > 0 || paint.Gradient is not null || paint.Pattern is not null || _state.ClipMask is not null || !_state.Transform.IsAffine)
+            return false;
+        if (paint.Blend == BlendMode.Copy && paint.Color.A <= 0)
+            return TryClearAxisAlignedRect(rect);
+        if (paint.Blend != BlendMode.Normal)
             return false;
         var m = _state.Transform;
         if (m.M12 != 0 || m.M21 != 0 || m.M11 <= 0 || m.M22 <= 0)
@@ -198,19 +201,45 @@ internal sealed class SoftwareCanvas : ICanvas
             (int)bottomRight.X, (int)bottomRight.Y));
         if (area.IsEmpty)
             return true;
-        // The target is a tightly packed RGBA8 surface.  Once the geometry and paint
-        // are known to be an integral opaque rectangle, fill whole pixels as words;
-        // calling the general compositor for every pixel adds needless bounds and
-        // floating-point work to the hottest dashboard path.
-        var packed = (uint)To8(paint.Color.R)
-            | ((uint)To8(paint.Color.G) << 8)
-            | ((uint)To8(paint.Color.B) << 16)
-            | 0xFF000000u;
-        var words = MemoryMarshal.Cast<byte, uint>(_target.Data.AsSpan());
+        var a = paint.Color.A;
+        if (a <= 0)
+            return true;
+
+        var premul = Shader.Premultiplied(paint.Color);
+        var cR = To8(premul.X);
+        var cG = To8(premul.Y);
+        var cB = To8(premul.Z);
+        var cA = To8(premul.W);
+
+        if (cA == 255)
+        {
+            var packed = (uint)cR
+                | ((uint)cG << 8)
+                | ((uint)cB << 16)
+                | 0xFF000000u;
+            var words = MemoryMarshal.Cast<byte, uint>(_target.Data.AsSpan());
+            for (var y = area.Top; y < area.Bottom; y++)
+            {
+                var first = (y - _targetBounds.Top) * _target.Width + (area.Left - _targetBounds.Left);
+                words.Slice(first, area.Width).Fill(packed);
+            }
+            return true;
+        }
+
+        var data = _target.Data;
+        var invA = 255 - cA;
+        var targetWidth = _target.Width;
         for (var y = area.Top; y < area.Bottom; y++)
         {
-            var first = (y - _targetBounds.Top) * _target.Width + (area.Left - _targetBounds.Left);
-            words.Slice(first, area.Width).Fill(packed);
+            var targetRow = ((y - _targetBounds.Top) * targetWidth + (area.Left - _targetBounds.Left)) * 4;
+            for (var x = 0; x < area.Width; x++)
+            {
+                var offset = targetRow + x * 4;
+                data[offset] = (byte)(cR + (data[offset] * invA + 127) / 255);
+                data[offset + 1] = (byte)(cG + (data[offset + 1] * invA + 127) / 255);
+                data[offset + 2] = (byte)(cB + (data[offset + 2] * invA + 127) / 255);
+                data[offset + 3] = (byte)(cA + (data[offset + 3] * invA + 127) / 255);
+            }
         }
         return true;
 

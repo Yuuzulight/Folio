@@ -1081,7 +1081,20 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         if (receiver is not NativeHostValue host) return null;
         if (host.Template.TryGetMethod(name, out var method))
-            return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+        {
+            if (args.Count == 0) return ToObject(method(host.Target, host.SelfValue, []));
+            var pool = System.Buffers.ArrayPool<ScriptValue>.Shared;
+            var rented = pool.Rent(args.Count);
+            try
+            {
+                for (var i = 0; i < args.Count; i++) rented[i] = ToScriptValue(args[i]);
+                return ToObject(method(host.Target, host.SelfValue, rented.AsSpan(0, args.Count)));
+            }
+            finally
+            {
+                pool.Return(rented, clearArray: true);
+            }
+        }
 
         // Generic DOM nodes use the script-level EventTarget dispatch tables.
         // The native host prototypes are installed before DomEvents, so expose
@@ -1759,6 +1772,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         internal object Target { get; }
         private readonly Dictionary<string, object?> _expandos = new(StringComparer.Ordinal);
         private readonly Dictionary<string, NativeReceiverFunction> _methods = new(StringComparer.Ordinal);
+        private ScriptValue _selfValue;
+        internal ScriptValue SelfValue => _selfValue.Raw is not null ? _selfValue : (_selfValue = ScriptValue.FromObject(this));
 
         public IEnumerable<string> Keys => Names();
         public IEnumerable<object?> Values => Names().Select(name => TryGetValue(name, out var value) ? value : null);
@@ -1768,33 +1783,42 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         public bool TryGetValue(string name, out object? value)
         {
             if (_expandos.TryGetValue(name, out value)) return true;
+            if (_methods.TryGetValue(name, out var cachedMethod)) { value = cachedMethod; return true; }
             // DOM interface prototypes are script-visible and may override native methods/accessors.
             // Resolve them before the generated template so assignments such as
             // Node.prototype.appendChild = ... observe normal JavaScript lookup semantics.
             if (Engine.TryGetDomPrototypeValue(Template.Name, name, this, out value)) return true;
             if (Template.TryGetProperty(name, out var getter, out _))
             {
-                value = ToObject(getter(Target, ScriptValue.FromObject(this)));
+                value = ToObject(getter(Target, SelfValue));
                 return true;
             }
             if (Template.TryGetMethod(name, out var method))
             {
-                if (!_methods.TryGetValue(name, out var receiverMethod))
+                var receiverMethod = new NativeReceiverFunction((receiver, args) =>
                 {
-                    receiverMethod = new NativeReceiverFunction((receiver, args) =>
+                    var host = receiver as NativeHostValue ?? this;
+                    try
                     {
-                        var host = receiver as NativeHostValue ?? this;
+                        if (args.Count == 0) return ToObject(method(host.Target, host.SelfValue, []));
+                        var pool = System.Buffers.ArrayPool<ScriptValue>.Shared;
+                        var rented = pool.Rent(args.Count);
                         try
                         {
-                            return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+                            for (var i = 0; i < args.Count; i++) rented[i] = ToScriptValue(args[i]);
+                            return ToObject(method(host.Target, host.SelfValue, rented.AsSpan(0, args.Count)));
                         }
-                        catch (WebIdlException error)
+                        finally
                         {
-                            throw JavaScriptEvaluator.ConvertHostException(error);
+                            pool.Return(rented, clearArray: true);
                         }
-                    });
-                    _methods[name] = receiverMethod;
-                }
+                    }
+                    catch (WebIdlException error)
+                    {
+                        throw JavaScriptEvaluator.ConvertHostException(error);
+                    }
+                });
+                _methods[name] = receiverMethod;
                 value = receiverMethod;
                 return true;
             }
@@ -1818,7 +1842,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         {
             if (Template.TryGetProperty(name, out _, out var setter) && setter is not null)
             {
-                setter(Target, ScriptValue.FromObject(this), ToScriptValue(value));
+                setter(Target, SelfValue, ToScriptValue(value));
                 return true;
             }
             // Script-installed Web IDL accessors live on the interface prototype

@@ -54,12 +54,25 @@ internal sealed partial class Canvas2DContext
         return (x, y);
     }
 
+    private readonly Dictionary<(string Text, string Font, string LetterSpacing, string WordSpacing, string FontKerning, bool Rtl), Hosting.CanvasTextLayout> _textLayouts = new();
+
+    private Hosting.CanvasTextLayout GetTextLayout(string text, Folio.Style.ComputedStyle style, bool rtl)
+    {
+        var key = (text, State.Font, State.LetterSpacing, State.WordSpacing, State.FontKerning, rtl);
+        if (_textLayouts.TryGetValue(key, out var cached))
+            return cached;
+        var layout = _styles!.Layout(text, style, rtl);
+        if (_textLayouts.Count < 128)
+            _textLayouts[key] = layout;
+        return layout;
+    }
+
     /// <summary>fillText and strokeText (HTML §4.12.5.1.10).</summary>
     public void DrawText(string text, double x, double y, double? maxWidth, bool stroke)
     {
         if (!Finite(x, y) || maxWidth is { } limit && (double.IsNaN(limit) || limit <= 0) || ResolveTextStyle() is not { } style)
             return;
-        var layout = _styles!.Layout(Flatten(text), style, RightToLeft);
+        var layout = GetTextLayout(Flatten(text), style, RightToLeft);
         if (layout.Runs.Count == 0)
             return;
         var (offsetX, offsetY) = Anchor(layout);
@@ -98,7 +111,7 @@ internal sealed partial class Canvas2DContext
     {
         if (ResolveTextStyle() is not { } style)
             return new CanvasTextMetrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
-        var layout = _styles!.Layout(Flatten(text), style, RightToLeft);
+        var layout = GetTextLayout(Flatten(text), style, RightToLeft);
         var (offsetX, offsetY) = Anchor(layout);
         return new CanvasTextMetrics(layout.Width, -offsetX, layout.Width + offsetX, layout.Ascent - offsetY, layout.Descent + offsetY,
             layout.Ascent - offsetY, layout.Descent + offsetY, layout.Ascent - offsetY, layout.Descent + offsetY);
