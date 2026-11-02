@@ -2078,8 +2078,11 @@ internal sealed class JavaScriptEvaluator
 
     private object? Lookup(string name)
     {
-        if (_withScopes.Count == 0 && _bindings.TryGetValue(name, out var val))
-            return val;
+        if (_withScopes.Count == 0)
+        {
+            if (_bindings.TryGetValue(name, out var val)) return val;
+            if (_parentBindings is not null && _parentBindings.TryGetValue(name, out var pval)) return pval;
+        }
         return TryLookup(name, out var value) ? value : UndefinedOrNull();
     }
     private bool TryLookup(string name, out object? value)
