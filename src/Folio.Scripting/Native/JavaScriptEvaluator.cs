@@ -583,74 +583,123 @@ internal sealed class JavaScriptEvaluator
 
     private object? Binary(JavaScriptBinaryExpression binary)
     {
-        if (binary.Operator == ",")
+        switch (binary.Op)
         {
-            Evaluate(binary.Left);
-            return Evaluate(binary.Right);
+            case JavaScriptBinaryOp.Comma:
+                Evaluate(binary.Left);
+                return Evaluate(binary.Right);
+            case JavaScriptBinaryOp.LogicalAndAssign:
+            case JavaScriptBinaryOp.LogicalOrAssign:
+            case JavaScriptBinaryOp.NullishAssign:
+            {
+                var current = Evaluate(binary.Left);
+                var takeRight = binary.Op switch
+                {
+                    JavaScriptBinaryOp.LogicalAndAssign => Truth(current),
+                    JavaScriptBinaryOp.LogicalOrAssign => !Truth(current),
+                    _ => current is null or UndefinedValue,
+                };
+                if (!takeRight) return current;
+                var assigned = Evaluate(binary.Right);
+                AssignValue(binary.Left, assigned);
+                return assigned;
+            }
+            case JavaScriptBinaryOp.Assign:
+            case JavaScriptBinaryOp.AddAssign:
+            case JavaScriptBinaryOp.SubAssign:
+            case JavaScriptBinaryOp.MulAssign:
+            case JavaScriptBinaryOp.DivAssign:
+            case JavaScriptBinaryOp.ModAssign:
+            case JavaScriptBinaryOp.AndAssign:
+            case JavaScriptBinaryOp.OrAssign:
+            case JavaScriptBinaryOp.XorAssign:
+            case JavaScriptBinaryOp.ShlAssign:
+            case JavaScriptBinaryOp.ShrAssign:
+            case JavaScriptBinaryOp.UshrAssign:
+            {
+                var assigned = binary.Op == JavaScriptBinaryOp.Assign ? Evaluate(binary.Right) : ApplyCompound(binary.Operator, binary.Left, binary.Right);
+                AssignValue(binary.Left, assigned);
+                return assigned;
+            }
+            case JavaScriptBinaryOp.LogicalAnd:
+            {
+                var leftVal = Evaluate(binary.Left);
+                return Truth(leftVal) ? Evaluate(binary.Right) : leftVal;
+            }
+            case JavaScriptBinaryOp.LogicalOr:
+            {
+                var leftVal = Evaluate(binary.Left);
+                return Truth(leftVal) ? leftVal : Evaluate(binary.Right);
+            }
+            case JavaScriptBinaryOp.Nullish:
+            {
+                var leftVal = Evaluate(binary.Left);
+                return leftVal is null or UndefinedValue ? Evaluate(binary.Right) : leftVal;
+            }
+            case JavaScriptBinaryOp.InstanceOf:
+            {
+                var leftVal = Evaluate(binary.Left);
+                return IsInstanceOf(leftVal, binary.Right is JavaScriptIdentifierExpression constructor ? constructor.Name : Evaluate(binary.Right));
+            }
+            case JavaScriptBinaryOp.In:
+            {
+                var leftVal = Evaluate(binary.Left);
+                var rightVal = Evaluate(binary.Right);
+                return ContainsProperty(leftVal, rightVal);
+            }
         }
-        if (binary.Operator is "&&=" or "||=" or "??=")
-        {
-            var current = Evaluate(binary.Left);
-            var takeRight = binary.Operator switch { "&&=" => Truth(current), "||=" => !Truth(current), _ => current is null or UndefinedValue };
-            if (!takeRight) return current;
-            var assigned = Evaluate(binary.Right);
-            AssignValue(binary.Left, assigned);
-            return assigned;
-        }
-        if (binary.Operator is "=" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=" or "^=" or "<<=" or ">>=" or ">>>=")
-        {
-            var assigned = binary.Operator == "=" ? Evaluate(binary.Right) : ApplyCompound(binary.Operator, binary.Left, binary.Right);
-            AssignValue(binary.Left, assigned);
-            return assigned;
-        }
+
         var left = Evaluate(binary.Left);
-        if (binary.Operator == "&&") return Truth(left) ? Evaluate(binary.Right) : left;
-        if (binary.Operator == "||") return Truth(left) ? left : Evaluate(binary.Right);
-        if (binary.Operator == "??") return left is null or UndefinedValue ? Evaluate(binary.Right) : left;
-        if (binary.Operator == "instanceof") return IsInstanceOf(left, binary.Right is JavaScriptIdentifierExpression constructor ? constructor.Name : Evaluate(binary.Right));
         var right = Evaluate(binary.Right);
-        if (binary.Operator == "in") return ContainsProperty(left, right);
         if (left is double ld && right is double rd)
         {
-            return binary.Operator switch
+            return binary.Op switch
             {
-                "+" => ld + rd,
-                "-" => ld - rd,
-                "*" => ld * rd,
-                "/" => rd == 0 ? double.NaN : ld / rd,
-                "%" => rd == 0 ? double.NaN : ld % rd,
-                "<" => ld < rd,
-                ">" => ld > rd,
-                "<=" => ld <= rd,
-                ">=" => ld >= rd,
-                "==" or "===" => ld == rd,
-                "!=" or "!==" => ld != rd,
-                "**" => Math.Pow(ld, rd),
-                "<<" => (double)(ToInt32(ld) << (ToInt32(rd) & 31)),
-                ">>" => (double)(ToInt32(ld) >> (ToInt32(rd) & 31)),
-                ">>>" => (double)((uint)ToInt32(ld) >> (ToInt32(rd) & 31)),
-                "&" => (double)(ToInt32(ld) & ToInt32(rd)),
-                "^" => (double)(ToInt32(ld) ^ ToInt32(rd)),
-                "|" => (double)(ToInt32(ld) | ToInt32(rd)),
+                JavaScriptBinaryOp.Add => ld + rd,
+                JavaScriptBinaryOp.Sub => ld - rd,
+                JavaScriptBinaryOp.Mul => ld * rd,
+                JavaScriptBinaryOp.Div => rd == 0 ? double.NaN : ld / rd,
+                JavaScriptBinaryOp.Mod => rd == 0 ? double.NaN : ld % rd,
+                JavaScriptBinaryOp.LessThan => ld < rd,
+                JavaScriptBinaryOp.GreaterThan => ld > rd,
+                JavaScriptBinaryOp.LessEqual => ld <= rd,
+                JavaScriptBinaryOp.GreaterEqual => ld >= rd,
+                JavaScriptBinaryOp.Equal or JavaScriptBinaryOp.StrictEqual => ld == rd,
+                JavaScriptBinaryOp.NotEqual or JavaScriptBinaryOp.StrictNotEqual => ld != rd,
+                JavaScriptBinaryOp.Power => Math.Pow(ld, rd),
+                JavaScriptBinaryOp.ShiftLeft => (double)(ToInt32(ld) << (ToInt32(rd) & 31)),
+                JavaScriptBinaryOp.ShiftRight => (double)(ToInt32(ld) >> (ToInt32(rd) & 31)),
+                JavaScriptBinaryOp.UnsignedShiftRight => (double)((uint)ToInt32(ld) >> (ToInt32(rd) & 31)),
+                JavaScriptBinaryOp.BitwiseAnd => (double)(ToInt32(ld) & ToInt32(rd)),
+                JavaScriptBinaryOp.BitwiseXor => (double)(ToInt32(ld) ^ ToInt32(rd)),
+                JavaScriptBinaryOp.BitwiseOr => (double)(ToInt32(ld) | ToInt32(rd)),
                 _ => throw new NotSupportedException($"Unsupported binary operator '{binary.Operator}'."),
             };
         }
-        if (binary.Operator == "+" && (left is string || right is string)) return StringValue(left) + StringValue(right);
+        if (binary.Op == JavaScriptBinaryOp.Add && (left is string || right is string)) return StringValue(left) + StringValue(right);
         var l = Number(left); var r = Number(right);
-        return binary.Operator switch
+        return binary.Op switch
         {
-            "+" => l + r, "-" => l - r, "*" => l * r,
-            "**" => Math.Pow(l, r),
-            "/" => r == 0 ? double.NaN : l / r,
-            "%" => r == 0 ? double.NaN : l % r,
-            "<" => l < r, ">" => l > r, "<=" => l <= r, ">=" => l >= r,
-            "==" => JavaScriptNullishEquals(left, right) ?? Equals(left, right),
-            "===" => Equals(left, right),
-            "!=" => !(JavaScriptNullishEquals(left, right) ?? Equals(left, right)),
-            "!==" => !Equals(left, right),
-            "<<" => (double)(ToInt32(l) << (ToInt32(r) & 31)),
-            ">>" => (double)(ToInt32(l) >> (ToInt32(r) & 31)), ">>>" => (double)((uint)ToInt32(l) >> (ToInt32(r) & 31)),
-            "&" => (double)(ToInt32(l) & ToInt32(r)), "^" => (double)(ToInt32(l) ^ ToInt32(r)), "|" => (double)(ToInt32(l) | ToInt32(r)),
+            JavaScriptBinaryOp.Add => l + r,
+            JavaScriptBinaryOp.Sub => l - r,
+            JavaScriptBinaryOp.Mul => l * r,
+            JavaScriptBinaryOp.Power => Math.Pow(l, r),
+            JavaScriptBinaryOp.Div => r == 0 ? double.NaN : l / r,
+            JavaScriptBinaryOp.Mod => r == 0 ? double.NaN : l % r,
+            JavaScriptBinaryOp.LessThan => l < r,
+            JavaScriptBinaryOp.GreaterThan => l > r,
+            JavaScriptBinaryOp.LessEqual => l <= r,
+            JavaScriptBinaryOp.GreaterEqual => l >= r,
+            JavaScriptBinaryOp.Equal => JavaScriptNullishEquals(left, right) ?? Equals(left, right),
+            JavaScriptBinaryOp.StrictEqual => Equals(left, right),
+            JavaScriptBinaryOp.NotEqual => !(JavaScriptNullishEquals(left, right) ?? Equals(left, right)),
+            JavaScriptBinaryOp.StrictNotEqual => !Equals(left, right),
+            JavaScriptBinaryOp.ShiftLeft => (double)(ToInt32(l) << (ToInt32(r) & 31)),
+            JavaScriptBinaryOp.ShiftRight => (double)(ToInt32(l) >> (ToInt32(r) & 31)),
+            JavaScriptBinaryOp.UnsignedShiftRight => (double)((uint)ToInt32(l) >> (ToInt32(r) & 31)),
+            JavaScriptBinaryOp.BitwiseAnd => (double)(ToInt32(l) & ToInt32(r)),
+            JavaScriptBinaryOp.BitwiseXor => (double)(ToInt32(l) ^ ToInt32(r)),
+            JavaScriptBinaryOp.BitwiseOr => (double)(ToInt32(l) | ToInt32(r)),
             _ => throw new NotSupportedException($"Unsupported binary operator '{binary.Operator}'."),
         };
     }
@@ -1107,7 +1156,7 @@ internal sealed class JavaScriptEvaluator
             new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded, values).ExecuteFunctionBody(function.Body);
             return values;
         }
-        return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
+        return parameterEvaluator.ExecuteFunctionBody(function.Body);
     }
 
     internal sealed class RegexValue

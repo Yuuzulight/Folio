@@ -9,8 +9,11 @@ internal sealed partial class Canvas2DContext
     /// <summary>The font property: a value the CSS <c>font</c> shorthand accepts is kept, anything else is ignored.</summary>
     public void SetFont(string font)
     {
+        var trimmed = font.Trim();
+        if (string.Equals(trimmed, State.Font, StringComparison.Ordinal))
+            return;
         if (font.Length <= PaintSource.MaxText && _styles?.Resolve(font) is not null)
-            State.Font = font.Trim();
+            State.Font = trimmed;
     }
 
     /// <summary>The filter property: <c>none</c> or a valid filter list is kept, anything else is ignored.</summary>

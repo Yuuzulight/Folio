@@ -37,7 +37,72 @@ internal sealed record JavaScriptAwaitExpression(JavaScriptExpression Operand) :
 internal sealed record JavaScriptYieldExpression(JavaScriptExpression? Expression, bool Delegate = false) : JavaScriptExpression;
 internal sealed record JavaScriptUnaryExpression(string Operator, JavaScriptExpression Operand) : JavaScriptExpression;
 internal sealed record JavaScriptUpdateExpression(string Operator, JavaScriptExpression Operand, bool Prefix) : JavaScriptExpression;
-internal sealed record JavaScriptBinaryExpression(string Operator, JavaScriptExpression Left, JavaScriptExpression Right) : JavaScriptExpression;
+internal enum JavaScriptBinaryOp : byte
+{
+    Other,
+    Comma,
+    LogicalAndAssign, LogicalOrAssign, NullishAssign,
+    Assign, AddAssign, SubAssign, MulAssign, DivAssign, ModAssign,
+    AndAssign, OrAssign, XorAssign, ShlAssign, ShrAssign, UshrAssign,
+    LogicalAnd, LogicalOr, Nullish,
+    InstanceOf, In,
+    Add, Sub, Mul, Div, Mod,
+    LessThan, GreaterThan, LessEqual, GreaterEqual,
+    Equal, StrictEqual, NotEqual, StrictNotEqual,
+    Power, ShiftLeft, ShiftRight, UnsignedShiftRight,
+    BitwiseAnd, BitwiseOr, BitwiseXor
+}
+
+internal sealed record JavaScriptBinaryExpression(string Operator, JavaScriptExpression Left, JavaScriptExpression Right) : JavaScriptExpression
+{
+    internal JavaScriptBinaryOp Op { get; } = Classify(Operator);
+
+    private static JavaScriptBinaryOp Classify(string op) => op switch
+    {
+        "," => JavaScriptBinaryOp.Comma,
+        "&&=" => JavaScriptBinaryOp.LogicalAndAssign,
+        "||=" => JavaScriptBinaryOp.LogicalOrAssign,
+        "??=" => JavaScriptBinaryOp.NullishAssign,
+        "=" => JavaScriptBinaryOp.Assign,
+        "+=" => JavaScriptBinaryOp.AddAssign,
+        "-=" => JavaScriptBinaryOp.SubAssign,
+        "*=" => JavaScriptBinaryOp.MulAssign,
+        "/=" => JavaScriptBinaryOp.DivAssign,
+        "%=" => JavaScriptBinaryOp.ModAssign,
+        "&=" => JavaScriptBinaryOp.AndAssign,
+        "|=" => JavaScriptBinaryOp.OrAssign,
+        "^=" => JavaScriptBinaryOp.XorAssign,
+        "<<=" => JavaScriptBinaryOp.ShlAssign,
+        ">>=" => JavaScriptBinaryOp.ShrAssign,
+        ">>>=" => JavaScriptBinaryOp.UshrAssign,
+        "&&" => JavaScriptBinaryOp.LogicalAnd,
+        "||" => JavaScriptBinaryOp.LogicalOr,
+        "??" => JavaScriptBinaryOp.Nullish,
+        "instanceof" => JavaScriptBinaryOp.InstanceOf,
+        "in" => JavaScriptBinaryOp.In,
+        "+" => JavaScriptBinaryOp.Add,
+        "-" => JavaScriptBinaryOp.Sub,
+        "*" => JavaScriptBinaryOp.Mul,
+        "/" => JavaScriptBinaryOp.Div,
+        "%" => JavaScriptBinaryOp.Mod,
+        "<" => JavaScriptBinaryOp.LessThan,
+        ">" => JavaScriptBinaryOp.GreaterThan,
+        "<=" => JavaScriptBinaryOp.LessEqual,
+        ">=" => JavaScriptBinaryOp.GreaterEqual,
+        "==" => JavaScriptBinaryOp.Equal,
+        "===" => JavaScriptBinaryOp.StrictEqual,
+        "!=" => JavaScriptBinaryOp.NotEqual,
+        "!==" => JavaScriptBinaryOp.StrictNotEqual,
+        "**" => JavaScriptBinaryOp.Power,
+        "<<" => JavaScriptBinaryOp.ShiftLeft,
+        ">>" => JavaScriptBinaryOp.ShiftRight,
+        ">>>" => JavaScriptBinaryOp.UnsignedShiftRight,
+        "&" => JavaScriptBinaryOp.BitwiseAnd,
+        "|" => JavaScriptBinaryOp.BitwiseOr,
+        "^" => JavaScriptBinaryOp.BitwiseXor,
+        _ => JavaScriptBinaryOp.Other,
+    };
+}
 internal sealed record JavaScriptConditionalExpression(JavaScriptExpression Condition, JavaScriptExpression WhenTrue, JavaScriptExpression WhenFalse) : JavaScriptExpression;
 internal sealed record JavaScriptMemberExpression(JavaScriptExpression Target, string Name, bool Optional = false) : JavaScriptExpression;
 internal sealed record JavaScriptCallExpression(JavaScriptExpression Callee, IReadOnlyList<JavaScriptExpression> Arguments) : JavaScriptExpression;
