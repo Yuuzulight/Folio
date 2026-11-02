@@ -653,7 +653,17 @@ internal sealed class CanvasTemplates
         else if (!value.IsObject)
         {
             if (PaintSource.ParseColor(WebIdlConversions.ToDOMString(value), context.CurrentColor()) is { } color)
+            {
+                if (stroke)
+                {
+                    if (context.State.StrokeStyle is { Gradient: null, Pattern: null } s && s.Color == color) return;
+                }
+                else
+                {
+                    if (context.State.FillStyle is { Gradient: null, Pattern: null } f && f.Color == color) return;
+                }
                 source = new PaintSource(color);
+            }
         }
         if (source is null)
             return;

@@ -81,14 +81,17 @@ internal sealed class JavaScriptEvaluator
             : unwrapped;
     }
 
-    private object Template(string text)
+    private sealed record TemplatePart(string? Literal, IReadOnlyList<JavaScriptStatement>? Statements);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, TemplatePart[]> TemplatePartsCache = new(StringComparer.Ordinal);
+
+    private static TemplatePart[] ParseTemplateParts(string text)
     {
-        var result = new System.Text.StringBuilder();
+        var list = new List<TemplatePart>();
         for (var offset = 0; offset < text.Length;)
         {
             var marker = text.IndexOf("${", offset, StringComparison.Ordinal);
-            if (marker < 0) { result.Append(text[offset..]); break; }
-            result.Append(text[offset..marker]);
+            if (marker < 0) { list.Add(new TemplatePart(text[offset..], null)); break; }
+            if (marker > offset) list.Add(new TemplatePart(text[offset..marker], null));
             var depth = 1;
             var end = marker + 2;
             while (end < text.Length && depth > 0)
@@ -97,11 +100,25 @@ internal sealed class JavaScriptEvaluator
                 else if (text[end] == '}') depth--;
                 end++;
             }
-            if (depth != 0) { result.Append(text[marker..]); break; }
-            var expression = new JavaScriptParser(text[(marker + 2)..(end - 1)]).ParseProgram();
-            var value = Execute(expression);
-            result.Append(StringValue(value));
+            if (depth != 0) { list.Add(new TemplatePart(text[marker..], null)); break; }
+            var exprText = text[(marker + 2)..(end - 1)];
+            var parsed = new JavaScriptParser(exprText).ParseProgram();
+            list.Add(new TemplatePart(null, parsed));
             offset = end;
+        }
+        return list.ToArray();
+    }
+
+    private object Template(string text)
+    {
+        var parts = TemplatePartsCache.GetOrAdd(text, ParseTemplateParts);
+        if (parts.Length == 1 && parts[0].Literal is { } singleLit)
+            return singleLit;
+        var result = new System.Text.StringBuilder();
+        foreach (var part in parts)
+        {
+            if (part.Literal is { } lit) result.Append(lit);
+            else if (part.Statements is { } statements) result.Append(StringValue(Execute(statements)));
         }
         return result.ToString();
     }
@@ -267,7 +284,10 @@ internal sealed class JavaScriptEvaluator
             case JavaScriptFunctionDeclarationStatement function: _bindings[function.Name] = Evaluate(function.Function); break;
             case JavaScriptClassDeclarationStatement @class: _bindings[@class.Name] = Evaluate(@class.Class); break;
             case JavaScriptBlockStatement block:
-                lastResult = ExecuteCore(block.Statements);
+                if (block.Statements.Count == 1 && block.Statements[0] is not JavaScriptFunctionDeclarationStatement)
+                    ExecuteStatement(block.Statements[0], ref lastResult);
+                else
+                    lastResult = ExecuteCore(block.Statements);
                 break;
             case JavaScriptWithStatement with:
             {
@@ -1839,7 +1859,7 @@ internal sealed class JavaScriptEvaluator
         object? InvokeBody(object? receiver, IReadOnlyList<object?> arguments)
         {
             var local = new Dictionary<string, object?>(StringComparer.Ordinal);
-            var parameterEvaluator = new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded);
+            JavaScriptEvaluator? bodyEvaluator = null;
             if (function.Name is { } functionName) local[functionName] = functionValue;
             for (var i = 0; i < function.Parameters.Count; i++)
             {
@@ -1851,7 +1871,11 @@ internal sealed class JavaScriptEvaluator
                 }
                 var value = i < arguments.Count ? arguments[i] : UndefinedOrNull();
                 var defaultValue = function.DefaultValues is { } values && i < values.Count ? values[i] : null;
-                if ((i >= arguments.Count || value is UndefinedValue) && defaultValue is not null) value = parameterEvaluator.Evaluate(defaultValue);
+                if ((i >= arguments.Count || value is UndefinedValue) && defaultValue is not null)
+                {
+                    bodyEvaluator ??= new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded);
+                    value = bodyEvaluator.Evaluate(defaultValue);
+                }
                 BindParameter(local, parameter, value);
             }
             // Non-strict top-level/function calls receive the global object when
@@ -1859,11 +1883,12 @@ internal sealed class JavaScriptEvaluator
             // for their `(function(){ ... })(this)` wrapper; method calls still
             // supply their actual receiver through ReceiverBindings.
             local["this"] = function.IsArrow ? lexicalThis : receiver ?? captured;
-            local["arguments"] = arguments.ToList();
+            local["arguments"] = arguments is IList<object?> argList ? argList : arguments.ToArray();
             if (function.IsGenerator) return RunGenerator(local, function.Body);
             try
             {
-                var result = new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
+                bodyEvaluator ??= new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded);
+                var result = bodyEvaluator.ExecuteFunctionBody(function.Body);
                 if (!function.IsAsync) return result;
                 return ResolvePromise(result);
             }

@@ -18,6 +18,9 @@ namespace Folio.Scripting.Native;
 /// </summary>
 public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator, IStructuredCloneEngine
 {
+    [ThreadStatic] private static ScriptValue[]? t_callArgsBuffer;
+    [ThreadStatic] private static bool t_callArgsBufferInUse;
+
     private readonly Dictionary<string, object?> _bindings = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object?> _domPrototypes = new(StringComparer.Ordinal);
     private readonly ConditionalWeakTable<object, Dictionary<IHostObjectTemplate, NativeHostValue>> _hostObjectCache = new();
@@ -1083,16 +1086,29 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         if (host.Template.TryGetMethod(name, out var method))
         {
             if (args.Count == 0) return ToObject(method(host.Target, host.SelfValue, []));
-            var pool = System.Buffers.ArrayPool<ScriptValue>.Shared;
-            var rented = pool.Rent(args.Count);
+            ScriptValue[]? poolArray = null;
+            var useFast = !t_callArgsBufferInUse && args.Count <= 16;
+            ScriptValue[] buffer;
+            if (useFast)
+            {
+                t_callArgsBufferInUse = true;
+                buffer = t_callArgsBuffer ??= new ScriptValue[16];
+            }
+            else
+            {
+                buffer = poolArray = System.Buffers.ArrayPool<ScriptValue>.Shared.Rent(args.Count);
+            }
+            var span = buffer.AsSpan(0, args.Count);
             try
             {
-                for (var i = 0; i < args.Count; i++) rented[i] = ToScriptValue(args[i]);
-                return ToObject(method(host.Target, host.SelfValue, rented.AsSpan(0, args.Count)));
+                for (var i = 0; i < args.Count; i++) span[i] = ToScriptValue(args[i]);
+                return ToObject(method(host.Target, host.SelfValue, span));
             }
             finally
             {
-                pool.Return(rented, clearArray: true);
+                span.Clear();
+                if (useFast) t_callArgsBufferInUse = false;
+                else if (poolArray is not null) System.Buffers.ArrayPool<ScriptValue>.Shared.Return(poolArray);
             }
         }
 
@@ -1801,16 +1817,29 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     try
                     {
                         if (args.Count == 0) return ToObject(method(host.Target, host.SelfValue, []));
-                        var pool = System.Buffers.ArrayPool<ScriptValue>.Shared;
-                        var rented = pool.Rent(args.Count);
+                        ScriptValue[]? poolArray = null;
+                        var useFast = !t_callArgsBufferInUse && args.Count <= 16;
+                        ScriptValue[] buffer;
+                        if (useFast)
+                        {
+                            t_callArgsBufferInUse = true;
+                            buffer = t_callArgsBuffer ??= new ScriptValue[16];
+                        }
+                        else
+                        {
+                            buffer = poolArray = System.Buffers.ArrayPool<ScriptValue>.Shared.Rent(args.Count);
+                        }
+                        var span = buffer.AsSpan(0, args.Count);
                         try
                         {
-                            for (var i = 0; i < args.Count; i++) rented[i] = ToScriptValue(args[i]);
-                            return ToObject(method(host.Target, host.SelfValue, rented.AsSpan(0, args.Count)));
+                            for (var i = 0; i < args.Count; i++) span[i] = ToScriptValue(args[i]);
+                            return ToObject(method(host.Target, host.SelfValue, span));
                         }
                         finally
                         {
-                            pool.Return(rented, clearArray: true);
+                            span.Clear();
+                            if (useFast) t_callArgsBufferInUse = false;
+                            else if (poolArray is not null) System.Buffers.ArrayPool<ScriptValue>.Shared.Return(poolArray);
                         }
                     }
                     catch (WebIdlException error)
