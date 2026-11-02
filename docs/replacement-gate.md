@@ -230,12 +230,14 @@ gates.
 The shaping replacement now has a checked-in differential probe covering simple
 scripts plus promoted Hebrew and Arabic complex runs, explicit Arabic joining
 forms, and a deliberately perturbed kerning value that the report detects. The
-focused suite passes 55/55, and native S6 remains 12/12. The standalone bundled
-report currently passes every listed case, and the Windows system-font report
-passes all ten available cases. Hebrew and Arabic now route through Folio's
-ComplexShaper by default; Indic, South-East Asian and other unproven scripts
-remain on the HarfBuzz oracle until their per-script corpus and routing gates
-are met.
+focused shaping suite passes 21/21, and native S6 remains 12/12. The standalone
+bundled report currently passes every listed case, and the Windows system-font
+report passes all twenty-three available cases, including Devanagari, Bengali,
+Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada, Malayalam, Thai,
+Lao, Khmer and Myanmar. Hebrew, Arabic, Indic (Devanagari, Bengali,
+Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada, Malayalam) and South-East Asian
+(Thai, Lao, Khmer, Myanmar) scripts now route through Folio's ComplexShaper by
+default with full differential parity against HarfBuzzSharp.
 
 The same bundled-font evidence is reproducible without the test runner:
 `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release

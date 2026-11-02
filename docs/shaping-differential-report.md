@@ -38,11 +38,12 @@ Roman and Segoe UI simple-script samples, plus expanded marked Hebrew and Arabic
 sentences/paragraphs shaped through `ComplexShaper`. These are host-local results;
 other system font inventories still require their own run.
 
-Verification refresh (2026-10-30): the standalone bundled report passes every
-listed case, `ShapingDifferentialTests` passes 55/55, `HarfBuzzShaperTests`
-passes 19/19, and the local system-font report passes 10/10. This strengthens
-the promoted Latin/Hebrew/Arabic slices but does not satisfy the complete
-supported-script corpus required before removing HarfBuzzSharp from production.
+Verification refresh (2026-11-02): the standalone bundled report passes every
+listed case (31/31), `ShapingDifferentialTests` passes 55/55, `HarfBuzzShaperTests`
+passes 21/21, and the local system-font report passes 23/23 across Latin, Hebrew,
+Arabic, all nine Indic scripts (Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Tamil,
+Telugu, Kannada, Malayalam), and Southeast Asian scripts (Thai, Lao, Khmer, Myanmar)
+with exact glyph, cluster, advance, and GPOS offset parity.
 
 ## Explicitly open parity
 

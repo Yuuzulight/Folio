@@ -41,6 +41,10 @@ public sealed class ComplexShaper : ITextShaper
         {
             ShapeHebrew(runes, face, scale, glyphs, clusters, advances, offsets);
         }
+        else if (IsIndic(runes) || IsSoutheastAsian(runes))
+        {
+            ShapeIndic(runes, face, scale, glyphs, clusters, advances, offsets, language);
+        }
         else
         {
             // Fallback simple 1:1 mapping
@@ -601,5 +605,273 @@ public sealed class ComplexShaper : ITextShaper
 
     private static bool IsHebrewMark(Rune rune) => Rune.GetUnicodeCategory(rune) is
         UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
+
+
+    private static bool IsIndic(List<(Rune Rune, int Index)> runes)
+    {
+        foreach (var (r, _) in runes)
+        {
+            if (r.Value is >= 0x0900 and <= 0x0DFF)
+                return true;
+        }
+        return false;
+    }
+
+    private static bool IsSoutheastAsian(List<(Rune Rune, int Index)> runes)
+    {
+        foreach (var (r, _) in runes)
+        {
+            if (r.Value is (>= 0x0E00 and <= 0x0EFF) or (>= 0x1000 and <= 0x109F) or (>= 0x1780 and <= 0x17FF))
+                return true;
+        }
+        return false;
+    }
+
+    private static string GetIndicScriptTag(int codePoint) => codePoint switch
+    {
+        >= 0x0900 and <= 0x097F => "dev2 deva",
+        >= 0x0980 and <= 0x09FF => "bng2 beng",
+        >= 0x0A00 and <= 0x0A7F => "grm2 guru",
+        >= 0x0A80 and <= 0x0AFF => "gjr2 gujr",
+        >= 0x0B00 and <= 0x0B7F => "ory2 oria",
+        >= 0x0B80 and <= 0x0BFF => "tml2 taml",
+        >= 0x0C00 and <= 0x0C7F => "tel2 telu",
+        >= 0x0C80 and <= 0x0CFF => "knd2 knda",
+        >= 0x0D00 and <= 0x0D7F => "mlm2 mlym",
+        >= 0x0E00 and <= 0x0E7F => "thai",
+        >= 0x0E80 and <= 0x0EFF => "lao ",
+        >= 0x1000 and <= 0x109F => "mym2 mymr",
+        >= 0x1780 and <= 0x17FF => "khmr",
+        _ => "DFLT",
+    };
+
+    private static bool IsVirama(int c) => c is
+        0x094D or 0x09CD or 0x0A4D or 0x0ACD or 0x0B4D or 0x0BCD or 0x0C4D or 0x0CCD or 0x0D4D or 0x1039 or 0x103A or 0x17D2;
+
+    private static bool IsPreBaseMatra(int c) => c is
+        0x093F or 0x09BF or 0x09C7 or 0x09C8 or 0x0A3F or 0x0ABF or 0x0B47 or 0x0BC6 or 0x0BC7 or 0x0BC8 or 0x0D46 or 0x0D47 or 0x0D48 or 0x0E40 or 0x0E41 or 0x0E42 or 0x0E43 or 0x0E44 or 0x0EC0 or 0x0EC1 or 0x0EC2 or 0x0EC3 or 0x0EC4 or 0x17C1 or 0x17C2 or 0x17C3 or 0x1031;
+
+    private static bool IsCombiningMark(Rune r) =>
+        Rune.GetUnicodeCategory(r) is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
+
+    private static bool IsNonSpacingMark(Rune r) =>
+        Rune.GetUnicodeCategory(r) is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark;
+
+    private static void ShapeIndic(
+        List<(Rune Rune, int Index)> runes, FontFace face, float scale,
+        List<ushort> glyphs, List<int> clusters, List<float> advances, List<Vector2> offsets, string? language)
+    {
+        if (runes.Count == 0) return;
+
+        // Determine script tag from first script rune
+        var scriptTag = "dev2 deva";
+        foreach (var (r, _) in runes)
+        {
+            var tag = GetIndicScriptTag(r.Value);
+            if (tag != "DFLT")
+            {
+                scriptTag = tag;
+                break;
+            }
+        }
+
+        // Segment into syllables
+        var syllables = new List<List<(Rune Rune, int Index)>>();
+        var currentSyllable = new List<(Rune Rune, int Index)>();
+        var hadHalant = false;
+
+        for (var i = 0; i < runes.Count; i++)
+        {
+            var item = runes[i];
+            var code = item.Rune.Value;
+            var isMark = IsCombiningMark(item.Rune);
+            var isVirama = IsVirama(code);
+
+            if (currentSyllable.Count == 0)
+            {
+                currentSyllable.Add(item);
+                hadHalant = isVirama;
+                continue;
+            }
+
+            if (hadHalant)
+            {
+                // Followed previous halant -> part of same syllable
+                currentSyllable.Add(item);
+                hadHalant = isVirama;
+            }
+            else if (isMark || isVirama)
+            {
+                // Mark/halant attaches to current syllable
+                currentSyllable.Add(item);
+                hadHalant = isVirama;
+            }
+            else
+            {
+                // New syllable begins
+                syllables.Add(currentSyllable);
+                currentSyllable = new List<(Rune Rune, int Index)> { item };
+                hadHalant = false;
+            }
+        }
+        if (currentSyllable.Count > 0)
+            syllables.Add(currentSyllable);
+
+        // Check if font has any glyphs for this script
+        var hasFontCoverage = false;
+        foreach (var (r, _) in runes)
+        {
+            if (face.GlyphFor(r.Value) != 0 && (r.Value >= 0x0900))
+            {
+                hasFontCoverage = true;
+                break;
+            }
+        }
+
+        if (!hasFontCoverage)
+        {
+            // Fallback for fonts without coverage (e.g. Arial):
+            // group combining marks with preceding base cluster, matching HarfBuzz
+            int? lastBaseCluster = null;
+            var hadVirama = false;
+            var isKhmer = scriptTag == "khmr";
+            foreach (var (r, idx) in runes)
+            {
+                var glyph = face.GlyphFor(r.Value);
+                glyphs.Add(glyph);
+                var isVirama = IsVirama(r.Value);
+                if ((isKhmer && hadVirama) || IsCombiningMark(r) || isVirama)
+                {
+                    clusters.Add(lastBaseCluster ?? idx);
+                }
+                else
+                {
+                    lastBaseCluster = idx;
+                    clusters.Add(idx);
+                }
+                hadVirama = isVirama;
+                advances.Add(face.Advance(glyph) * scale);
+                offsets.Add(Vector2.Zero);
+            }
+            return;
+        }
+
+        // Shape each syllable
+        foreach (var syllable in syllables)
+        {
+            var clusterIndex = syllable[0].Index;
+            var syllableGlyphs = new List<(ushort Glyph, bool IsMark, bool IsPreBase)>(syllable.Count);
+            foreach (var (r, _) in syllable)
+            {
+                var g = face.GlyphFor(r.Value);
+                syllableGlyphs.Add((g, IsNonSpacingMark(r), IsPreBaseMatra(r.Value)));
+            }
+
+            // Apply basic ligatures / conjuncts repeatedly
+            var changed = true;
+            for (var pass = 0; changed && pass < 4; pass++)
+            {
+                changed = false;
+                var currentGlyphs = syllableGlyphs.Select(item => item.Glyph).ToArray();
+                var ligs = face.SubstituteLigatures(currentGlyphs, "locl ccmp nukt akhn rphf rkrf blwf half pstf vatu cjct", scriptTag);
+                if (ligs.Length != currentGlyphs.Length || ligs.Zip(currentGlyphs).Any(p => p.First.Glyph != p.Second))
+                {
+                    var updated = new List<(ushort Glyph, bool IsMark, bool IsPreBase)>(ligs.Length);
+                    foreach (var lig in ligs)
+                    {
+                        var src = syllableGlyphs[Math.Clamp(lig.SourceStart, 0, syllableGlyphs.Count - 1)];
+                        updated.Add((lig.Glyph, lig.SourceLength == 1 && src.IsMark, lig.SourceLength == 1 && src.IsPreBase));
+                    }
+                    syllableGlyphs = updated;
+                    changed = true;
+                }
+            }
+
+            // Reorder pre-base matra
+            for (var idx = 0; idx < syllableGlyphs.Count; idx++)
+            {
+                if (syllableGlyphs[idx].IsPreBase)
+                {
+                    var matra = syllableGlyphs[idx];
+                    syllableGlyphs.RemoveAt(idx);
+                    syllableGlyphs.Insert(0, matra);
+                    break;
+                }
+            }
+
+            // Positional features (ligatures + contextual/single)
+            var currentPosGlyphs = syllableGlyphs.Select(item => item.Glyph).ToArray();
+            var posLigs = face.SubstituteLigatures(currentPosGlyphs, "pres abvs blws psts haln calt liga", scriptTag);
+            if (posLigs.Length != currentPosGlyphs.Length || posLigs.Zip(currentPosGlyphs).Any(p => p.First.Glyph != p.Second))
+            {
+                var updated = new List<(ushort Glyph, bool IsMark, bool IsPreBase)>(posLigs.Length);
+                foreach (var lig in posLigs)
+                {
+                    var src = syllableGlyphs[Math.Clamp(lig.SourceStart, 0, syllableGlyphs.Count - 1)];
+                    updated.Add((lig.Glyph, lig.SourceLength == 1 && src.IsMark, lig.SourceLength == 1 && src.IsPreBase));
+                }
+                syllableGlyphs = updated;
+            }
+            var finalGlyphs = syllableGlyphs.Select(item => item.Glyph).ToArray();
+            var substituted = face.Substitute(finalGlyphs, "pres abvs blws psts haln calt liga", scriptTag);
+            for (var idx = 0; idx < substituted.Length && idx < syllableGlyphs.Count; idx++)
+            {
+                if (substituted[idx] != syllableGlyphs[idx].Glyph)
+                    syllableGlyphs[idx] = (substituted[idx], syllableGlyphs[idx].IsMark, syllableGlyphs[idx].IsPreBase);
+            }
+
+            // GPOS mark positioning
+            ushort? lastBaseGlyph = null;
+            ushort? lastMarkGlyph = null;
+            var lastMarkOffset = Vector2.Zero;
+
+            foreach (var (glyph, isMark, isPreBase) in syllableGlyphs)
+            {
+                glyphs.Add(glyph);
+                clusters.Add(clusterIndex);
+
+                if (isMark && !isPreBase)
+                {
+                    advances.Add(0f);
+                    (int X, int Y)? markOffset = null;
+                    var relative = false;
+                    if (lastMarkGlyph is { } prevMark)
+                    {
+                        markOffset = face.MarkToMarkOffset(prevMark, glyph);
+                        relative = markOffset is not null;
+                    }
+                    if (markOffset is null && lastBaseGlyph is { } baseG)
+                    {
+                        markOffset = face.MarkOffset(baseG, glyph) ?? face.MarkToLigatureOffset(baseG, glyph);
+                    }
+
+                    if (markOffset is { } pos)
+                    {
+                        
+                        var offset = lastBaseGlyph is { } bG
+                            ? new Vector2((pos.X - face.Advance(bG)) * scale, -pos.Y * scale)
+                            : new Vector2(pos.X * scale, -pos.Y * scale);
+                        if (relative) offset += lastMarkOffset;
+                        offsets.Add(offset);
+                        lastMarkOffset = offset;
+                    }
+                    else
+                    {
+                        offsets.Add(Vector2.Zero);
+                        lastMarkOffset = Vector2.Zero;
+                    }
+                    lastMarkGlyph = glyph;
+                }
+                else
+                {
+                    advances.Add(face.Advance(glyph) * scale);
+                    offsets.Add(Vector2.Zero);
+                    lastBaseGlyph = glyph;
+                    lastMarkGlyph = null;
+                    lastMarkOffset = Vector2.Zero;
+                }
+            }
+        }
+    }
 
 }
