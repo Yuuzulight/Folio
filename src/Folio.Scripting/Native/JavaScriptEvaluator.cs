@@ -570,13 +570,23 @@ internal sealed class JavaScriptEvaluator
 
     private object? Update(JavaScriptUpdateExpression update)
     {
-        var oldValue = Evaluate(update.Operand);
-        var next = (oldValue is double d ? d : Number(oldValue)) + (update.Operator == "++" ? 1 : -1);
         if (update.Operand is JavaScriptIdentifierExpression identifier)
+        {
+            if (_withScopes.Count == 0 && _bindings.TryGetValue(identifier.Name, out var existing) && existing is double d)
+            {
+                var nextVal = update.Operator == "++" ? d + 1 : d - 1;
+                _bindings[identifier.Name] = nextVal;
+                return update.Prefix ? nextVal : d;
+            }
+            var oldValue = Evaluate(identifier);
+            var next = (oldValue is double num ? num : Number(oldValue)) + (update.Operator == "++" ? 1 : -1);
             Assign(identifier.Name, next);
-        else
-            AssignValue(update.Operand, next);
-        return update.Prefix ? next : oldValue;
+            return update.Prefix ? next : oldValue;
+        }
+        var complexOld = Evaluate(update.Operand);
+        var complexNext = (complexOld is double cd ? cd : Number(complexOld)) + (update.Operator == "++" ? 1 : -1);
+        AssignValue(update.Operand, complexNext);
+        return update.Prefix ? complexNext : complexOld;
     }
 
     private object? Binary(JavaScriptBinaryExpression binary)
@@ -2000,17 +2010,36 @@ internal sealed class JavaScriptEvaluator
             throw new ScriptLimitExceededException("Timeout", "The native script exceeded its execution time limit.");
     }
 
-    private object? Lookup(string name) => TryLookup(name, out var value) ? value : UndefinedOrNull();
+    private object? Lookup(string name)
+    {
+        if (_withScopes.Count == 0 && _bindings.TryGetValue(name, out var val))
+            return val;
+        return TryLookup(name, out var value) ? value : UndefinedOrNull();
+    }
     private bool TryLookup(string name, out object? value)
     {
-        for (var i = _withScopes.Count - 1; i >= 0; i--)
-            if (_withScopes[i].TryGetValue(name, out value)) return true;
+        if (_withScopes.Count != 0)
+        {
+            for (var i = _withScopes.Count - 1; i >= 0; i--)
+                if (_withScopes[i].TryGetValue(name, out value)) return true;
+        }
         if (_bindings.TryGetValue(name, out value)) return true;
         if (_parentBindings is not null && _parentBindings.TryGetValue(name, out value)) return true;
         return _parentEvaluator is not null && _parentEvaluator.TryLookup(name, out value);
     }
     private void Assign(string name, object? value)
     {
+        if (_withScopes.Count == 0 && _bindings.TryGetValue(name, out var existing))
+        {
+            if (existing is NativeJavaScriptEngine.NativePropertyAccessor accessor)
+            {
+                if (!accessor.Set(_bindings, value))
+                    throw new InvalidDataException($"Property '{name}' is read-only.");
+                return;
+            }
+            _bindings[name] = value;
+            return;
+        }
         for (var i = _withScopes.Count - 1; i >= 0; i--)
             if (_withScopes[i].ContainsKey(name)) { SetBinding(_withScopes[i], name, value); return; }
         if (_bindings.ContainsKey(name) || _parentBindings is null) SetBinding(_bindings, name, value);
