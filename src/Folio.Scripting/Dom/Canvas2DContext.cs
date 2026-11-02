@@ -320,7 +320,10 @@ internal sealed partial class Canvas2DContext
     {
         if (!Finite(x, y, w, h) || w == 0 || h == 0)
             return;
-        Render(State.FillStyle, (canvas, paint) => canvas.FillPath(RectPath(x, y, w, h), FillRule.NonZero, paint));
+        if (w < 0) { x += w; w = -w; }
+        if (h < 0) { y += h; h = -h; }
+        var rect = new RoundedRect(new RectF((float)x, (float)y, (float)w, (float)h), default);
+        Render(State.FillStyle, (canvas, paint) => canvas.FillRoundedRect(rect, paint));
     }
 
     public void StrokeRect(double x, double y, double w, double h)
