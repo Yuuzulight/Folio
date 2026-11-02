@@ -10,7 +10,7 @@ public sealed record ScriptLimits
     public static readonly ScriptLimits Default = new();
 
     /// <summary>Maximum elapsed execution time allowed for a single script evaluation or call task.</summary>
-    public TimeSpan? Timeout { get; init; } = TimeSpan.FromSeconds(5);
+    public TimeSpan? Timeout { get; init; } = TimeSpan.FromSeconds(15);
 
     /// <summary>Maximum number of statements allowed per task execution.</summary>
     public int? MaxStatements { get; init; } = 2_000_000;

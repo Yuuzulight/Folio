@@ -243,7 +243,7 @@ internal sealed class SoftwareCanvas : ICanvas
         }
         return true;
 
-        static bool Integral(float value) => MathF.Abs(value - MathF.Round(value)) < 1e-4f;
+        static bool Integral(float value) => (int)value == value || MathF.Abs(value - MathF.Round(value)) < 1e-4f;
         static byte To8(float value) => value <= 0 ? (byte)0 : value >= 1 ? (byte)255 : (byte)(value * 255 + 0.5f);
     }
 
@@ -285,7 +285,7 @@ internal sealed class SoftwareCanvas : ICanvas
         }
         return true;
 
-        static bool Integral(float value) => MathF.Abs(value - MathF.Round(value)) < 1e-4f;
+        static bool Integral(float value) => (int)value == value || MathF.Abs(value - MathF.Round(value)) < 1e-4f;
     }
 
     public void FillPath(PathData path, FillRule rule, in Paint paint)

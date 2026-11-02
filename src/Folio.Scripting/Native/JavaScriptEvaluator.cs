@@ -468,6 +468,17 @@ internal sealed class JavaScriptEvaluator
         }
         if (unary.Operator == "delete") return Delete(unary.Operand);
         var value = Evaluate(unary.Operand);
+        if (value is double d)
+        {
+            return unary.Operator switch
+            {
+                "!" => d == 0 || double.IsNaN(d),
+                "+" => d,
+                "-" => -d,
+                "~" => (double)~ToInt32(d),
+                _ => throw new NotSupportedException($"Unsupported unary operator '{unary.Operator}'."),
+            };
+        }
         return unary.Operator switch
         {
             "!" => !Truth(value),
@@ -560,7 +571,7 @@ internal sealed class JavaScriptEvaluator
     private object? Update(JavaScriptUpdateExpression update)
     {
         var oldValue = Evaluate(update.Operand);
-        var next = Number(oldValue) + (update.Operator == "++" ? 1 : -1);
+        var next = (oldValue is double d ? d : Number(oldValue)) + (update.Operator == "++" ? 1 : -1);
         if (update.Operand is JavaScriptIdentifierExpression identifier)
             Assign(identifier.Name, next);
         else
@@ -597,6 +608,31 @@ internal sealed class JavaScriptEvaluator
         if (binary.Operator == "instanceof") return IsInstanceOf(left, binary.Right is JavaScriptIdentifierExpression constructor ? constructor.Name : Evaluate(binary.Right));
         var right = Evaluate(binary.Right);
         if (binary.Operator == "in") return ContainsProperty(left, right);
+        if (left is double ld && right is double rd)
+        {
+            return binary.Operator switch
+            {
+                "+" => ld + rd,
+                "-" => ld - rd,
+                "*" => ld * rd,
+                "/" => rd == 0 ? double.NaN : ld / rd,
+                "%" => rd == 0 ? double.NaN : ld % rd,
+                "<" => ld < rd,
+                ">" => ld > rd,
+                "<=" => ld <= rd,
+                ">=" => ld >= rd,
+                "==" or "===" => ld == rd,
+                "!=" or "!==" => ld != rd,
+                "**" => Math.Pow(ld, rd),
+                "<<" => (double)(ToInt32(ld) << (ToInt32(rd) & 31)),
+                ">>" => (double)(ToInt32(ld) >> (ToInt32(rd) & 31)),
+                ">>>" => (double)((uint)ToInt32(ld) >> (ToInt32(rd) & 31)),
+                "&" => (double)(ToInt32(ld) & ToInt32(rd)),
+                "^" => (double)(ToInt32(ld) ^ ToInt32(rd)),
+                "|" => (double)(ToInt32(ld) | ToInt32(rd)),
+                _ => throw new NotSupportedException($"Unsupported binary operator '{binary.Operator}'."),
+            };
+        }
         if (binary.Operator == "+" && (left is string || right is string)) return StringValue(left) + StringValue(right);
         var l = Number(left); var r = Number(right);
         return binary.Operator switch
@@ -1960,7 +1996,7 @@ internal sealed class JavaScriptEvaluator
 
     private void ThrowIfExpired()
     {
-        if (_deadlineExceeded?.Invoke() == true)
+        if ((_steps & 63) == 0 && _deadlineExceeded?.Invoke() == true)
             throw new ScriptLimitExceededException("Timeout", "The native script exceeded its execution time limit.");
     }
 
