@@ -534,7 +534,7 @@ public class FolioView : Control
             MediaDecoder = Options.MediaDecoder,
             Capabilities = Options.Capabilities,
             DiagramLibraryUrls = Options.DiagramLibraryUrls,
-            Raster = Options.Raster ?? new Folio.Skia.SkiaRasterBackend(),
+            Raster = Options.Raster ?? Folio.Painting.SoftwareRasterBackend.Instance,
         };
         _document?.Dispose();
         _renderBitmap?.Dispose();

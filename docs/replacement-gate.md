@@ -350,3 +350,30 @@ opt-in probe.
 The Windows build also runs the complete conformance report with
 `FOLIO_CONFORMANCE_ENGINE=native`; native conformance is therefore a hosted CI
 requirement rather than a local-only verification command.
+
+
+## Verification refresh — 2026-11-02 (Software raster default backend switch, #575)
+
+Issue #575 switches the default rasterization backend across ContentDocumentRuntime,
+FolioView, and conformance suites to Folio.Painting.SoftwareRasterBackend.Instance.
+Optimizations landed:
+- PopLayer: Fast-path integer span compositing and contiguous span copying for
+  BlendMode.Normal (both opaque and semi-transparent layers), eliminating inner-loop
+  scalar floating-point arithmetic.
+- BlendSolid: Fast integer premultiplied alpha math for solid color fills and masked clips.
+- ClipRoundedRect: Bypasses 16-sample scanline path rasterization and mask allocation when
+  radii are zero and the transform is axis-aligned with integral bounds.
+- Rasterizer: Replaced per-scanline heap allocations with rented array pools and added
+  horizontal touch tracking (minTouch/maxTouch).
+
+Performance and visual verification:
+- Side-by-side text review at 100% scale (800x400): 1011 differing pixels (0.32% diff, passed).
+- Side-by-side text review at 150% scale (1200x600): 1334 differing pixels (0.19% diff, passed).
+  Review images saved in tests/render-output/text-review/.
+- Interactive frame benchmarks meet budgets: animation frames at 4.2 ms median / 5.0 ms p95
+  (target <= 8.0 ms), hover restyle at 3.3 ms median / 3.8 ms p95 (target <= 4.0 ms), scroll
+  frames at 6.3 ms median / 6.7 ms p95 (target <= 8.0 ms).
+- Software raster conformance suite passes 100% (40/40 software raster tests and 100% across
+  all D1-D14 and S1-S6 conformance artifacts).
+- SkiaSharp remains available behind IRasterBackend for explicit comparison and fallback
+  until its final removal.

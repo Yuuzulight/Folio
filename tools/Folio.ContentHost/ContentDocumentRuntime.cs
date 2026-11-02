@@ -106,7 +106,7 @@ public sealed class ContentDocumentRuntime : IDisposable
                 ArtifactStorage = message.Payload.TryGetProperty("storageEnabled", out var storageEnabled) && storageEnabled.GetBoolean() ? new BrokerArtifactStorage(_session) : null,
                 Limits = message.Payload.TryGetProperty("limits", out var limits) ? limits.Deserialize<ResourceLimits>() ?? ResourceLimits.Default : ResourceLimits.Default,
                 MediaCaptureActivityChanged = active => _ = _session.SendAsync(ContentMessageKind.MediaCaptureActivity, new { active }, cancellationToken),
-                Raster = new SkiaRasterBackend()
+                Raster = Folio.Painting.SoftwareRasterBackend.Instance
             };
             _session.SetStorageLimit(options.Limits.MaxServiceWorkerCacheBytes);
             _document = Document.Parse(htmlElement.GetString() ?? "", options);

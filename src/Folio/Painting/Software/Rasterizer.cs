@@ -113,71 +113,115 @@ internal static class Rasterizer
 
         var width = bounds.Width;
         var data = new byte[width * bounds.Height];
-        var row = new float[width + 2];
-        var runs = new float[width + 2];
+        var pool = System.Buffers.ArrayPool<float>.Shared;
+        var row = pool.Rent(width + 2);
+        var runs = pool.Rent(width + 2);
+        Array.Clear(row, 0, width + 2);
+        Array.Clear(runs, 0, width + 2);
         var active = new List<int>();
         var crossings = new List<(float X, int Direction)>();
         var next = 0;
 
-        for (var y = bounds.Top; y < bounds.Bottom; y++)
+        try
         {
-            var touched = false;
-            for (var s = 0; s < Samples; s++)
+            for (var y = bounds.Top; y < bounds.Bottom; y++)
             {
-                var ys = y + (s + 0.5f) / Samples;
-                while (next < edges.Count && edges[next].Y0 <= ys)
-                    active.Add(next++);
-                crossings.Clear();
-                for (var k = active.Count - 1; k >= 0; k--)
+                var touched = false;
+                var minTouch = width;
+                var maxTouch = -1;
+                for (var s = 0; s < Samples; s++)
                 {
-                    var e = edges[active[k]];
-                    if (e.Y1 <= ys)
+                    var ys = y + (s + 0.5f) / Samples;
+                    while (next < edges.Count && edges[next].Y0 <= ys)
+                        active.Add(next++);
+                    crossings.Clear();
+                    for (var k = active.Count - 1; k >= 0; k--)
                     {
-                        active.RemoveAt(k);
+                        var e = edges[active[k]];
+                        if (e.Y1 <= ys)
+                        {
+                            active.RemoveAt(k);
+                            continue;
+                        }
+                        crossings.Add((e.X0 + (ys - e.Y0) * e.Slope - bounds.Left, e.Direction));
+                    }
+                    if (crossings.Count < 2)
                         continue;
-                    }
-                    crossings.Add((e.X0 + (ys - e.Y0) * e.Slope - bounds.Left, e.Direction));
-                }
-                if (crossings.Count < 2)
-                    continue;
-                crossings.Sort((p, q) => p.X.CompareTo(q.X));
 
-                var winding = 0;
-                var spanStart = 0f;
-                var inside = false;
-                foreach (var (x, direction) in crossings)
-                {
-                    winding += direction;
-                    var nowInside = rule == FillRule.EvenOdd ? (winding & 1) != 0 : winding != 0;
-                    if (nowInside && !inside)
-                        spanStart = x;
-                    else if (!nowInside && inside)
+                    if (crossings.Count == 2)
                     {
-                        AddSpan(row, runs, width, spanStart, x, 1f / Samples);
-                        touched = true;
+                        if (crossings[0].X > crossings[1].X)
+                        {
+                            var temp = crossings[0];
+                            crossings[0] = crossings[1];
+                            crossings[1] = temp;
+                        }
                     }
-                    inside = nowInside;
+                    else
+                    {
+                        crossings.Sort(static (p, q) => p.X.CompareTo(q.X));
+                    }
+
+                    var winding = 0;
+                    var spanStart = 0f;
+                    var inside = false;
+                    foreach (var (x, direction) in crossings)
+                    {
+                        winding += direction;
+                        var nowInside = rule == FillRule.EvenOdd ? (winding & 1) != 0 : winding != 0;
+                        if (nowInside && !inside)
+                            spanStart = x;
+                        else if (!nowInside && inside)
+                        {
+                            AddSpan(row, runs, width, spanStart, x, 1f / Samples);
+                            touched = true;
+                            var iFrom = Math.Max(0, (int)spanStart);
+                            var iTo = Math.Min(width, (int)MathF.Ceiling(x));
+                            if (iFrom < minTouch) minTouch = iFrom;
+                            if (iTo > maxTouch) maxTouch = iTo;
+                        }
+                        inside = nowInside;
+                    }
+                }
+
+                if (!touched)
+                    continue;
+
+                var running = 0f;
+                var offset = (y - bounds.Top) * width;
+                var startX = Math.Max(0, minTouch);
+                var endX = Math.Min(width, maxTouch + 1);
+
+                for (var x = 0; x < startX; x++)
+                {
+                    running += runs[x];
+                    runs[x] = 0;
+                    row[x] = 0;
+                }
+
+                for (var x = startX; x < endX; x++)
+                {
+                    running += runs[x];
+                    var c = row[x] + running;
+                    data[offset + x] = c >= 0.998f ? (byte)255 : c <= 0.002f ? (byte)0 : (byte)MathF.Round(c * 255);
+                    row[x] = 0;
+                    runs[x] = 0;
+                }
+
+                for (var x = endX; x < width + 2; x++)
+                {
+                    running += runs[x];
+                    runs[x] = 0;
+                    row[x] = 0;
                 }
             }
-
-            if (!touched)
-                continue;
-            var running = 0f;
-            var offset = (y - bounds.Top) * width;
-            for (var x = 0; x < width; x++)
-            {
-                running += runs[x];
-                var c = row[x] + running;
-                data[offset + x] = c >= 0.998f ? (byte)255 : c <= 0.002f ? (byte)0 : (byte)MathF.Round(c * 255);
-                row[x] = 0;
-                runs[x] = 0;
-            }
-            runs[width] = 0;
-            runs[width + 1] = 0;
-            row[width] = 0;
-            row[width + 1] = 0;
+            return new Coverage(bounds, data);
         }
-        return new Coverage(bounds, data);
+        finally
+        {
+            pool.Return(row);
+            pool.Return(runs);
+        }
     }
 
     private static Coverage? FillUprightRectangle(Vector2[] polygon, IntRect clip)

@@ -16,6 +16,12 @@ namespace Folio.RenderTests;
 /// </summary>
 public class SoftwareRasterTests(ITestOutputHelper output)
 {
+    [Fact]
+    public void SideBySideTextReviewAt100And150Percent()
+    {
+        TextReviewRunner.Run();
+    }
+
     private const int Size = 128;
 
     private static Paint Solid(float r, float g, float b, float a = 1) => new(new Rgba(r, g, b, a));
