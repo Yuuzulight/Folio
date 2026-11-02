@@ -433,16 +433,8 @@ internal sealed class JavaScriptEvaluator
     private object? Literal(JavaScriptLiteralExpression literal)
     {
         if (literal.Kind == JavaScriptTokenKind.String) return literal.Text;
-        if (literal.Kind == JavaScriptTokenKind.Number)
-        {
-            var text = literal.Text.Replace("_", string.Empty, StringComparison.Ordinal);
-            if (text.EndsWith('n')) text = text[..^1];
-            if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 16), CultureInfo.InvariantCulture);
-            if (text.StartsWith("0b", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 2), CultureInfo.InvariantCulture);
-            if (text.StartsWith("0o", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 8), CultureInfo.InvariantCulture);
-            return double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
-        }
-        return literal.Text switch { "true" => true, "false" => false, "undefined" => UndefinedOrNull(), _ => null };
+        if (literal.Text == "undefined") return UndefinedOrNull();
+        return literal.CachedValue;
     }
 
     private object? Unary(JavaScriptUnaryExpression unary)

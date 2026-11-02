@@ -1,7 +1,35 @@
 namespace Folio.Scripting.Native;
 
 internal abstract record JavaScriptExpression;
-internal sealed record JavaScriptLiteralExpression(string Text, JavaScriptTokenKind Kind) : JavaScriptExpression;
+internal sealed record JavaScriptLiteralExpression(string Text, JavaScriptTokenKind Kind) : JavaScriptExpression
+{
+    private object? _cachedValue;
+    private bool _hasCached;
+
+    internal object? CachedValue => _hasCached ? _cachedValue : ComputeValue();
+
+    private object? ComputeValue()
+    {
+        _cachedValue = Kind switch
+        {
+            JavaScriptTokenKind.String => Text,
+            JavaScriptTokenKind.Number => ParseNumber(Text),
+            _ => Text switch { "true" => true, "false" => false, _ => null }
+        };
+        _hasCached = true;
+        return _cachedValue;
+    }
+
+    private static object ParseNumber(string rawText)
+    {
+        var text = rawText.Replace("_", string.Empty, StringComparison.Ordinal);
+        if (text.EndsWith('n')) text = text[..^1];
+        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 16), System.Globalization.CultureInfo.InvariantCulture);
+        if (text.StartsWith("0b", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 2), System.Globalization.CultureInfo.InvariantCulture);
+        if (text.StartsWith("0o", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 8), System.Globalization.CultureInfo.InvariantCulture);
+        return double.Parse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture);
+    }
+}
 internal sealed record JavaScriptTemplateExpression(string Text) : JavaScriptExpression;
 internal sealed record JavaScriptRegexExpression(string Text) : JavaScriptExpression;
 internal sealed record JavaScriptIdentifierExpression(string Name) : JavaScriptExpression;

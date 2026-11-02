@@ -48,6 +48,20 @@ internal sealed class CanvasDrawingState
     public string TextRendering = "auto";
     public string LetterSpacing = "0px";
     public string WordSpacing = "0px";
+    public Paint? CachedFillPaint;
+    public PaintSource? CachedFillPaintSource;
+    public double CachedFillPaintAlpha = -1;
+
+    public Paint GetOrCreateFillPaint()
+    {
+        if (CachedFillPaint.HasValue && ReferenceEquals(CachedFillPaintSource, FillStyle) && CachedFillPaintAlpha == GlobalAlpha)
+            return CachedFillPaint.Value;
+        var paint = FillStyle.ToPaint((float)GlobalAlpha, Matrix3x2.Identity);
+        CachedFillPaint = paint;
+        CachedFillPaintSource = FillStyle;
+        CachedFillPaintAlpha = GlobalAlpha;
+        return paint;
+    }
 
     public CanvasDrawingState Clone() => (CanvasDrawingState)MemberwiseClone();
 }
@@ -327,7 +341,7 @@ internal sealed partial class Canvas2DContext
         var state = State;
         if (state.Transform == Matrix3x2.Identity && !ShadowActive && state.FilterPrimitives is null && (BlendOf(state.GlobalCompositeOperation) ?? BlendMode.Normal) == BlendMode.Normal)
         {
-            var paint = state.FillStyle.ToPaint((float)state.GlobalAlpha, Matrix3x2.Identity);
+            var paint = state.GetOrCreateFillPaint();
             Canvas.FillRoundedRect(rect, paint);
             Version++;
             return;
@@ -415,7 +429,7 @@ internal sealed partial class Canvas2DContext
         var state = State;
         if (state.Transform == Matrix3x2.Identity && !ShadowActive && state.FilterPrimitives is null && (BlendOf(state.GlobalCompositeOperation) ?? BlendMode.Normal) == BlendMode.Normal)
         {
-            var paint = state.FillStyle.ToPaint((float)state.GlobalAlpha, Matrix3x2.Identity);
+            var paint = state.GetOrCreateFillPaint();
             Canvas.FillPath(data, rule, paint);
             Version++;
             return;
