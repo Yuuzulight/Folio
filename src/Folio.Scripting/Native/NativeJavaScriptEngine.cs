@@ -1952,15 +1952,15 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                         {
                             buffer = poolArray = System.Buffers.ArrayPool<ScriptValue>.Shared.Rent(args.Count);
                         }
-                        var span = buffer.AsSpan(0, args.Count);
+                        var count = args.Count;
                         try
                         {
-                            for (var i = 0; i < args.Count; i++) span[i] = ToScriptValue(args[i]);
-                            return ToObject(Engine.PauseDeadlineDuring(() => method(host.Target, host.SelfValue, span)));
+                            for (var i = 0; i < count; i++) buffer[i] = ToScriptValue(args[i]);
+                            return ToObject(Engine.PauseDeadlineDuring(() => method(host.Target, host.SelfValue, buffer.AsSpan(0, count))));
                         }
                         finally
                         {
-                            span.Clear();
+                            buffer.AsSpan(0, count).Clear();
                             if (useFast) t_callArgsBufferInUse = false;
                             else if (poolArray is not null) System.Buffers.ArrayPool<ScriptValue>.Shared.Return(poolArray);
                         }

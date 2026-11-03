@@ -945,7 +945,6 @@ internal sealed class JavaScriptEvaluator
                 arguments = expanded.ToArray();
             }
         }
-        }
         return target switch
         {
             NativeJavaScriptEngine.NativeReceiverFunction receiverCallable => InvokeWithReceiver(receiverCallable, receiver, arguments),
