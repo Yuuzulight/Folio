@@ -9,11 +9,10 @@ waive, defer, or reclassify this gate as optional.
 
 The native worker, nested-worker, iframe, and WebRTC capability slices are
 green (54/54, 7/7, 27/27, and 11/11 respectively), and the latest full native
-scripting runner is 1,449/1,449 on the current checkout. Jint is now excluded from the shipped content
-host and retained only in the explicitly built differential/oracle host.
-SkiaSharp, HarfBuzzSharp, Wasmtime, and ANGLE
-(`Avalonia.Angle.Windows.Natives`) remain in the production graph until
-the complete replacement gates below are met. The WARP float-renderbuffer
+scripting runner is 1,449/1,449 on the current checkout. Jint, Wasmtime, SkiaSharp, HarfBuzzSharp, and ANGLE
+(`Avalonia.Angle.Windows.Natives`) are now excluded from the shipped production content
+host; the CI publish guard verifies that zero superseded assemblies or native binaries
+are present in published artifacts. The WARP float-renderbuffer
 probe also confirms that the current WebGL fallback is RGBA8 emulation, so it
 cannot be counted as a Folio-owned float backend.
 

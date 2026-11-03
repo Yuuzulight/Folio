@@ -14,7 +14,6 @@
     <!-- Only the CI/differential oracle host includes Jint. Production publish leaves it out. -->
     <ProjectReference Include="..\..\src\Folio.Scripting.Jint\Folio.Scripting.Jint.csproj" Condition="'$(FolioOracleHost)' == 'true'" />
     <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
-    <ProjectReference Include="..\..\src\Folio.Skia\Folio.Skia.csproj" />
     <ProjectReference Include="..\..\src\Folio.Diagrams\Folio.Diagrams.csproj" />
   </ItemGroup>
 </Project>

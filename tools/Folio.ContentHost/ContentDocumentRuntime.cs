@@ -7,7 +7,6 @@ using Folio.Scripting.Dom;
 using Folio.Scripting.Gpu;
 using Folio.Scripting.Ipc;
 using Folio.Scripting.Native;
-using Folio.Skia;
 using System.Text.Json;
 using System.Collections.Concurrent;
 
@@ -66,8 +65,18 @@ public sealed class ContentDocumentRuntime : IDisposable
     public void PublishCurrentFrame()
     {
         if (_document is null) return;
-        using var rendered = HeadlessRenderer.Render(_document, new RenderRequest(1280, 720));
-        _frameStore.Publish(rendered.Pixels);
+        const int width = 1280;
+        const int height = 720;
+        var surface = new Folio.Painting.SoftwareRasterSurface(width, height);
+        var canvas = surface.Canvas;
+        canvas.FillRoundedRect(new Folio.Painting.RoundedRect(new Folio.Painting.RectF(0, 0, width, height), default),
+            _document.Options.ColorScheme == ColorScheme.Dark ? new Folio.Painting.Paint(new Folio.Painting.Rgba(18 / 255f, 18 / 255f, 18 / 255f, 1)) : new Folio.Painting.Paint(new Folio.Painting.Rgba(1, 1, 1, 1)));
+        var (list, _) = _document.Paint(width, height, 1f, new Folio.Typography.ComplexShaper());
+        Folio.Painting.DisplayListPlayer.Replay(list, canvas, new Folio.Painting.RectF(0, 0, width, height));
+        var pixels = surface.PremultipliedPixels.ToArray();
+        for (var i = 0; i < pixels.Length; i += 4)
+            (pixels[i], pixels[i + 2]) = (pixels[i + 2], pixels[i]);
+        _frameStore.Publish(pixels);
     }
 
     public bool ApplyCapabilities(ContentMessage message)

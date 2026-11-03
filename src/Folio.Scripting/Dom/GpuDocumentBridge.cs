@@ -29,10 +29,19 @@ internal sealed class GpuDocumentBridge : IDisposable
             return null;
         }
         var path = NativeLibraryPath();
-        if (path is null) { failure = new(GpuFailureKind.Unavailable, "The ANGLE native library was not found."); return null; }
-        var result = AngleGpuBackend.TryCreate(path, maxBytes);
-        if (result.Device is { } device) { failure = null; return new GpuDocumentBridge(device); }
-        failure = result.Failure;
+        if (path is not null)
+        {
+            var result = AngleGpuBackend.TryCreate(path, maxBytes);
+            if (result.Device is { } device) { failure = null; return new GpuDocumentBridge(device); }
+        }
+        if (OperatingSystem.IsWindows())
+        {
+            var folioResult = FolioGpuBackend.TryCreate(maxBytes);
+            if (folioResult.Device is { } folioDevice) { failure = null; return new GpuDocumentBridge(folioDevice); }
+            failure = folioResult.Failure;
+            return null;
+        }
+        failure = new(GpuFailureKind.Unavailable, "The GPU native backend is unavailable.");
         return null;
     }
 
