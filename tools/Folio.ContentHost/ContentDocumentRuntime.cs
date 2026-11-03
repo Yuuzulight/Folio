@@ -73,10 +73,7 @@ public sealed class ContentDocumentRuntime : IDisposable
             _document.Options.ColorScheme == ColorScheme.Dark ? new Folio.Painting.Paint(new Folio.Painting.Rgba(18 / 255f, 18 / 255f, 18 / 255f, 1)) : new Folio.Painting.Paint(new Folio.Painting.Rgba(1, 1, 1, 1)));
         var (list, _) = _document.Paint(width, height, 1f, new Folio.Typography.ComplexShaper());
         Folio.Painting.DisplayListPlayer.Replay(list, canvas, new Folio.Painting.RectF(0, 0, width, height));
-        var pixels = surface.PremultipliedPixels.ToArray();
-        for (var i = 0; i < pixels.Length; i += 4)
-            (pixels[i], pixels[i + 2]) = (pixels[i + 2], pixels[i]);
-        _frameStore.Publish(pixels);
+        _frameStore.Publish(surface.PremultipliedPixels);
     }
 
     public bool ApplyCapabilities(ContentMessage message)

@@ -10,9 +10,4 @@
     <PackageReference Include="xunit.v3" Version="4.0.1" />
     <Using Include="Xunit" />
   </ItemGroup>
-
-  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
-    <!-- Native ANGLE differential oracle for test harnesses on Windows. -->
-    <PackageReference Include="Avalonia.Angle.Windows.Natives" Version="2.1.27548.20260419" />
-  </ItemGroup>
 </Project>
