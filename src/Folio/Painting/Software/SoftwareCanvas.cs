@@ -62,7 +62,51 @@ internal sealed class SoftwareCanvas : ICanvas
 
     // ---- clipping ----
 
-    public void ClipRoundedRect(in RoundedRect rect) => ClipPath(new PathData().AddRoundedRect(rect), FillRule.NonZero);
+    public void ClipRoundedRect(in RoundedRect rect)
+    {
+        if (rect.Radii.IsZero && _state.Transform.IsAffine)
+        {
+            var m = _state.Transform;
+            if (m.M12 == 0 && m.M21 == 0 && m.M11 > 0 && m.M22 > 0)
+            {
+                var p0 = m.Apply(new Vector2(rect.Rect.X, rect.Rect.Y));
+                var p1 = m.Apply(new Vector2(rect.Rect.Right, rect.Rect.Bottom));
+                var left = (int)MathF.Round(p0.X);
+                var top = (int)MathF.Round(p0.Y);
+                var right = (int)MathF.Round(p1.X);
+                var bottom = (int)MathF.Round(p1.Y);
+                if (MathF.Abs(p0.X - left) < 1e-4f && MathF.Abs(p0.Y - top) < 1e-4f
+                    && MathF.Abs(p1.X - right) < 1e-4f && MathF.Abs(p1.Y - bottom) < 1e-4f)
+                {
+                    var rectBounds = new IntRect(Math.Min(left, right), Math.Min(top, bottom), Math.Max(left, right), Math.Max(top, bottom));
+                    if (_state.ClipMask is not null)
+                    {
+                        var old = _state.Clip;
+                        var newBounds = IntRect.Intersect(old, rectBounds);
+                        if (newBounds.IsEmpty)
+                        {
+                            _state.Clip = new IntRect(0, 0, 0, 0);
+                            _state.ClipMask = null;
+                            return;
+                        }
+                        var mask = new byte[newBounds.Width * newBounds.Height];
+                        for (var y = newBounds.Top; y < newBounds.Bottom; y++)
+                            Array.Copy(_state.ClipMask, (y - old.Top) * old.Width + (newBounds.Left - old.Left),
+                                mask, (y - newBounds.Top) * newBounds.Width, newBounds.Width);
+                        _state.Clip = newBounds;
+                        _state.ClipMask = mask;
+                    }
+                    else
+                    {
+                        var newClip = IntRect.Intersect(_state.Clip, rectBounds);
+                        _state.Clip = newClip.IsEmpty ? new IntRect(0, 0, 0, 0) : newClip;
+                    }
+                    return;
+                }
+            }
+        }
+        ClipPath(new PathData().AddRoundedRect(rect), FillRule.NonZero);
+    }
 
     public void ClipPath(PathData path, FillRule rule)
     {
@@ -117,7 +161,7 @@ internal sealed class SoftwareCanvas : ICanvas
         // flattening a PathData when there are no corner curves; the rasterizer already has an exact rectangle path.
         if (rect.Radii.IsZero)
         {
-            if (TryFillOpaqueAxisAlignedRect(rect.Rect, paint))
+            if (TryFillAxisAlignedRect(rect.Rect, paint))
                 return;
             var r = rect.Rect;
             var polygons = new[]
@@ -137,10 +181,13 @@ internal sealed class SoftwareCanvas : ICanvas
         FillPath(new PathData().AddRoundedRect(rect), FillRule.NonZero, paint);
     }
 
-    private bool TryFillOpaqueAxisAlignedRect(RectF rect, in Paint paint)
+    private bool TryFillAxisAlignedRect(RectF rect, in Paint paint)
     {
-        if (paint.Blur > 0 || paint.Gradient is not null || paint.Pattern is not null || paint.Blend != BlendMode.Normal
-            || paint.Color.A < 1 || _state.ClipMask is not null || !_state.Transform.IsAffine)
+        if (paint.Blur > 0 || paint.Gradient is not null || paint.Pattern is not null || _state.ClipMask is not null || !_state.Transform.IsAffine)
+            return false;
+        if (paint.Blend == BlendMode.Copy && paint.Color.A <= 0)
+            return TryClearAxisAlignedRect(rect);
+        if (paint.Blend != BlendMode.Normal)
             return false;
         var m = _state.Transform;
         if (m.M12 != 0 || m.M21 != 0 || m.M11 <= 0 || m.M22 <= 0)
@@ -152,23 +199,51 @@ internal sealed class SoftwareCanvas : ICanvas
         var area = IntRect.Intersect(_state.Clip, _targetBounds);
         area = IntRect.Intersect(area, new IntRect((int)topLeft.X, (int)topLeft.Y,
             (int)bottomRight.X, (int)bottomRight.Y));
-        // The target is a tightly packed RGBA8 surface.  Once the geometry and paint
-        // are known to be an integral opaque rectangle, fill whole pixels as words;
-        // calling the general compositor for every pixel adds needless bounds and
-        // floating-point work to the hottest dashboard path.
-        var packed = (uint)To8(paint.Color.R)
-            | ((uint)To8(paint.Color.G) << 8)
-            | ((uint)To8(paint.Color.B) << 16)
-            | 0xFF000000u;
-        var words = MemoryMarshal.Cast<byte, uint>(_target.Data.AsSpan());
+        if (area.IsEmpty)
+            return true;
+        var a = paint.Color.A;
+        if (a <= 0)
+            return true;
+
+        var premul = Shader.Premultiplied(paint.Color);
+        var cR = To8(premul.X);
+        var cG = To8(premul.Y);
+        var cB = To8(premul.Z);
+        var cA = To8(premul.W);
+
+        if (cA == 255)
+        {
+            var packed = (uint)cR
+                | ((uint)cG << 8)
+                | ((uint)cB << 16)
+                | 0xFF000000u;
+            var words = MemoryMarshal.Cast<byte, uint>(_target.Data.AsSpan());
+            for (var y = area.Top; y < area.Bottom; y++)
+            {
+                var first = (y - _targetBounds.Top) * _target.Width + (area.Left - _targetBounds.Left);
+                words.Slice(first, area.Width).Fill(packed);
+            }
+            return true;
+        }
+
+        var data = _target.Data;
+        var invA = 255 - cA;
+        var targetWidth = _target.Width;
         for (var y = area.Top; y < area.Bottom; y++)
         {
-            var first = (y - _targetBounds.Top) * _target.Width + (area.Left - _targetBounds.Left);
-            words.Slice(first, area.Width).Fill(packed);
+            var targetRow = ((y - _targetBounds.Top) * targetWidth + (area.Left - _targetBounds.Left)) * 4;
+            for (var x = 0; x < area.Width; x++)
+            {
+                var offset = targetRow + x * 4;
+                data[offset] = (byte)(cR + (data[offset] * invA + 127) / 255);
+                data[offset + 1] = (byte)(cG + (data[offset + 1] * invA + 127) / 255);
+                data[offset + 2] = (byte)(cB + (data[offset + 2] * invA + 127) / 255);
+                data[offset + 3] = (byte)(cA + (data[offset + 3] * invA + 127) / 255);
+            }
         }
         return true;
 
-        static bool Integral(float value) => MathF.Abs(value - MathF.Round(value)) < 1e-4f;
+        static bool Integral(float value) => (int)value == value || MathF.Abs(value - MathF.Round(value)) < 1e-4f;
         static byte To8(float value) => value <= 0 ? (byte)0 : value >= 1 ? (byte)255 : (byte)(value * 255 + 0.5f);
     }
 
@@ -201,6 +276,8 @@ internal sealed class SoftwareCanvas : ICanvas
         var area = IntRect.Intersect(_state.Clip, _targetBounds);
         area = IntRect.Intersect(area, new IntRect((int)topLeft.X, (int)topLeft.Y,
             (int)bottomRight.X, (int)bottomRight.Y));
+        if (area.IsEmpty)
+            return true;
         for (var y = area.Top; y < area.Bottom; y++)
         {
             var first = ((y - _targetBounds.Top) * _target.Width + (area.Left - _targetBounds.Left)) * 4;
@@ -208,7 +285,7 @@ internal sealed class SoftwareCanvas : ICanvas
         }
         return true;
 
-        static bool Integral(float value) => MathF.Abs(value - MathF.Round(value)) < 1e-4f;
+        static bool Integral(float value) => (int)value == value || MathF.Abs(value - MathF.Round(value)) < 1e-4f;
     }
 
     public void FillPath(PathData path, FillRule rule, in Paint paint)
@@ -263,34 +340,132 @@ internal sealed class SoftwareCanvas : ICanvas
     private void BlendSolid(Coverage coverage, Vector4 color, BlendMode blend)
     {
         var area = IntRect.Intersect(IntRect.Intersect(coverage.Bounds, _state.Clip), _targetBounds);
+        if (area.IsEmpty)
+            return;
+
+        if (blend == BlendMode.Normal)
+        {
+            var cR = To8(color.X);
+            var cG = To8(color.Y);
+            var cB = To8(color.Z);
+            var cA = To8(color.W);
+            if (cA == 0)
+                return;
+
+            if (_state.ClipMask is null)
+            {
+                var opaque = cA == 255;
+                var words = opaque ? MemoryMarshal.Cast<byte, uint>(_target.Data.AsSpan()) : default;
+                var packed = opaque
+                    ? (uint)cR | ((uint)cG << 8) | ((uint)cB << 16) | 0xFF000000u
+                    : 0u;
+                var data = _target.Data;
+                var covData = coverage.Data;
+                var width = area.Width;
+                var covWidth = coverage.Bounds.Width;
+                var targetWidth = _target.Width;
+
+                for (var y = area.Top; y < area.Bottom; y++)
+                {
+                    var covRow = (y - coverage.Bounds.Top) * covWidth + (area.Left - coverage.Bounds.Left);
+                    var targetRow = ((y - _targetBounds.Top) * targetWidth + (area.Left - _targetBounds.Left)) * 4;
+                    var x = 0;
+                    while (x < width)
+                    {
+                        var c = covData[covRow + x];
+                        if (c == 255 && opaque)
+                        {
+                            var runStart = x;
+                            do x++; while (x < width && covData[covRow + x] == 255);
+                            var first = (y - _targetBounds.Top) * targetWidth + (area.Left + runStart - _targetBounds.Left);
+                            words.Slice(first, x - runStart).Fill(packed);
+                            continue;
+                        }
+                        if (c == 255)
+                        {
+                            var offset = targetRow + x * 4;
+                            var invA = 255 - cA;
+                            data[offset] = (byte)(cR + (data[offset] * invA + 127) / 255);
+                            data[offset + 1] = (byte)(cG + (data[offset + 1] * invA + 127) / 255);
+                            data[offset + 2] = (byte)(cB + (data[offset + 2] * invA + 127) / 255);
+                            data[offset + 3] = (byte)(cA + (data[offset + 3] * invA + 127) / 255);
+                        }
+                        else if (c != 0)
+                        {
+                            var sa = (cA * c + 127) / 255;
+                            if (sa > 0)
+                            {
+                                var offset = targetRow + x * 4;
+                                var sr = (cR * c + 127) / 255;
+                                var sg = (cG * c + 127) / 255;
+                                var sb = (cB * c + 127) / 255;
+                                var invA = 255 - sa;
+                                data[offset] = (byte)(sr + (data[offset] * invA + 127) / 255);
+                                data[offset + 1] = (byte)(sg + (data[offset + 1] * invA + 127) / 255);
+                                data[offset + 2] = (byte)(sb + (data[offset + 2] * invA + 127) / 255);
+                                data[offset + 3] = (byte)(sa + (data[offset + 3] * invA + 127) / 255);
+                            }
+                        }
+                        x++;
+                    }
+                }
+                return;
+            }
+
+            var mask = _state.ClipMask;
+            var maskClip = _state.Clip;
+            var targetData = _target.Data;
+            var covDataClip = coverage.Data;
+            var w = area.Width;
+            var cWidth = coverage.Bounds.Width;
+            var mWidth = maskClip.Width;
+            var tWidth = _target.Width;
+
+            for (var y = area.Top; y < area.Bottom; y++)
+            {
+                var covRow = (y - coverage.Bounds.Top) * cWidth + (area.Left - coverage.Bounds.Left);
+                var maskRow = (y - maskClip.Top) * mWidth + (area.Left - maskClip.Left);
+                var targetRow = ((y - _targetBounds.Top) * tWidth + (area.Left - _targetBounds.Left)) * 4;
+                for (var x = 0; x < w; x++)
+                {
+                    var c = covDataClip[covRow + x];
+                    if (c == 0)
+                        continue;
+                    var mVal = mask[maskRow + x];
+                    if (mVal == 0)
+                        continue;
+                    var effCov = (c * mVal + 127) / 255;
+                    var sa = (cA * effCov + 127) / 255;
+                    if (sa > 0)
+                    {
+                        var offset = targetRow + x * 4;
+                        var sr = (cR * effCov + 127) / 255;
+                        var sg = (cG * effCov + 127) / 255;
+                        var sb = (cB * effCov + 127) / 255;
+                        var invA = 255 - sa;
+                        targetData[offset] = (byte)(sr + (targetData[offset] * invA + 127) / 255);
+                        targetData[offset + 1] = (byte)(sg + (targetData[offset + 1] * invA + 127) / 255);
+                        targetData[offset + 2] = (byte)(sb + (targetData[offset + 2] * invA + 127) / 255);
+                        targetData[offset + 3] = (byte)(sa + (targetData[offset + 3] * invA + 127) / 255);
+                    }
+                }
+            }
+            return;
+        }
+
         if (_state.ClipMask is null)
         {
-            var opaque = blend == BlendMode.Normal && color.W >= 1f;
-            var words = opaque ? MemoryMarshal.Cast<byte, uint>(_target.Data.AsSpan()) : default;
-            var packed = opaque
-                ? (uint)To8(color.X) | ((uint)To8(color.Y) << 8) | ((uint)To8(color.Z) << 16) | 0xFF000000u
-                : 0u;
             for (var y = area.Top; y < area.Bottom; y++)
             {
                 var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
-                var x = area.Left;
-                while (x < area.Right)
+                for (var x = area.Left; x < area.Right; x++)
                 {
                     var c = coverage.Data[row + x];
-                    if (c == 255 && opaque)
-                    {
-                        var runStart = x;
-                        do x++; while (x < area.Right && coverage.Data[row + x] == 255);
-                        var first = (y - _targetBounds.Top) * _target.Width + (runStart - _targetBounds.Left);
-                        words.Slice(first, x - runStart).Fill(packed);
-                        continue;
-                    }
                     if (c != 0)
                     {
                         var offset = ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4;
                         Compositor.Blend(_target.Data, offset, color, c / 255f, blend);
                     }
-                    x++;
                 }
             }
             return;
@@ -768,6 +943,123 @@ internal sealed class SoftwareCanvas : ICanvas
         var blend = layer.Options.Blend;
         // Composited where the clip in force when the layer was pushed lets it through.
         var clip = IntRect.Intersect(IntRect.Intersect(layer.Saved.Clip, layer.Bounds), layer.ParentBounds);
+        if (clip.IsEmpty)
+        {
+            Restore();
+            return;
+        }
+
+        if (blend == BlendMode.Normal)
+        {
+            var op = (int)MathF.Round(opacity * 255f);
+            if (op == 0)
+            {
+                Restore();
+                return;
+            }
+
+            var w = clip.Width;
+            var cWidth = content.Width;
+            var pWidth = layer.Parent.Width;
+            var cData = content.Data;
+            var pData = layer.Parent.Data;
+
+            if (layer.Saved.ClipMask is null)
+            {
+                if (op == 255)
+                {
+                    for (var y = clip.Top; y < clip.Bottom; y++)
+                    {
+                        var contentRow = ((y - layer.Bounds.Top) * cWidth + (clip.Left - layer.Bounds.Left)) * 4;
+                        var parentRow = ((y - layer.ParentBounds.Top) * pWidth + (clip.Left - layer.ParentBounds.Left)) * 4;
+                        var x = 0;
+                        while (x < w)
+                        {
+                            var i = contentRow + x * 4;
+                            var a = cData[i + 3];
+                            if (a == 255)
+                            {
+                                var runStart = x;
+                                do x++; while (x < w && cData[contentRow + x * 4 + 3] == 255);
+                                cData.AsSpan(contentRow + runStart * 4, (x - runStart) * 4)
+                                    .CopyTo(pData.AsSpan(parentRow + runStart * 4, (x - runStart) * 4));
+                                continue;
+                            }
+                            if (a > 0)
+                            {
+                                var parentOffset = parentRow + x * 4;
+                                var invA = 255 - a;
+                                pData[parentOffset] = (byte)(cData[i] + (pData[parentOffset] * invA + 127) / 255);
+                                pData[parentOffset + 1] = (byte)(cData[i + 1] + (pData[parentOffset + 1] * invA + 127) / 255);
+                                pData[parentOffset + 2] = (byte)(cData[i + 2] + (pData[parentOffset + 2] * invA + 127) / 255);
+                                pData[parentOffset + 3] = (byte)(a + (pData[parentOffset + 3] * invA + 127) / 255);
+                            }
+                            x++;
+                        }
+                    }
+                }
+                else
+                {
+                    for (var y = clip.Top; y < clip.Bottom; y++)
+                    {
+                        var contentRow = ((y - layer.Bounds.Top) * cWidth + (clip.Left - layer.Bounds.Left)) * 4;
+                        var parentRow = ((y - layer.ParentBounds.Top) * pWidth + (clip.Left - layer.ParentBounds.Left)) * 4;
+                        for (var x = 0; x < w; x++)
+                        {
+                            var i = contentRow + x * 4;
+                            var a = cData[i + 3];
+                            if (a == 0) continue;
+                            var sa = (a * op + 127) / 255;
+                            if (sa == 0) continue;
+                            var parentOffset = parentRow + x * 4;
+                            var sr = (cData[i] * op + 127) / 255;
+                            var sg = (cData[i + 1] * op + 127) / 255;
+                            var sb = (cData[i + 2] * op + 127) / 255;
+                            var invA = 255 - sa;
+                            pData[parentOffset] = (byte)(sr + (pData[parentOffset] * invA + 127) / 255);
+                            pData[parentOffset + 1] = (byte)(sg + (pData[parentOffset + 1] * invA + 127) / 255);
+                            pData[parentOffset + 2] = (byte)(sb + (pData[parentOffset + 2] * invA + 127) / 255);
+                            pData[parentOffset + 3] = (byte)(sa + (pData[parentOffset + 3] * invA + 127) / 255);
+                        }
+                    }
+                }
+                Restore();
+                return;
+            }
+
+            var mask = layer.Saved.ClipMask;
+            var maskClip = layer.Saved.Clip;
+            var mWidth = maskClip.Width;
+            for (var y = clip.Top; y < clip.Bottom; y++)
+            {
+                var contentRow = ((y - layer.Bounds.Top) * cWidth + (clip.Left - layer.Bounds.Left)) * 4;
+                var maskRow = (y - maskClip.Top) * mWidth + (clip.Left - maskClip.Left);
+                var parentRow = ((y - layer.ParentBounds.Top) * pWidth + (clip.Left - layer.ParentBounds.Left)) * 4;
+                for (var x = 0; x < w; x++)
+                {
+                    var i = contentRow + x * 4;
+                    var a = cData[i + 3];
+                    if (a == 0) continue;
+                    var mVal = mask[maskRow + x];
+                    if (mVal == 0) continue;
+                    var effOp = (op * mVal + 127) / 255;
+                    var sa = (a * effOp + 127) / 255;
+                    if (sa == 0) continue;
+                    var parentOffset = parentRow + x * 4;
+                    var sr = (cData[i] * effOp + 127) / 255;
+                    var sg = (cData[i + 1] * effOp + 127) / 255;
+                    var sb = (cData[i + 2] * effOp + 127) / 255;
+                    var invA = 255 - sa;
+                    pData[parentOffset] = (byte)(sr + (pData[parentOffset] * invA + 127) / 255);
+                    pData[parentOffset + 1] = (byte)(sg + (pData[parentOffset + 1] * invA + 127) / 255);
+                    pData[parentOffset + 2] = (byte)(sb + (pData[parentOffset + 2] * invA + 127) / 255);
+                    pData[parentOffset + 3] = (byte)(sa + (pData[parentOffset + 3] * invA + 127) / 255);
+                }
+            }
+            Restore();
+            return;
+        }
+
         for (var y = clip.Top; y < clip.Bottom; y++)
         {
             for (var x = clip.Left; x < clip.Right; x++)
@@ -777,9 +1069,6 @@ internal sealed class SoftwareCanvas : ICanvas
                 if (a == 0 && blend is BlendMode.Normal or BlendMode.PlusLighter or BlendMode.DestinationOver)
                     continue;
                 var parentOffset = ((y - layer.ParentBounds.Top) * layer.Parent.Width + (x - layer.ParentBounds.Left)) * 4;
-                // Normal source-over with a fully opaque source and no clip mask is
-                // an exact replacement. Avoid constructing a Vector4 and entering
-                // the general compositor for the common opaque layer case.
                 if (a == 255 && opacity >= 1f && blend == BlendMode.Normal && layer.Saved.ClipMask is null)
                 {
                     content.Data.AsSpan(i, 4).CopyTo(layer.Parent.Data.AsSpan(parentOffset, 4));

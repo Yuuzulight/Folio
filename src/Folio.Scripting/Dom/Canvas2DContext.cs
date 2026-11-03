@@ -48,6 +48,20 @@ internal sealed class CanvasDrawingState
     public string TextRendering = "auto";
     public string LetterSpacing = "0px";
     public string WordSpacing = "0px";
+    public Paint? CachedFillPaint;
+    public PaintSource? CachedFillPaintSource;
+    public double CachedFillPaintAlpha = -1;
+
+    public Paint GetOrCreateFillPaint()
+    {
+        if (CachedFillPaint.HasValue && ReferenceEquals(CachedFillPaintSource, FillStyle) && CachedFillPaintAlpha == GlobalAlpha)
+            return CachedFillPaint.Value;
+        var paint = FillStyle.ToPaint((float)GlobalAlpha, Matrix3x2.Identity);
+        CachedFillPaint = paint;
+        CachedFillPaintSource = FillStyle;
+        CachedFillPaintAlpha = GlobalAlpha;
+        return paint;
+    }
 
     public CanvasDrawingState Clone() => (CanvasDrawingState)MemberwiseClone();
 }
@@ -65,8 +79,7 @@ internal sealed partial class Canvas2DContext
     private readonly Stack<CanvasDrawingState> _saved = [];
     private int _unsaved;
     private readonly Hosting.CanvasStyleEngine? _styles;
-    private string? _textStyleKey;
-    private Folio.Style.ComputedStyle? _textStyle;
+    private readonly Dictionary<string, Folio.Style.ComputedStyle> _textStyles = new(StringComparer.Ordinal);
 
     public Canvas2DContext(IRasterSurface surface, bool alpha, Func<Rgba> currentColor, Hosting.CanvasStyleEngine? styles)
     {
@@ -103,10 +116,12 @@ internal sealed partial class Canvas2DContext
         if (_styles is null)
             return null;
         var key = string.Concat(State.Font, "\0", State.LetterSpacing, "\0", State.WordSpacing, "\0", State.FontKerning);
-        if (string.Equals(_textStyleKey, key, StringComparison.Ordinal))
-            return _textStyle;
-        _textStyleKey = key;
-        return _textStyle = _styles.Resolve(State.Font, State.LetterSpacing, State.WordSpacing, State.FontKerning);
+        if (_textStyles.TryGetValue(key, out var cached))
+            return cached;
+        var resolved = _styles.Resolve(State.Font, State.LetterSpacing, State.WordSpacing, State.FontKerning);
+        if (resolved is not null && _textStyles.Count < 64)
+            _textStyles[key] = resolved;
+        return resolved;
     }
 
     public CanvasDrawingState State { get; private set; } = new();
@@ -320,7 +335,18 @@ internal sealed partial class Canvas2DContext
     {
         if (!Finite(x, y, w, h) || w == 0 || h == 0)
             return;
-        Render(State.FillStyle, (canvas, paint) => canvas.FillPath(RectPath(x, y, w, h), FillRule.NonZero, paint));
+        if (w < 0) { x += w; w = -w; }
+        if (h < 0) { y += h; h = -h; }
+        var rect = new RoundedRect(new RectF((float)x, (float)y, (float)w, (float)h), default);
+        var state = State;
+        if (state.Transform == Matrix3x2.Identity && !ShadowActive && state.FilterPrimitives is null && (BlendOf(state.GlobalCompositeOperation) ?? BlendMode.Normal) == BlendMode.Normal)
+        {
+            var paint = state.GetOrCreateFillPaint();
+            Canvas.FillRoundedRect(rect, paint);
+            Version++;
+            return;
+        }
+        Render(state.FillStyle, (canvas, paint) => canvas.FillRoundedRect(rect, paint));
     }
 
     public void StrokeRect(double x, double y, double w, double h)
@@ -335,9 +361,19 @@ internal sealed partial class Canvas2DContext
     {
         if (!Finite(x, y, w, h) || w == 0 || h == 0 || !Matrix3x2.Invert(State.Transform, out _))
             return;
+        if (w < 0) { x += w; w = -w; }
+        if (h < 0) { y += h; h = -h; }
+        var rect = new RoundedRect(new RectF((float)x, (float)y, (float)w, (float)h), default);
+        var state = State;
         var canvas = Canvas;
+        if (state.Transform == Matrix3x2.Identity && state.FilterPrimitives is null)
+        {
+            canvas.FillRoundedRect(rect, new Paint(default, Blend: BlendMode.Copy));
+            Version++;
+            return;
+        }
         canvas.Save();
-        canvas.Transform(State.Transform);
+        canvas.Transform(state.Transform);
         // Clearing ignores alpha, shadows and the composite operation: it replaces pixels with transparent ones.
         canvas.FillPath(RectPath(x, y, w, h), FillRule.NonZero, new Paint(default, Blend: BlendMode.Copy));
         canvas.Restore();
@@ -382,6 +418,7 @@ internal sealed partial class Canvas2DContext
     // canvas coordinates and is mapped back by the inverse of the transform it is drawn under.
     private PathData UserSpace(CanvasPath? path) =>
         path is not null ? path.ToPathData(Matrix3x2.Identity)
+            : State.Transform == Matrix3x2.Identity ? Path.ToPathData(Matrix3x2.Identity)
             : Matrix3x2.Invert(State.Transform, out var inverse) ? Path.ToPathData(inverse) : new PathData();
 
     public void Fill(CanvasPath? path, FillRule rule)
@@ -389,7 +426,15 @@ internal sealed partial class Canvas2DContext
         var data = UserSpace(path);
         if (data.Commands.Count == 0)
             return;
-        Render(State.FillStyle, (canvas, paint) => canvas.FillPath(data, rule, paint));
+        var state = State;
+        if (state.Transform == Matrix3x2.Identity && !ShadowActive && state.FilterPrimitives is null && (BlendOf(state.GlobalCompositeOperation) ?? BlendMode.Normal) == BlendMode.Normal)
+        {
+            var paint = state.GetOrCreateFillPaint();
+            Canvas.FillPath(data, rule, paint);
+            Version++;
+            return;
+        }
+        Render(state.FillStyle, (canvas, paint) => canvas.FillPath(data, rule, paint));
     }
 
     public void Stroke(CanvasPath? path)

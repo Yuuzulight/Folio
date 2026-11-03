@@ -80,7 +80,7 @@ public static class Conformance
     public static FolioOptions Options { get; } = new()
     {
         Fonts = TestRenderer.Options.Fonts,
-        Raster = new SkiaRasterBackend(),
+        Raster = Folio.Painting.SoftwareRasterBackend.Instance,
         UserStyleSheet = $"*, *::before, *::after {{ font-family: {FontFamilies} !important; }}",
         Scripting = ScriptingPolicy.ContentProcess,
         // The conformance host exercises each stage-6 category with its deterministic fake/loopback services.

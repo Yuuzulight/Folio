@@ -63,6 +63,14 @@ public sealed class SoftwareRasterSurface : IRasterSurface
                 var a = _pixels.Data[from + 3];
                 if (a == 0)
                     continue;
+                if (a == 255)
+                {
+                    result[to] = _pixels.Data[from];
+                    result[to + 1] = _pixels.Data[from + 1];
+                    result[to + 2] = _pixels.Data[from + 2];
+                    result[to + 3] = 255;
+                    continue;
+                }
                 // Premultiplied to straight alpha.
                 result[to] = (byte)Math.Min(255, (_pixels.Data[from] * 255 + a / 2) / a);
                 result[to + 1] = (byte)Math.Min(255, (_pixels.Data[from + 1] * 255 + a / 2) / a);
