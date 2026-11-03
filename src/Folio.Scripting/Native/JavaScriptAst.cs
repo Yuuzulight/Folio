@@ -23,7 +23,7 @@ internal sealed record JavaScriptLiteralExpression(string Text, JavaScriptTokenK
     private static object ParseNumber(string rawText)
     {
         var text = rawText.Replace("_", string.Empty, StringComparison.Ordinal);
-        if (text.EndsWith('n')) text = text[..^1];
+        if (text.EndsWith('n')) return System.Numerics.BigInteger.Parse(text[..^1], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture);
         if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 16), System.Globalization.CultureInfo.InvariantCulture);
         if (text.StartsWith("0b", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 2), System.Globalization.CultureInfo.InvariantCulture);
         if (text.StartsWith("0o", StringComparison.OrdinalIgnoreCase)) return Convert.ToDouble(Convert.ToInt64(text[2..], 8), System.Globalization.CultureInfo.InvariantCulture);
