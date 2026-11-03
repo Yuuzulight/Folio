@@ -40,7 +40,7 @@ internal sealed class WorkerState
     private int _pendingWasmDenial;
     private string? _pendingFetchFailure;
     private WorkerFetchContext? _fetchContext;
-    private Action? _disposeWebAssembly;
+    private Action? _disposeWebAssembly = null;
     private readonly HtmlEventLoop? _workerEventLoop;
     private sealed record WorkerCommand(Action Execute, Action Abandon);
     private readonly BlockingCollection<WorkerCommand>? _workerCommands;
@@ -127,7 +127,15 @@ internal sealed class WorkerState
                     if (_parentContext?.TryGetTarget(out var rootContext) == true)
                         WorkerBindings.Install(WorkerEngine, rootContext, MessageEventTemplate, workerPortTemplate, resourceLoader,
                             Uri.TryCreate(ScriptUrl, UriKind.Absolute, out var nestedBase) ? nestedBase : null, _blobSources, _workerEventLoop, RegisterChild, UnregisterChild);
-                    _disposeWebAssembly = NativeWebAssemblyBridge.Install(WorkerEngine, maxWebAssemblyBytes, _workerExecutionTime, IsWebAssemblyAllowed).Dispose;
+                    // The Folio-owned interpreter is the production WebAssembly path for
+                    // native workers. Construct the Wasmtime bridge only for the explicit
+                    // oracle, otherwise production workers would require the excluded
+                    // Wasmtime.Dotnet assembly merely while installing their globals.
+                    #if FOLIO_WASM_ORACLE
+                    if (WorkerEngine is not Folio.Scripting.Native.NativeJavaScriptEngine
+                        || string.Equals(Environment.GetEnvironmentVariable("FOLIO_WASM_ENGINE"), "wasmtime", StringComparison.OrdinalIgnoreCase))
+                        _disposeWebAssembly = NativeWebAssemblyBridge.Install(WorkerEngine, maxWebAssemblyBytes, _workerExecutionTime, IsWebAssemblyAllowed).Dispose;
+                    #endif
                     WebAssemblyBindings.Install(WorkerEngine, IsWebAssemblyAllowed, maxWebAssemblyBytes);
                     _fetchContext = new WorkerFetchContext(Uri.TryCreate(ScriptUrl, UriKind.Absolute, out var workerBase) ? workerBase : null,
                         resourceLoader, _workerLoads.Token, _workerMessageBudget!, ReportFetchFailure);

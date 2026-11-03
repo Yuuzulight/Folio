@@ -6,7 +6,6 @@ using Folio.Scripting;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Gpu;
 using Folio.Scripting.Ipc;
-using Folio.Scripting.Jint;
 using Folio.Scripting.Native;
 using Folio.Skia;
 using System.Text.Json;
@@ -33,7 +32,9 @@ public sealed class ContentDocumentRuntime : IDisposable
         _session = session;
         _frameStore = frameStore;
         _resourceLoader = new BrokerResourceLoader(session);
-        _engineFactory = engineFactory ?? (() => new JintScriptEngine());
+        // The shipped content host uses Folio's native engine.  The optional
+        // Jint oracle is loaded only by an explicitly configured test host.
+        _engineFactory = engineFactory ?? (() => new NativeJavaScriptEngine());
     }
 
     public FeatureCapabilities Capabilities { get; private set; } = FeatureCapabilities.Default;
@@ -161,6 +162,11 @@ public sealed class ContentDocumentRuntime : IDisposable
         _engine?.Dispose(); _engine = null;
         _eventLoop?.Dispose(); _eventLoop = null;
         _document?.Dispose(); _document = null;
+        // A content process replaces documents repeatedly. Promptly collect
+        // retired DOM/script graphs so the process working-set target reflects
+        // the live document rather than every page visited since startup.
+        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
     }
 
     private sealed class BrokerResourceLoader(ContentHostSession session) : IResourceLoader

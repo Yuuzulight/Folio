@@ -37,7 +37,6 @@ public sealed class CanvasFrameStore : IDisposable
             _view.Write(12, stride);
             _view.Write(16, 0L);
             _view.Write(24, 0);
-            _view.Flush();
         }
         else
         {

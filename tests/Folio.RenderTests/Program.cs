@@ -251,34 +251,47 @@ public static class Program
             ("Arial", "מִשְׁפָּחָה, חֲבֵרִים וְשָׁלוֹם"),
             ("Arial", "مرحباً بكم في مركز الواحة الثقافي"),
             ("Arial", "مُسْتَقْبَلٌ مُشْرِقٌ"),
+            ("Arial", "नमस्ते दुनिया"),
+            ("Arial", "বাংলা ভাষা"),
+            ("Arial", "ਪੰਜਾਬੀ ਭਾਸ਼ਾ"),
+            ("Arial", "ગુજરાતી ભાષા"),
+            ("Arial", "ଓଡ଼ିଆ ଭାଷା"),
+            ("Arial", "தமிழ் மொழி"),
+            ("Arial", "తెలుగు భాష"),
+            ("Arial", "ಕನ್ನಡ ಭಾಷೆ"),
+            ("Arial", "മലയാള ഭാഷ"),
+            ("Arial", "ภาษาไทย"),
+            ("Arial", "ພາສາລາວ"),
+            ("Arial", "ភាសាខ្មែរ"),
+            ("Arial", "မြန်မာဘာသာ"),
         };
         var fonts = FontCollection.For(new FontSettings { Source = new SystemFontSource() });
         var compared = 0;
         var failures = 0;
         Console.WriteLine("Folio shaping differential report (local system-font corpus)");
-        Console.WriteLine("| Family | Glyphs | Clusters | Advances | Result |");
-        Console.WriteLine("|---|---:|---:|---:|---|");
+        Console.WriteLine("| Family | Script | Glyphs | Clusters | Advances | Result |");
+        Console.WriteLine("|---|---|---:|---:|---:|---|");
         foreach (var (family, text) in corpus)
         {
             var face = fonts.Match(family, FaceStyle.Normal, 400, 100);
             if (face is null)
             {
-                Console.WriteLine($"| {family} | - | - | - | SKIP (family unavailable) |");
+                Console.WriteLine($"| {family} | - | - | - | - | SKIP (family unavailable) |");
                 continue;
             }
             compared++;
-            var complex = text.Any(c => c is >= '\u0590' and <= '\u08FF');
-            var language = text.Any(c => c is >= '\u0600' and <= '\u08FF') ? "ar" : "he";
-            var folio = complex
-                ? ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, true, language)
-                : SimpleToShapedText(SimpleShaper.Shape(text, 0, text.Length, face, 16));
-            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, complex, complex ? language : null);
+            var script = ClassifyScript(text.AsSpan());
+            var complex = script is "Arabic" or "Hebrew" or "Indic" or "Southeast Asian";
+            var rightToLeft = script is "Arabic" or "Hebrew";
+            var language = script == "Arabic" ? "ar" : script == "Hebrew" ? "he" : null;
+            var folio = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
+            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
             var pass = folio.Glyphs.SequenceEqual(oracle.Glyphs)
                 && folio.Clusters.SequenceEqual(oracle.Clusters)
                 && folio.Advances.SequenceEqual(oracle.Advances)
                 && folio.Offsets.Length == oracle.Offsets.Length
                 && folio.Offsets.Zip(oracle.Offsets).All(pair => MathF.Abs(pair.First.X - pair.Second.X) <= 0.001f && MathF.Abs(pair.First.Y - pair.Second.Y) <= 0.001f);
-            Console.WriteLine($"| {family} | {folio.Glyphs.Length} | {folio.Clusters.Length} | {folio.Advances.Length} | {(pass ? "PASS" : "FAIL")} |");
+            Console.WriteLine($"| {family} | {script} | {folio.Glyphs.Length} | {folio.Clusters.Length} | {folio.Advances.Length} | {(pass ? "PASS" : "FAIL")} |");
             if (!pass) failures++;
         }
         if (compared == 0)
@@ -291,6 +304,27 @@ public static class Program
 
     private static ShapedText SimpleToShapedText(ShapedRun run) =>
         new(run.Glyphs, run.Clusters, run.Advances, new System.Numerics.Vector2[run.Glyphs.Length]);
+
+    private static string ClassifyScript(ReadOnlySpan<char> text)
+    {
+        string? script = null;
+        foreach (var rune in text.EnumerateRunes())
+        {
+            var current = rune.Value switch
+            {
+                >= 0x0590 and <= 0x05FF => "Hebrew",
+                >= 0x0600 and <= 0x06FF or >= 0x0750 and <= 0x077F or >= 0x08A0 and <= 0x08FF => "Arabic",
+                >= 0x0900 and <= 0x0DFF => "Indic",
+                >= 0x0E00 and <= 0x0EFF or >= 0x1000 and <= 0x109F or >= 0x1780 and <= 0x17FF => "Southeast Asian",
+                >= 0x0041 and <= 0x005A or >= 0x0061 and <= 0x007A => "Latin",
+                _ => null,
+            };
+            if (current is null) continue;
+            if (script is not null && !string.Equals(script, current, StringComparison.Ordinal)) return "Mixed";
+            script = current;
+        }
+        return script ?? "Latin";
+    }
 
     private static int CanvasSharedMemory(int frameCount)
     {

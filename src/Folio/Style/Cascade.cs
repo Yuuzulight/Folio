@@ -421,6 +421,7 @@ internal static class Cascade
 
     private static readonly int[] HintLayer = [-1];
     private static readonly int[] StyleAttributeLayer = [int.MaxValue];
+    private static readonly Comparison<Candidate> CandidateComparison = (a, b) => Compare(b, a);
 
     /// <summary>The cascaded values from matched rules, the style attribute and presentational hints.</summary>
     /// <param name="animations">Declarations of the animation origin, later ones winning (a keyframe of <see cref="Animations.Sample"/>).</param>
@@ -455,7 +456,7 @@ internal static class Cascade
         }
 
         // Highest priority first; within one rule, later declarations come first too.
-        candidates.Sort((a, b) => Compare(b, a));
+        candidates.Sort(CandidateComparison);
 
         var values = new Dictionary<PropertyId, CssValue>();
         var custom = new Dictionary<string, CustomProperties.Declared>(StringComparer.Ordinal);

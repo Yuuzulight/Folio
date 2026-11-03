@@ -32,7 +32,12 @@ internal sealed class BoxTreeBuilder
         builder.Push(top);
         builder.Walk(root);
         builder.Finish(top);
-        return top.Segments.OfType<Box>().FirstOrDefault();
+        var segments = top.Segments;
+        for (var i = 0; i < segments.Count; i++)
+        {
+            if (segments[i] is Box b) return b;
+        }
+        return null;
     }
 
     /// <summary>

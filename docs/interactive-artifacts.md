@@ -8,8 +8,9 @@ the `dotnet` host.
 
 The content process is deliberately capability-poor:
 
-- scripting runs in the Jint engine with time, statement, recursion, and
-  memory limits;
+- scripting runs in Folio's native engine with time, statement, recursion, and
+  memory limits. Jint is available only in an explicitly built differential
+  oracle host and is not part of the production content-host publish;
 - the resource policy denies network and filesystem access unless the host
   explicitly handles a resource request;
 - the process is placed in a Windows Job Object when available;

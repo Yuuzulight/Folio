@@ -30,7 +30,7 @@ internal sealed class GposMarkPositioning
             {
                 var feature = featureList + 2 + 6 * i;
                 var tag = gpos.Tag(feature);
-                if (tag is not ("mark" or "mkmk"))
+                if (tag is not ("mark" or "mkmk" or "abvm" or "blwm"))
                     continue;
                 var table = featureList + gpos.U16(feature + 4);
                 for (var j = 0; j < gpos.U16(table + 2); j++)
@@ -102,14 +102,16 @@ internal sealed class GposMarkPositioning
     {
         try
         {
+            (int X, int Y)? result = null;
             foreach (var lookup in _subtables)
             {
                 foreach (var subtable in lookup)
                 {
                     if (Apply(subtable, baseGlyph, markGlyph) is { } offset)
-                        return offset;
+                        result = offset;
                 }
             }
+            return result;
         }
         catch (Exception e) when (e is InvalidDataException or OverflowException)
         {
@@ -117,6 +119,8 @@ internal sealed class GposMarkPositioning
         }
         return null;
     }
+
+    
 
     public (int X, int Y)? MarkOffset(ushort previousMark, ushort markGlyph)
     {
@@ -173,6 +177,8 @@ internal sealed class GposMarkPositioning
             return null;
         var markAnchor = Anchor(markArray + markAnchorOffset);
         var baseAnchor = Anchor(baseArray + baseAnchorOffset);
+        
+        
         return (baseAnchor.X - markAnchor.X, baseAnchor.Y - markAnchor.Y);
     }
 

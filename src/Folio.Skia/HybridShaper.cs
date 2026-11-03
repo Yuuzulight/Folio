@@ -22,7 +22,7 @@ public sealed class HybridShaper : ITextShaper
     public HybridShaper(IReadOnlySet<string>? folioOwnedScripts = null)
     {
         _folioOwnedScripts = folioOwnedScripts is null
-            ? new HashSet<string>(["Arabic", "Hebrew"], StringComparer.Ordinal)
+            ? new HashSet<string>(["Arabic", "Hebrew", "Indic", "Southeast Asian"], StringComparer.Ordinal)
             : new HashSet<string>(folioOwnedScripts, StringComparer.Ordinal);
     }
 
@@ -37,7 +37,13 @@ public sealed class HybridShaper : ITextShaper
         if (font is FontFace face)
         {
             var script = ScriptClassifier.Classify(text.AsSpan(start, length));
-            if (SimpleShaper.CanShape(text.AsSpan(start, length), face))
+            // The simple path is only valid for scripts whose shaping model is
+            // character-order based.  A font can contain glyphs for Indic or
+            // Southeast-Asian text while still requiring reordering and mark
+            // attachment; never let glyph coverage alone bypass HarfBuzz for
+            // those scripts.
+            var simpleScript = script is "Latin" or "Greek" or "Cyrillic";
+            if (simpleScript && SimpleShaper.CanShape(text.AsSpan(start, length), face))
             {
                 var simple = SimpleShaper.Shape(text, start, length, face, size);
                 return new ShapedText(simple.Glyphs, simple.Clusters, simple.Advances,

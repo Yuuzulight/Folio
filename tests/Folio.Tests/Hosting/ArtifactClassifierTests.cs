@@ -55,6 +55,18 @@ public class ArtifactClassifierTests
     }
 
     [Theory]
+    [InlineData("<script>new WebSocket('wss://example.com')</script>", "WebSocket")]
+    [InlineData("<script>customElements.define('x-el', class extends HTMLElement {})</script>", "custom elements or shadow DOM")]
+    [InlineData("<script>el.attachShadow({mode:'open'})</script>", "custom elements or shadow DOM")]
+    public void UnsupportedM4FollowUpsRouteToTheBrowser(string html, string reason)
+    {
+        var result = ArtifactClassifier.Classify(html);
+
+        Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
+        Assert.Contains(result.Reasons, r => r.Contains(reason, StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData("<script type=application/json>{}</script><script type=text/template><p></script>")]
     [InlineData("<a href=\"https://example.com/\">outbound links are fine</a>")]
     public void DataBlocksAndLinksAreStatic(string html)

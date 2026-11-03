@@ -142,23 +142,53 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             {
                 if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
-                return values.Select((value, index) => InvokeCallable(args[0], [value, (double)index, values])).ToList();
+                var callback = args[0]!;
+                var count = values.Count;
+                var result = new List<object?>(count);
+                var callArgs = new object?[3];
+                callArgs[2] = values;
+                for (var index = 0; index < count; index++)
+                {
+                    callArgs[0] = values[index];
+                    callArgs[1] = (double)index;
+                    result.Add(InvokeCallable(callback, callArgs));
+                }
+                return result;
             }),
             ["forEach"] = new NativeReceiverFunction((receiver, args) =>
             {
                 if (receiver is not IReadOnlyList<object?> values) return JavaScriptEvaluator.UndefinedValue.Instance;
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
-                for (var index = 0; index < values.Count; index++)
-                    InvokeCallable(args[0]!, [values[index], (double)index, values]);
+                var callback = args[0]!;
+                var count = values.Count;
+                var callArgs = new object?[3];
+                callArgs[2] = values;
+                for (var index = 0; index < count; index++)
+                {
+                    callArgs[0] = values[index];
+                    callArgs[1] = (double)index;
+                    InvokeCallable(callback, callArgs);
+                }
                 return JavaScriptEvaluator.UndefinedValue.Instance;
             }),
             ["filter"] = new NativeReceiverFunction((receiver, args) =>
             {
                 if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
-                return values
-                    .Where((value, index) => JavaScriptEvaluator.Truth(InvokeCallable(args[0]!, [value, (double)index, values])))
-                    .ToList();
+                var callback = args[0]!;
+                var count = values.Count;
+                var result = new List<object?>(count);
+                var callArgs = new object?[3];
+                callArgs[2] = values;
+                for (var index = 0; index < count; index++)
+                {
+                    var val = values[index];
+                    callArgs[0] = val;
+                    callArgs[1] = (double)index;
+                    if (JavaScriptEvaluator.Truth(InvokeCallable(callback, callArgs)))
+                        result.Add(val);
+                }
+                return result;
             }),
             ["flatMap"] = new NativeReceiverFunction((receiver, args) =>
             {
@@ -535,7 +565,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         dateConstructor.SetProperty("parse", (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.NaN : ParseDateMilliseconds(args[0])));
         _bindings["Date"] = dateConstructor;
         _bindings["RegExp"] = new NativeFunction(args => JavaScriptEvaluator.RegexValue.Create("/" + (args.Count > 0 ? StringValue(args[0]) : string.Empty) + "/" + (args.Count > 1 ? StringValue(args[1]) : string.Empty)));
-        _bindings["BigInt"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? NumberValue(args[0]) : 0d);
+        _bindings["BigInt"] = (Func<IReadOnlyList<object?>, object?>)(args => ToBigInt(args.Count > 0 ? args[0] : 0));
         _bindings["Proxy"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 ? new NativeProxyValue(args[0], args[1]) : args.Count > 0 ? args[0] : new Dictionary<string, object?>());
         _bindings["atob"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? string.Empty : Encoding.Latin1.GetString(Convert.FromBase64String(StringValue(args[0]))));
         _bindings["btoa"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? string.Empty : Convert.ToBase64String(Encoding.Latin1.GetBytes(StringValue(args[0]))));
@@ -606,11 +636,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         var bytes = new byte[values.Count * size];
         for (var i = 0; i < values.Count; i++)
         {
-            var number = values[i] switch { double d => d, int n => n, long n => n, _ when double.TryParse(values[i]?.ToString(), out var parsed) => parsed, _ => 0 };
+            var number = values[i] switch { double d => d, int n => n, long n => n, BigInteger big => (double)big, _ when double.TryParse(values[i]?.ToString(), out var parsed) => parsed, _ => 0 };
             var offset = i * size;
             switch (kind)
             {
-                case ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped: bytes[offset] = (byte)Math.Clamp((int)number, 0, 255); break;
+                case ScriptBufferSourceKind.Uint8: bytes[offset] = ToUint8(number); break;
+                case ScriptBufferSourceKind.Uint8Clamped: bytes[offset] = ToUint8Clamped(number); break;
                 case ScriptBufferSourceKind.Int8: bytes[offset] = unchecked((byte)(sbyte)number); break;
                 case ScriptBufferSourceKind.Uint16: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 2), (ushort)number); break;
                 case ScriptBufferSourceKind.Int16: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 2), (short)number); break;
@@ -618,10 +649,33 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 case ScriptBufferSourceKind.Int32: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 4), (int)number); break;
                 case ScriptBufferSourceKind.Float32: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 4), (float)number); break;
                 case ScriptBufferSourceKind.Float64: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 8), number); break;
+                case ScriptBufferSourceKind.BigInt64: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 8), values[i] is BigInteger bigInt ? (long)bigInt : (long)number); break;
+                case ScriptBufferSourceKind.BigUint64: BitConverter.TryWriteBytes(bytes.AsSpan(offset, 8), values[i] is BigInteger bigUint ? (ulong)bigUint : (ulong)number); break;
                 default: break;
             }
         }
         return bytes;
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<JavaScriptStatement>> AstCache = new();
+
+    public static void Prime()
+    {
+        Folio.Scripting.Dom.DomBindings.Prime();
+    }
+
+    internal static IReadOnlyList<JavaScriptStatement> GetOrParseProgram(string source)
+    {
+        if (source.Length <= 65536)
+        {
+            if (AstCache.TryGetValue(source, out var cached))
+                return cached;
+            var parsed = new JavaScriptParser(source).ParseProgram();
+            if (AstCache.Count < 500)
+                AstCache.TryAdd(source, parsed);
+            return parsed;
+        }
+        return new JavaScriptParser(source).ParseProgram();
     }
 
     public ScriptValue Evaluate(string source, string url = "eval")
@@ -632,7 +686,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         if (previousDeadline == 0) _deadlineTicks = NewDeadline();
         try
         {
-            var statements = new JavaScriptParser(source).ParseProgram();
+            var statements = GetOrParseProgram(source);
             var evaluator = new JavaScriptEvaluator(_bindings, _maxSteps, preserveUndefined: true, deadlineExceeded: IsDeadlineExceeded);
             var result = statements.Count == 1 && statements[0] is JavaScriptExpressionStatement expression
                 ? evaluator.Evaluate(expression.Expression)
@@ -656,7 +710,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         if (previousDeadline == 0) _deadlineTicks = NewDeadline();
         try
         {
-            var values = args.ToArray().Select(ToObject).ToArray();
+            var values = new object?[args.Length];
+            for (var i = 0; i < args.Length; i++)
+                values[i] = ToObject(args[i]);
             var receiver = ToObject(thisValue);
             return function.Raw switch
             {
@@ -674,6 +730,34 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         : Stopwatch.GetTimestamp() + Math.Max(1, (long)(timeout.TotalSeconds * Stopwatch.Frequency));
 
     private bool IsDeadlineExceeded() => _deadlineTicks != 0 && Stopwatch.GetTimestamp() >= _deadlineTicks;
+
+    internal T PauseDeadlineDuring<T>(Func<T> func)
+    {
+        var start = Stopwatch.GetTimestamp();
+        try
+        {
+            return func();
+        }
+        finally
+        {
+            if (_deadlineTicks != 0)
+                _deadlineTicks += Stopwatch.GetTimestamp() - start;
+        }
+    }
+
+    internal void PauseDeadlineDuring(Action action)
+    {
+        var start = Stopwatch.GetTimestamp();
+        try
+        {
+            action();
+        }
+        finally
+        {
+            if (_deadlineTicks != 0)
+                _deadlineTicks += Stopwatch.GetTimestamp() - start;
+        }
+    }
 
     public ScriptValue CreateHostObject(IHostObjectTemplate template, object target)
     {
@@ -1213,15 +1297,45 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _ => 1,
     };
 
+    private static byte ToUint8(double number)
+    {
+        if (double.IsNaN(number) || double.IsInfinity(number) || number == 0) return 0;
+        var truncated = Math.Truncate(number);
+        var modulo = truncated % 256;
+        if (modulo < 0) modulo += 256;
+        return (byte)modulo;
+    }
+
+    private static byte ToUint8Clamped(double number)
+    {
+        if (double.IsNaN(number) || number <= 0) return 0;
+        if (number >= 255) return 255;
+        var floor = Math.Floor(number);
+        var fraction = number - floor;
+        var rounded = fraction > 0.5 || (fraction == 0.5 && ((long)floor & 1) != 0) ? floor + 1 : floor;
+        return (byte)rounded;
+    }
+
     private static double Number(IReadOnlyList<object?> args, int index) => index < args.Count && args[index] is double number ? number : 0;
     private static double NumberValue(object? value) => value switch
     {
         null => 0,
         bool boolean => boolean ? 1 : 0,
         double number => number,
+        BigInteger number => (double)number,
         int number => number,
         string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) => number,
         _ => double.NaN,
+    };
+    private static BigInteger ToBigInt(object? value) => value switch
+    {
+        BigInteger number => number,
+        bool boolean => boolean ? BigInteger.One : BigInteger.Zero,
+        double number when !double.IsNaN(number) && !double.IsInfinity(number) => new BigInteger(number),
+        int number => new BigInteger(number),
+        long number => new BigInteger(number),
+        string text => BigInteger.Parse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture),
+        _ => throw WebIdlException.TypeError("Cannot convert value to BigInt.")
     };
     private static double ParseDateMilliseconds(object? value)
     {
@@ -1294,6 +1408,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         null => "null",
         JavaScriptEvaluator.UndefinedValue => "undefined",
         bool boolean => boolean ? "true" : "false",
+        BigInteger number => number.ToString(CultureInfo.InvariantCulture),
         double number => number.ToString("G15", CultureInfo.InvariantCulture),
         _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
     };
@@ -1728,34 +1843,39 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         public bool TrySetIndex(int index, object? value)
         {
             if (!IsAttached || Kind == ScriptBufferSourceKind.ArrayBuffer || index < 0 || index >= Length) return false;
-            var number = value switch { double d => d, int i => i, _ => double.NaN };
-            if (double.IsNaN(number)) return false;
+            var number = value switch { double d => (object)d, int i => (object)(double)i, BigInteger big => big, _ => null };
+            if (number is null) return false;
             WriteElement(index, number);
             return true;
         }
-        private double ReadElement(int index)
+        private object ReadElement(int index)
         {
             var span = Bytes.AsSpan(_offset + index * ElementSize, ElementSize);
             return Kind switch
             {
-                ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped => span[0],
-                ScriptBufferSourceKind.Int8 => unchecked((sbyte)span[0]),
-                ScriptBufferSourceKind.Uint16 => BinaryPrimitives.ReadUInt16LittleEndian(span),
-                ScriptBufferSourceKind.Int16 => BinaryPrimitives.ReadInt16LittleEndian(span),
-                ScriptBufferSourceKind.Uint32 => BinaryPrimitives.ReadUInt32LittleEndian(span),
-                ScriptBufferSourceKind.Int32 => BinaryPrimitives.ReadInt32LittleEndian(span),
-                ScriptBufferSourceKind.Float32 => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(span)),
+                ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped => (double)span[0],
+                ScriptBufferSourceKind.Int8 => (double)unchecked((sbyte)span[0]),
+                ScriptBufferSourceKind.Uint16 => (double)BinaryPrimitives.ReadUInt16LittleEndian(span),
+                ScriptBufferSourceKind.Int16 => (double)BinaryPrimitives.ReadInt16LittleEndian(span),
+                ScriptBufferSourceKind.Uint32 => (double)BinaryPrimitives.ReadUInt32LittleEndian(span),
+                ScriptBufferSourceKind.Int32 => (double)BinaryPrimitives.ReadInt32LittleEndian(span),
+                ScriptBufferSourceKind.Float32 => (double)BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(span)),
                 ScriptBufferSourceKind.Float64 => BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(span)),
-                _ => span[0],
+                ScriptBufferSourceKind.BigInt64 => new BigInteger(BinaryPrimitives.ReadInt64LittleEndian(span)),
+                ScriptBufferSourceKind.BigUint64 => new BigInteger(BinaryPrimitives.ReadUInt64LittleEndian(span)),
+                _ => (double)span[0],
             };
         }
-        private void WriteElement(int index, double number)
+        private void WriteElement(int index, object numberValue)
         {
+            var number = numberValue is BigInteger big ? (double)big : numberValue is double d ? d : 0d;
             var span = Bytes.AsSpan(_offset + index * ElementSize, ElementSize);
             switch (Kind)
             {
-                case ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped:
-                    span[0] = unchecked((byte)Math.Clamp((int)number, 0, 255)); break;
+                case ScriptBufferSourceKind.Uint8:
+                    span[0] = NativeJavaScriptEngine.ToUint8(number); break;
+                case ScriptBufferSourceKind.Uint8Clamped:
+                    span[0] = NativeJavaScriptEngine.ToUint8Clamped(number); break;
                 case ScriptBufferSourceKind.Int8:
                     span[0] = unchecked((byte)(sbyte)Math.Clamp((int)number, -128, 127)); break;
                 case ScriptBufferSourceKind.Uint16: BinaryPrimitives.WriteUInt16LittleEndian(span, unchecked((ushort)number)); break;
@@ -1764,9 +1884,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 case ScriptBufferSourceKind.Int32: BinaryPrimitives.WriteInt32LittleEndian(span, unchecked((int)number)); break;
                 case ScriptBufferSourceKind.Float32: BinaryPrimitives.WriteInt32LittleEndian(span, BitConverter.SingleToInt32Bits((float)number)); break;
                 case ScriptBufferSourceKind.Float64: BinaryPrimitives.WriteInt64LittleEndian(span, BitConverter.DoubleToInt64Bits(number)); break;
+                case ScriptBufferSourceKind.BigInt64: BinaryPrimitives.WriteInt64LittleEndian(span, (long)(numberValue is BigInteger bigInt ? bigInt : new BigInteger(number))); break;
+                case ScriptBufferSourceKind.BigUint64: BinaryPrimitives.WriteUInt64LittleEndian(span, (ulong)(numberValue is BigInteger bigUint ? bigUint : new BigInteger(number))); break;
                 default: span[0] = unchecked((byte)number); break;
             }
         }
+
     }
 
     internal interface INativeHostObject
@@ -1806,7 +1929,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             if (Engine.TryGetDomPrototypeValue(Template.Name, name, this, out value)) return true;
             if (Template.TryGetProperty(name, out var getter, out _))
             {
-                value = ToObject(getter(Target, SelfValue));
+                value = ToObject(Engine.PauseDeadlineDuring(() => getter(Target, SelfValue)));
                 return true;
             }
             if (Template.TryGetMethod(name, out var method))
@@ -1833,7 +1956,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                         try
                         {
                             for (var i = 0; i < args.Count; i++) span[i] = ToScriptValue(args[i]);
-                            return ToObject(method(host.Target, host.SelfValue, span));
+                            return ToObject(Engine.PauseDeadlineDuring(() => method(host.Target, host.SelfValue, span)));
                         }
                         finally
                         {
@@ -1871,7 +1994,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         {
             if (Template.TryGetProperty(name, out _, out var setter) && setter is not null)
             {
-                setter(Target, SelfValue, ToScriptValue(value));
+                Engine.PauseDeadlineDuring(() => setter(Target, SelfValue, ToScriptValue(value)));
                 return true;
             }
             // Script-installed Web IDL accessors live on the interface prototype

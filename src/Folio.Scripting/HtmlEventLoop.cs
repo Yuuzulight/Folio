@@ -408,7 +408,13 @@ public sealed class HtmlEventLoop : IDisposable
         {
             if (!RunOneTurn())
             {
-                if (waitForTimers is null || IsIdle() || System.Diagnostics.Stopwatch.GetTimestamp() >= deadline)
+                if (waitForTimers is null || IsIdle())
+                    break;
+                var nowTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                if (nowTicks >= deadline)
+                    break;
+                var remainingMs = (double)(deadline - nowTicks) / System.Diagnostics.Stopwatch.Frequency * 1000.0;
+                if (!HasTimersDueWithin(remainingMs))
                     break;
                 // A real-time timer can become due between the final clock check
                 // and the next turn.  A bounded wait is opt-in for host boundaries
@@ -420,6 +426,21 @@ public sealed class HtmlEventLoop : IDisposable
             turns++;
         }
         return turns;
+    }
+
+    private bool HasTimersDueWithin(double windowMs)
+    {
+        lock (_timers)
+        {
+            var maxDue = _clock.NowMs + windowMs;
+            for (var i = 0; i < _timers.Count; i++)
+            {
+                var timer = _timers[i];
+                if (!timer.Cancelled && timer.DueTimeMs <= maxDue)
+                    return true;
+            }
+            return false;
+        }
     }
 
     public event Action<Exception>? UncaughtException;

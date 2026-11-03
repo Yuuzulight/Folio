@@ -83,7 +83,17 @@ internal static class StyleResolver
                 continue;
             if (element.LocalName == "style")
             {
-                author.Add(CssParser.ParseStyleSheet(element.SheetText ?? element.TextContent ?? ""));
+                if (element.CachedSheet is CssStyleSheet cached)
+                {
+                    author.Add(cached);
+                }
+                else
+                {
+                    var text = element.SheetText ?? (element.FirstChild is Text { NextSibling: null } t ? t.Data : element.TextContent) ?? "";
+                    var sheet = CssParser.ParseStyleSheet(text);
+                    element.CachedSheet = sheet;
+                    author.Add(sheet);
+                }
                 continue;
             }
             // https://html.spec.whatwg.org/multipage/links.html#link-type-stylesheet
@@ -96,14 +106,33 @@ internal static class StyleResolver
             if (element.SheetText is { } edited)
                 author.Add(CssParser.ParseStyleSheet(edited), url);
             else if (sources.LoadStyleSheet(url) is { } css)
-                author.Add(CssParser.ParseStyleSheet(css), url);
+            {
+                if (element.CachedSheet is CssStyleSheet cached)
+                {
+                    author.Add(cached, url);
+                }
+                else
+                {
+                    var sheet = CssParser.ParseStyleSheet(css);
+                    element.CachedSheet = sheet;
+                    author.Add(sheet, url);
+                }
+            }
         }
         origins.Add(author);
 
-        var registered = origins.SelectMany(o => o.Registered).GroupBy(p => p.Key).ToDictionary(g => g.Key, g => g.Last().Value, StringComparer.Ordinal);
+        var registered = new Dictionary<string, RegisteredProperty>(StringComparer.Ordinal);
+        for (var i = 0; i < origins.Count; i++)
+        {
+            foreach (var (k, v) in origins[i].Registered)
+                registered[k] = v;
+        }
         var keyframes = new Dictionary<string, List<Keyframe>>(StringComparer.Ordinal);
-        foreach (var (name, blocks) in origins.SelectMany(o => o.Keyframes))
-            keyframes[name] = blocks;
+        for (var i = 0; i < origins.Count; i++)
+        {
+            foreach (var (name, blocks) in origins[i].Keyframes)
+                keyframes[name] = blocks;
+        }
         var restyler = new Restyler(origins, media, measure, registered, sources.BaseUrl, keyframes, animationTime);
         document.StyleState = restyler;
         if (document.DocumentElement is { } root)
@@ -157,7 +186,7 @@ internal static class StyleResolver
         private readonly string? _baseUrl;
         private readonly Dictionary<string, List<Keyframe>> _keyframes;
         private readonly double? _animationTime;
-        private readonly Dictionary<object, object> _groups = [];
+        private readonly Dictionary<object, object>? _groups = null;
         // Inline declarations are immutable for the lifetime of a restyle pass. State-only invalidation
         // revisits the same inline style text repeatedly; keep the parsed block instead of reparsing it
         // for every hover/focus transition.
@@ -167,7 +196,7 @@ internal static class StyleResolver
         private readonly MatchContext _context = new();
         private readonly List<RuleIndex<CascadeRule>.Entry> _matched = [];
         private readonly List<RuleIndex<CascadeRule>.Entry> _pseudoMatched = [];
-        private readonly bool _hasBefore, _hasAfter, _hasFirstLetter, _hasSelection;
+        private readonly bool _hasBefore, _hasAfter, _hasAuthorBefore, _hasAuthorAfter, _hasFirstLetter, _hasSelection;
         private float _rootFontSize = Folio.Style.ComputedStyle.Initial.Font.Size;
 
         public Restyler(List<CascadeData> origins, MediaContext media, FontMeasure? measure, Dictionary<string, RegisteredProperty> registered,
@@ -176,6 +205,7 @@ internal static class StyleResolver
             (_origins, _media, _measure, _registered, _baseUrl, _keyframes, _animationTime) = (origins, media, measure, registered, baseUrl, keyframes, animationTime);
             _walkContext = new MatchContext { Filter = _filter };
             (_hasBefore, _hasAfter) = (origins.Any(o => o.Rules.HasRulesFor(PseudoElement.Before)), origins.Any(o => o.Rules.HasRulesFor(PseudoElement.After)));
+            (_hasAuthorBefore, _hasAuthorAfter) = (origins.Skip(1).Any(o => o.Rules.HasRulesFor(PseudoElement.Before)), origins.Skip(1).Any(o => o.Rules.HasRulesFor(PseudoElement.After)));
             _hasFirstLetter = origins.Any(o => o.Rules.HasRulesFor(PseudoElement.FirstLetter));
             _hasSelection = origins.Any(o => o.Rules.HasRulesFor(PseudoElement.Selection));
             Invalidation = StateInvalidation.Build(origins.SelectMany(o => o.Rules.StateSelectors));
@@ -247,8 +277,10 @@ internal static class StyleResolver
                 var previous = item.CanSkipDescendants ? element.ComputedStyle() : null;
 
                 List<CascadeDeclaration>? inline = null;
+                string? inlineStyle = null;
                 if (element.GetAttribute("style") is { } styleAttribute)
                 {
+                    inlineStyle = styleAttribute;
                     if (!_inlineCache.TryGetValue(styleAttribute, out inline))
                     {
                         var (source, block) = CssParser.ParseBlockContents(styleAttribute);
@@ -261,9 +293,9 @@ internal static class StyleResolver
                 _matched.Clear();
                 Cascade.Match(element, _origins, _walkContext, PseudoElement.None, _matched);
                 var hints = PresentationalHints.For(element);
-                // Only the matched rules and the parent's style decide the style of an element without its own declarations.
-                var sharable = inline is null && hints is null;
-                if (!sharable || shared.Find(item.Parent, _rootFontSize, _matched) is not { } style)
+                // An element's style is determined by parent style, root font size, matched rules, and inline style (when no presentational hints).
+                var sharable = hints is null;
+                if (!sharable || shared.Find(item.Parent, _rootFontSize, _matched, inlineStyle) is not { } style)
                 {
                     var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, hints, parent: item.Parent, registered: _registered);
                     style = StyleBuilder.Compute(values, Context(item.Parent, custom), _groups);
@@ -283,7 +315,7 @@ internal static class StyleResolver
                         sharable = false;
                     }
                     if (sharable)
-                        shared.Add(item.Parent, _rootFontSize, _matched, style);
+                        shared.Add(item.Parent, _rootFontSize, _matched, inlineStyle, style);
                 }
                 var styles = new ElementStyles(style);
                 element.StyleData = styles;
@@ -316,22 +348,33 @@ internal static class StyleResolver
                 }
             }
             return count;
-
-            static bool SameInherited(ComputedStyle a, ComputedStyle b) =>
-                ReferenceEquals(a, b) || (Equals(a.Font, b.Font)
-                    && Equals(a.Inherited, b.Inherited)
-                    && Equals(a.Text, b.Text)
-                    && Equals(a.TextSpacing, b.TextSpacing)
-                    && Equals(a.Quotes, b.Quotes)
-                    && Equals(a.Ui, b.Ui)
-                    && Equals(a.Svg, b.Svg)
-                    && Equals(a.Custom, b.Custom));
         }
 
         private ComputedStyle? Pseudo(ElementNode element, ComputedStyle style, PseudoElement pe, bool always = false)
         {
-            if (!always && !(pe switch { PseudoElement.Before => _hasBefore, PseudoElement.After => _hasAfter, PseudoElement.Selection => _hasSelection, _ => _hasFirstLetter }))
-                return null;
+            if (!always)
+            {
+                if (pe == PseudoElement.Before)
+                {
+                    if (!_hasBefore || (!_hasAuthorBefore && !element.LocalName.Equals("q", StringComparison.OrdinalIgnoreCase)))
+                        return null;
+                }
+                else if (pe == PseudoElement.After)
+                {
+                    if (!_hasAfter || (!_hasAuthorAfter && !element.LocalName.Equals("q", StringComparison.OrdinalIgnoreCase)))
+                        return null;
+                }
+                else if (pe == PseudoElement.Selection)
+                {
+                    if (!_hasSelection)
+                        return null;
+                }
+                else
+                {
+                    if (!_hasFirstLetter)
+                        return null;
+                }
+            }
             // With no rules for it, ::before or ::after would have content: normal and generate no box.
             _pseudoMatched.Clear();
             Cascade.Match(element, _origins, _walkContext, pe, _pseudoMatched);
@@ -395,28 +438,42 @@ internal static class StyleResolver
     /// cost one selector-matching pass each. Because children of shared parents see the same parent object, sharing
     /// carries down the tree.
     /// </summary>
+    internal static bool SameInherited(ComputedStyle a, ComputedStyle b) =>
+        ReferenceEquals(a, b) || (Equals(a.Font, b.Font)
+            && Equals(a.Inherited, b.Inherited)
+            && Equals(a.Text, b.Text)
+            && Equals(a.TextSpacing, b.TextSpacing)
+            && Equals(a.Quotes, b.Quotes)
+            && Equals(a.Ui, b.Ui)
+            && Equals(a.Svg, b.Svg)
+            && Equals(a.Custom, b.Custom));
+
     private sealed class SharingCache
     {
-        private readonly Dictionary<int, List<(ComputedStyle Parent, float RootFontSize, RuleIndex<CascadeRule>.Entry[] Rules, ComputedStyle Style)>> _buckets = [];
+        private readonly Dictionary<int, List<(ComputedStyle Parent, float RootFontSize, RuleIndex<CascadeRule>.Entry[] Rules, string? InlineStyle, ComputedStyle Style)>> _buckets = [];
 
-        public ComputedStyle? Find(ComputedStyle parent, float rootFontSize, List<RuleIndex<CascadeRule>.Entry> rules)
+        public ComputedStyle? Find(ComputedStyle parent, float rootFontSize, List<RuleIndex<CascadeRule>.Entry> rules, string? inlineStyle)
         {
-            if (!_buckets.TryGetValue(Hash(parent, rules), out var bucket))
+            if (!_buckets.TryGetValue(Hash(parent, rules, inlineStyle), out var bucket))
                 return null;
-            foreach (var entry in bucket)
+            for (var i = 0; i < bucket.Count; i++)
             {
-                if (ReferenceEquals(entry.Parent, parent) && entry.RootFontSize == rootFontSize && Same(entry.Rules, rules))
+                var entry = bucket[i];
+                if (entry.RootFontSize == rootFontSize
+                    && string.Equals(entry.InlineStyle, inlineStyle, StringComparison.Ordinal)
+                    && SameInherited(entry.Parent, parent)
+                    && Same(entry.Rules, rules))
                     return entry.Style;
             }
             return null;
         }
 
-        public void Add(ComputedStyle parent, float rootFontSize, List<RuleIndex<CascadeRule>.Entry> rules, ComputedStyle style)
+        public void Add(ComputedStyle parent, float rootFontSize, List<RuleIndex<CascadeRule>.Entry> rules, string? inlineStyle, ComputedStyle style)
         {
-            var hash = Hash(parent, rules);
+            var hash = Hash(parent, rules, inlineStyle);
             if (!_buckets.TryGetValue(hash, out var bucket))
                 _buckets[hash] = bucket = [];
-            bucket.Add((parent, rootFontSize, [.. rules], style));
+            bucket.Add((parent, rootFontSize, [.. rules], inlineStyle, style));
         }
 
         private static bool Same(RuleIndex<CascadeRule>.Entry[] a, List<RuleIndex<CascadeRule>.Entry> b)
@@ -431,10 +488,12 @@ internal static class StyleResolver
             return true;
         }
 
-        private static int Hash(ComputedStyle parent, List<RuleIndex<CascadeRule>.Entry> rules)
+        private static int Hash(ComputedStyle parent, List<RuleIndex<CascadeRule>.Entry> rules, string? inlineStyle)
         {
             var hash = new HashCode();
-            hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(parent));
+            hash.Add(parent.InheritedHash);
+            if (inlineStyle is not null)
+                hash.Add(inlineStyle, StringComparer.Ordinal);
             foreach (var rule in rules)
                 hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(rule));
             return hash.ToHashCode();

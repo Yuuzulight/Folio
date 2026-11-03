@@ -49,7 +49,8 @@ public static class ScriptedProcessBenchmark
     private static async Task<int> RunCoreAsync(string[]? args)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Parent!.Name;
-        var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST");
+        var configuredHost = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST");
+        var host = configuredHost;
         if (string.IsNullOrWhiteSpace(host))
         {
             var hostRoot = Path.Combine(RepoPaths.Root, "tools", "Folio.ContentHost", "bin", configuration, "net10.0");
@@ -72,7 +73,12 @@ public static class ScriptedProcessBenchmark
         // dotnet host for every measurement. The apphost uses the same output
         // directory and dependencies, but removes the CLI bootstrap from the
         // cold first-frame path being measured.
-        if (OperatingSystem.IsWindows())
+        // Only use an apphost when the caller explicitly selected the shipped
+        // publish layout (CI does this through FOLIO_CONTENT_HOST).  An
+        // unconfigured local run must stay on the framework-dependent DLL:
+        // stale apphosts in a developer bin directory can fail before the IPC
+        // protocol emits its first diagnostic or frame.
+        if (OperatingSystem.IsWindows() && !string.IsNullOrWhiteSpace(configuredHost))
         {
             var appHost = Path.ChangeExtension(host, ".exe");
             if (File.Exists(appHost))
@@ -162,26 +168,91 @@ public static class ScriptedProcessBenchmark
             // message necessarily includes process startup and is the cold
             // lifecycle measured above; counting it as a D1 warm load makes the
             // per-artifact warm target depend on process-launch contention.
-            var warmupTcs = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
-            ValueTask OnWarmup(ContentMessage m, CancellationToken ct)
+            for (var w = 0; w < 2; w++)
             {
-                if (m.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
-                    warmupTcs.TrySetResult(m);
-                return ValueTask.CompletedTask;
-            }
-            warmClient.MessageReceived += OnWarmup;
-            try
-            {
-                await warmClient.SendAsync(ContentMessageKind.Load, new
+                var warmupTcs = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+                ValueTask OnWarmup(ContentMessage m, CancellationToken ct)
                 {
-                    html = "<!DOCTYPE html><title>Warm-up</title><p>Warm-up</p>",
-                    script = "document.body.dataset.warm = '1';"
-                });
-                await warmupTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            }
-            finally
-            {
-                warmClient.MessageReceived -= OnWarmup;
+                    if (m.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
+                        warmupTcs.TrySetResult(m);
+                    return ValueTask.CompletedTask;
+                }
+                warmClient.MessageReceived += OnWarmup;
+                try
+                {
+                    await warmClient.SendAsync(ContentMessageKind.Load, new
+                    {
+                        html = @"<!DOCTYPE html><title>Warm-up</title>
+<style>
+:root { --c: #000; }
+body { font-family: system-ui, -apple-system, sans-serif; }
+h1 { font-size: 24px; font-weight: bold; }
+.sub { font-size: 14px; color: #64748b; }
+.bld { font-weight: 600; }
+.f { display: flex; color: var(--c); margin: 8px; padding: 4px; border: 1px solid #ccc; border-radius: 4px; gap: 4px; box-sizing: border-box; font: 14px sans-serif; line-height: 1.5; outline: none; }
+.g { display: grid; grid-template-columns: 1fr 1fr; }
+table { border-collapse: collapse; width: 100%; background: #fff; border: 1px solid #e6e8ee; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
+th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid #e6e8ee; font-size: 13px; }
+th { font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.dept { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; }
+.btn[aria-expanded='true'] .chv { transform: rotate(45deg); transition: transform 0.2s; }
+.person { display: flex; align-items: center; gap: 8px; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; }
+</style>
+<h1>Product Architecture and Warm-up</h1>
+<p class='sub'>Explore core modules and deployment capabilities with realistic text paragraphs and multi-word sentences.</p>
+<div class='f'><button id='b' class='btn acc-header bld' aria-expanded='true' aria-controls='p1'><span class='chv'>warm</span></button></div>
+<div class='g'><div>g1</div><div>g2</div></div>
+<select id='dept'><option value=''>All</option></select>
+<table>
+  <thead><tr><th>Name</th><th>Role</th><th>Dept</th><th>City</th><th>Start</th><th>Projects</th></tr></thead>
+  <tbody id='rows'><tr><td><div class='person'><span class='avatar' style='background:#2563eb'>AB</span>Alice Bob</div></td><td>Lead</td><td><span class='dept'>Engineering</span></td><td>Rotterdam</td><td class='num'>Jan 2020</td><td class='num'>10</td></tr></tbody>
+</table>
+<div id='p1' hidden>content</div>
+<script>
+document.body.dataset.warm = '1';
+document.getElementById('b')?.addEventListener('click', () => {});
+const buttons = document.querySelectorAll('.acc-header');
+buttons.forEach(btn => {
+  btn.getAttribute('aria-expanded');
+  btn.setAttribute('aria-expanded', 'false');
+  document.getElementById(btn.getAttribute('aria-controls'));
+});
+const depts = ['Engineering', 'Design', 'Sales', 'Finance', 'Operations'];
+[...new Set(depts)].sort().forEach(d => {
+  const opt = document.createElement('option');
+  opt.value = d;
+  opt.textContent = d;
+  document.getElementById('dept').appendChild(opt);
+});
+const cities = ['Rotterdam', 'Lyon', 'Bologna', 'Tallinn', 'Busan'];
+const mockPeople = [];
+for (let i = 0; i < 20; i++) {
+  mockPeople.push({
+    name: 'Person ' + i + ' Name',
+    role: 'Engineer Role ' + i,
+    dept: depts[i % 5],
+    city: cities[i % 5],
+    start: '202' + (i % 5) + '-0' + ((i % 9) + 1) + '-15',
+    projects: i + 1
+  });
+}
+function esc(s) { return String(s).replace(/[&<>""']/g, c => c); }
+function initials(name) { return name.split(' ').map(w => w[0]).join('').slice(0, 2); }
+function fmtDate(iso) { const [y, m] = iso.split('-'); return m + '/' + y; }
+document.getElementById('rows').innerHTML = mockPeople.map(p => `<tr><td><div class=""person""><span class=""avatar"" style=""background:#2563eb"">${initials(p.name)}</span>${esc(p.name)}</div></td><td>${esc(p.role)}</td><td><span class=""dept"">${esc(p.dept)}</span></td><td>${esc(p.city)}</td><td class=""num"">${fmtDate(p.start)}</td><td class=""num"">${p.projects}</td></tr>`).join('');
+const arr = [{x: 1, y: 'a'}, {x: 2, y: 'b'}];
+arr.filter(a => a.x > 0).sort((a, b) => a.y.localeCompare(b.y)).map(a => `<span>${a.y}</span>`).join('');
+mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))).sort((a, b) => a.name.localeCompare(b.name));
+</script>"
+                    });
+                    await warmupTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                }
+                finally
+                {
+                    warmClient.MessageReceived -= OnWarmup;
+                }
             }
 
             foreach (var artDir in d1Artifacts)

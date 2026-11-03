@@ -20,6 +20,7 @@ internal static class TableLayout
         public float Min, Max;
         public Fragment Fragment; // default until laid out
         public float Baseline;
+        public BorderGroup? HalfBorder;
     }
 
     private sealed class Grid
@@ -27,6 +28,7 @@ internal static class TableLayout
         public List<(TablePartBox? Group, List<TablePartBox> Rows)> Groups { get; } = [];
         public List<TablePartBox> Rows { get; } = [];
         public List<Cell> Cells { get; } = [];
+        public int[] RowCellStarts { get; set; } = [];
         public List<float?> ColumnWidths { get; } = []; // from col and colgroup
         public List<float> ColumnPercents { get; } = []; // percentage widths from col and colgroup, 0 for none
         public int Columns;
@@ -41,14 +43,25 @@ internal static class TableLayout
     /// <summary>Lays out a table wrapper's captions and table grid box in its content box.</summary>
     public static (List<ChildFragment> Children, float Height) LayoutWrapper(TableWrapperBox wrapper, float width, LayoutContext context)
     {
-        var table = wrapper.Children.OfType<TablePartBox>().FirstOrDefault(p => p.Part == TablePart.Table);
-        var captions = wrapper.Children.OfType<TablePartBox>().Where(p => p.Part == TablePart.Caption).ToList();
+        TablePartBox? table = null;
+        List<TablePartBox>? captions = null;
+        for (var i = 0; i < wrapper.Children.Count; i++)
+        {
+            if (wrapper.Children[i] is TablePartBox part)
+            {
+                if (part.Part == TablePart.Table && table is null) table = part;
+                else if (part.Part == TablePart.Caption) (captions ??= []).Add(part);
+            }
+        }
         var children = new List<ChildFragment>();
         var y = 0f;
         void Captions(CaptionSide side)
         {
-            foreach (var caption in captions.Where(c => c.Style.Text.CaptionSide == side))
+            if (captions is null) return;
+            for (var i = 0; i < captions.Count; i++)
             {
+                var caption = captions[i];
+                if (caption.Style.Text.CaptionSide != side) continue;
                 var fragment = BlockLayout.Layout(caption, new ConstraintSpace(width, null), context);
                 var (mt, mb) = (BlockLayout.Margin(caption.Style.Spacing.MarginTop, width), BlockLayout.Margin(caption.Style.Spacing.MarginBottom, width));
                 children.Add(new ChildFragment(fragment.MarginLeft, y + mt, fragment));
@@ -69,7 +82,17 @@ internal static class TableLayout
     /// <summary>A table's min-content and max-content widths (its border box), at least its captions' min-content.</summary>
     public static (float Min, float Max) IntrinsicWidths(TableWrapperBox wrapper, LayoutContext context)
     {
-        if (wrapper.Children.OfType<TablePartBox>().FirstOrDefault(p => p.Part == TablePart.Table) is not { } table)
+        TablePartBox? table = null;
+        List<TablePartBox>? captions = null;
+        for (var i = 0; i < wrapper.Children.Count; i++)
+        {
+            if (wrapper.Children[i] is TablePartBox part)
+            {
+                if (part.Part == TablePart.Table && table is null) table = part;
+                else if (part.Part == TablePart.Caption) (captions ??= []).Add(part);
+            }
+        }
+        if (table is null)
             return (0, 0);
         var grid = Build(table);
         var collapsed = table.Style.Text.BorderCollapse == BorderCollapse.Collapse ? ResolveCollapsedBorders(grid, table) : null;
@@ -79,10 +102,19 @@ internal static class TableLayout
         if (collapsed is not null)
             frame = CollapsedFrame(grid, collapsed);
         var extra = frame.Horizontal + spacing.X * (grid.Columns + 1);
-        var captions = wrapper.Children.OfType<TablePartBox>().Where(p => p.Part == TablePart.Caption)
-            .Select(c => IntrinsicSizes.Contribution(c, context).Min).DefaultIfEmpty(0).Max();
+        float maxCaptionMin = 0;
+        if (captions is not null)
+        {
+            for (var i = 0; i < captions.Count; i++)
+            {
+                var cMin = IntrinsicSizes.Contribution(captions[i], context).Min;
+                if (cMin > maxCaptionMin) maxCaptionMin = cMin;
+            }
+        }
+        float minSum = 0, maxSum = 0;
+        for (var i = 0; i < min.Length; i++) { minSum += min[i]; maxSum += max[i]; }
         var specified = table.Style.Size.Width is { Kind: SizeKind.Length } w && !w.Length.HasPercent ? w.Length.Px : 0;
-        return (Math.Max(Math.Max(min.Sum() + extra, captions), specified), Math.Max(Math.Max(max.Sum() + extra, captions), specified));
+        return (Math.Max(Math.Max(minSum + extra, maxCaptionMin), specified), Math.Max(Math.Max(maxSum + extra, maxCaptionMin), specified));
     }
 
     private readonly record struct Edges(float Left, float Right, float Top, float Bottom)
@@ -114,30 +146,34 @@ internal static class TableLayout
         if (collapsed is not null)
             frame = CollapsedFrame(grid, collapsed);
         // Cells that share a resolved border share its half too.
-        var halves = new Dictionary<BorderGroup, BorderGroup>(ReferenceEqualityComparer.Instance);
-        BorderGroup? Half(Cell cell)
+        if (collapsed is not null)
         {
-            if (collapsed is null)
-                return null;
-            var border = collapsed[cell];
-            if (!halves.TryGetValue(border, out var half))
+            var halves = new Dictionary<BorderGroup, BorderGroup>(ReferenceEqualityComparer.Instance);
+            for (var i = 0; i < grid.Cells.Count; i++)
             {
-                halves[border] = half = border with
+                var cell = grid.Cells[i];
+                var border = collapsed[cell];
+                if (!halves.TryGetValue(border, out var half))
                 {
-                    TopWidthPx = border.TopWidth / 2, RightWidthPx = border.RightWidth / 2, BottomWidthPx = border.BottomWidth / 2, LeftWidthPx = border.LeftWidth / 2,
-                };
+                    halves[border] = half = border with
+                    {
+                        TopWidthPx = border.TopWidth / 2, RightWidthPx = border.RightWidth / 2, BottomWidthPx = border.BottomWidth / 2, LeftWidthPx = border.LeftWidth / 2,
+                    };
+                }
+                cell.HalfBorder = half;
             }
-            return half;
         }
         var n = grid.Columns;
         var columns = ColumnWidths(grid, style, Math.Max(0, width - frame.Horizontal - spacing.X * (n + 1)), context, collapsed, kept?.Ranges);
-        var tableWidth = Math.Max(width, columns.Sum() + frame.Horizontal + spacing.X * (n + 1));
+        float colSum = 0;
+        for (var c = 0; c < n; c++) colSum += columns[c];
+        var tableWidth = Math.Max(width, colSum + frame.Horizontal + spacing.X * (n + 1));
         // Running sums, so a span's extent is one subtraction however many rows or columns the table has.
         var columnX = new float[n + 1];
         columnX[0] = frame.Left + spacing.X;
         for (var c = 1; c <= n; c++)
             columnX[c] = columnX[c - 1] + columns[c - 1] + spacing.X;
-        float SpanWidth(Cell cell) => columnX[Math.Min(n, cell.Column + cell.ColumnSpan)] - columnX[cell.Column] - spacing.X;
+        float SpanWidth(Cell cell) => cell.ColumnSpan == 1 && cell.Column < n ? columns[cell.Column] : columnX[Math.Min(n, cell.Column + cell.ColumnSpan)] - columnX[cell.Column] - spacing.X;
         // Columns run from the inline start: from the right in a right-to-left table (CSS 2.2 §17.5), mirrored inside
         // the table's own right border and spacing.
         var rtl = style.Text.Direction == Direction.Rtl;
@@ -149,11 +185,12 @@ internal static class TableLayout
         var rowCount = grid.Rows.Count;
         var heights = new float[rowCount];
         var ascents = new float[rowCount];
-        foreach (var cell in grid.Cells)
+        for (var i = 0; i < grid.Cells.Count; i++)
         {
+            var cell = grid.Cells[i];
             var w = SpanWidth(cell);
-            cell.Fragment = BlockLayout.Layout(cell.Box, new ConstraintSpace(w, null, FixedWidth: w, Border: Half(cell)), context);
-            cell.Baseline = FirstBaseline(cell.Fragment) ?? cell.Fragment.Height - (Half(cell) ?? cell.Box.Style.Border).BottomWidth
+            cell.Fragment = BlockLayout.Layout(cell.Box, new ConstraintSpace(w, null, FixedWidth: w, Border: cell.HalfBorder), context);
+            cell.Baseline = FirstBaseline(cell.Fragment) ?? cell.Fragment.Height - (cell.HalfBorder ?? cell.Box.Style.Border).BottomWidth
                 - BlockLayout.Resolve(cell.Box.Style.Spacing.PaddingBottom, w);
             if (cell.RowSpan == 1 && IsBaseline(cell))
                 ascents[cell.Row] = Math.Max(ascents[cell.Row], cell.Baseline);
@@ -163,20 +200,39 @@ internal static class TableLayout
             var row = grid.Rows[r];
             heights[r] = row.Style.Size.Height is { Kind: SizeKind.Length } h && !h.Length.HasPercent ? h.Length.Px : 0;
         }
-        foreach (var cell in grid.Cells.Where(c => c.RowSpan == 1))
+        List<Cell>? spanningRows = null;
+        for (var i = 0; i < grid.Cells.Count; i++)
         {
-            var needed = IsBaseline(cell) ? ascents[cell.Row] - cell.Baseline + cell.Fragment!.Height : cell.Fragment!.Height;
-            heights[cell.Row] = Math.Max(heights[cell.Row], Math.Max(needed, SpecifiedHeight(cell, Half(cell), SpanWidth(cell))));
+            var cell = grid.Cells[i];
+            if (cell.RowSpan == 1)
+            {
+                var needed = IsBaseline(cell) ? ascents[cell.Row] - cell.Baseline + cell.Fragment!.Height : cell.Fragment!.Height;
+                heights[cell.Row] = Math.Max(heights[cell.Row], Math.Max(needed, SpecifiedHeight(cell, cell.HalfBorder, SpanWidth(cell))));
+            }
+            else if (cell.RowSpan > 1)
+            {
+                (spanningRows ??= []).Add(cell);
+            }
         }
-        foreach (var cell in grid.Cells.Where(c => c.RowSpan > 1).OrderBy(c => c.RowSpan))
+        if (spanningRows is not null)
         {
-            var spanned = heights.Skip(cell.Row).Take(cell.RowSpan).Sum() + spacing.Y * (cell.RowSpan - 1);
-            var needed = Math.Max(cell.Fragment!.Height, SpecifiedHeight(cell, Half(cell), SpanWidth(cell)));
-            if (needed > spanned)
-                heights[cell.Row + cell.RowSpan - 1] += needed - spanned;
+            spanningRows.Sort((a, b) => a.RowSpan.CompareTo(b.RowSpan));
+            for (var i = 0; i < spanningRows.Count; i++)
+            {
+                var cell = spanningRows[i];
+                float spanned = 0;
+                for (var r = cell.Row; r < cell.Row + cell.RowSpan; r++)
+                    spanned += heights[r];
+                spanned += spacing.Y * (cell.RowSpan - 1);
+                var needed = Math.Max(cell.Fragment!.Height, SpecifiedHeight(cell, cell.HalfBorder, SpanWidth(cell)));
+                if (needed > spanned)
+                    heights[cell.Row + cell.RowSpan - 1] += needed - spanned;
+            }
         }
         // A taller specified table height is shared out among the rows.
-        var tableHeight = frame.Vertical + heights.Sum() + spacing.Y * (rowCount + 1);
+        float heightsSum = 0;
+        for (var r = 0; r < rowCount; r++) heightsSum += heights[r];
+        var tableHeight = frame.Vertical + heightsSum + spacing.Y * (rowCount + 1);
         if (style.Size.Height is { Kind: SizeKind.Length } th && !th.Length.HasPercent && th.Length.Px > tableHeight && rowCount > 0)
         {
             var extra = th.Length.Px - tableHeight;
@@ -188,9 +244,7 @@ internal static class TableLayout
         rowY[0] = frame.Top + spacing.Y;
         for (var r = 1; r <= rowCount; r++)
             rowY[r] = rowY[r - 1] + heights[r - 1] + spacing.Y;
-        var cellsByRow = new List<Cell>[rowCount];
-        foreach (var cell in grid.Cells)
-            (cellsByRow[cell.Row] ??= []).Add(cell);
+
 
         // Fragments: row groups hold rows, rows hold the cells that start in them.
         var gridSpan = n == 0 ? 0 : columnX[n - 1] + columns[n - 1] - columnX[0];
@@ -206,8 +260,11 @@ internal static class TableLayout
             {
                 var r = rowIndex++;
                 var cells = new List<ChildFragment>();
-                foreach (var cell in cellsByRow[r] ?? [])
+                var rowStart = grid.RowCellStarts.Length > r ? grid.RowCellStarts[r] : 0;
+                var rowEnd = grid.RowCellStarts.Length > r + 1 ? grid.RowCellStarts[r + 1] : 0;
+                for (var ci = rowStart; ci < rowEnd; ci++)
                 {
+                    var cell = grid.Cells[ci];
                     var height = rowY[r + cell.RowSpan] - rowY[r] - spacing.Y;
                     var content = cell.Fragment!;
                     var offset = cell.Box.Style.Box.VerticalAlign.Kind switch
@@ -260,10 +317,19 @@ internal static class TableLayout
     // The table's border box holds half of each outer collapsed border (CSS 2.2 §17.6.2).
     private static Edges CollapsedFrame(Grid grid, Dictionary<Cell, BorderGroup> collapsed)
     {
-        float Outer(Func<Cell, bool> onEdge, Func<BorderGroup, float> width) =>
-            grid.Cells.Where(onEdge).Select(c => width(collapsed[c])).DefaultIfEmpty(0).Max() / 2;
-        return new Edges(Outer(c => c.Column == 0, b => b.LeftWidth), Outer(c => c.Column + c.ColumnSpan == grid.Columns, b => b.RightWidth),
-            Outer(c => c.Row == 0, b => b.TopWidth), Outer(c => c.Row + c.RowSpan == grid.Rows.Count, b => b.BottomWidth));
+        float maxLeft = 0, maxRight = 0, maxTop = 0, maxBottom = 0;
+        var cols = grid.Columns;
+        var rows = grid.Rows.Count;
+        for (var i = 0; i < grid.Cells.Count; i++)
+        {
+            var c = grid.Cells[i];
+            var b = collapsed[c];
+            if (c.Column == 0 && b.LeftWidth > maxLeft) maxLeft = b.LeftWidth;
+            if (c.Column + c.ColumnSpan == cols && b.RightWidth > maxRight) maxRight = b.RightWidth;
+            if (c.Row == 0 && b.TopWidth > maxTop) maxTop = b.TopWidth;
+            if (c.Row + c.RowSpan == rows && b.BottomWidth > maxBottom) maxBottom = b.BottomWidth;
+        }
+        return new Edges(maxLeft / 2, maxRight / 2, maxTop / 2, maxBottom / 2);
     }
 
     // One side of a border in the collapsing model, with the priority of the box it comes from.
@@ -320,23 +386,29 @@ internal static class TableLayout
     // edge runs along, and the table at the outer edges.
     private static Dictionary<Cell, BorderGroup> ResolveCollapsedBorders(Grid grid, TablePartBox table)
     {
-        var slots = new Dictionary<(int Row, int Column), Cell>();
+        var rowCount = grid.Rows.Count;
+        var colCount = grid.Columns;
+        var slots = new Cell?[rowCount, colCount];
         foreach (var cell in grid.Cells)
         {
-            for (var r = cell.Row; r < cell.Row + cell.RowSpan; r++)
+            var maxR = Math.Min(rowCount, cell.Row + cell.RowSpan);
+            var maxC = Math.Min(colCount, cell.Column + cell.ColumnSpan);
+            for (var r = cell.Row; r < maxR; r++)
             {
-                for (var c = cell.Column; c < cell.Column + cell.ColumnSpan; c++)
-                    slots[(r, c)] = cell;
+                for (var c = cell.Column; c < maxC; c++)
+                    slots[r, c] = cell;
             }
         }
-        var groupOf = new Dictionary<int, TablePartBox>();
+        var groupOf = new TablePartBox[rowCount];
         var index = 0;
         foreach (var (group, rows) in grid.Groups)
         {
             foreach (var _ in rows)
-                groupOf[index++] = group!;
+            {
+                if (index < rowCount) groupOf[index++] = group!;
+            }
         }
-        var (lastRow, lastColumn) = (grid.Rows.Count - 1, grid.Columns - 1);
+        var (lastRow, lastColumn) = (rowCount - 1, colCount - 1);
 
         Side Resolve(Cell cell, Edge edge)
         {
@@ -352,7 +424,8 @@ internal static class TableLayout
                     if (top > 0)
                     {
                         side = Winner(side, SideOf(grid.Rows[top - 1], Edge.Bottom, 3));
-                        if (slots.TryGetValue((top - 1, left), out var above))
+                        var above = (left >= 0 && left < colCount) ? slots[top - 1, left] : null;
+                        if (above is not null)
                             side = Winner(side, SideOf(above.Box, Edge.Bottom, 4));
                         if (groupOf[top] != groupOf[top - 1])
                             side = Winner(side, SideOf(groupOf[top - 1], Edge.Bottom, 2));
@@ -369,7 +442,8 @@ internal static class TableLayout
                     if (bottom < lastRow)
                     {
                         side = Winner(side, SideOf(grid.Rows[bottom + 1], Edge.Top, 3));
-                        if (slots.TryGetValue((bottom + 1, left), out var below))
+                        var below = (left >= 0 && left < colCount) ? slots[bottom + 1, left] : null;
+                        if (below is not null)
                             side = Winner(side, SideOf(below.Box, Edge.Top, 4));
                         if (groupOf[bottom] != groupOf[bottom + 1])
                             side = Winner(side, SideOf(groupOf[bottom + 1], Edge.Top, 2));
@@ -380,13 +454,15 @@ internal static class TableLayout
                     }
                     break;
                 case Edge.Left:
-                    if (left > 0 && slots.TryGetValue((top, left - 1), out var before))
+                    var before = (left > 0 && top >= 0 && top < rowCount) ? slots[top, left - 1] : null;
+                    if (before is not null)
                         side = Winner(side, SideOf(before.Box, Edge.Right, 4));
                     else if (left == 0)
                         side = Winner(Winner(Winner(side, SideOf(grid.Rows[top], Edge.Left, 3)), SideOf(groupOf[top], Edge.Left, 2)), SideOf(table, Edge.Left, 0));
                     break;
                 default:
-                    if (right < lastColumn && slots.TryGetValue((top, right + 1), out var after))
+                    var after = (right < lastColumn && top >= 0 && top < rowCount) ? slots[top, right + 1] : null;
+                    if (after is not null)
                         side = Winner(side, SideOf(after.Box, Edge.Left, 4));
                     else if (right == lastColumn)
                         side = Winner(Winner(Winner(side, SideOf(grid.Rows[top], Edge.Right, 3)), SideOf(groupOf[top], Edge.Right, 2)), SideOf(table, Edge.Right, 0));
@@ -437,38 +513,53 @@ internal static class TableLayout
     private static Grid Build(TablePartBox table)
     {
         var grid = new Grid();
-        var parts = table.Children.OfType<TablePartBox>().ToList();
-        var groups = parts.Where(p => p.Part is TablePart.RowGroup or TablePart.HeaderGroup or TablePart.FooterGroup).ToList();
-        var header = groups.FirstOrDefault(g => g.Part == TablePart.HeaderGroup);
-        var footer = groups.FirstOrDefault(g => g.Part == TablePart.FooterGroup);
-        var ordered = new List<TablePartBox>();
-        if (header is not null)
-            ordered.Add(header);
-        ordered.AddRange(groups.Where(g => g != header && g != footer));
-        if (footer is not null)
-            ordered.Add(footer);
+        TablePartBox? header = null;
+        TablePartBox? footer = null;
+        var bodyGroups = new List<TablePartBox>();
 
-        foreach (var part in parts.Where(p => p.Part is TablePart.Column or TablePart.ColumnGroup))
+        for (var i = 0; i < table.Children.Count; i++)
         {
-            var columns = part.Part == TablePart.ColumnGroup && part.Children.OfType<TablePartBox>().Any()
-                ? part.Children.OfType<TablePartBox>().Where(c => c.Part == TablePart.Column).ToList()
-                : [part];
-            foreach (var column in columns)
+            if (table.Children[i] is TablePartBox part)
             {
-                float? width = column.Style.Size.Width is { Kind: SizeKind.Length } w && !w.Length.HasPercent ? w.Length.Px : null;
-                var percent = column.Style.Size.Width is { Kind: SizeKind.Length, Length: { Calc: null, Px: 0, Percent: > 0 } p } ? p.Percent : 0;
-                for (var i = 0; i < Attribute(column, "span", 1, 1, 1000); i++)
+                if (part.Part == TablePart.HeaderGroup && header is null)
+                    header = part;
+                else if (part.Part == TablePart.FooterGroup && footer is null)
+                    footer = part;
+                else if (part.Part is TablePart.RowGroup)
+                    bodyGroups.Add(part);
+                else if (part.Part is TablePart.Column or TablePart.ColumnGroup)
                 {
-                    grid.ColumnWidths.Add(width);
-                    grid.ColumnPercents.Add(percent);
+                    if (part.Part == TablePart.ColumnGroup && part.Children.Count > 0)
+                    {
+                        for (var c = 0; c < part.Children.Count; c++)
+                        {
+                            if (part.Children[c] is TablePartBox col && col.Part == TablePart.Column)
+                                AddCol(grid, col);
+                        }
+                    }
+                    else
+                    {
+                        AddCol(grid, part);
+                    }
                 }
             }
         }
 
-        var taken = new HashSet<(int Row, int Column)>();
+        var ordered = new List<TablePartBox>(bodyGroups.Count + 2);
+        if (header is not null) ordered.Add(header);
+        ordered.AddRange(bodyGroups);
+        if (footer is not null) ordered.Add(footer);
+
+        HashSet<(int Row, int Column)>? taken = null;
+        var maxColSeen = 0;
         foreach (var group in ordered)
         {
-            var rows = group.Children.OfType<TablePartBox>().Where(r => r.Part == TablePart.Row).ToList();
+            var rows = new List<TablePartBox>();
+            for (var i = 0; i < group.Children.Count; i++)
+            {
+                if (group.Children[i] is TablePartBox r && r.Part == TablePart.Row)
+                    rows.Add(r);
+            }
             var groupStart = grid.Rows.Count;
             grid.Groups.Add((group, rows));
             foreach (var row in rows)
@@ -476,30 +567,66 @@ internal static class TableLayout
                 var r = grid.Rows.Count;
                 grid.Rows.Add(row);
                 var column = 0;
-                foreach (var box in row.Children.OfType<TablePartBox>().Where(c => c.Part == TablePart.Cell))
+                for (var i = 0; i < row.Children.Count; i++)
                 {
-                    while (taken.Contains((r, column)))
-                        column++;
-                    var rowSpan = Attribute(box, "rowspan", 1, 0, 65534);
-                    var cell = new Cell(box)
+                    if (row.Children[i] is TablePartBox box && box.Part == TablePart.Cell)
                     {
-                        Row = r,
-                        Column = column,
-                        ColumnSpan = Attribute(box, "colspan", 1, 1, 1000),
-                        RowSpan = rowSpan == 0 ? groupStart + rows.Count - r : Math.Min(rowSpan, groupStart + rows.Count - r),
-                    };
-                    for (var a = r; a < r + cell.RowSpan; a++)
-                    {
-                        for (var b = column; b < column + cell.ColumnSpan; b++)
-                            taken.Add((a, b));
+                        if (taken is not null)
+                        {
+                            while (taken.Contains((r, column)))
+                                column++;
+                        }
+                        var rowSpan = Attribute(box, "rowspan", 1, 0, 65534);
+                        var colSpan = Attribute(box, "colspan", 1, 1, 1000);
+                        var actualRowSpan = rowSpan == 0 ? groupStart + rows.Count - r : Math.Min(rowSpan, groupStart + rows.Count - r);
+                        var cell = new Cell(box)
+                        {
+                            Row = r,
+                            Column = column,
+                            ColumnSpan = colSpan,
+                            RowSpan = actualRowSpan,
+                        };
+                        if (actualRowSpan > 1 || colSpan > 1)
+                        {
+                            taken ??= [];
+                            for (var a = r; a < r + cell.RowSpan; a++)
+                            {
+                                for (var b = column; b < column + cell.ColumnSpan; b++)
+                                    taken.Add((a, b));
+                            }
+                        }
+                        if (column + cell.ColumnSpan > maxColSeen)
+                            maxColSeen = column + cell.ColumnSpan;
+                        grid.Cells.Add(cell);
+                        column += cell.ColumnSpan;
                     }
-                    grid.Cells.Add(cell);
-                    column += cell.ColumnSpan;
                 }
             }
         }
-        grid.Columns = Math.Max(grid.ColumnWidths.Count, taken.Count == 0 ? 0 : taken.Max(t => t.Column) + 1);
+        grid.Columns = Math.Max(grid.ColumnWidths.Count, maxColSeen);
+        var starts = new int[grid.Rows.Count + 1];
+        var cellIdx = 0;
+        for (var r = 0; r < grid.Rows.Count; r++)
+        {
+            starts[r] = cellIdx;
+            while (cellIdx < grid.Cells.Count && grid.Cells[cellIdx].Row == r)
+                cellIdx++;
+        }
+        starts[grid.Rows.Count] = grid.Cells.Count;
+        grid.RowCellStarts = starts;
         return grid;
+
+        static void AddCol(Grid grid, TablePartBox column)
+        {
+            float? width = column.Style.Size.Width is { Kind: SizeKind.Length } w && !w.Length.HasPercent ? w.Length.Px : null;
+            var percent = column.Style.Size.Width is { Kind: SizeKind.Length, Length: { Calc: null, Px: 0, Percent: > 0 } p } ? p.Percent : 0;
+            var span = Attribute(column, "span", 1, 1, 1000);
+            for (var i = 0; i < span; i++)
+            {
+                grid.ColumnWidths.Add(width);
+                grid.ColumnPercents.Add(percent);
+            }
+        }
     }
 
     // An HTML table attribute (https://html.spec.whatwg.org/multipage/tables.html#attributes-common-to-td-and-th-elements).
@@ -516,8 +643,10 @@ internal static class TableLayout
         var n = grid.Columns;
         var (min, max) = (new float[n], new float[n]);
         var spacing = tableStyle.Text.BorderCollapse == BorderCollapse.Collapse ? 0 : tableStyle.Text.BorderSpacingX;
-        foreach (var cell in grid.Cells)
+        List<Cell>? spanning = null;
+        for (var i = 0; i < grid.Cells.Count; i++)
         {
+            var cell = grid.Cells[i];
             (cell.Min, cell.Max) = IntrinsicSizes.Contribution(cell.Box, context);
             // With collapsed borders a cell holds half of each resolved border between it and its neighbours, not its own.
             // A border-box width or min-width already includes them, so it stays as given.
@@ -528,36 +657,56 @@ internal static class TableLayout
                 var given = style.Box.BoxSizing != BoxSizing.BorderBox ? 0 : Math.Max(Px(style.Size.Width), Px(style.Size.MinWidth));
                 (cell.Min, cell.Max) = (Math.Max(given, cell.Min + delta), Math.Max(given, cell.Max + delta));
             }
+            if (cell.ColumnSpan == 1)
+            {
+                if (cell.Column < n)
+                {
+                    if (cell.Min > min[cell.Column]) min[cell.Column] = cell.Min;
+                    if (cell.Max > max[cell.Column]) max[cell.Column] = cell.Max;
+                }
+            }
+            else if (cell.ColumnSpan > 1)
+            {
+                (spanning ??= []).Add(cell);
+            }
         }
-        foreach (var cell in grid.Cells.Where(c => c.ColumnSpan == 1))
-            (min[cell.Column], max[cell.Column]) = (Math.Max(min[cell.Column], cell.Min), Math.Max(max[cell.Column], cell.Max));
-        // A col or colgroup width is the column's preferred width, not a minimum: the column's max-content width is
-        // that width (or its content's minimum, if wider), and a narrower table shrinks it towards its minimum.
         for (var c = 0; c < Math.Min(n, grid.ColumnWidths.Count); c++)
         {
             if (grid.ColumnWidths[c] is { } w)
                 max[c] = Math.Max(min[c], w);
         }
-        foreach (var cell in grid.Cells.Where(c => c.ColumnSpan > 1).OrderBy(c => c.ColumnSpan))
+        if (spanning is not null)
         {
-            var span = Enumerable.Range(cell.Column, Math.Min(cell.ColumnSpan, n - cell.Column)).ToList();
-            var gaps = spacing * (span.Count - 1);
-            Share(min, cell.Min - gaps);
-            Share(max, cell.Max - gaps);
-
-            void Share(float[] sizes, float needed)
+            spanning.Sort((a, b) => a.ColumnSpan.CompareTo(b.ColumnSpan));
+            for (var i = 0; i < spanning.Count; i++)
             {
-                var have = span.Sum(c => sizes[c]);
-                if (needed <= have)
-                    return;
-                var weights = span.Sum(c => max[c]);
-                foreach (var c in span)
-                    sizes[c] += (needed - have) * (weights > 0 ? max[c] / weights : 1f / span.Count);
+                var cell = spanning[i];
+                var spanCount = Math.Min(cell.ColumnSpan, n - cell.Column);
+                var gaps = spacing * (spanCount - 1);
+                Share(min, cell.Min - gaps, cell.Column, spanCount);
+                Share(max, cell.Max - gaps, cell.Column, spanCount);
             }
         }
         for (var c = 0; c < n; c++)
             max[c] = Math.Max(max[c], min[c]);
         return (min, max);
+
+        void Share(float[] sizes, float needed, int startCol, int count)
+        {
+            float have = 0;
+            for (var i = 0; i < count; i++)
+                have += sizes[startCol + i];
+            if (needed <= have)
+                return;
+            float weights = 0;
+            for (var i = 0; i < count; i++)
+                weights += max[startCol + i];
+            for (var i = 0; i < count; i++)
+            {
+                var col = startCol + i;
+                sizes[col] += (needed - have) * (weights > 0 ? max[col] / weights : 1f / count);
+            }
+        }
     }
 
     private static float Px(SizeValue size) => size is { Kind: SizeKind.Length, Length: { HasPercent: false } length } ? length.Px : 0;
@@ -580,10 +729,13 @@ internal static class TableLayout
         if (style.Box.TableLayout == TableLayoutMode.Fixed && style.Size.Width.Kind == SizeKind.Length)
             return FixedWidths(grid, target);
         var (min, max) = ranges ?? ColumnRanges(grid, style, context, collapsed);
-        if (target <= min.Sum())
+        float minSum = 0;
+        for (var c = 0; c < n; c++) minSum += min[c];
+        if (target <= minSum)
             return min;
 
-        var (kinds, percents) = (new ColumnKind[n], new float[n]);
+        var kinds = new ColumnKind[n];
+        var percents = new float[n];
         for (var c = 0; c < Math.Min(n, grid.ColumnWidths.Count); c++)
         {
             if (grid.ColumnWidths[c] is not null)
@@ -591,8 +743,10 @@ internal static class TableLayout
             else if (grid.ColumnPercents[c] > 0)
                 (kinds[c], percents[c]) = (ColumnKind.Percent, grid.ColumnPercents[c]);
         }
-        foreach (var cell in grid.Cells.Where(c => c.ColumnSpan == 1))
+        for (var i = 0; i < grid.Cells.Count; i++)
         {
+            var cell = grid.Cells[i];
+            if (cell.ColumnSpan != 1 || cell.Column >= n) continue;
             if (cell.Box.Style.Size.Width is not { Kind: SizeKind.Length, Length: var w })
                 continue;
             if (w is { Calc: null, Px: 0, Percent: > 0 })
@@ -602,39 +756,101 @@ internal static class TableLayout
         }
 
         var widths = new float[n];
-        var others = Enumerable.Range(0, n).Where(c => kinds[c] != ColumnKind.Percent).ToList();
-        foreach (var c in Enumerable.Range(0, n).Except(others))
-            widths[c] = Math.Max(min[c], percents[c] / 100 * target);
-        var rest = target - widths.Sum();
-        var (othersMin, othersMax) = (others.Sum(c => min[c]), others.Sum(c => max[c]));
+        for (var c = 0; c < n; c++)
+        {
+            if (kinds[c] == ColumnKind.Percent)
+                widths[c] = Math.Max(min[c], percents[c] / 100 * target);
+        }
+
+        float widthsSum = 0;
+        for (var c = 0; c < n; c++)
+            widthsSum += widths[c];
+        var rest = target - widthsSum;
+
+        float othersMin = 0, othersMax = 0;
+        for (var c = 0; c < n; c++)
+        {
+            if (kinds[c] != ColumnKind.Percent)
+            {
+                othersMin += min[c];
+                othersMax += max[c];
+            }
+        }
         if (rest < othersMin)
         {
-            // The percentages ask for more than there is: the other columns keep their minimums, and the percentage
-            // columns go from their minimums towards their percentages in the space left.
-            var percentColumns = Enumerable.Range(0, n).Except(others).ToList();
-            var (space, minSum, wantSum) = (target - othersMin, percentColumns.Sum(c => min[c]), percentColumns.Sum(c => widths[c]));
-            foreach (var c in others)
-                widths[c] = min[c];
-            foreach (var c in percentColumns)
-                widths[c] = min[c] + (widths[c] - min[c]) * (wantSum > minSum ? Math.Max(0, space - minSum) / (wantSum - minSum) : 0);
+            float pMinSum = 0, pWantSum = 0;
+            for (var c = 0; c < n; c++)
+            {
+                if (kinds[c] == ColumnKind.Percent)
+                {
+                    pMinSum += min[c];
+                    pWantSum += widths[c];
+                }
+                else
+                {
+                    widths[c] = min[c];
+                }
+            }
+            var space = target - othersMin;
+            var factor = pWantSum > pMinSum ? Math.Max(0, space - pMinSum) / (pWantSum - pMinSum) : 0;
+            for (var c = 0; c < n; c++)
+            {
+                if (kinds[c] == ColumnKind.Percent)
+                    widths[c] = min[c] + (widths[c] - min[c]) * factor;
+            }
             return widths;
         }
         if (rest <= othersMax)
         {
-            foreach (var c in others)
-                widths[c] = min[c] + (max[c] - min[c]) * (othersMax > othersMin ? (rest - othersMin) / (othersMax - othersMin) : 0);
+            var factor = othersMax > othersMin ? (rest - othersMin) / (othersMax - othersMin) : 0;
+            for (var c = 0; c < n; c++)
+            {
+                if (kinds[c] != ColumnKind.Percent)
+                    widths[c] = min[c] + (max[c] - min[c]) * factor;
+            }
             return widths;
         }
-        foreach (var c in others)
-            widths[c] = max[c];
+        for (var c = 0; c < n; c++)
+        {
+            if (kinds[c] != ColumnKind.Percent)
+                widths[c] = max[c];
+        }
         var extra = rest - othersMax;
-        var takers = new[] { ColumnKind.Auto, ColumnKind.Fixed, ColumnKind.Percent }
-            .Select(kind => Enumerable.Range(0, n).Where(c => kinds[c] == kind && widths[c] > 0).ToList())
-            .FirstOrDefault(list => list.Count > 0) ?? [.. Enumerable.Range(0, n)];
-        var weight = takers.Sum(c => widths[c]);
-        foreach (var c in takers)
-            widths[c] += extra * (weight > 0 ? widths[c] / weight : 1f / takers.Count);
+        ColumnKind? targetKind = null;
+        if (HasKind(kinds, widths, ColumnKind.Auto)) targetKind = ColumnKind.Auto;
+        else if (HasKind(kinds, widths, ColumnKind.Fixed)) targetKind = ColumnKind.Fixed;
+        else if (HasKind(kinds, widths, ColumnKind.Percent)) targetKind = ColumnKind.Percent;
+
+        float weight = 0;
+        var takersCount = 0;
+        for (var c = 0; c < n; c++)
+        {
+            if (targetKind is null ? true : (kinds[c] == targetKind && widths[c] > 0))
+            {
+                weight += widths[c];
+                takersCount++;
+            }
+        }
+        if (takersCount == 0)
+        {
+            takersCount = n;
+            for (var c = 0; c < n; c++) weight += widths[c];
+        }
+        for (var c = 0; c < n; c++)
+        {
+            if (targetKind is null ? true : (kinds[c] == targetKind && widths[c] > 0))
+            {
+                widths[c] += extra * (weight > 0 ? widths[c] / weight : 1f / takersCount);
+            }
+        }
         return widths;
+
+        static bool HasKind(ColumnKind[] kinds, float[] widths, ColumnKind k)
+        {
+            for (var c = 0; c < kinds.Length; c++)
+                if (kinds[c] == k && widths[c] > 0) return true;
+            return false;
+        }
     }
 
     // table-layout: fixed (css-tables-3 §3.9.3.1): widths from the columns, else the first row's cells; the rest share
@@ -664,8 +880,10 @@ internal static class TableLayout
     // A cell's first baseline: its first line box's, from its top; null without line boxes.
     private static float? FirstBaseline(Fragment fragment)
     {
-        foreach (var child in fragment.Children)
+        var children = fragment.Children;
+        for (var i = 0; i < children.Count; i++)
         {
+            var child = children[i];
             if (child.Fragment.Kind == FragmentKind.Line && child.Fragment.Height > 0)
                 return child.Y + child.Fragment.Baseline;
             if (child.Fragment.Kind == FragmentKind.Box && child.Fragment.Box is { IsFloat: false, IsAbsolutelyPositioned: false }
