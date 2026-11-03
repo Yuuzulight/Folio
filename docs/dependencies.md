@@ -40,7 +40,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | WinForms control | **Folio builds it** | On .NET WinForms |
 | Content process, IPC protocol, event loop, DOM bindings, canvas 2D API | **Folio builds it** (M4–M5) | [study](study/17-scripting.md) |
 | Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided** | Set up by Folio through Windows APIs |
-| JavaScript engine | **Temporary compatibility dependency**: Jint | Behind `IScriptEngine`; the production engine is planned as Folio-owned code |
+| JavaScript engine | **Differential oracle only**: Jint | Folio's native engine is the production content-host default; Jint is included only by the explicit oracle/test build |
 | WebRTC signalling and loopback transport | **Folio builds it** | Capability-gated offer/answer, ICE state, tracks and data channels; external ICE/peer transport remains a host-owned seam |
 | Diagram renderer (diagram-description languages → SVG) | **Folio builds it** (M5) | `Folio.Diagrams`, instead of running a diagram library in the sandbox |
 | JSX compilation | **Host** (Mana) | Done before content reaches Folio |
@@ -129,7 +129,7 @@ This follows the dependency-first plan. Replacing ANGLE later would require a Fo
 
 ### WebAssembly execution — Wasmtime
 
-**M6 native-path repair (2026-10-26):** `Wasmtime` 48.0.2 is now wired behind the WebAssembly binding seam. Granted numeric modules, including JavaScript function imports, execute in the native engine with a per-store linear-memory cap and epoch-based execution deadline; validated modules are reused through a bounded compiled-module cache, local/imported memories synchronize through the native boundary, numeric local/imported globals use type-safe native accessors, and instances plus the engine are retired with the document. Basic local funcref table exports are exposed with null-reference mutation, and native-origin or typed ordinary JavaScript numeric funcref entries can cross imported tables through signature-checked callbacks. Reference-valued signatures and other unsupported exports continue through the compatibility path while their native bridge is completed. Wasmtime is a dependency-backed transition step, not the final Folio-owned implementation; removing it remains mandatory under Milestone 7 and is explicitly listed in the [replacement gate](replacement-gate.md).
+**M6 native-path repair (2026-10-26):** the Folio-owned interpreter is the production WebAssembly path. Granted modules execute through Folio's validator/interpreter with document limits and watchdog handling; Wasmtime is now isolated to an explicit oracle/test configuration and is not referenced by the production Folio.Scripting build. Broader module parity and final runtime-removal evidence remain tracked under Milestone 7 and the [replacement gate](replacement-gate.md).
 
 ### JavaScript engine — Jint
 

@@ -51,27 +51,57 @@ internal static class FlexLayout
         float? mainSpace = row ? innerWidth : innerHeight;
         float? crossSpace = row ? innerHeight : innerWidth;
 
-        var outOfFlow = box.Children.Where(c => c.IsAbsolutelyPositioned).ToList();
-        // §9.1: items in order-modified document order.
-        var items = box.Children.Where(c => !c.IsAbsolutelyPositioned).Select(c => new Item(c)).OrderBy(i => i.Flex.Order).ToList();
-        foreach (var item in items)
-            DetermineFlexBaseSizeAndHypotheticalMainSize(item, row, innerWidth, mainSpace, crossSpace, context);
+        List<Box>? outOfFlow = null;
+        var items = new List<Item>(box.Children.Count);
+        var hasNonZeroOrder = false;
+        for (var i = 0; i < box.Children.Count; i++)
+        {
+            var c = box.Children[i];
+            if (c.IsAbsolutelyPositioned)
+            {
+                (outOfFlow ??= []).Add(c);
+            }
+            else
+            {
+                var item = new Item(c);
+                if (item.Flex.Order != 0) hasNonZeroOrder = true;
+                items.Add(item);
+            }
+        }
+        if (hasNonZeroOrder)
+            items.Sort((a, b) => a.Flex.Order.CompareTo(b.Flex.Order));
+
+        for (var i = 0; i < items.Count; i++)
+            DetermineFlexBaseSizeAndHypotheticalMainSize(items[i], row, innerWidth, mainSpace, crossSpace, context);
 
         // §9.3: lines; a column container with an indefinite height is one line as tall as its items.
         var lines = CollectFlexItemsIntoFlexLines(items, flex.Wrap != FlexWrap.Nowrap && mainSpace is not null, mainSpace ?? float.PositiveInfinity, gapMain);
-        var mainSize = mainSpace ?? Math.Clamp(lines.Max(l => l.Items.Sum(i => i.OuterMain(i.Hypothetical)) + gapMain * (l.Items.Count - 1)), minHeight, maxHeight);
+        float maxLineMain = 0f;
+        for (var li = 0; li < lines.Count; li++)
+        {
+            var l = lines[li];
+            float lSum = 0f;
+            for (var ii = 0; ii < l.Items.Count; ii++)
+                lSum += l.Items[ii].OuterMain(l.Items[ii].Hypothetical);
+            var lineExtent = lSum + gapMain * (l.Items.Count - 1);
+            if (lineExtent > maxLineMain) maxLineMain = lineExtent;
+        }
+        var mainSize = mainSpace ?? Math.Clamp(maxLineMain, minHeight, maxHeight);
         if (items.Count == 0)
             mainSize = mainSpace ?? Math.Clamp(0, minHeight, maxHeight);
-        foreach (var line in lines)
-            ResolveFlexibleLengths(line, mainSize, gapMain);
+        for (var li = 0; li < lines.Count; li++)
+            ResolveFlexibleLengths(lines[li], mainSize, gapMain);
 
         // §9.4: cross sizes.
-        foreach (var item in items)
-            DetermineHypotheticalCrossSize(item, row, innerWidth, crossSpace, context, stretchTo: null);
-        foreach (var line in lines)
-            CalculateLineCrossSize(line, row, lines.Count == 1 && flex.Wrap == FlexWrap.Nowrap ? crossSpace : null);
+        for (var i = 0; i < items.Count; i++)
+            DetermineHypotheticalCrossSize(items[i], row, innerWidth, crossSpace, context, stretchTo: null);
+        for (var li = 0; li < lines.Count; li++)
+            CalculateLineCrossSize(lines[li], row, lines.Count == 1 && flex.Wrap == FlexWrap.Nowrap ? crossSpace : null);
         // A row container with an auto height is as tall as its lines, within its min and max heights.
-        var crossSize = crossSpace ?? Math.Clamp(lines.Sum(l => l.Cross) + gapCross * Math.Max(0, lines.Count - 1), minHeight, maxHeight);
+        float crossSum = 0f;
+        for (var li = 0; li < lines.Count; li++)
+            crossSum += lines[li].Cross;
+        var crossSize = crossSpace ?? Math.Clamp(crossSum + gapCross * Math.Max(0, lines.Count - 1), minHeight, maxHeight);
         // A single nowrap line fills an auto-sized flex container's used cross size
         // (including min-height). This is what lets align-items:center center a
         // child in a viewport-sized body.
@@ -113,7 +143,7 @@ internal static class FlexLayout
                 fragments.Add(row ? new ChildFragment(main, cross, item.Fragment!) : new ChildFragment(cross, main, item.Fragment!));
             }
         }
-        return (fragments, row ? crossSize : mainSize, outOfFlow);
+        return (fragments, row ? crossSize : mainSize, outOfFlow ?? []);
     }
 
     // §9.2 step 3 and §4.5 (automatic minimum size).
@@ -214,52 +244,92 @@ internal static class FlexLayout
         if (items.Count == 0)
             return;
         var available = mainSize - gap * (items.Count - 1);
-        var grow = items.Sum(i => i.OuterMain(i.Hypothetical)) < available;
-        foreach (var item in items)
+        float hypSum = 0f;
+        for (var i = 0; i < items.Count; i++)
+            hypSum += items[i].OuterMain(items[i].Hypothetical);
+        var grow = hypSum < available;
+        for (var i = 0; i < items.Count; i++)
         {
+            var item = items[i];
             item.Target = item.Hypothetical;
             item.Frozen = (grow ? item.Flex.Grow : item.Flex.Shrink) == 0
                 || grow && item.BaseSize > item.Hypothetical
                 || !grow && item.BaseSize < item.Hypothetical;
         }
-        float Remaining() => available - items.Sum(i => i.OuterMain(i.Frozen ? i.Target : i.BaseSize));
+        float Remaining()
+        {
+            float used = 0f;
+            for (var i = 0; i < items.Count; i++)
+                used += items[i].OuterMain(items[i].Frozen ? items[i].Target : items[i].BaseSize);
+            return available - used;
+        }
         var initialFree = Remaining();
 
-        for (var round = 0; round <= items.Count && items.Any(i => !i.Frozen); round++)
+        for (var round = 0; round <= items.Count; round++)
         {
-            var unfrozen = items.Where(i => !i.Frozen).ToList();
+            var hasUnfrozen = false;
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (!items[i].Frozen) { hasUnfrozen = true; break; }
+            }
+            if (!hasUnfrozen) break;
+
             var free = Remaining();
-            var factors = unfrozen.Sum(i => grow ? i.Flex.Grow : i.Flex.Shrink);
+            float factors = 0f;
+            for (var i = 0; i < items.Count; i++)
+            {
+                var it = items[i];
+                if (!it.Frozen)
+                    factors += grow ? it.Flex.Grow : it.Flex.Shrink;
+            }
             if (factors < 1 && Math.Abs(initialFree * factors) < Math.Abs(free))
                 free = initialFree * factors;
 
             if (grow)
             {
-                foreach (var item in unfrozen)
-                    item.Target = item.BaseSize + (factors > 0 ? free * item.Flex.Grow / factors : 0);
+                for (var i = 0; i < items.Count; i++)
+                {
+                    var it = items[i];
+                    if (!it.Frozen)
+                        it.Target = it.BaseSize + (factors > 0 ? free * it.Flex.Grow / factors : 0);
+                }
             }
             else
             {
-                var scaled = unfrozen.Sum(i => i.Flex.Shrink * i.BaseSize);
-                foreach (var item in unfrozen)
-                    item.Target = item.BaseSize + (scaled > 0 ? free * item.Flex.Shrink * item.BaseSize / scaled : 0);
+                float scaled = 0f;
+                for (var i = 0; i < items.Count; i++)
+                {
+                    var it = items[i];
+                    if (!it.Frozen)
+                        scaled += it.Flex.Shrink * it.BaseSize;
+                }
+                for (var i = 0; i < items.Count; i++)
+                {
+                    var it = items[i];
+                    if (!it.Frozen)
+                        it.Target = it.BaseSize + (scaled > 0 ? free * it.Flex.Shrink * it.BaseSize / scaled : 0);
+                }
             }
 
             // Fix min/max violations and freeze.
             var total = 0f;
             var adjustments = new Dictionary<Item, float>();
-            foreach (var item in unfrozen)
+            for (var i = 0; i < items.Count; i++)
             {
-                var clamped = Math.Max(item.Min, Math.Min(item.Target, item.Max));
+                var it = items[i];
+                if (it.Frozen) continue;
+                var clamped = Math.Max(it.Min, Math.Min(it.Target, it.Max));
                 clamped = Math.Max(0, clamped);
-                adjustments[item] = clamped - item.Target;
-                total += clamped - item.Target;
-                item.Target = clamped;
+                adjustments[it] = clamped - it.Target;
+                total += clamped - it.Target;
+                it.Target = clamped;
             }
-            foreach (var item in unfrozen)
+            for (var i = 0; i < items.Count; i++)
             {
-                if (Math.Abs(total) < 0.001f || total > 0 && adjustments[item] > 0 || total < 0 && adjustments[item] < 0)
-                    item.Frozen = true;
+                var it = items[i];
+                if (it.Frozen) continue;
+                if (Math.Abs(total) < 0.001f || total > 0 && adjustments[it] > 0 || total < 0 && adjustments[it] < 0)
+                    it.Frozen = true;
             }
         }
     }
@@ -417,9 +487,21 @@ internal static class FlexLayout
         {
             ItemAlign.FlexEnd or ItemAlign.End or ItemAlign.SelfEnd => free,
             ItemAlign.Center => free / 2,
-            ItemAlign.Baseline => line.Items.Where(i => Alignment(i, container) == ItemAlign.Baseline).Max(i => i.Baseline) - item.Baseline,
+            ItemAlign.Baseline => BaselineOffset(item, line, container),
             _ => 0,
         };
+    }
+
+    private static float BaselineOffset(Item item, Line line, ComputedStyle container)
+    {
+        var maxBaseline = 0f;
+        for (var i = 0; i < line.Items.Count; i++)
+        {
+            var other = line.Items[i];
+            if (Alignment(other, container) == ItemAlign.Baseline && other.Baseline > maxBaseline)
+                maxBaseline = other.Baseline;
+        }
+        return maxBaseline - item.Baseline;
     }
 
     // An item's first baseline (its first line box's), from its border-box top; null without line boxes.

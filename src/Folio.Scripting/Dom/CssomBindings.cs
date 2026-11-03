@@ -71,7 +71,7 @@ internal static class CssomBindings
         return registry.Children(sheet, rule);
     }
 
-    private const string Source = """
+    internal const string Source = """
         (function(host) {
             'use strict';
             const INTERNAL = {};

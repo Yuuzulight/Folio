@@ -439,23 +439,54 @@ internal static class GridLayout
     private static (List<Item> Items, List<Track> Columns, List<Track> Rows, (int Row, int Column) Offsets) Place(GridContainerBox box, Axis columnAxis, Axis rowAxis)
     {
         var grid = box.Style.Grid;
-        var items = box.Children.Where(c => !c.IsAbsolutelyPositioned).Select(c => new Item(c)).OrderBy(i => i.Box.Style.Flex.Order).ToList();
+        var items = new List<Item>(box.Children.Count);
+        var hasNonZeroOrder = false;
+        for (var i = 0; i < box.Children.Count; i++)
+        {
+            var c = box.Children[i];
+            if (!c.IsAbsolutelyPositioned)
+            {
+                var item = new Item(c);
+                if (item.Box.Style.Flex.Order != 0) hasNonZeroOrder = true;
+                items.Add(item);
+            }
+        }
+        if (hasNonZeroOrder)
+            items.Sort((a, b) => a.Box.Style.Flex.Order.CompareTo(b.Box.Style.Flex.Order));
         var (explicitColumns, explicitRows) = (columnAxis.Count, rowAxis.Count);
 
-        var resolved = items.Select(i =>
+        var resolved = new (Item Item, (int? Start, int Span) Row, (int? Start, int Span) Column)[items.Count];
+        var minRowStart = 0;
+        var minColStart = 0;
+        for (var i = 0; i < items.Count; i++)
         {
-            var g = i.Box.Style.Grid;
-            return (Item: i, Row: ResolveLines(g.RowStart, g.RowEnd, rowAxis), Column: ResolveLines(g.ColumnStart, g.ColumnEnd, columnAxis));
-        }).ToList();
-        // Implicit tracks before the explicit grid shift every line.
-        var rowOffset = -Math.Min(0, resolved.Where(r => r.Row.Start is not null).Select(r => r.Row.Start!.Value).DefaultIfEmpty(0).Min());
-        var columnOffset = -Math.Min(0, resolved.Where(r => r.Column.Start is not null).Select(r => r.Column.Start!.Value).DefaultIfEmpty(0).Min());
+            var it = items[i];
+            var g = it.Box.Style.Grid;
+            var rLines = ResolveLines(g.RowStart, g.RowEnd, rowAxis);
+            var cLines = ResolveLines(g.ColumnStart, g.ColumnEnd, columnAxis);
+            resolved[i] = (it, rLines, cLines);
+            if (rLines.Start is { } rs && rs < minRowStart) minRowStart = rs;
+            if (cLines.Start is { } cs && cs < minColStart) minColStart = cs;
+        }
+        var rowOffset = -minRowStart;
+        var columnOffset = -minColStart;
+
+        var maxRowEnd = 0;
+        var maxColEnd = 0;
+        for (var i = 0; i < resolved.Length; i++)
+        {
+            var r = resolved[i];
+            var rEnd = r.Row.Start is { } s ? s + rowOffset + r.Row.Span : r.Row.Span;
+            var cEnd = r.Column.Start is { } cs ? cs + columnOffset + r.Column.Span : r.Column.Span;
+            if (rEnd > maxRowEnd) maxRowEnd = rEnd;
+            if (cEnd > maxColEnd) maxColEnd = cEnd;
+        }
 
         // The flow axis is the major one; the other has a fixed count while placing.
         var columnFlow = grid.AutoFlowColumn;
         var minorCount = columnFlow
-            ? Math.Max(explicitRows + rowOffset, resolved.Count == 0 ? 0 : resolved.Max(r => r.Row.Start is { } s ? s + rowOffset + r.Row.Span : r.Row.Span))
-            : Math.Max(explicitColumns + columnOffset, resolved.Count == 0 ? 0 : resolved.Max(r => r.Column.Start is { } s ? s + columnOffset + r.Column.Span : r.Column.Span));
+            ? Math.Max(explicitRows + rowOffset, maxRowEnd)
+            : Math.Max(explicitColumns + columnOffset, maxColEnd);
         minorCount = Math.Clamp(minorCount, 1, GridParsing.MaxTracks);
 
         var occupied = new HashSet<(int Major, int Minor)>();

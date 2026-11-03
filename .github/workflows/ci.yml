@@ -34,7 +34,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      - run: dotnet build Folio.slnx -c Release
+      - run: dotnet build Folio.slnx -c Release -p:FolioOracleHost=false -p:FolioWasmOracle=false
 
       # The dependency-first path is allowed during development, but the Folio-owned replacement track is a hard
       # completion gate. Keep the roadmap from regressing to the old optional-track wording.
@@ -96,6 +96,13 @@ jobs:
           FOLIO_CONFORMANCE_ENGINE: native
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance
 
+      - name: Differential shaping corpus
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll shaping-differential
+
+      - name: Differential shaping corpus (installed system fonts)
+        if: always() && matrix.os == 'windows-latest'
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll shaping-differential-system
+
       # D8 is Folio's native WebGL acceptance category; the compatibility engine intentionally routes it away.
       - name: Native WebGL conformance
         if: always() && matrix.os == 'windows-latest'
@@ -127,8 +134,22 @@ jobs:
         if: matrix.os == 'windows-latest'
         # This runtime-specific publish needs its own assets file entry. The
         # solution restore above is framework-only, so --no-restore produces
-        # NETSDK1047 before the benchmark can run.
-        run: dotnet publish tools/Folio.ContentHost/Folio.ContentHost.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=false -o tools/Folio.ContentHost/bin/Release/net10.0/win-x64/publish
+        # NETSDK1047 before the benchmark can run. The benchmark explicitly
+        # uses FOLIO_UNSANDBOXED=1, so ReadyToRun is safe here and removes the
+        # CLI/JIT bootstrap from the measured cold-start path.
+        run: dotnet publish tools/Folio.ContentHost/Folio.ContentHost.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=true -o tools/Folio.ContentHost/bin/Release/net10.0/win-x64/publish
+      - name: Verify production publish excludes oracle runtimes
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $publish = Join-Path $env:GITHUB_WORKSPACE 'tools/Folio.ContentHost/bin/Release/net10.0/win-x64/publish'
+          $oracleFiles = Get-ChildItem -Path $publish -File -Recurse |
+            Where-Object { $_.Name -match '^(Jint|Folio\.Scripting\.Jint|Wasmtime)(\.|$)' }
+          if ($oracleFiles) {
+            $oracleFiles | ForEach-Object { Write-Error "Oracle runtime leaked into production publish: $($_.FullName)" }
+            exit 1
+          }
+          Write-Host 'Production publish contains no Jint or Wasmtime oracle assemblies.'
       - name: Scripted process benchmarks
         if: matrix.os == 'windows-latest'
         env:
@@ -199,7 +220,7 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      - run: dotnet build Folio.slnx -c Release
+      - run: dotnet build Folio.slnx -c Release -p:FolioOracleHost=${{ matrix.engine == 'jint' }} -p:FolioWasmOracle=${{ matrix.engine == 'jint' }}
       - name: Run sandbox and limits suite (${{ matrix.capability }})
         env:
           FOLIO_CAPABILITY_MATRIX: ${{ matrix.capability }}

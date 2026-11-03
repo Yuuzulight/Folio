@@ -14,7 +14,6 @@ public sealed class StageSixRoutingTests
     [InlineData("<audio></audio>")]
     [InlineData("<iframe></iframe>")]
     [InlineData("<script>new Worker('worker.js')</script>")]
-    [InlineData("<script>WebAssembly.instantiate(bytes)</script>")]
     [InlineData("<script>new RTCPeerConnection()</script>")]
     [InlineData("<script>navigator.serviceWorker.register('sw.js')</script>")]
     [InlineData("<button onclick=\"new Worker('worker.js')\">run</button>")]
@@ -109,5 +108,14 @@ public sealed class StageSixRoutingTests
         Assert.Equal(ArtifactKind.NeedsBrowser, ArtifactClassifier.Classify(html, options).Kind);
         Assert.Equal(ArtifactKind.Static, ArtifactClassifier.Classify("<p>ordinary page</p>").Kind);
         Assert.Equal(ArtifactKind.Scripted, ArtifactClassifier.Classify("<button onclick='alert(1)'>run</button>").Kind);
+    }
+
+    [Fact]
+    public void ProductionNativeWebAssemblyRoutesWhenHostGrantsIt()
+    {
+        var options = new FolioOptions { Capabilities = new FeatureCapabilities { WebAssembly = true } };
+        var result = ArtifactClassifier.Classify("<script>WebAssembly.instantiate(bytes)</script>", options);
+        Assert.Equal(ArtifactKind.Scripted, result.Kind);
+        Assert.DoesNotContain(result.Reasons, reason => reason.Contains("not yet complete", StringComparison.Ordinal));
     }
 }

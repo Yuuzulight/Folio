@@ -21,7 +21,19 @@ internal static class LineBreaker
     /// The break opportunity before each UTF-16 offset of <paramref name="text"/> (index = offset, length + 1
     /// entries): None inside a character and at 0, Mandatory after hard line breaks, and at the end.
     /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, BreakKind[]> BreakCache = new(StringComparer.Ordinal);
+
     public static BreakKind[] Find(string text)
+    {
+        if (text.Length <= 64 && BreakCache.TryGetValue(text, out var cached))
+            return cached;
+        var result = FindCore(text);
+        if (text.Length <= 64 && BreakCache.Count < 4096)
+            BreakCache[text] = result;
+        return result;
+    }
+
+    private static BreakKind[] FindCore(string text)
     {
         var chars = new List<Char>(text.Length);
         for (var i = 0; i < text.Length;)

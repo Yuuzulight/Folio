@@ -295,6 +295,30 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
             RecordChildList(added, removed, null, null);
     }
 
+    internal void ReplaceAll(IReadOnlyList<Node> nodes)
+    {
+        IReadOnlyList<Node> removed = [.. Children];
+        OwnerDocument.MutationRecordsSuppressed++;
+        try
+        {
+            while (FirstChild is { } existing)
+                RemoveChild(existing);
+            for (var i = 0; i < nodes.Count; i++)
+            {
+                var child = nodes[i];
+                if (child.Parent is { } oldParent)
+                    oldParent.RemoveChild(child);
+                InsertBefore(child, null);
+            }
+        }
+        finally
+        {
+            OwnerDocument.MutationRecordsSuppressed--;
+        }
+        if (nodes.Count > 0 || removed.Count > 0)
+            RecordChildList(nodes, removed, null, null);
+    }
+
     /// <summary>Queues a childList record for this node unless an enclosing algorithm queues its own.</summary>
     private void RecordChildList(IReadOnlyList<Node> added, IReadOnlyList<Node> removed, Node? previousSibling, Node? nextSibling)
     {

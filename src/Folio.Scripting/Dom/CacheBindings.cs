@@ -79,7 +79,7 @@ internal static class CacheBindings
         engine.Evaluate("delete globalThis.__folio_cache_store; delete globalThis.__folio_cache_fetch_api; delete globalThis.__folio_artifact_storage;");
     }
 
-    private const string Source = """
+    internal const string Source = """
         (function(rawHost, api) {
             'use strict';
             const apply = Reflect.apply, create = Object.create, DOMExceptionCtor = DOMException;

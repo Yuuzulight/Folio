@@ -64,18 +64,25 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
     /// style): what the cascade reads instead of the element's text or the loaded file, until the page changes the
     /// element's text, which clears it. The DOM text is never rewritten by the CSSOM, as in a browser.
     /// </summary>
+    internal object? CachedSheet { get; set; }
+
     internal string? SheetText
     {
         get => _sheetText;
         set
         {
             _sheetText = value;
+            CachedSheet = null;
             OnMutated(MutationKind.Attributes);
         }
     }
 
     /// <summary>Drops the CSSOM's override without queueing a restyle of its own (the DOM change that clears it does).</summary>
-    internal void ClearSheetText() => _sheetText = null;
+    internal void ClearSheetText()
+    {
+        _sheetText = null;
+        CachedSheet = null;
+    }
 
     /// <summary>Tracks whether a script element has already executed or started execution (HTML §4.12.1.1 "already started").</summary>
     internal bool ScriptAlreadyStarted { get; set; }

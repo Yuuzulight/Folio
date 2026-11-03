@@ -765,6 +765,16 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
 
     private void EnqueueFailure(GpuFailure? failure)
     {
+        // A document GPU budget exhaustion is a device-level failure, not a
+        // recoverable per-call validation error.  Lose the context before
+        // reporting OUT_OF_MEMORY so the page receives the WebGL lifecycle
+        // signal and all pre-loss objects become invalid.
+        if (failure?.Kind == GpuFailureKind.BudgetExceeded && !_losingContext)
+        {
+            _losingContext = true;
+            try { _loseContext?.Invoke(); }
+            finally { _losingContext = false; }
+        }
         if (failure?.ApiError is { } apiError)
         {
             EnqueueError(apiError);
@@ -777,6 +787,7 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
             _ => 0x0502u,
         });
     }
+    private bool _losingContext;
     private void EnqueueFailure(WebGlValidationException failure) => EnqueueError(failure.Failure == WebGlValidationFailure.ContextLost ? 0x9242u : failure.Failure == WebGlValidationFailure.InvalidValue ? 0x0501u : 0x0502u);
     private void EnqueueError(uint error) { lock (_errors) if (_errors.Count < 64) _errors.Enqueue(error); }
     protected void RecordNativeFailure(GpuFailure? failure) => EnqueueFailure(failure);

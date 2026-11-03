@@ -530,6 +530,9 @@ internal sealed class ComputedStyle
     /// <summary>Custom properties (inherited): name to value text, after var() substitution.</summary>
     public ImmutableDictionary<string, string> Custom { get; init; } = ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);
 
+    private int _inheritedHash;
+    public int InheritedHash => _inheritedHash != 0 ? _inheritedHash : (_inheritedHash = HashCode.Combine(Font, Inherited, Text, Custom.Count) is var h && h != 0 ? h : 1);
+
     /// <summary>The style of the root's parent: every property at its initial value.</summary>
     public static ComputedStyle Initial { get; } = Properties.InitialStyle();
 }

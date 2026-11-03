@@ -35,7 +35,7 @@ internal static class DomEvents
         return (new EventHandlerAttributes(engine, sync, ensure), dispatchHostEvent);
     }
 
-    private const string Source = """
+    internal const string Source = """
         globalThis.__folio_events_api = (function(host) {
             'use strict';
             const global = globalThis;
