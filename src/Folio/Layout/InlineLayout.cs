@@ -502,15 +502,49 @@ internal static class InlineLayout
         var first = true;
         var levels = BidiLevels(block, ifc);
         var units = Units(block, ifc, 0, context, levels, layOutAtomics: false);
-        if (ifc.Items.All(i => i.Kind == InlineItemKind.Text))
+        var hasAtomics = false;
+        for (var i = 0; i < ifc.Items.Count; i++)
+        {
+            if (ifc.Items[i].Kind == InlineItemKind.Atomic)
+            {
+                hasAtomics = true;
+                break;
+            }
+        }
+        if (!hasAtomics)
             Measured.GetOrCreateValue(context)[ifc] = (units, levels);
         foreach (var unit in units)
         {
             var (unitMin, unitMax) = (unit.Width - unit.TrailingSpace + unit.HyphenWidth, unit.Width);
             // overflow-wrap: anywhere (and word-break: break-word) may break between any two characters for min-content;
             // break-word only when laying out.
-            if (unit.Pieces.Exists(p => p.Kind == PieceKind.Text && WrapsAnywhere(p.Style, forMinContent: true)))
-                unitMin = unit.Pieces.Where(p => p.Kind == PieceKind.Text).SelectMany(p => p.Run!.Advances[p.GlyphStart..p.GlyphEnd]).DefaultIfEmpty().Max();
+            var wrapsAnywhere = false;
+            for (var pIdx = 0; pIdx < unit.Pieces.Count; pIdx++)
+            {
+                var piece = unit.Pieces[pIdx];
+                if (piece.Kind == PieceKind.Text && WrapsAnywhere(piece.Style, forMinContent: true))
+                {
+                    wrapsAnywhere = true;
+                    break;
+                }
+            }
+            if (wrapsAnywhere)
+            {
+                var maxAdv = 0f;
+                for (var pIdx = 0; pIdx < unit.Pieces.Count; pIdx++)
+                {
+                    var piece = unit.Pieces[pIdx];
+                    if (piece.Kind == PieceKind.Text && piece.Run is { } r)
+                    {
+                        var adv = r.Advances;
+                        for (var a = piece.GlyphStart; a < piece.GlyphEnd; a++)
+                        {
+                            if (adv[a] > maxAdv) maxAdv = adv[a];
+                        }
+                    }
+                }
+                unitMin = maxAdv;
+            }
             if (first && block.Node is Dom.ElementNode && !block.Style.Text.TextIndent.Hanging)
             {
                 // The first line's indent (percentages count as zero with no width to resolve them against).
@@ -518,8 +552,9 @@ internal static class InlineLayout
                 (unitMin, line) = (unitMin + indent, line + indent);
             }
             first = false;
-            foreach (var piece in unit.Pieces)
+            for (var pIdx = 0; pIdx < unit.Pieces.Count; pIdx++)
             {
+                var piece = unit.Pieces[pIdx];
                 if (piece.Kind is PieceKind.Atomic or PieceKind.Float)
                 {
                     var c = IntrinsicSizes.Contribution(piece.Box!, context);
@@ -547,6 +582,7 @@ internal static class InlineLayout
     private sealed record Levels(byte[] Text, IReadOnlyDictionary<Box, byte> Atomics, int Paragraph);
 
     private static readonly IReadOnlyDictionary<Box, byte> NoAtomics = new Dictionary<Box, byte>();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<InlineFormattingContext, Levels> BidiCache = [];
 
     /// <summary>
     /// Resolves the paragraph's bidi levels (UAX #9) with the embeddings, isolates and overrides its inline boxes ask
@@ -554,11 +590,17 @@ internal static class InlineLayout
     /// </summary>
     private static Levels BidiLevels(BlockContainerBox block, InlineFormattingContext ifc)
     {
+        if (BidiCache.TryGetValue(ifc, out var cached))
+            return cached;
         var text = ifc.Text;
         int? paragraph = block.Style.Box.UnicodeBidi == UnicodeBidi.Plaintext ? null : block.Style.Text.Direction == Direction.Rtl ? 1 : 0;
         // Most paragraphs are left to right throughout: every level is 0, with nothing to collect or resolve.
         if (paragraph == 0 && !HasRightToLeft(ifc))
-            return new Levels(new byte[text.Length], NoAtomics, 0);
+        {
+            var ltr = new Levels(new byte[text.Length], NoAtomics, 0);
+            BidiCache.AddOrUpdate(ifc, ltr);
+            return ltr;
+        }
         var codePoints = new List<int>(text.Length + 8);
         var textIndex = new int[text.Length];
         var atomicIndex = new Dictionary<Box, int>();
@@ -578,7 +620,13 @@ internal static class InlineLayout
                     for (var i = item.Start; i < item.Start + item.Length; i++)
                     {
                         textIndex[i] = codePoints.Count;
-                        var cp = char.IsHighSurrogate(text[i]) && i + 1 < text.Length ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
+                        var ch = text[i];
+                        if (ch < 128)
+                        {
+                            codePoints.Add(ch);
+                            continue;
+                        }
+                        var cp = char.IsHighSurrogate(ch) && i + 1 < text.Length ? char.ConvertToUtf32(ch, text[i + 1]) : ch;
                         if (cp > 0xFFFF)
                             textIndex[++i] = codePoints.Count;
                         codePoints.Add(cp);
@@ -595,14 +643,20 @@ internal static class InlineLayout
             }
         }
         if (!needed)
-            return new Levels(new byte[text.Length], NoAtomics, 0);
+        {
+            var ltr = new Levels(new byte[text.Length], NoAtomics, 0);
+            BidiCache.AddOrUpdate(ifc, ltr);
+            return ltr;
+        }
 
         var (levels, resolved) = Bidi.Resolve(codePoints.ToArray(), paragraph);
         byte Level(int index) => levels[index] == Bidi.Removed ? (byte)resolved : levels[index];
         var textLevels = new byte[text.Length];
         for (var i = 0; i < text.Length; i++)
             textLevels[i] = Level(textIndex[i]);
-        return new Levels(textLevels, atomicIndex.ToDictionary(a => a.Key, a => Level(a.Value)), resolved);
+        var result = new Levels(textLevels, atomicIndex.ToDictionary(a => a.Key, a => Level(a.Value)), resolved);
+        BidiCache.AddOrUpdate(ifc, result);
+        return result;
     }
 
     // Whether a left-to-right paragraph needs its levels resolved: some inline box asks for bidi controls, or some text
@@ -618,7 +672,9 @@ internal static class InlineLayout
                 continue;
             for (var i = item.Start; i < item.Start + item.Length; i++)
             {
-                var cp = char.IsHighSurrogate(text[i]) && i + 1 < text.Length ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
+                var ch = text[i];
+                if (ch < 128) continue;
+                var cp = char.IsHighSurrogate(ch) && i + 1 < text.Length ? char.ConvertToUtf32(ch, text[i + 1]) : ch;
                 if (cp > 0xFFFF)
                     i++;
                 if (UnicodeData.Bidi(cp) is BidiClass.R or BidiClass.AL or BidiClass.AN)
@@ -830,6 +886,10 @@ internal static class InlineLayout
     // ponytail: scripts are told apart only as CJK or not, enough to keep shaping from reaching across that boundary.
     internal static List<ShapedRun> Shape(string text, int start, int length, ComputedStyle style, LayoutContext context, bool rightToLeft = false)
     {
+        if (!context.Fonts.HasAnyFaces && !style.Text.IsVertical)
+        {
+            return [ShapeRunCached(text, start, length, null, style, context, rightToLeft, false)];
+        }
         var font = style.Font;
         var faceStyle = FaceStyleOf(font.Style);
         var primary = PrimaryFace(style, context);
@@ -842,7 +902,20 @@ internal static class InlineLayout
         var end = start + length;
         for (var i = start; i < end;)
         {
-            var clusterLength = Math.Min(StringInfo.GetNextTextElementLength(text, i), end - i);
+            int clusterLength;
+            if (text[i] < 128)
+            {
+                if (text[i] == '\r' && i + 1 < end && text[i + 1] == '\n')
+                    clusterLength = 2;
+                else if (i + 1 == end || text[i + 1] < 128)
+                    clusterLength = 1;
+                else
+                    clusterLength = Math.Min(StringInfo.GetNextTextElementLength(text, i), end - i);
+            }
+            else
+            {
+                clusterLength = Math.Min(StringInfo.GetNextTextElementLength(text, i), end - i);
+            }
             var face = context.Fonts.FaceForCluster(font.Family, faceStyle, font.Weight, font.Stretch, text.AsSpan(i, clusterLength)) ?? primary;
             var c = char.IsSurrogatePair(text, i) ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
             var upright = vertical && IsUpright(c);
@@ -872,7 +945,7 @@ internal static class InlineLayout
 
     private sealed class ShapeCache
     {
-        public Dictionary<(FontFace Face, float Size, string Features, float Letter, float Word, TabSize Tab), Dictionary<string, ShapedRun>> Runs { get; } = [];
+        public Dictionary<(FontFace? Face, float Size, string Features, float Letter, float Word, TabSize Tab), Dictionary<string, ShapedRun>> Runs { get; } = [];
         public int Count { get; set; }
     }
 
@@ -883,7 +956,7 @@ internal static class InlineLayout
     private static ShapedRun ShapeRunCached(string text, int start, int length, FontFace? face, ComputedStyle style, LayoutContext context, bool rightToLeft,
                                             bool upright)
     {
-        if (face is null || upright || length > 32 || !SimpleShaper.CanShape(text.AsSpan(start, length), face))
+        if (upright || length > 64 || (face is not null && !SimpleShaper.CanShape(text.AsSpan(start, length), face)))
             return ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
         var cache = ShapeCaches.GetValue(context.Fonts, _ => new ShapeCache());
         var spacing = style.TextSpacing;
@@ -903,7 +976,9 @@ internal static class InlineLayout
                     cache.Runs[key] = byText;
                 }
                 var shaped = ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
-                kept = new ShapedRun(face, shaped.Size, shaped.Glyphs, [.. shaped.Clusters.Select(c => c - start)], shaped.Advances) { Offsets = shaped.Offsets };
+                var keptClusters = new int[shaped.Clusters.Length];
+                for (var ci = 0; ci < keptClusters.Length; ci++) keptClusters[ci] = shaped.Clusters[ci] - start;
+                kept = new ShapedRun(face, shaped.Size, shaped.Glyphs, keptClusters, shaped.Advances) { Offsets = shaped.Offsets };
                 byText[text.Substring(start, length)] = kept;
                 cache.Count++;
             }
@@ -951,7 +1026,15 @@ internal static class InlineLayout
         ShapedRun run;
         if (face is null)
         {
-            run = new ShapedRun(null, size, new ushort[length], [.. Enumerable.Range(start, length)], [.. Enumerable.Repeat(size / 2, length)]);
+            var clusters = new int[length];
+            var advances = new float[length];
+            var advance = size / 2;
+            for (var i = 0; i < length; i++)
+            {
+                clusters[i] = start + i;
+                advances[i] = advance;
+            }
+            run = new ShapedRun(null, size, new ushort[length], clusters, advances);
         }
         else if (upright)
         {
@@ -1022,8 +1105,11 @@ internal static class InlineLayout
     /// ex and ch for style computation (https://www.w3.org/TR/css-values-4/#font-relative-lengths): the x-height and
     /// the advance of "0" of each font group's first available font, measured once per group.
     /// </summary>
+    private static readonly FontMeasure EmptyMeasure = static _ => null;
+
     public static FontMeasure MeasureWith(FontCollection fonts)
     {
+        if (!fonts.HasAnyFaces) return EmptyMeasure;
         var measured = new Dictionary<FontGroup, (float, float)?>();
         return font =>
         {
@@ -1043,6 +1129,7 @@ internal static class InlineLayout
 
     private static FontFace? PrimaryFace(ComputedStyle style, LayoutContext context)
     {
+        if (!context.Fonts.HasAnyFaces) return null;
         // By index: an enumerator over the list interface is an allocation, and this runs for every run and line.
         var families = style.Font.Family;
         for (var i = 0; i < families.Count; i++)

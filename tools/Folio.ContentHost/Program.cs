@@ -10,6 +10,10 @@ await using var session = new ContentHostSession(Console.OpenStandardInput(), Co
 Func<IScriptEngine>? engineFactory = string.Equals(Environment.GetEnvironmentVariable("FOLIO_SCRIPT_ENGINE"), "jint", StringComparison.OrdinalIgnoreCase)
     ? CreateOracleEngine
     : null;
+if (engineFactory is null)
+{
+    _ = Task.Run(NativeJavaScriptEngine.Prime);
+}
 using var runtime = new ContentDocumentRuntime(session, frameStore, engineFactory);
 
 static IScriptEngine CreateOracleEngine()

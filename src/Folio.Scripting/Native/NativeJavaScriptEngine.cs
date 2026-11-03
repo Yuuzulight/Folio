@@ -139,23 +139,53 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             {
                 if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
-                return values.Select((value, index) => InvokeCallable(args[0], [value, (double)index, values])).ToList();
+                var callback = args[0]!;
+                var count = values.Count;
+                var result = new List<object?>(count);
+                var callArgs = new object?[3];
+                callArgs[2] = values;
+                for (var index = 0; index < count; index++)
+                {
+                    callArgs[0] = values[index];
+                    callArgs[1] = (double)index;
+                    result.Add(InvokeCallable(callback, callArgs));
+                }
+                return result;
             }),
             ["forEach"] = new NativeReceiverFunction((receiver, args) =>
             {
                 if (receiver is not IReadOnlyList<object?> values) return JavaScriptEvaluator.UndefinedValue.Instance;
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
-                for (var index = 0; index < values.Count; index++)
-                    InvokeCallable(args[0]!, [values[index], (double)index, values]);
+                var callback = args[0]!;
+                var count = values.Count;
+                var callArgs = new object?[3];
+                callArgs[2] = values;
+                for (var index = 0; index < count; index++)
+                {
+                    callArgs[0] = values[index];
+                    callArgs[1] = (double)index;
+                    InvokeCallable(callback, callArgs);
+                }
                 return JavaScriptEvaluator.UndefinedValue.Instance;
             }),
             ["filter"] = new NativeReceiverFunction((receiver, args) =>
             {
                 if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
-                return values
-                    .Where((value, index) => JavaScriptEvaluator.Truth(InvokeCallable(args[0]!, [value, (double)index, values])))
-                    .ToList();
+                var callback = args[0]!;
+                var count = values.Count;
+                var result = new List<object?>(count);
+                var callArgs = new object?[3];
+                callArgs[2] = values;
+                for (var index = 0; index < count; index++)
+                {
+                    var val = values[index];
+                    callArgs[0] = val;
+                    callArgs[1] = (double)index;
+                    if (JavaScriptEvaluator.Truth(InvokeCallable(callback, callArgs)))
+                        result.Add(val);
+                }
+                return result;
             }),
             ["flatMap"] = new NativeReceiverFunction((receiver, args) =>
             {
@@ -624,6 +654,27 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         return bytes;
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<JavaScriptStatement>> AstCache = new();
+
+    public static void Prime()
+    {
+        Folio.Scripting.Dom.DomBindings.Prime();
+    }
+
+    internal static IReadOnlyList<JavaScriptStatement> GetOrParseProgram(string source)
+    {
+        if (source.Length <= 65536)
+        {
+            if (AstCache.TryGetValue(source, out var cached))
+                return cached;
+            var parsed = new JavaScriptParser(source).ParseProgram();
+            if (AstCache.Count < 500)
+                AstCache.TryAdd(source, parsed);
+            return parsed;
+        }
+        return new JavaScriptParser(source).ParseProgram();
+    }
+
     public ScriptValue Evaluate(string source, string url = "eval")
     {
         EnsureLive();
@@ -632,7 +683,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         if (previousDeadline == 0) _deadlineTicks = NewDeadline();
         try
         {
-            var statements = new JavaScriptParser(source).ParseProgram();
+            var statements = GetOrParseProgram(source);
             var evaluator = new JavaScriptEvaluator(_bindings, _maxSteps, preserveUndefined: true, deadlineExceeded: IsDeadlineExceeded);
             var result = statements.Count == 1 && statements[0] is JavaScriptExpressionStatement expression
                 ? evaluator.Evaluate(expression.Expression)
@@ -656,7 +707,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         if (previousDeadline == 0) _deadlineTicks = NewDeadline();
         try
         {
-            var values = args.ToArray().Select(ToObject).ToArray();
+            var values = new object?[args.Length];
+            for (var i = 0; i < args.Length; i++)
+                values[i] = ToObject(args[i]);
             var receiver = ToObject(thisValue);
             return function.Raw switch
             {
@@ -674,6 +727,34 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         : Stopwatch.GetTimestamp() + Math.Max(1, (long)(timeout.TotalSeconds * Stopwatch.Frequency));
 
     private bool IsDeadlineExceeded() => _deadlineTicks != 0 && Stopwatch.GetTimestamp() >= _deadlineTicks;
+
+    internal T PauseDeadlineDuring<T>(Func<T> func)
+    {
+        var start = Stopwatch.GetTimestamp();
+        try
+        {
+            return func();
+        }
+        finally
+        {
+            if (_deadlineTicks != 0)
+                _deadlineTicks += Stopwatch.GetTimestamp() - start;
+        }
+    }
+
+    internal void PauseDeadlineDuring(Action action)
+    {
+        var start = Stopwatch.GetTimestamp();
+        try
+        {
+            action();
+        }
+        finally
+        {
+            if (_deadlineTicks != 0)
+                _deadlineTicks += Stopwatch.GetTimestamp() - start;
+        }
+    }
 
     public ScriptValue CreateHostObject(IHostObjectTemplate template, object target)
     {
@@ -1816,7 +1897,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             if (Engine.TryGetDomPrototypeValue(Template.Name, name, this, out value)) return true;
             if (Template.TryGetProperty(name, out var getter, out _))
             {
-                value = ToObject(getter(Target, ScriptValue.FromObject(this)));
+                value = ToObject(Engine.PauseDeadlineDuring(() => getter(Target, ScriptValue.FromObject(this))));
                 return true;
             }
             if (Template.TryGetMethod(name, out var method))
@@ -1828,7 +1909,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                         var host = receiver as NativeHostValue ?? this;
                         try
                         {
-                            return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+                            return ToObject(Engine.PauseDeadlineDuring(() => method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray())));
                         }
                         catch (WebIdlException error)
                         {
@@ -1860,7 +1941,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         {
             if (Template.TryGetProperty(name, out _, out var setter) && setter is not null)
             {
-                setter(Target, ScriptValue.FromObject(this), ToScriptValue(value));
+                Engine.PauseDeadlineDuring(() => setter(Target, ScriptValue.FromObject(this), ToScriptValue(value)));
                 return true;
             }
             // Script-installed Web IDL accessors live on the interface prototype

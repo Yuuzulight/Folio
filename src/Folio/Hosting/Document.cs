@@ -1262,7 +1262,14 @@ public sealed class Document : IDisposable
         Node.StructureMutated = false;
         Node.StyleMutated = false;
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
-        var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
+        float height = 0;
+        var pageChildren = page.Children;
+        for (var i = 0; i < pageChildren.Count; i++)
+        {
+            var c = pageChildren[i];
+            var bottom = c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0);
+            if (bottom > height) height = bottom;
+        }
         if (animationTime.HasValue)
             AdvanceSmoothScrolls(animationTime.Value);
         DisplayList = DisplayListBuilder.Build(page, _images, deviceScale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(animationTime ?? 0), ShapeFallbackLabel);

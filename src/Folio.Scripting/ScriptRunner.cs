@@ -118,14 +118,9 @@ public sealed class ScriptRunner : IDisposable
     private void InstallGlobals()
     {
         // Setup window, self, globalThis aliases
-        _engine.Evaluate(@"
-            if (typeof window === 'undefined') {
-                globalThis.window = globalThis;
-            }
-            if (typeof self === 'undefined') {
-                globalThis.self = globalThis;
-            }
-        ");
+        var globalObj = _engine.GetGlobalProperty("globalThis");
+        _engine.SetGlobalProperty("window", globalObj);
+        _engine.SetGlobalProperty("self", globalObj);
 
         // Setup location
         var locationTemplate = new HostObjectTemplate("Location")

@@ -803,14 +803,36 @@ internal sealed class JavaScriptEvaluator
             && target is not NativeJavaScriptEngine.INativeCallable
             && target is not NativeJavaScriptEngine.NativeReceiverFunction)
             throw new NotSupportedException($"Only explicitly supplied host functions can be called in the staged VM: {call.Callee} resolved to {target?.GetType().Name ?? "null"}.");
-        var expandedArguments = new List<object?>();
-        foreach (var argument in call.Arguments)
+        object?[] arguments;
+        var hasSpread = false;
+        for (var i = 0; i < call.Arguments.Count; i++)
         {
-            var value = Evaluate(argument is JavaScriptSpreadExpression spread ? spread.Operand : argument);
-            if (argument is JavaScriptSpreadExpression && value is IEnumerable<object?> sequence) expandedArguments.AddRange(sequence);
-            else expandedArguments.Add(value);
+            if (call.Arguments[i] is JavaScriptSpreadExpression) { hasSpread = true; break; }
         }
-        var arguments = expandedArguments.ToArray();
+        if (!hasSpread)
+        {
+            if (call.Arguments.Count == 0)
+            {
+                arguments = Array.Empty<object?>();
+            }
+            else
+            {
+                arguments = new object?[call.Arguments.Count];
+                for (var i = 0; i < arguments.Length; i++)
+                    arguments[i] = Evaluate(call.Arguments[i]);
+            }
+        }
+        else
+        {
+            var expandedArguments = new List<object?>();
+            foreach (var argument in call.Arguments)
+            {
+                var value = Evaluate(argument is JavaScriptSpreadExpression spread ? spread.Operand : argument);
+                if (argument is JavaScriptSpreadExpression && value is IEnumerable<object?> sequence) expandedArguments.AddRange(sequence);
+                else expandedArguments.Add(value);
+            }
+            arguments = expandedArguments.ToArray();
+        }
         return target switch
         {
             NativeJavaScriptEngine.NativeReceiverFunction receiverCallable => InvokeWithReceiver(receiverCallable, receiver, arguments),
@@ -823,6 +845,22 @@ internal sealed class JavaScriptEvaluator
     {
         var target = Evaluate(index.Target);
         var key = Evaluate(index.Index);
+        if (key is double keyNum && keyNum >= 0 && keyNum <= int.MaxValue && (double)(int)keyNum == keyNum)
+        {
+            var pos = (int)keyNum;
+            if (target is IReadOnlyList<object?> values)
+            {
+                return (uint)pos < (uint)values.Count ? values[pos] : UndefinedOrNull();
+            }
+            if (target is string text)
+            {
+                return (uint)pos < (uint)text.Length ? CharString(text[pos]) : UndefinedOrNull();
+            }
+            if (target is NativeJavaScriptEngine.INativeBuffer buffer && buffer.TryGetIndex(pos, out var bVal))
+                return bVal;
+            if (target is NativeJavaScriptEngine.INativeHostObject host && host.TryGetIndex(pos, out var hVal))
+                return hVal;
+        }
         if (target is NativeJavaScriptEngine.INativeHostObject namedHost
             && namedHost.TryGetValue(StringValue(key), out var namedValue)) return namedValue;
         if (target is IReadOnlyDictionary<string, object?> dictionary
@@ -835,8 +873,7 @@ internal sealed class JavaScriptEvaluator
             NativeJavaScriptEngine.INativeHostObject host when int.TryParse(StringValue(key), out var hostIndex) && host.TryGetIndex(hostIndex, out var value) => value,
             NativeJavaScriptEngine.INativeBuffer buffer when buffer.TryGetIndex(position, out var bufferValue) => bufferValue,
             IReadOnlyList<object?> values when position >= 0 && position < values.Count => values[position],
-            IReadOnlyList<object?> values when position >= 0 && position < values.Count => values[position],
-            string text when position >= 0 && position < text.Length => text[position].ToString(),
+            string text when position >= 0 && position < text.Length => CharString(text[position]),
             _ => UndefinedOrNull(),
         };
     }
@@ -1074,7 +1111,22 @@ internal sealed class JavaScriptEvaluator
         internal string Source { get; }
         internal string Flags { get; }
         internal int LastIndex { get; set; }
-        private RegexValue(Regex regex, string source, string flags) { _regex = regex; Source = source; Flags = CanonicalFlags(flags); }
+        private readonly string[] _namedGroupNames;
+        private RegexValue(Regex regex, string source, string flags)
+        {
+            _regex = regex;
+            Source = source;
+            Flags = CanonicalFlags(flags);
+            var groupNames = regex.GetGroupNames();
+            var namedList = new List<string>();
+            for (var i = 0; i < groupNames.Length; i++)
+            {
+                var n = groupNames[i];
+                if (!int.TryParse(n, out _))
+                    namedList.Add(n);
+            }
+            _namedGroupNames = namedList.ToArray();
+        }
         private static string CanonicalFlags(string flags)
         {
             const string order = "dgimsuvy";
@@ -1082,12 +1134,17 @@ internal sealed class JavaScriptEvaluator
         }
         internal IReadOnlyDictionary<string, object?>? NamedGroups(Match match)
         {
-            var names = _regex.GetGroupNames().Where(name => !int.TryParse(name, out _)).ToArray();
-            if (names.Length == 0) return null;
-            var groups = new Dictionary<string, object?>(StringComparer.Ordinal);
-            foreach (var name in names) groups[name] = match.Groups[name].Success ? match.Groups[name].Value : JavaScriptEvaluator.UndefinedValue.Instance;
+            if (_namedGroupNames.Length == 0) return null;
+            var groups = new Dictionary<string, object?>(_namedGroupNames.Length, StringComparer.Ordinal);
+            for (var i = 0; i < _namedGroupNames.Length; i++)
+            {
+                var name = _namedGroupNames[i];
+                groups[name] = match.Groups[name].Success ? match.Groups[name].Value : JavaScriptEvaluator.UndefinedValue.Instance;
+            }
             return groups;
         }
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Pattern, RegexOptions Options), Regex> CompiledCache = new();
+
         internal static RegexValue Create(string source)
         {
             var slash = source.LastIndexOf('/');
@@ -1097,7 +1154,8 @@ internal sealed class JavaScriptEvaluator
             if (flags.Contains('i')) options |= RegexOptions.IgnoreCase;
             if (flags.Contains('m')) options |= RegexOptions.Multiline;
             if (flags.Contains('s')) options |= RegexOptions.Singleline;
-            return new RegexValue(new Regex(pattern, options, TimeSpan.FromMilliseconds(100)), pattern, flags);
+            var regex = CompiledCache.GetOrAdd((pattern, options), static key => new Regex(key.Pattern, key.Options, TimeSpan.FromMilliseconds(100)));
+            return new RegexValue(regex, pattern, flags);
         }
         internal bool TryGetProperty(string name, out object? value)
         {
@@ -1198,8 +1256,8 @@ internal sealed class JavaScriptEvaluator
     {
         method = name switch
         {
-            "join" => (Func<IReadOnlyList<object?>, object?>)(args => string.Join(args.Count > 0 ? StringValue(args[0]) : ",", values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(value)))),
-            "toString" => (Func<IReadOnlyList<object?>, object?>)(_ => string.Join(",", values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(value)))),
+            "join" => (Func<IReadOnlyList<object?>, object?>)(args => ArrayJoin(values, args.Count > 0 ? StringValue(args[0]) : ",")),
+            "toString" => (Func<IReadOnlyList<object?>, object?>)(_ => ArrayJoin(values, ",")),
             "keys" => (Func<IReadOnlyList<object?>, object?>)(_ => Enumerable.Range(0, values.Count).Select(index => (object?)(double)index).ToArray()),
             "values" => (Func<IReadOnlyList<object?>, object?>)(_ => values.ToArray()),
             "entries" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Select((item, index) => (object?)new object?[] { (double)index, item }).ToArray()),
@@ -1298,11 +1356,14 @@ internal sealed class JavaScriptEvaluator
                 // Array.prototype.sort mutates the receiver and returns it.  Keep the
                 // comparison bounded and deterministic for the native engine; this is
                 // also required by the conformance corpus' interactive table artifact.
+                var callArgs = new object?[2];
                 Comparison<object?> comparison = (left, right) =>
                 {
                     if (args.Count > 0 && NativeJavaScriptEngine.IsCallable(args[0]))
                     {
-                        var result = NativeJavaScriptEngine.InvokeCallable(args[0], [left, right]);
+                        callArgs[0] = left;
+                        callArgs[1] = right;
+                        var result = NativeJavaScriptEngine.InvokeCallable(args[0], callArgs);
                         var number = result switch
                         {
                             double value => value,
@@ -1316,6 +1377,11 @@ internal sealed class JavaScriptEvaluator
 
                     return string.Compare(StringValue(left), StringValue(right), StringComparison.Ordinal);
                 };
+                if (values is List<object?> list)
+                {
+                    list.Sort(comparison);
+                    return values;
+                }
                 var sorted = values.ToList();
                 sorted.Sort(comparison);
                 for (var i = 0; i < sorted.Count; i++) values[i] = sorted[i];
@@ -1353,6 +1419,26 @@ internal sealed class JavaScriptEvaluator
             _ => null,
         };
         return method is not null;
+    }
+
+    private static string ArrayJoin(IList<object?> values, string separator)
+    {
+        if (values.Count == 0) return string.Empty;
+        if (values.Count == 1)
+        {
+            var item = values[0];
+            return item is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(item);
+        }
+        var initialCap = values.Count * (separator.Length + (values[0] is string s0 ? s0.Length : 16));
+        var sb = new StringBuilder(Math.Max(16, Math.Min(initialCap, 1024 * 1024)));
+        for (var i = 0; i < values.Count; i++)
+        {
+            if (i > 0) sb.Append(separator);
+            var item = values[i];
+            if (item is not null and not JavaScriptEvaluator.UndefinedValue)
+                sb.Append(StringValue(item));
+        }
+        return sb.ToString();
     }
 
     internal static int RelativeArrayIndex(object? value, int length, int defaultIndex)
@@ -1400,13 +1486,20 @@ internal sealed class JavaScriptEvaluator
     private static object? Map(IList<object?> values, IReadOnlyList<object?> args, bool filter, bool discard = false)
     {
         RequireCallable(args, "Array callback must be callable.");
-        var result = new List<object?>();
+        var result = discard ? null : new List<object?>(filter ? Math.Min(values.Count, 16) : values.Count);
+        var callbackArgs = new object?[3];
+        callbackArgs[2] = values;
         for (var i = 0; i < values.Count; i++)
         {
-            TryInvoke(args[0], [values[i], (double)i, values], out var mapped);
-            if (!filter || Truth(mapped)) result.Add(filter ? values[i] : mapped);
+            callbackArgs[0] = values[i];
+            callbackArgs[1] = (double)i;
+            TryInvoke(args[0], callbackArgs, out var mapped);
+            if (!discard)
+            {
+                if (!filter || Truth(mapped)) result!.Add(filter ? values[i] : mapped);
+            }
         }
-        return discard ? Array.Empty<object?>() : result.ToList();
+        return discard ? Array.Empty<object?>() : result!;
     }
 
     private static object?[] FlatMap(IList<object?> values, IReadOnlyList<object?> args)
@@ -1462,9 +1555,13 @@ internal sealed class JavaScriptEvaluator
         var first = reverse ? values.Count - 1 : 0;
         var last = reverse ? -1 : values.Count;
         var step = reverse ? -1 : 1;
+        var callbackArgs = new object?[3];
+        callbackArgs[2] = values;
         for (var i = first; i != last; i += step)
         {
-            TryInvoke(args[0], [values[i], (double)i, values], out var callbackResult);
+            callbackArgs[0] = values[i];
+            callbackArgs[1] = (double)i;
+            TryInvoke(args[0], callbackArgs, out var callbackResult);
             var matched = Truth(callbackResult);
             if (mode == "find" && matched) return values[i];
             if (mode == "findIndex" && matched) return (double)i;
@@ -1634,10 +1731,27 @@ internal sealed class JavaScriptEvaluator
                 if (args.Count == 0 || args[0] is UndefinedValue) return new List<object?> { value };
                 var limit = args.Count > 1 ? Math.Max(0, (int)Number(args[1])) : int.MaxValue;
                 if (limit == 0) return Array.Empty<object?>();
-                if (args[0] is RegexValue regex) return regex.Split(value).Take(limit).Cast<object?>().ToList();
+                if (args[0] is RegexValue regex)
+                {
+                    var regexParts = regex.Split(value);
+                    var regexCount = Math.Min(regexParts.Length, limit);
+                    var regexResult = new List<object?>(regexCount);
+                    for (var i = 0; i < regexCount; i++) regexResult.Add(regexParts[i]);
+                    return regexResult;
+                }
                 var separator = StringValue(args[0]);
-                if (separator.Length == 0) return value.Select(character => (object?)character.ToString()).Take(limit).ToList();
-                return value.Split(separator, StringSplitOptions.None).Take(limit).Cast<object?>().ToList();
+                if (separator.Length == 0)
+                {
+                    var charCount = Math.Min(value.Length, limit);
+                    var charResult = new List<object?>(charCount);
+                    for (var i = 0; i < charCount; i++) charResult.Add(value[i].ToString());
+                    return charResult;
+                }
+                var parts = value.Split(separator, StringSplitOptions.None);
+                var count = Math.Min(parts.Length, limit);
+                var result = new List<object?>(count);
+                for (var i = 0; i < count; i++) result.Add(parts[i]);
+                return result;
             }),
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
             "trimStart" => (Func<IReadOnlyList<object?>, object?>)(_ => value.TrimStart()),
@@ -1863,8 +1977,11 @@ internal sealed class JavaScriptEvaluator
         foreach (var pair in local) _bindings[pair.Key] = pair.Value;
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Source, bool KeepEmpty), string[]> BindingItemsCache = new();
+
     private static string[] SplitBindingItems(string source, bool keepEmpty = false)
     {
+        if (BindingItemsCache.TryGetValue((source, keepEmpty), out var cached)) return cached;
         var items = new List<string>();
         var start = 0;
         var depth = 0;
@@ -1879,7 +1996,9 @@ internal sealed class JavaScriptEvaluator
             }
         }
         items.Add(source[start..].Trim());
-        return keepEmpty ? items.ToArray() : items.Where(item => item.Length > 0).ToArray();
+        var result = keepEmpty ? items.ToArray() : items.Where(item => item.Length > 0).ToArray();
+        if (BindingItemsCache.Count < 200) BindingItemsCache.TryAdd((source, keepEmpty), result);
+        return result;
     }
 
     internal static object? InvokeWithReceiver(object function, object? receiver, IReadOnlyList<object?> arguments)
@@ -2123,9 +2242,16 @@ internal sealed class JavaScriptEvaluator
         return builder.ToString();
     }
 
+    private static readonly string[] AsciiCharStrings = Enumerable.Range(0, 128).Select(c => ((char)c).ToString()).ToArray();
+    private static string CharString(char c) => c < 128 ? AsciiCharStrings[c] : c.ToString();
+
     private static object?[] ReplacementCallbackArgs(RegexValue regex, System.Text.RegularExpressions.Match match, string source)
     {
         var namedGroups = regex.NamedGroups(match);
+        if (namedGroups is null && match.Groups.Count == 1)
+        {
+            return [match.Value, (double)match.Index, source];
+        }
         var args = new object?[match.Groups.Count + 2 + (namedGroups is null ? 0 : 1)];
         args[0] = match.Value;
         for (var group = 1; group < match.Groups.Count; group++) args[group] = match.Groups[group].Value;

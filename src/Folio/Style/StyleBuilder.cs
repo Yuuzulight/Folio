@@ -131,8 +131,14 @@ internal sealed class StyleBuilder
             value = CustomProperties.Resolve(pending, property, context.Custom) ?? new CssWideValue(CssWideKeyword.Unset);
         if (value is CssWideValue wide)
         {
-            var inherit = wide.Keyword == CssWideKeyword.Inherit || (wide.Keyword != CssWideKeyword.Initial && property.Inherited);
-            if (inherit)
+            if (wide.Keyword == CssWideKeyword.Unset)
+                return;
+            if (wide.Keyword == CssWideKeyword.Initial && !property.Inherited)
+                return;
+            if (wide.Keyword == CssWideKeyword.Inherit && property.Inherited)
+                return;
+
+            if (property.Inherited ? wide.Keyword != CssWideKeyword.Initial : wide.Keyword == CssWideKeyword.Inherit)
                 property.Inherit(this, _parent);
             else
                 property.Apply(this, property.Initial, context);
@@ -194,10 +200,12 @@ internal sealed class StyleBuilder
     // Reuses an equal instance (the parent's or initial group, or one built earlier in the pass).
     private static T Share<T>(T built, T existing, Dictionary<object, object>? groups) where T : class
     {
-        if (ReferenceEquals(built, existing) || built.Equals(existing))
+        if (ReferenceEquals(built, existing))
             return existing;
         if (groups is null)
             return built;
+        if (built.Equals(existing))
+            return existing;
         if (groups.TryGetValue(built, out var shared))
             return (T)shared;
         groups[built] = built;

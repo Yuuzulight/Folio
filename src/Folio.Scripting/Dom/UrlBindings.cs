@@ -79,7 +79,7 @@ internal static class UrlBindings
         }
     }
 
-    private const string Source = """
+    internal const string Source = """
         (function (host) {
           'use strict';
           var S = String, Okeys = Object.keys, defineProperty = Object.defineProperty;

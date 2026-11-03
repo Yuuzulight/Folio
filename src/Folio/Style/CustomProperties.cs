@@ -194,14 +194,26 @@ internal static class CustomProperties
     /// Substitutes and parses a longhand's pending value; null when it is invalid at computed-value time
     /// (the property then behaves as unset).
     /// </summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImmutableDictionary<string, string>, System.Collections.Concurrent.ConcurrentDictionary<(UnparsedValue, PropertyId), CssValue?>> ResolveCache = new();
+
     public static CssValue? Resolve(UnparsedValue value, Property property, ImmutableDictionary<string, string> custom)
     {
+        var cache = ResolveCache.GetOrCreateValue(custom);
+        var key = (value, property.Id);
+        if (cache.TryGetValue(key, out var cached))
+            return cached;
+
         var text = Substitute(value.Text, name => custom.GetValueOrDefault(name));
         if (text is null)
+        {
+            cache[key] = null;
             return null;
+        }
         var (source, values) = CssParser.ParseComponentValues(text);
         var parsed = Properties.Parse(source, new Declaration(value.Shorthand ?? property.Name, values, false));
         var wanted = value.Longhand ?? property.Id;
-        return parsed?.FirstOrDefault(p => p.Id == wanted).Value;
+        var result = parsed?.FirstOrDefault(p => p.Id == wanted).Value;
+        cache[key] = result;
+        return result;
     }
 }
