@@ -665,7 +665,8 @@ internal sealed class GsubSubstitution
     // The feature indices of the Latin script's default language system, else the default script's.
     private IEnumerable<int> LanguageFeatures(int scriptList, string? preferredTag = null)
     {
-        foreach (var tag in (new[] { preferredTag, "latn", "DFLT" }).Where(static tag => tag is not null).Select(static tag => tag!))
+        var tags = (preferredTag?.Split(' ', StringSplitOptions.RemoveEmptyEntries) ?? []).Concat(["latn", "DFLT"]);
+        foreach (var tag in tags)
         {
             for (var i = 0; i < _gsub.U16(scriptList); i++)
             {

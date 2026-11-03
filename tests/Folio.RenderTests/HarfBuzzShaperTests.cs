@@ -9,6 +9,40 @@ namespace Folio.RenderTests;
 
 public class HarfBuzzShaperTests
 {
+    [Fact]
+    public void TestKhmerShapingMatchesHarfBuzz()
+    {
+        var fonts = FontCollection.For(new FontSettings { Source = new SystemFontSource() });
+        var face = fonts.Match("Arial", FaceStyle.Normal, 400, 100);
+        if (face is null) return;
+        var text = "ភាសាខ្មែរ";
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, false, null);
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, false, null);
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+    }
+
+    [Fact]
+    public void TestDevanagariShapingMatchesHarfBuzz()
+    {
+        var fonts = FontCollection.For(new FontSettings { Source = new SystemFontSource() });
+        var face = fonts.Match("Nirmala UI", FaceStyle.Normal, 400, 100);
+        if (face is null) return;
+        var text = "नमस्ते दुनिया";
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, false, null);
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, false, null);
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets.Length, actual.Offsets.Length);
+        for (var i = 0; i < oracle.Offsets.Length; i++)
+        {
+            Assert.InRange(MathF.Abs(oracle.Offsets[i].X - actual.Offsets[i].X), 0, 0.001f);
+            Assert.InRange(MathF.Abs(oracle.Offsets[i].Y - actual.Offsets[i].Y), 0, 0.001f);
+        }
+    }
+
     private static readonly Lazy<FontCollection> Fonts = new(() => FontCollection.FromFolder(Path.Combine(RepoPaths.Tests, "fonts")));
 
     private static FontFace BoxFace => Fonts.Value.Match("Folio Box", FaceStyle.Normal, 400, 100)!;

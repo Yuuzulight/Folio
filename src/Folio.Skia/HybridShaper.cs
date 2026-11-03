@@ -22,7 +22,7 @@ public sealed class HybridShaper : ITextShaper
     public HybridShaper(IReadOnlySet<string>? folioOwnedScripts = null)
     {
         _folioOwnedScripts = folioOwnedScripts is null
-            ? new HashSet<string>(["Arabic", "Hebrew"], StringComparer.Ordinal)
+            ? new HashSet<string>(["Arabic", "Hebrew", "Indic", "Southeast Asian"], StringComparer.Ordinal)
             : new HashSet<string>(folioOwnedScripts, StringComparer.Ordinal);
     }
 
