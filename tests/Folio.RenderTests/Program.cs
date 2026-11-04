@@ -116,7 +116,7 @@ public static class Program
                 DisplayListPlayer.Replay(displayList, surface.Canvas, new RectF(0, 0, 800, 600));
             }
             Replay(BuildFrame(), fullPaint: true);
-            for (var warmup = 0; warmup < 3; warmup++)
+            for (var warmup = 0; warmup < 5; warmup++)
             {
                 clock.Advance(16.7);
                 loop.UpdateTheRendering();

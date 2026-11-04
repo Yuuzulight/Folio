@@ -305,10 +305,7 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
         lock (_errors)
         {
             if (_errors.Count > 0)
-            {
-                _ = Native.TryGetError(out _, out _);
                 return _errors.Dequeue();
-            }
         }
         return Native.TryGetError(out var nativeError, out _) ? nativeError : 0u;
     }

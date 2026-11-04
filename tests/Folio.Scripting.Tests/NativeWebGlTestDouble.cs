@@ -148,7 +148,12 @@ internal abstract class NativeWebGlTestDouble : INativeWebGlContext
     public virtual bool TryDrawElementsInstanced(uint mode, int count, uint type, int byteOffset, int instanceCount, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryDrawElementsInstanced");
     public virtual bool TryReadPixels(int x, int y, int width, int height, Span<byte> destination, uint format, uint type, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryReadPixels");
     public virtual bool TryGetParameter(uint parameter, out WebGlParameterValue value, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryGetParameter");
-    public virtual bool TryGetError(out uint error, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryGetError");
+    public virtual bool TryGetError(out uint error, out GpuFailure? failure)
+    {
+        error = 0;
+        failure = null;
+        return true;
+    }
     public virtual bool TryGetExtensions(out IReadOnlyList<string> extensions, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryGetExtensions");
     public virtual bool TryResize(int width, int height, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryResize");
     public virtual void Dispose() => throw new InvalidOperationException("Unexpected native disposal.");

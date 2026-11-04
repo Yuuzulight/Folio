@@ -27,7 +27,32 @@ internal static class DisplayListPlayer
         // may draw beyond what is in it.
         var moved = 0;
         var skippedLayers = 0;
-        for (var index = 0; index < list.Items.Count; index++)
+        var startIndex = 0;
+        if (visible is { } opaqueView)
+        {
+            var coveredView = Grow(opaqueView, 1);
+            var depth = 0;
+            for (var i = 0; i < list.Items.Count; i++)
+            {
+                var candidate = list.Items[i];
+                if (candidate.Kind is DisplayItemKind.PushLayer or DisplayItemKind.PushClip or DisplayItemKind.PushTransform)
+                {
+                    depth++;
+                }
+                else if (candidate.Kind == DisplayItemKind.Pop)
+                {
+                    if (depth > 0)
+                        depth--;
+                }
+                else if (depth == 0 && candidate.Kind == DisplayItemKind.Fill
+                    && candidate.Color.A >= 1f && candidate.Gradient is null && candidate.Blend == BlendMode.Normal
+                    && InsideRoundedRect(candidate.Shape, coveredView))
+                {
+                    startIndex = i;
+                }
+            }
+        }
+        for (var index = startIndex; index < list.Items.Count; index++)
         {
             var item = list.Items[index];
             if (skippedLayers > 0)
@@ -58,7 +83,7 @@ internal static class DisplayListPlayer
                     canvas.ClearRect(item.Shape.Rect);
                     break;
                 case DisplayItemKind.BoxShadow:
-                    PaintBoxShadow(canvas, item);
+                    PaintBoxShadow(canvas, item, visible);
                     break;
                 case DisplayItemKind.Border:
                     PaintBorder(canvas, item.Shape, item.Border!);
@@ -257,10 +282,12 @@ internal static class DisplayListPlayer
 
     // A box shadow: blurred, and clipped to the outside of the border box (outer) or the inside of the padding box
     // (inset, where the shadow is the region outside its shape).
-    private static void PaintBoxShadow(ICanvas canvas, in DisplayItem item)
+    private static void PaintBoxShadow(ICanvas canvas, in DisplayItem item, RectF? visible = null)
     {
         var paint = new Paint(ToRgba(item.Color), item.Blur);
         var box = item.Box;
+        if (!item.Inset && visible is { } view && InsideRoundedRect(box, view))
+            return;
         var margin = 3 * item.Blur + Math.Abs(item.Shape.Rect.X - box.Rect.X) + Math.Abs(item.Shape.Rect.Y - box.Rect.Y)
                      + Math.Abs(item.Shape.Rect.Width - box.Rect.Width) + Math.Abs(item.Shape.Rect.Height - box.Rect.Height) + 1;
         var around = new RoundedRect(box.Rect.Inset(-margin, -margin, -margin, -margin), default);
@@ -465,6 +492,23 @@ internal static class DisplayListPlayer
     /// </summary>
     // ponytail: dots, and dashes around rounded corners, keep a fixed spacing (2 × width, and 3 × width) rather than
     // one fitted to each side.
+
+    private static bool InsideRoundedRect(in RoundedRect outer, RectF inner)
+    {
+        var r = outer.Rect;
+        if (inner.X < r.X || inner.Right > r.Right || inner.Y < r.Y || inner.Bottom > r.Bottom)
+            return false;
+        var radii = outer.Radii;
+        if (inner.X < r.X + radii.TopLeft.X && inner.Y < r.Y + radii.TopLeft.Y)
+            return false;
+        if (inner.Right > r.Right - radii.TopRight.X && inner.Y < r.Y + radii.TopRight.Y)
+            return false;
+        if (inner.Right > r.Right - radii.BottomRight.X && inner.Bottom > r.Bottom - radii.BottomRight.Y)
+            return false;
+        if (inner.X < r.X + radii.BottomLeft.X && inner.Bottom > r.Bottom - radii.BottomLeft.Y)
+            return false;
+        return true;
+    }
     private static void PaintBorder(ICanvas canvas, RoundedRect outer, BorderGroup border)
     {
         // One solid colour all round: a single ring. Checked before anything is made: most boxes with a border, and
