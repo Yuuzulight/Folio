@@ -16,11 +16,4 @@
     <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
     <ProjectReference Include="..\..\src\Folio.Diagrams\Folio.Diagrams.csproj" />
   </ItemGroup>
-
-  <!-- The published production host excludes third-party native binaries (ANGLE) -->
-  <Target Name="ExcludeAngleNativesFromPublish" AfterTargets="ComputeFilesToPublish">
-    <ItemGroup>
-      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(FileName)' == 'av_libglesv2' or '%(FileName)' == 'av_libegl'" />
-    </ItemGroup>
-  </Target>
 </Project>

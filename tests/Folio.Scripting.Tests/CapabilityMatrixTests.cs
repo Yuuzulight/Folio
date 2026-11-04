@@ -121,7 +121,7 @@ public sealed class CapabilityMatrixTests
         };
         var path = Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", "av_libglesv2.dll");
         if (!File.Exists(path)) path = Path.Combine(AppContext.BaseDirectory, "av_libglesv2.dll");
-        Assert.True(DomBindings.ConfigureGpuFactory(engine, bytes => AngleGpuBackend.TryCreate(path, bytes, GpuRendererPreference.WarpOnly)));
+        Assert.True(DomBindings.ConfigureGpuFactory(engine, bytes => FolioGpuBackend.TryCreate(bytes, GpuRendererPreference.WarpOnly)));
 
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {

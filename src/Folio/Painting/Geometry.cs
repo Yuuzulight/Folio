@@ -143,7 +143,25 @@ public enum GradientSpread
 public sealed record Gradient(GradientKind Kind, IReadOnlyList<GradientStop> Stops, GradientSpread Spread = GradientSpread.Pad,
                               Vector2 Start = default, Vector2 End = default, Vector2 Center = default, Vector2 Radii = default,
                               float StartAngle = 0, float EndAngle = 360, Vector2? Focus = null, float FocusRadius = 0,
-                              Matrix3x2? Transform = null);
+                              Matrix3x2? Transform = null)
+{
+    public bool Equals(Gradient? other)
+    {
+        if (ReferenceEquals(this, other))
+            return true;
+        if (other is null || Kind != other.Kind || Spread != other.Spread || Start != other.Start || End != other.End
+            || Center != other.Center || Radii != other.Radii || StartAngle != other.StartAngle || EndAngle != other.EndAngle
+            || Focus != other.Focus || FocusRadius != other.FocusRadius || Transform != other.Transform
+            || Stops.Count != other.Stops.Count)
+            return false;
+        for (var i = 0; i < Stops.Count; i++)
+            if (Stops[i] != other.Stops[i])
+                return false;
+        return true;
+    }
+
+    public override int GetHashCode() => HashCode.Combine(Kind, Spread, Start, End, Center, Radii, Stops.Count);
+}
 
 public enum FillRule
 {
@@ -176,7 +194,24 @@ public enum LineJoin
 /// <paramref name="MiterLimit"/> times the width becomes a bevel.
 /// </summary>
 public readonly record struct Stroke(float Width, LineCap Cap = LineCap.Butt, IReadOnlyList<float>? Dashes = null,
-                                     LineJoin Join = LineJoin.Miter, float MiterLimit = 4, float DashOffset = 0);
+                                     LineJoin Join = LineJoin.Miter, float MiterLimit = 4, float DashOffset = 0)
+{
+    public bool Equals(Stroke other)
+    {
+        if (Width != other.Width || Cap != other.Cap || Join != other.Join || MiterLimit != other.MiterLimit || DashOffset != other.DashOffset)
+            return false;
+        if (ReferenceEquals(Dashes, other.Dashes))
+            return true;
+        if (Dashes is null || other.Dashes is null || Dashes.Count != other.Dashes.Count)
+            return false;
+        for (var i = 0; i < Dashes.Count; i++)
+            if (Dashes[i] != other.Dashes[i])
+                return false;
+        return true;
+    }
+
+    public override int GetHashCode() => HashCode.Combine(Width, Cap, Join, MiterLimit, DashOffset, Dashes?.Count ?? 0);
+}
 
 /// <summary>How image pixels are sampled when an image is drawn larger or smaller than its pixel size.</summary>
 public enum ImageSampling
@@ -537,4 +572,20 @@ public sealed class PathData
         _commands.Add(command);
         return this;
     }
+
+    public override bool Equals(object? obj) => obj is PathData other && Equals(other);
+
+    public bool Equals(PathData? other)
+    {
+        if (ReferenceEquals(this, other))
+            return true;
+        if (other is null || _commands.Count != other._commands.Count)
+            return false;
+        for (var i = 0; i < _commands.Count; i++)
+            if (_commands[i] != other._commands[i])
+                return false;
+        return true;
+    }
+
+    public override int GetHashCode() => _commands.Count;
 }

@@ -1,10 +1,9 @@
-using System.Runtime.InteropServices;
 using System.Text;
 using Folio.Scripting.Gpu;
 
 namespace Folio.Fuzz;
 
-/// <summary>Runs actual ANGLE WebGL validation, including malformed UTF-8 and embedded NULs.</summary>
+/// <summary>Runs actual Folio native WebGL shader validation, including malformed UTF-8 and embedded NULs.</summary>
 internal static class NativeWebGlShaderFuzz
 {
     internal static readonly Target Target = new("webgl-shader", Run, Seeds,
@@ -12,12 +11,10 @@ internal static class NativeWebGlShaderFuzz
 
     private static void Run(byte[] input)
     {
-        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("ANGLE shader fuzzing requires Windows.");
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Native WebGL shader fuzzing requires Windows.");
         var version = input.Length > 0 && (input[0] & 1) != 0 ? WebGlContextVersion.WebGl2 : WebGlContextVersion.WebGl1;
         var vertex = input.Length < 2 || (input[1] & 1) == 0;
-        var path = Path.Combine(AppContext.BaseDirectory, "runtimes", RuntimeInformation.RuntimeIdentifier, "native", "av_libglesv2.dll");
-        if (!File.Exists(path)) path = Path.Combine(AppContext.BaseDirectory, "av_libglesv2.dll");
-        var result = AngleGpuBackend.TryCreate(path, 8 * 1024 * 1024, GpuRendererPreference.WarpOnly);
+        var result = FolioGpuBackend.TryCreate(8 * 1024 * 1024, GpuRendererPreference.WarpOnly);
         using var device = result.Device ?? throw new InvalidOperationException(result.Failure?.Message);
         var attributes = new WebGlContextAttributes(version, true, false, false, false, true, true);
         if (!((INativeWebGlFactory)device).TryCreate(new(version, 1, 1, attributes, 8 * 1024 * 1024), out var candidate, out var failure))

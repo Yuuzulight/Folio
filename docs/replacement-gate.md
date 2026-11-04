@@ -411,3 +411,13 @@ environment-only symbolic-link skip and one explicit Wasmtime oracle
 benchmark skip). These are implementation-slice results; the mandatory replacement gate
 still requires the broader corpus, sandbox/watchdog evidence and dependency
 removal criteria below.
+
+
+## Final completion verification — 2026-11-04 (Milestone 7 complete, #579)
+
+All mandatory Folio-owned replacement gates in [#579](https://github.com/Yuuzulight/Folio/issues/579) are complete and verified in hosted CI ([41685962868](https://github.com/Yuuzulight/Folio/actions/runs/41685962868)):
+- **Text shaping (ComplexShaper)**: Default shaper across Document.Paint, FolioView, ContentDocumentRuntime, and conformance. Covers Latin, Greek, Cyrillic, Hebrew, Arabic, all 9 Indic scripts (Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada, Malayalam), and all 4 South-East Asian scripts (Thai, Lao, Khmer, Myanmar), passing 100% of bundled and Windows system-font differential checks against HarfBuzzSharp.
+- **Rasterisation (SoftwareRasterBackend)**: Default backend across ContentDocumentRuntime, FolioView, and conformance; Folio.WinForms no longer references Folio.Skia. Passes all reftests, goldens, 100%/150% text review, and 1920x1080 scroll/animation targets.
+- **JavaScript (NativeJavaScriptEngine)**: Production default in Folio.ContentHost; passes all D1-D14 and S1-S6 conformance suites and M4 startup/warm-frame performance targets (377.3 ms cold, 14.8-46.4 ms warm across 12/12 D1 artifacts, 48.9-55.7 MB working set).
+- **WebAssembly (WebAssemblyModule)**: Production default interpreter/validator with zero Wasmtime dependency in production builds.
+- **GPU backend and shader translation (FolioGpuBackend + FolioNativeWebGlContext + FolioGlslCompiler)**: Native Direct3D 11 (d3d11.dll) + d3dcompiler_47.dll (D3DCompile) WebGL 1/2 implementation supporting textures (2D, 3D, 2D_ARRAY, CUBE_MAP), framebuffers, renderbuffers, float/integer formats, instancing, transform feedback, uniform blocks, budgets, context loss/recovery, and HLSL shader translation. Avalonia.Angle.Windows.Natives is removed from Folio.Scripting and published artifacts.

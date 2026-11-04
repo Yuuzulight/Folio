@@ -13,7 +13,7 @@ internal static class DisplayListPlayer
     /// items wholly outside it are not drawn. A tall page replayed into a viewport draws only what is in view.</param>
     public static void Replay(DisplayList list, ICanvas canvas, RectF? visible = null)
     {
-        using var open = new PooledStack<(DisplayItemKind Kind, bool Bounded)>(Math.Max(4, list.Items.Count));
+        using var open = new PooledStack<(DisplayItemKind Kind, bool Bounded, bool Filtered)>(Math.Max(4, list.Items.Count));
         var itemBounds = list.ItemBoundsCache ??= BuildItemBounds(list);
         // Layer bounds walk the whole list: only worth it when there are layers.
         RectF?[]? bounds = list.LayerBoundsCache;
@@ -23,16 +23,42 @@ internal static class DisplayListPlayer
             if (list.Items.Exists(i => i.Kind == DisplayItemKind.PushLayer))
                 bounds = list.LayerBoundsCache = LayerBounds(list);
         }
-        // Items are culled only in the page's own coordinates: not under a transform or inside a layer, whose filters
-        // may draw beyond what is in it.
+        // Items are culled only in the page's own coordinates: not under a transform or inside a filtered/backdrop layer,
+        // whose filters may draw beyond what is in it.
         var moved = 0;
+        var filteredLayers = 0;
         var skippedLayers = 0;
-        for (var index = 0; index < list.Items.Count; index++)
+        var startIndex = 0;
+        if (visible is { } opaqueView)
+        {
+            var coveredView = Grow(opaqueView, 1);
+            var depth = 0;
+            for (var i = 0; i < list.Items.Count; i++)
+            {
+                var candidate = list.Items[i];
+                if (candidate.Kind is DisplayItemKind.PushLayer or DisplayItemKind.PushClip or DisplayItemKind.PushTransform)
+                {
+                    depth++;
+                }
+                else if (candidate.Kind == DisplayItemKind.Pop)
+                {
+                    if (depth > 0)
+                        depth--;
+                }
+                else if (depth == 0 && candidate.Kind == DisplayItemKind.Fill
+                    && candidate.Color.A >= 1f && candidate.Gradient is null && candidate.Blend == BlendMode.Normal
+                    && InsideRoundedRect(candidate.Shape, coveredView))
+                {
+                    startIndex = i;
+                }
+            }
+        }
+        for (var index = startIndex; index < list.Items.Count; index++)
         {
             var item = list.Items[index];
             if (skippedLayers > 0)
             {
-                if (item.Kind == DisplayItemKind.PushLayer)
+                if (item.Kind is DisplayItemKind.PushLayer or DisplayItemKind.PushClip or DisplayItemKind.PushTransform)
                     skippedLayers++;
                 else if (item.Kind == DisplayItemKind.Pop)
                     skippedLayers--;
@@ -46,8 +72,17 @@ internal static class DisplayListPlayer
                 skippedLayers = 1;
                 continue;
             }
-            if (visible is { } view && moved == 0 && item.Kind is not (DisplayItemKind.PushClip or DisplayItemKind.PushLayer or DisplayItemKind.PushTransform or DisplayItemKind.Pop)
-                && !Intersects(itemBounds[index], view))
+            var inPageCoords = moved == 0 && filteredLayers == 0;
+            if (visible is { } view && inPageCoords && item.Kind is DisplayItemKind.PushClip)
+            {
+                if (!Intersects(itemBounds[index], view))
+                {
+                    skippedLayers = 1;
+                    continue;
+                }
+            }
+            if (visible is { } view2 && inPageCoords && item.Kind is not (DisplayItemKind.PushClip or DisplayItemKind.PushLayer or DisplayItemKind.PushTransform or DisplayItemKind.Pop)
+                && !Intersects(itemBounds[index], view2))
                 continue;
             switch (item.Kind)
             {
@@ -58,7 +93,7 @@ internal static class DisplayListPlayer
                     canvas.ClearRect(item.Shape.Rect);
                     break;
                 case DisplayItemKind.BoxShadow:
-                    PaintBoxShadow(canvas, item);
+                    PaintBoxShadow(canvas, item, inPageCoords ? visible : null);
                     break;
                 case DisplayItemKind.Border:
                     PaintBorder(canvas, item.Shape, item.Border!);
@@ -96,7 +131,7 @@ internal static class DisplayListPlayer
                         canvas.ClipPath(path, item.Rule);
                     else
                         canvas.ClipRoundedRect(item.Shape);
-                    open.Push((item.Kind, false));
+                    open.Push((item.Kind, false, false));
                     break;
                 case DisplayItemKind.PushLayer:
                     // A clip around everything the layer draws, so the canvas makes it no larger than that.
@@ -106,8 +141,10 @@ internal static class DisplayListPlayer
                         canvas.ClipRoundedRect(new RoundedRect(layer, default));
                     }
                     canvas.PushLayer(new LayerOptions(item.Opacity, item.Filters, item.Backdrop, item.Shape, item.Blend));
-                    open.Push((item.Kind, bounds[index] is not null));
-                    moved++;
+                    var isFiltered = item.Filters is { Count: > 0 } || item.Backdrop is { Count: > 0 };
+                    open.Push((item.Kind, bounds[index] is not null, isFiltered));
+                    if (isFiltered)
+                        filteredLayers++;
                     break;
                 case DisplayItemKind.PushTransform:
                     canvas.Save();
@@ -115,12 +152,14 @@ internal static class DisplayListPlayer
                         canvas.Transform(projection);
                     else
                         canvas.Transform(item.Transform);
-                    open.Push((item.Kind, false));
+                    open.Push((item.Kind, false, false));
                     moved++;
                     break;
                 case DisplayItemKind.Pop when open.TryPop(out var top):
-                    if (top.Kind is DisplayItemKind.PushLayer or DisplayItemKind.PushTransform)
+                    if (top.Kind == DisplayItemKind.PushTransform)
                         moved--;
+                    else if (top.Kind == DisplayItemKind.PushLayer && top.Filtered)
+                        filteredLayers--;
                     if (top.Kind == DisplayItemKind.PushLayer)
                     {
                         canvas.PopLayer();
@@ -257,10 +296,12 @@ internal static class DisplayListPlayer
 
     // A box shadow: blurred, and clipped to the outside of the border box (outer) or the inside of the padding box
     // (inset, where the shadow is the region outside its shape).
-    private static void PaintBoxShadow(ICanvas canvas, in DisplayItem item)
+    private static void PaintBoxShadow(ICanvas canvas, in DisplayItem item, RectF? visible = null)
     {
         var paint = new Paint(ToRgba(item.Color), item.Blur);
         var box = item.Box;
+        if (!item.Inset && visible is { } view && InsideRoundedRect(box, view))
+            return;
         var margin = 3 * item.Blur + Math.Abs(item.Shape.Rect.X - box.Rect.X) + Math.Abs(item.Shape.Rect.Y - box.Rect.Y)
                      + Math.Abs(item.Shape.Rect.Width - box.Rect.Width) + Math.Abs(item.Shape.Rect.Height - box.Rect.Height) + 1;
         var around = new RoundedRect(box.Rect.Inset(-margin, -margin, -margin, -margin), default);
@@ -276,6 +317,23 @@ internal static class DisplayListPlayer
             canvas.FillRoundedRect(item.Shape, paint);
         }
         canvas.Restore();
+    }
+
+    private static bool InsideRoundedRect(in RoundedRect outer, RectF inner)
+    {
+        var r = outer.Rect;
+        if (inner.X < r.X || inner.Right > r.Right || inner.Y < r.Y || inner.Bottom > r.Bottom)
+            return false;
+        var radii = outer.Radii;
+        if (inner.X < r.X + radii.TopLeft.X && inner.Y < r.Y + radii.TopLeft.Y)
+            return false;
+        if (inner.Right > r.Right - radii.TopRight.X && inner.Y < r.Y + radii.TopRight.Y)
+            return false;
+        if (inner.Right > r.Right - radii.BottomRight.X && inner.Bottom > r.Bottom - radii.BottomRight.Y)
+            return false;
+        if (inner.X < r.X + radii.BottomLeft.X && inner.Bottom > r.Bottom - radii.BottomLeft.Y)
+            return false;
+        return true;
     }
 
     /// <summary>
@@ -411,7 +469,7 @@ internal static class DisplayListPlayer
             DisplayItemKind.BoxShadow => Grow(item.Shape.Rect, 3 * item.Blur),
             DisplayItemKind.Glyphs when item.Glyphs is { Origins.Length: > 0 } run => Grow(GlyphBounds(run), 3 * item.Blur),
             DisplayItemKind.Decoration => item.Shape.Rect with { Height = 3 * item.Shape.Rect.Height },
-            DisplayItemKind.FillPath or DisplayItemKind.StrokePath when item.Path is { Commands.Count: > 0 } path => PathBounds(path),
+            DisplayItemKind.FillPath or DisplayItemKind.StrokePath or DisplayItemKind.PushClip when item.Path is { Commands.Count: > 0 } path => PathBounds(path),
             _ => item.Shape.Rect,
         };
         if (item.Kind == DisplayItemKind.StrokePath && item.Stroke is { } stroke)

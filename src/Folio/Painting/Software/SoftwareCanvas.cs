@@ -332,7 +332,47 @@ internal sealed class SoftwareCanvas : ICanvas
             BlendSolid(coverage, solid.Color, blend);
             return;
         }
-        ForEachPixel(coverage, (x, y, c, offset) => Compositor.Blend(_target.Data, offset, shader.ColorAt(x, y) * alpha, c, blend));
+        BlendShader(coverage, shader, alpha, blend);
+    }
+
+    private void BlendShader(Coverage coverage, Shader shader, float alpha, BlendMode blend)
+    {
+        var area = IntRect.Intersect(IntRect.Intersect(coverage.Bounds, _state.Clip), _targetBounds);
+        if (area.IsEmpty)
+            return;
+        var data = _target.Data;
+        var covData = coverage.Data;
+        var covWidth = coverage.Bounds.Width;
+        var targetWidth = _target.Width;
+        if (_state.ClipMask is null)
+        {
+            for (var y = area.Top; y < area.Bottom; y++)
+            {
+                var row = (y - coverage.Bounds.Top) * covWidth - coverage.Bounds.Left;
+                var targetRow = (y - _targetBounds.Top) * targetWidth - _targetBounds.Left;
+                for (var x = area.Left; x < area.Right; x++)
+                {
+                    var c = covData[row + x];
+                    if (c != 0)
+                        Compositor.Blend(data, (targetRow + x) * 4, shader.ColorAt(x, y) * alpha, c / 255f, blend);
+                }
+            }
+            return;
+        }
+        for (var y = area.Top; y < area.Bottom; y++)
+        {
+            var row = (y - coverage.Bounds.Top) * covWidth - coverage.Bounds.Left;
+            var targetRow = (y - _targetBounds.Top) * targetWidth - _targetBounds.Left;
+            for (var x = area.Left; x < area.Right; x++)
+            {
+                var c = covData[row + x];
+                if (c == 0)
+                    continue;
+                var amount = c / 255f * ClipAt(x, y);
+                if (amount > 0)
+                    Compositor.Blend(data, (targetRow + x) * 4, shader.ColorAt(x, y) * alpha, amount, blend);
+            }
+        }
     }
 
     // Keep the common solid-paint path allocation-free: dashboard backgrounds, borders and text shadows
@@ -869,6 +909,8 @@ internal sealed class SoftwareCanvas : ICanvas
     {
         if (source.Width <= 0 || source.Height <= 0 || destination.Width <= 0 || destination.Height <= 0)
             return;
+        if (TryDrawAxisAlignedImage(image, source, destination, paint))
+            return;
         var imageToUser = Matrix3x2.CreateTranslation(-source.X, -source.Y)
             * Matrix3x2.CreateScale(destination.Width / source.Width, destination.Height / source.Height)
             * Matrix3x2.CreateTranslation(destination.X, destination.Y);
@@ -881,7 +923,160 @@ internal sealed class SoftwareCanvas : ICanvas
             coverage = Blurred(coverage, paint.Blur);
         var alpha = Math.Clamp(paint.Color.A, 0f, 1f);
         var blend = paint.Blend;
-        ForEachPixel(coverage, (x, y, c, offset) => Compositor.Blend(_target.Data, offset, shader.ColorAt(x, y) * alpha, c, blend));
+        BlendShader(coverage, shader, alpha, blend);
+    }
+
+    private bool TryDrawAxisAlignedImage(IImageHandle image, in RectF source, in RectF destination, in Paint paint)
+    {
+        if (paint.Blur > 0 || paint.Blend != BlendMode.Normal || !_state.Transform.IsAffine)
+            return false;
+        if (image.Width <= 0 || image.Height <= 0 || image.Pixels.Length < image.Width * image.Height * 4)
+            return false;
+        var m = _state.Transform;
+        if (m.M12 != 0 || m.M21 != 0 || m.M11 <= 0 || m.M22 <= 0)
+            return false;
+        var topLeft = m.Apply(new Vector2(destination.X, destination.Y));
+        var bottomRight = m.Apply(new Vector2(destination.Right, destination.Bottom));
+        if (!Integral(topLeft.X) || !Integral(topLeft.Y) || !Integral(bottomRight.X) || !Integral(bottomRight.Y))
+            return false;
+        if (!Integral(source.X) || !Integral(source.Y) || !Integral(source.Width) || !Integral(source.Height))
+            return false;
+        var dstLeft = (int)MathF.Round(topLeft.X);
+        var dstTop = (int)MathF.Round(topLeft.Y);
+        var dstRight = (int)MathF.Round(bottomRight.X);
+        var dstBottom = (int)MathF.Round(bottomRight.Y);
+        var srcX = (int)MathF.Round(source.X);
+        var srcY = (int)MathF.Round(source.Y);
+        var srcW = (int)MathF.Round(source.Width);
+        var srcH = (int)MathF.Round(source.Height);
+        if (dstRight - dstLeft != srcW || dstBottom - dstTop != srcH)
+            return false;
+        if (srcX < 0 || srcY < 0 || srcX + srcW > image.Width || srcY + srcH > image.Height)
+            return false;
+
+        var area = IntRect.Intersect(_state.Clip, _targetBounds);
+        area = IntRect.Intersect(area, new IntRect(dstLeft, dstTop, dstRight, dstBottom));
+        if (area.IsEmpty)
+            return true;
+
+        var paintAlpha = (int)MathF.Round(Math.Clamp(paint.Color.A, 0f, 1f) * 255f);
+        if (paintAlpha <= 0)
+            return true;
+
+        var srcData = image.Pixels.Span;
+        var dstData = _target.Data.AsSpan();
+        var imgWidth = image.Width;
+        var targetWidth = _target.Width;
+        var w = area.Width;
+        var clipMask = _state.ClipMask;
+        var clipBounds = _state.Clip;
+
+        for (var y = area.Top; y < area.Bottom; y++)
+        {
+            var sy = srcY + (y - dstTop);
+            var sx0 = srcX + (area.Left - dstLeft);
+            var srcRow = (sy * imgWidth + sx0) * 4;
+            var dstRow = ((y - _targetBounds.Top) * targetWidth + (area.Left - _targetBounds.Left)) * 4;
+
+            if (clipMask is null && paintAlpha == 255)
+            {
+                var x = 0;
+                while (x < w)
+                {
+                    var si = srcRow + x * 4;
+                    var sa = srcData[si + 3];
+                    if (sa == 255)
+                    {
+                        var runStart = x;
+                        do x++; while (x < w && srcData[srcRow + x * 4 + 3] == 255);
+                        srcData.Slice(srcRow + runStart * 4, (x - runStart) * 4)
+                            .CopyTo(dstData.Slice(dstRow + runStart * 4, (x - runStart) * 4));
+                        continue;
+                    }
+                    if (sa > 0)
+                    {
+                        var di = dstRow + x * 4;
+                        var sr = (srcData[si] * sa + 127) / 255;
+                        var sg = (srcData[si + 1] * sa + 127) / 255;
+                        var sb = (srcData[si + 2] * sa + 127) / 255;
+                        var invA = 255 - sa;
+                        dstData[di] = (byte)(sr + (dstData[di] * invA + 127) / 255);
+                        dstData[di + 1] = (byte)(sg + (dstData[di + 1] * invA + 127) / 255);
+                        dstData[di + 2] = (byte)(sb + (dstData[di + 2] * invA + 127) / 255);
+                        dstData[di + 3] = (byte)(sa + (dstData[di + 3] * invA + 127) / 255);
+                    }
+                    x++;
+                }
+            }
+            else if (clipMask is not null && paintAlpha == 255)
+            {
+                var maskRow = (y - clipBounds.Top) * clipBounds.Width + (area.Left - clipBounds.Left);
+                var x = 0;
+                while (x < w)
+                {
+                    var mVal = clipMask[maskRow + x];
+                    if (mVal == 0)
+                    {
+                        x++;
+                        continue;
+                    }
+                    var si = srcRow + x * 4;
+                    var sa0 = srcData[si + 3];
+                    if (mVal == 255 && sa0 == 255)
+                    {
+                        var runStart = x;
+                        do x++; while (x < w && clipMask[maskRow + x] == 255 && srcData[srcRow + x * 4 + 3] == 255);
+                        srcData.Slice(srcRow + runStart * 4, (x - runStart) * 4)
+                            .CopyTo(dstData.Slice(dstRow + runStart * 4, (x - runStart) * 4));
+                        continue;
+                    }
+                    var sa = (sa0 * mVal + 127) / 255;
+                    if (sa > 0)
+                    {
+                        var di = dstRow + x * 4;
+                        var sr = (srcData[si] * sa + 127) / 255;
+                        var sg = (srcData[si + 1] * sa + 127) / 255;
+                        var sb = (srcData[si + 2] * sa + 127) / 255;
+                        var invA = 255 - sa;
+                        dstData[di] = (byte)(sr + (dstData[di] * invA + 127) / 255);
+                        dstData[di + 1] = (byte)(sg + (dstData[di + 1] * invA + 127) / 255);
+                        dstData[di + 2] = (byte)(sb + (dstData[di + 2] * invA + 127) / 255);
+                        dstData[di + 3] = (byte)(sa + (dstData[di + 3] * invA + 127) / 255);
+                    }
+                    x++;
+                }
+            }
+            else
+            {
+                var maskRow = clipMask is not null ? (y - clipBounds.Top) * clipBounds.Width + (area.Left - clipBounds.Left) : 0;
+                for (var x = 0; x < w; x++)
+                {
+                    var mVal = clipMask is not null ? clipMask[maskRow + x] : 255;
+                    if (mVal == 0)
+                        continue;
+                    var si = srcRow + x * 4;
+                    var sa0 = srcData[si + 3];
+                    if (sa0 == 0)
+                        continue;
+                    var effAlpha = (paintAlpha * mVal + 127) / 255;
+                    var sa = (sa0 * effAlpha + 127) / 255;
+                    if (sa == 0)
+                        continue;
+                    var di = dstRow + x * 4;
+                    var sr = (srcData[si] * sa + 127) / 255;
+                    var sg = (srcData[si + 1] * sa + 127) / 255;
+                    var sb = (srcData[si + 2] * sa + 127) / 255;
+                    var invA = 255 - sa;
+                    dstData[di] = (byte)(sr + (dstData[di] * invA + 127) / 255);
+                    dstData[di + 1] = (byte)(sg + (dstData[di + 1] * invA + 127) / 255);
+                    dstData[di + 2] = (byte)(sb + (dstData[di + 2] * invA + 127) / 255);
+                    dstData[di + 3] = (byte)(sa + (dstData[di + 3] * invA + 127) / 255);
+                }
+            }
+        }
+        return true;
+
+        static bool Integral(float value) => (int)value == value || MathF.Abs(value - MathF.Round(value)) < 1e-4f;
     }
 
     // ---- layers ----

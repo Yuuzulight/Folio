@@ -82,9 +82,8 @@ public static class Program
             using var runner = new ScriptRunner(document.Node, engine, loop, Conformance.Options);
             runner.Run();
             loop.UpdateTheRendering();
-            using var bitmap = new SKBitmap(new SKImageInfo(artifact.Category == "D5" ? 800 : 800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
-            using var canvas = new SKCanvas(bitmap);
-            var shaper = new HarfBuzzShaper();
+            using var surface = new SoftwareRasterSurface(800, 600);
+            var shaper = ComplexShaper.Instance;
             DisplayList BuildFrame()
             {
                 // Canvas scripts mutate the backing surface without changing layout. Reuse the
@@ -93,12 +92,30 @@ public static class Program
                 return document.PaintFrame(clock.NowMs / 1000d)
                     ?? document.Paint(Conformance.ManifestOf(artifact).Viewport, 600, 1, shaper).List;
             }
-            void Replay(DisplayList displayList)
+            void Replay(DisplayList displayList, bool fullPaint = false)
             {
-                canvas.Clear(SKColors.White);
-                DisplayListPlayer.Replay(displayList, new SkiaCanvas(canvas), new RectF(0, 0, 800, 600));
-                canvas.Flush();
+                if (!fullPaint && document.LastDamage is { } damage)
+                {
+                    if (damage.Width <= 0 || damage.Height <= 0)
+                        return;
+                    var clipped = new RectF(
+                        Math.Max(0, damage.X),
+                        Math.Max(0, damage.Y),
+                        Math.Min(800, damage.Right) - Math.Max(0, damage.X),
+                        Math.Min(600, damage.Bottom) - Math.Max(0, damage.Y));
+                    if (clipped.Width <= 0 || clipped.Height <= 0)
+                        return;
+                    surface.Canvas.Save();
+                    surface.Canvas.ClipRoundedRect(new RoundedRect(clipped, default));
+                    surface.Canvas.FillRoundedRect(new RoundedRect(clipped, default), new Paint(new Rgba(1f, 1f, 1f, 1f)));
+                    DisplayListPlayer.Replay(displayList, surface.Canvas, clipped);
+                    surface.Canvas.Restore();
+                    return;
+                }
+                surface.Canvas.FillRoundedRect(new RoundedRect(new RectF(0, 0, 800, 600), default), new Paint(new Rgba(1f, 1f, 1f, 1f)));
+                DisplayListPlayer.Replay(displayList, surface.Canvas, new RectF(0, 0, 800, 600));
             }
+            Replay(BuildFrame(), fullPaint: true);
             for (var warmup = 0; warmup < 3; warmup++)
             {
                 clock.Advance(16.7);
@@ -284,7 +301,7 @@ public static class Program
             var complex = script is "Arabic" or "Hebrew" or "Indic" or "Southeast Asian";
             var rightToLeft = script is "Arabic" or "Hebrew";
             var language = script == "Arabic" ? "ar" : script == "Hebrew" ? "he" : null;
-            var folio = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
+            var folio = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft, language);
             var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
             var pass = folio.Glyphs.SequenceEqual(oracle.Glyphs)
                 && folio.Clusters.SequenceEqual(oracle.Clusters)

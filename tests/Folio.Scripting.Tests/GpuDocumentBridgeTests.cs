@@ -40,9 +40,8 @@ public sealed class GpuDocumentBridgeTests
     public void WarpDocumentRetainsPerCanvasBudgetAndRecreatesAfterRevocation()
     {
         if (!OperatingSystem.IsWindows()) return;
-        var nativePath = FindNativeLibrary();
         using var engine = new JintScriptEngine();
-        Assert.True(DomBindings.ConfigureGpuFactory(engine, maxBytes => AngleGpuBackend.TryCreate(nativePath, maxBytes, GpuRendererPreference.WarpOnly)));
+        Assert.True(DomBindings.ConfigureGpuFactory(engine, maxBytes => FolioGpuBackend.TryCreate(maxBytes, GpuRendererPreference.WarpOnly)));
         using var document = Document.Parse("<canvas id='a' width='2' height='2'></canvas><canvas id='b' width='2' height='2'></canvas>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { WebGl = true },
@@ -80,9 +79,8 @@ public sealed class GpuDocumentBridgeTests
     public void WarpBudgetRecoveryClearsStaleFallbackAndPublishesRecoveredCanvas()
     {
         if (!OperatingSystem.IsWindows()) return;
-        var nativePath = FindNativeLibrary();
         using var engine = new JintScriptEngine();
-        Assert.True(DomBindings.ConfigureGpuFactory(engine, maxBytes => AngleGpuBackend.TryCreate(nativePath, maxBytes, GpuRendererPreference.WarpOnly)));
+        Assert.True(DomBindings.ConfigureGpuFactory(engine, maxBytes => FolioGpuBackend.TryCreate(maxBytes, GpuRendererPreference.WarpOnly)));
         using var document = Document.Parse("<canvas id='a' width='2' height='2'></canvas><canvas id='b' width='2' height='2'></canvas>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { WebGl = true },

@@ -1857,13 +1857,6 @@ public sealed class NativeWebGlPageTests
 
     private static void ConfigureWarp(JintScriptEngine engine)
     {
-        var rid = RuntimeInformation.ProcessArchitecture switch
-        {
-            Architecture.X64 => "win-x64", Architecture.Arm64 => "win-arm64", Architecture.X86 => "win-x86",
-            _ => throw new PlatformNotSupportedException(),
-        };
-        var path = Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", "av_libglesv2.dll");
-        if (!File.Exists(path)) path = Path.Combine(AppContext.BaseDirectory, "av_libglesv2.dll");
-        Assert.True(DomBindings.ConfigureGpuFactory(engine, bytes => AngleGpuBackend.TryCreate(path, bytes, GpuRendererPreference.WarpOnly)));
+        Assert.True(DomBindings.ConfigureGpuFactory(engine, bytes => FolioGpuBackend.TryCreate(bytes, GpuRendererPreference.WarpOnly)));
     }
 }

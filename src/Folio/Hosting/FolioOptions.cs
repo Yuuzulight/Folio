@@ -187,7 +187,7 @@ public sealed class FolioOptions
 
     /// <summary>
     /// Makes the bitmaps canvas elements draw on. Null (the default) leaves <c>getContext('2d')</c> returning null.
-    /// <c>Folio.Skia</c> has one.
+    /// <see cref="Painting.SoftwareRasterBackend.Instance"/> is the built-in Folio raster backend.
     /// </summary>
     public Painting.IRasterBackend? Raster { get; init; }
 

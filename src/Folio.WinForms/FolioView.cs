@@ -4,9 +4,8 @@ using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Folio.Painting;
-using Folio.Skia;
 using Folio.Scripting.Ipc;
-using SkiaSharp;
+using Folio.Typography;
 
 namespace Folio.WinForms;
 
@@ -46,7 +45,8 @@ public class FolioView : Control
     private readonly VScrollBar _scrollBar = new() { Dock = DockStyle.Right, Visible = false, SmallChange = 40 };
     private Document? _document;
     private DisplayList? _list;
-    private SKBitmap? _renderBitmap;
+    private SoftwareRasterSurface? _renderSurface;
+    private Bitmap? _renderBitmap;
     private bool _renderNeedsFull = true;
     private RectF? _pendingDamage;
     private float _contentHeight;
@@ -649,7 +649,7 @@ public class FolioView : Control
             return;
         for (var pass = 0; pass < 2; pass++)
         {
-            (_list, _contentHeight) = _document.Paint(ViewportWidth, ViewportHeight, PixelScale, new HybridShaper(), Time);
+            (_list, _contentHeight) = _document.Paint(ViewportWidth, ViewportHeight, PixelScale, ComplexShaper.Instance, Time);
             var needsBar = _contentHeight > ViewportHeight;
             if (needsBar == _scrollBar.Visible)
                 break;
@@ -776,45 +776,73 @@ public class FolioView : Control
             _accessibleObject?.SyncTree(_document.AccessibilityTree());
             var width = Math.Max(1, ClientSize.Width - (_scrollBar.Visible ? _scrollBar.Width : 0));
             var height = Math.Max(1, ClientSize.Height);
-            if (_renderBitmap is null || _renderBitmap.Width != width || _renderBitmap.Height != height)
+            if (_renderSurface is null || _renderSurface.Width != width || _renderSurface.Height != height ||
+                _renderBitmap is null || _renderBitmap.Width != width || _renderBitmap.Height != height)
             {
+                _renderSurface?.Dispose();
                 _renderBitmap?.Dispose();
-                _renderBitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul));
+                _renderSurface = new SoftwareRasterSurface(width, height);
+                _renderBitmap = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
                 _renderNeedsFull = true;
                 _pendingDamage = null;
             }
-            using (var canvas = new SKCanvas(_renderBitmap))
+            var background = _document.Options.ColorScheme == ColorScheme.Dark ? new Paint(new Rgba(18 / 255f, 18 / 255f, 18 / 255f, 1f)) : new Paint(new Rgba(1f, 1f, 1f, 1f));
+            var canvas = _renderSurface.Canvas;
+            canvas.Save();
+            canvas.Transform(System.Numerics.Matrix3x2.CreateTranslation(0, -ScrollTop) * System.Numerics.Matrix3x2.CreateScale(PixelScale));
+
+            if (_renderNeedsFull)
             {
-                var background = _document.Options.ColorScheme == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White;
+                canvas.FillRoundedRect(new RoundedRect(new RectF(0, ScrollTop, width / PixelScale, height / PixelScale), default), background);
+                DisplayListPlayer.Replay(_list!, canvas, new RectF(0, ScrollTop, width / PixelScale, height / PixelScale));
+            }
+            else if (_pendingDamage is { } damage && damage.Width > 0 && damage.Height > 0)
+            {
                 canvas.Save();
-                canvas.Scale(PixelScale);
-                canvas.Translate(0, -ScrollTop);
-                if (_renderNeedsFull)
-                {
-                    canvas.Clear(background);
-                    DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2),
-                        new RectF(0, ScrollTop, width / PixelScale, height / PixelScale));
-                }
-                else if (_pendingDamage is { } damage && damage.Width > 0 && damage.Height > 0)
-                {
-                    canvas.Save();
-                    canvas.ClipRect(SKRect.Create(damage.X, damage.Y, damage.Width, damage.Height));
-                    canvas.Clear(background);
-                    DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2), damage);
-                    canvas.Restore();
-                }
+                canvas.ClipRoundedRect(new RoundedRect(damage, default));
+                canvas.FillRoundedRect(new RoundedRect(damage, default), background);
+                DisplayListPlayer.Replay(_list!, canvas, damage);
                 canvas.Restore();
             }
+            canvas.Restore();
             _renderNeedsFull = false;
             _pendingDamage = null;
-            using var image = new Bitmap(width, height, _renderBitmap.RowBytes, PixelFormat.Format32bppPArgb, _renderBitmap.GetPixels());
-            e.Graphics.DrawImageUnscaled(image, 0, 0);
+            CopySurfaceToBitmap(_renderSurface, _renderBitmap);
+            e.Graphics.DrawImageUnscaled(_renderBitmap, 0, 0);
             PaintScriptStoppedNotice(e.Graphics);
             Rendered?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             RenderFailed?.Invoke(this, new RenderFailedEventArgs(ex));
+        }
+    }
+
+    private static void CopySurfaceToBitmap(SoftwareRasterSurface surface, Bitmap bitmap)
+    {
+        var src = surface.PremultipliedPixels;
+        var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
+        var data = bitmap.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
+        try
+        {
+            var rowBytes = bitmap.Width * 4;
+            var rowBuffer = new byte[rowBytes];
+            for (var y = 0; y < bitmap.Height; y++)
+            {
+                var srcRow = src.AsSpan(y * rowBytes, rowBytes);
+                for (var x = 0; x < rowBytes; x += 4)
+                {
+                    rowBuffer[x] = srcRow[x + 2];
+                    rowBuffer[x + 1] = srcRow[x + 1];
+                    rowBuffer[x + 2] = srcRow[x];
+                    rowBuffer[x + 3] = srcRow[x + 3];
+                }
+                Marshal.Copy(rowBuffer, 0, IntPtr.Add(data.Scan0, y * data.Stride), rowBytes);
+            }
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
         }
     }
 
@@ -1141,6 +1169,7 @@ public class FolioView : Control
                 {
                     _frames.Dispose();
                     _toolTip.Dispose();
+                    _renderSurface?.Dispose();
                     _renderBitmap?.Dispose();
                     _document?.Dispose();
                 }

@@ -1232,6 +1232,7 @@ public sealed class Document : IDisposable
     internal (DisplayList List, float Height) Paint(float viewportWidth, float viewportHeight, float deviceScale = 1, ITextShaper? shaper = null,
                                                    double? animationTime = null)
     {
+        shaper ??= ComplexShaper.Instance;
         (_frame, _animatedBoxes) = (null, null);
         _lastPaint = (viewportWidth, viewportHeight, deviceScale, shaper, animationTime);
         var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };

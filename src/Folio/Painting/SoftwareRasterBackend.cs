@@ -8,8 +8,7 @@ namespace Folio.Painting;
 /// <summary>
 /// Folio's own raster backend behind <see cref="IRasterBackend"/> (docs/dependencies.md, "Towards all-Folio"): antialiased
 /// paths, strokes, clips, gradients, image fills, text from glyph outlines, layers, blend modes and filter effects, drawn on
-/// a bitmap in Folio's own code. The product still draws with the Skia backend until this one is checked against it
-/// on the conformance corpus.
+/// a bitmap in Folio's own code. This is Folio's default production raster backend.
 /// </summary>
 public sealed class SoftwareRasterBackend : IRasterBackend
 {
@@ -43,7 +42,8 @@ public sealed class SoftwareRasterSurface : IRasterSurface
     public ICanvas Canvas => _canvas;
 
     /// <summary>The bitmap as it is held: premultiplied RGBA, row-major.</summary>
-    internal byte[] PremultipliedPixels => _pixels.Data;
+    public byte[] PremultipliedPixels => _pixels.Data;
+
 
     public byte[] ReadPixels(int x, int y, int width, int height)
     {

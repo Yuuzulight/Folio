@@ -262,7 +262,7 @@ internal sealed partial class Canvas2DContext
     /// its shadow, composited with <c>globalCompositeOperation</c>. <paramref name="draw"/> draws in user space with the
     /// paint it is handed.
     /// </summary>
-    private void Render(PaintSource source, Action<ICanvas, Paint> draw, bool shadows = true)
+    private void Render(PaintSource source, Action<ICanvas, Paint> draw, bool shadows = true, RectF? userBounds = null)
     {
         var transform = State.Transform;
         var identity = transform == Matrix3x2.Identity;
@@ -273,6 +273,56 @@ internal sealed partial class Canvas2DContext
         var shadow = shadows && ShadowActive;
         var layers = 0;
         var canvas = Canvas;
+        if (identity && shadow && State.FilterPrimitives is null && mode == BlendMode.Normal && TryGetUniformPaintAlpha(paint, out var shapeAlpha))
+        {
+            var shadowAlpha = State.ShadowColor.A * shapeAlpha;
+            if (shadowAlpha > 0)
+            {
+                var shadowPaint = new Paint(State.ShadowColor with { A = shadowAlpha }, Blur: (float)State.ShadowBlur / 2f);
+                if (State.ShadowOffsetX != 0 || State.ShadowOffsetY != 0)
+                {
+                    canvas.Save();
+                    canvas.Transform(Matrix3x2.CreateTranslation((float)State.ShadowOffsetX, (float)State.ShadowOffsetY));
+                    draw(canvas, shadowPaint);
+                    canvas.Restore();
+                }
+                else
+                {
+                    draw(canvas, shadowPaint);
+                }
+            }
+            draw(canvas, paint);
+            Version++;
+            return;
+        }
+        var clippedToShadowBounds = false;
+        if (shadow && userBounds is { } ub && !ReachesOutsideShape(mode) && State.FilterPrimitives is null)
+        {
+            var p0 = Vector2.Transform(new Vector2(ub.X, ub.Y), transform);
+            var p1 = Vector2.Transform(new Vector2(ub.Right, ub.Y), transform);
+            var p2 = Vector2.Transform(new Vector2(ub.X, ub.Bottom), transform);
+            var p3 = Vector2.Transform(new Vector2(ub.Right, ub.Bottom), transform);
+            var minX = MathF.Min(MathF.Min(p0.X, p1.X), MathF.Min(p2.X, p3.X));
+            var maxX = MathF.Max(MathF.Max(p0.X, p1.X), MathF.Max(p2.X, p3.X));
+            var minY = MathF.Min(MathF.Min(p0.Y, p1.Y), MathF.Min(p2.Y, p3.Y));
+            var maxY = MathF.Max(MathF.Max(p0.Y, p1.Y), MathF.Max(p2.Y, p3.Y));
+            var scale = MathF.Max(1f, MathF.Max(
+                MathF.Sqrt(transform.M11 * transform.M11 + transform.M12 * transform.M12),
+                MathF.Sqrt(transform.M21 * transform.M21 + transform.M22 * transform.M22)));
+            var blurReach = 1.5f * (float)State.ShadowBlur * scale + 2f;
+            var ox = (float)State.ShadowOffsetX * scale;
+            var oy = (float)State.ShadowOffsetY * scale;
+            var left = MathF.Floor(MathF.Min(minX - 2f, minX + ox - blurReach));
+            var top = MathF.Floor(MathF.Min(minY - 2f, minY + oy - blurReach));
+            var right = MathF.Ceiling(MathF.Max(maxX + 2f, maxX + ox + blurReach));
+            var bottom = MathF.Ceiling(MathF.Max(maxY + 2f, maxY + oy + blurReach));
+            if (float.IsFinite(left + top + right + bottom) && right > left && bottom > top)
+            {
+                canvas.Save();
+                canvas.ClipRoundedRect(new RoundedRect(new RectF(left, top, right - left, bottom - top), default));
+                clippedToShadowBounds = true;
+            }
+        }
         // Outermost: the composite operation, applied to everything the shape and its shadow draw.
         if (mode != BlendMode.Normal && (shadow || ReachesOutsideShape(mode) || State.FilterPrimitives is not null))
         {
@@ -326,6 +376,8 @@ internal sealed partial class Canvas2DContext
         }
         while (layers-- > 0)
             canvas.PopLayer();
+        if (clippedToShadowBounds)
+            canvas.Restore();
         Version++;
     }
 
@@ -346,7 +398,7 @@ internal sealed partial class Canvas2DContext
             Version++;
             return;
         }
-        Render(state.FillStyle, (canvas, paint) => canvas.FillRoundedRect(rect, paint));
+        Render(state.FillStyle, (canvas, paint) => canvas.FillRoundedRect(rect, paint), userBounds: rect.Rect);
     }
 
     public void StrokeRect(double x, double y, double w, double h)
@@ -354,7 +406,12 @@ internal sealed partial class Canvas2DContext
         if (!Finite(x, y, w, h) || (w == 0 && h == 0))
             return;
         var stroke = CurrentStroke();
-        Render(State.StrokeStyle, (canvas, paint) => canvas.StrokePath(RectPath(x, y, w, h), stroke, paint));
+        var pad = stroke.Width * MathF.Max(stroke.MiterLimit, 1.5f);
+        var rx = (float)Math.Min(x, x + w) - pad;
+        var ry = (float)Math.Min(y, y + h) - pad;
+        var rw = (float)Math.Abs(w) + 2 * pad;
+        var rh = (float)Math.Abs(h) + 2 * pad;
+        Render(State.StrokeStyle, (canvas, paint) => canvas.StrokePath(RectPath(x, y, w, h), stroke, paint), userBounds: new RectF(rx, ry, rw, rh));
     }
 
     public void ClearRect(double x, double y, double w, double h)
@@ -434,7 +491,7 @@ internal sealed partial class Canvas2DContext
             Version++;
             return;
         }
-        Render(state.FillStyle, (canvas, paint) => canvas.FillPath(data, rule, paint));
+        Render(state.FillStyle, (canvas, paint) => canvas.FillPath(data, rule, paint), userBounds: PathBounds(data));
     }
 
     public void Stroke(CanvasPath? path)
@@ -443,7 +500,83 @@ internal sealed partial class Canvas2DContext
         if (data.Commands.Count == 0)
             return;
         var stroke = CurrentStroke();
-        Render(State.StrokeStyle, (canvas, paint) => canvas.StrokePath(data, stroke, paint));
+        var state = State;
+        if (state.Transform == Matrix3x2.Identity && !ShadowActive && state.FilterPrimitives is null && (BlendOf(state.GlobalCompositeOperation) ?? BlendMode.Normal) == BlendMode.Normal)
+        {
+            var paint = state.StrokeStyle.ToPaint((float)state.GlobalAlpha, Matrix3x2.Identity);
+            Canvas.StrokePath(data, stroke, paint);
+            Version++;
+            return;
+        }
+        var bounds = PathBounds(data);
+        if (bounds is { } b)
+        {
+            var pad = stroke.Width * MathF.Max(stroke.MiterLimit, 1.5f);
+            bounds = new RectF(b.X - pad, b.Y - pad, b.Width + 2 * pad, b.Height + 2 * pad);
+        }
+        Render(State.StrokeStyle, (canvas, paint) => canvas.StrokePath(data, stroke, paint), userBounds: bounds);
+    }
+
+    private static bool TryGetUniformPaintAlpha(in Paint paint, out float alpha)
+    {
+        if (paint.Pattern is not null)
+        {
+            alpha = 0;
+            return false;
+        }
+        if (paint.Gradient is not { } grad)
+        {
+            alpha = paint.Color.A;
+            return true;
+        }
+        var stops = grad.Stops;
+        if (stops.Count == 0)
+        {
+            alpha = 0;
+            return true;
+        }
+        var a0 = stops[0].Color.A;
+        for (var i = 1; i < stops.Count; i++)
+        {
+            if (MathF.Abs(stops[i].Color.A - a0) > 1e-4f)
+            {
+                alpha = 0;
+                return false;
+            }
+        }
+        alpha = a0;
+        return true;
+    }
+
+    private static RectF? PathBounds(PathData path)
+    {
+        var cmds = path.Commands;
+        if (cmds.Count == 0)
+            return null;
+        var minX = float.PositiveInfinity;
+        var minY = float.PositiveInfinity;
+        var maxX = float.NegativeInfinity;
+        var maxY = float.NegativeInfinity;
+        void Add(Vector2 p)
+        {
+            if (p.X < minX) minX = p.X;
+            if (p.Y < minY) minY = p.Y;
+            if (p.X > maxX) maxX = p.X;
+            if (p.Y > maxY) maxY = p.Y;
+        }
+        for (var i = 0; i < cmds.Count; i++)
+        {
+            var c = cmds[i];
+            if (c.Verb == PathVerb.Close)
+                continue;
+            Add(c.P1);
+            if (c.Verb == PathVerb.CubicTo)
+            {
+                Add(c.P2);
+                Add(c.P3);
+            }
+        }
+        return minX <= maxX ? new RectF(minX, minY, maxX - minX, maxY - minY) : null;
     }
 
     public void Clip(CanvasPath? path, FillRule rule)

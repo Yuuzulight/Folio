@@ -302,7 +302,15 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
 
     public uint GetError()
     {
-        lock (_errors) return _errors.Count == 0 ? 0u : _errors.Dequeue();
+        lock (_errors)
+        {
+            if (_errors.Count > 0)
+            {
+                _ = Native.TryGetError(out _, out _);
+                return _errors.Dequeue();
+            }
+        }
+        return Native.TryGetError(out var nativeError, out _) ? nativeError : 0u;
     }
 
     public void BindBuffer(uint target, IWebGLBufferTarget? buffer)

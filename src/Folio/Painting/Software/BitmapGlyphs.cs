@@ -19,11 +19,12 @@ internal static class BitmapGlyphs
         public readonly List<(int First, int Last, int Table)> Ranges = [];
     }
 
-    private sealed class Index(FontData cblc, FontData cbdt, Strike strike)
+    private sealed class Index(FontData? cblc, FontData? cbdt, Strike? strike)
     {
-        public FontData Locations = cblc;
-        public FontData Data = cbdt;
-        public Strike Strike = strike;
+        public FontData? Locations = cblc;
+        public FontData? Data = cbdt;
+        public Strike? Strike = strike;
+        public readonly Dictionary<ushort, Bitmap?> Cache = [];
     }
 
     private static readonly ConditionalWeakTable<FontFace, Index?> Indexes = new();
@@ -34,8 +35,25 @@ internal static class BitmapGlyphs
     {
         try
         {
-            var index = Indexes.GetValue(face, f => f.RawTable("CBLC") is { } cblc && f.RawTable("CBDT") is { } cbdt && ReadStrike(cblc) is { } strike ? new Index(cblc, cbdt, strike) : null);
-            return index is not null ? Find(index, glyph) : FindSbix(face, glyph);
+            var index = Indexes.GetValue(face, static f =>
+                f.RawTable("CBLC") is { } cblc && f.RawTable("CBDT") is { } cbdt && ReadStrike(cblc) is { } strike
+                    ? new Index(cblc, cbdt, strike)
+                    : f.RawTable("sbix") is not null ? new Index(null, null, null) : null);
+            if (index is null)
+                return null;
+            lock (index.Cache)
+            {
+                if (index.Cache.TryGetValue(glyph, out var cached))
+                    return cached;
+            }
+            var decoded = index.Strike is not null ? Find(index, glyph) : FindSbix(face, glyph);
+            lock (index.Cache)
+            {
+                if (index.Cache.Count >= 512)
+                    index.Cache.Clear();
+                index.Cache[glyph] = decoded;
+            }
+            return decoded;
         }
         catch (Exception e) when (e is InvalidDataException or IndexOutOfRangeException or ArgumentException or OverflowException)
         {
@@ -115,11 +133,12 @@ internal static class BitmapGlyphs
 
     private static Bitmap? Find(Index index, ushort glyph)
     {
-        foreach (var (first, last, table) in index.Strike.Ranges)
+        if (index.Strike is not { } strike || index.Locations is not { } locations)
+            return null;
+        foreach (var (first, last, table) in strike.Ranges)
         {
             if (glyph < first || glyph > last)
                 continue;
-            var locations = index.Locations;
             var indexFormat = locations.U16(table);
             var imageFormat = locations.U16(table + 2);
             var imageData = (int)locations.U32(table + 4);
@@ -156,7 +175,8 @@ internal static class BitmapGlyphs
 
     private static Bitmap? ReadImage(Index index, int format, int offset, int length, (float BearingX, float BearingY, float Advance)? shared)
     {
-        var data = index.Data;
+        if (index.Data is not { } data || index.Strike is not { } strike)
+            return null;
         float bearingX, bearingY, advance;
         int pngStart;
         switch (format)
@@ -186,6 +206,6 @@ internal static class BitmapGlyphs
             return null;
         if (PngDecoder.Decode(data.Bytes(pngStart, pngLength)) is not { } image)
             return null;
-        return new Bitmap(image, index.Strike.PixelsPerEm, bearingX, bearingY, advance);
+        return new Bitmap(image, strike.PixelsPerEm, bearingX, bearingY, advance);
     }
 }

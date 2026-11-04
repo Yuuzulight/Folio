@@ -6,14 +6,28 @@ namespace Folio.Scripting.Dom;
 
 internal sealed partial class Canvas2DContext
 {
+    private readonly HashSet<string> _validFonts = new(StringComparer.Ordinal);
+
     /// <summary>The font property: a value the CSS <c>font</c> shorthand accepts is kept, anything else is ignored.</summary>
     public void SetFont(string font)
     {
         var trimmed = font.Trim();
         if (string.Equals(trimmed, State.Font, StringComparison.Ordinal))
             return;
-        if (font.Length <= PaintSource.MaxText && _styles?.Resolve(font) is not null)
+        if (_validFonts.Contains(trimmed))
+        {
             State.Font = trimmed;
+            return;
+        }
+        if (font.Length <= PaintSource.MaxText && _styles?.Resolve(trimmed) is { } resolved)
+        {
+            if (_validFonts.Count < 128)
+                _validFonts.Add(trimmed);
+            var key = string.Concat(trimmed, "\0", State.LetterSpacing, "\0", State.WordSpacing, "\0", State.FontKerning);
+            if (_textStyles.Count < 64 && !_textStyles.ContainsKey(key))
+                _textStyles[key] = resolved;
+            State.Font = trimmed;
+        }
     }
 
     /// <summary>The filter property: <c>none</c> or a valid filter list is kept, anything else is ignored.</summary>
@@ -73,6 +87,8 @@ internal sealed partial class Canvas2DContext
     /// <summary>fillText and strokeText (HTML §4.12.5.1.10).</summary>
     public void DrawText(string text, double x, double y, double? maxWidth, bool stroke)
     {
+        if (State.GlobalAlpha <= 0 && !ShadowActive && (BlendOf(State.GlobalCompositeOperation) ?? BlendMode.Normal) == BlendMode.Normal)
+            return;
         if (!Finite(x, y) || maxWidth is { } limit && (double.IsNaN(limit) || limit <= 0) || ResolveTextStyle() is not { } style)
             return;
         var layout = GetTextLayout(Flatten(text), style, RightToLeft);
@@ -81,6 +97,28 @@ internal sealed partial class Canvas2DContext
         var (offsetX, offsetY) = Anchor(layout);
         // Text wider than the maximum is squeezed horizontally about the alignment point.
         var squeeze = maxWidth is { } max && layout.Width > max ? (float)(max / layout.Width) : 1f;
+        var state = State;
+        if (!stroke && squeeze == 1f && state.Transform == Matrix3x2.Identity && !ShadowActive && state.FilterPrimitives is null && (BlendOf(state.GlobalCompositeOperation) ?? BlendMode.Normal) == BlendMode.Normal)
+        {
+            var paint = state.GetOrCreateFillPaint();
+            var shift = new Vector2((float)x + offsetX, (float)y + offsetY);
+            foreach (var run in layout.Runs)
+            {
+                var origins = ArrayPool<Vector2>.Shared.Rent(run.Origins.Length);
+                try
+                {
+                    for (var i = 0; i < run.Origins.Length; i++)
+                        origins[i] = run.Origins[i] + shift;
+                    Canvas.DrawGlyphs(run.Font, run.Size, run.Glyphs, origins.AsSpan(0, run.Origins.Length), paint);
+                }
+                finally
+                {
+                    ArrayPool<Vector2>.Shared.Return(origins);
+                }
+            }
+            Version++;
+            return;
+        }
         var place = Matrix3x2.CreateScale(squeeze, 1) * Matrix3x2.CreateTranslation((float)x, (float)y + offsetY);
         var strokeStyle = CurrentStroke();
         Render(stroke ? State.StrokeStyle : State.FillStyle, (canvas, paint) =>

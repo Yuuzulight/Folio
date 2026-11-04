@@ -345,7 +345,7 @@ internal sealed class CanvasPath
     /// <summary>The path as drawing data, each point mapped by <paramref name="m"/>.</summary>
     public PathData ToPathData(Matrix3x2 m)
     {
-        var data = new PathData();
+        var data = new PathData(_segments.Count);
         for (var i = 0; i < _segments.Count; i++)
         {
             var s = _segments[i];
@@ -355,16 +355,19 @@ internal sealed class CanvasPath
                     // A move that nothing follows, or another move follows, draws nothing.
                     if (i + 1 < _segments.Count && _segments[i + 1].Kind is not Kind.Move)
                     {
-                        var p = Vector2.Transform(s.P1, m);
+                        var p = m == Matrix3x2.Identity ? s.P1 : Vector2.Transform(s.P1, m);
                         data.MoveTo(p.X, p.Y);
                     }
                     break;
                 case Kind.Line:
-                    var l = Vector2.Transform(s.P1, m);
+                    var l = m == Matrix3x2.Identity ? s.P1 : Vector2.Transform(s.P1, m);
                     data.LineTo(l.X, l.Y);
                     break;
                 case Kind.Cubic:
-                    data.CubicTo(Vector2.Transform(s.P1, m), Vector2.Transform(s.P2, m), Vector2.Transform(s.P3, m));
+                    if (m == Matrix3x2.Identity)
+                        data.CubicTo(s.P1, s.P2, s.P3);
+                    else
+                        data.CubicTo(Vector2.Transform(s.P1, m), Vector2.Transform(s.P2, m), Vector2.Transform(s.P3, m));
                     break;
                 default:
                     data.Close();

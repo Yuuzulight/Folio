@@ -28,17 +28,17 @@ internal sealed class GpuDocumentBridge : IDisposable
             failure = injected.Failure;
             return null;
         }
+        if (OperatingSystem.IsWindows())
+        {
+            var folioResult = FolioGpuBackend.TryCreate(maxBytes);
+            if (folioResult.Device is { } folioDevice) { failure = null; return new GpuDocumentBridge(folioDevice); }
+        }
         var path = NativeLibraryPath();
         if (path is not null)
         {
             var result = AngleGpuBackend.TryCreate(path, maxBytes);
             if (result.Device is { } device) { failure = null; return new GpuDocumentBridge(device); }
-        }
-        if (OperatingSystem.IsWindows())
-        {
-            var folioResult = FolioGpuBackend.TryCreate(maxBytes);
-            if (folioResult.Device is { } folioDevice) { failure = null; return new GpuDocumentBridge(folioDevice); }
-            failure = folioResult.Failure;
+            failure = result.Failure;
             return null;
         }
         failure = new(GpuFailureKind.Unavailable, "The GPU native backend is unavailable.");

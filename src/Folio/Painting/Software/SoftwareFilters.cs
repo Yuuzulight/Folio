@@ -211,33 +211,64 @@ internal static class SoftwareFilters
 
     private static PixelSurface DropShadow(PixelSurface s, Filter f, float sigmaX, float sigmaY, float scaleX, float scaleY)
     {
-        var alpha = Offset(AlphaOf(s), f.Offset.X * scaleX, f.Offset.Y * scaleY);
-        var shadow = sigmaX <= 0 && sigmaY <= 0
-            ? alpha
-            : Wrap(alpha, GaussianBlur.Apply(alpha.Data, alpha.Width, alpha.Height, 4, Math.Max(sigmaX, 0), Math.Max(sigmaY, 0), activeChannelMask: 8));
-        var tint = Shader.Premultiplied(f.Color);
-        var o = new PixelSurface(s.Width, s.Height);
-        for (var i = 0; i < o.Data.Length; i += 4)
+        var w = s.Width;
+        var h = s.Height;
+        var (ox, oy) = ((int)MathF.Round(f.Offset.X * scaleX), (int)MathF.Round(f.Offset.Y * scaleY));
+        var alpha = new byte[w * h];
+        var src = s.Data;
+        for (var y = 0; y < h; y++)
         {
-            var shadowAlpha = shadow.Data[i + 3] / 255f;
-            // Most pixels in a drop-shadow surface are transparent.  Preserve the
-            // original source directly in that case instead of entering the
-            // vector blend path; this is both exact for source-over and avoids
-            // four float conversions per empty pixel.
-            if (shadowAlpha <= 0)
+            var sy = y - oy;
+            if ((uint)sy >= (uint)h)
+                continue;
+            var dstRow = y * w;
+            var srcRow = sy * w;
+            for (var x = 0; x < w; x++)
             {
-                o.Data[i] = s.Data[i];
-                o.Data[i + 1] = s.Data[i + 1];
-                o.Data[i + 2] = s.Data[i + 2];
-                o.Data[i + 3] = s.Data[i + 3];
+                var sx = x - ox;
+                if ((uint)sx < (uint)w)
+                    alpha[dstRow + x] = src[(srcRow + sx) * 4 + 3];
+            }
+        }
+        var shadowAlphaData = sigmaX <= 0 && sigmaY <= 0
+            ? alpha
+            : GaussianBlur.Apply(alpha, w, h, 1, Math.Max(sigmaX, 0), Math.Max(sigmaY, 0));
+        var tint = Shader.Premultiplied(f.Color);
+        var tR = (int)To8(tint.X);
+        var tG = (int)To8(tint.Y);
+        var tB = (int)To8(tint.Z);
+        var tA = (int)To8(tint.W);
+        var o = new PixelSurface(w, h);
+        var dst = o.Data;
+        for (int p = 0, i = 0; p < shadowAlphaData.Length; p++, i += 4)
+        {
+            var sa = src[i + 3];
+            var shA = shadowAlphaData[p];
+            if (shA == 0 || sa == 255)
+            {
+                dst[i] = src[i];
+                dst[i + 1] = src[i + 1];
+                dst[i + 2] = src[i + 2];
+                dst[i + 3] = sa;
                 continue;
             }
-            var below = tint * shadowAlpha;
-            o.Data[i] = To8(below.X);
-            o.Data[i + 1] = To8(below.Y);
-            o.Data[i + 2] = To8(below.Z);
-            o.Data[i + 3] = To8(below.W);
-            Compositor.Blend(o.Data, i, new Vector4(s.Data[i], s.Data[i + 1], s.Data[i + 2], s.Data[i + 3]) / 255f, 1, BlendMode.Normal);
+            var bR = (tR * shA + 127) / 255;
+            var bG = (tG * shA + 127) / 255;
+            var bB = (tB * shA + 127) / 255;
+            var bA = (tA * shA + 127) / 255;
+            if (sa == 0)
+            {
+                dst[i] = (byte)bR;
+                dst[i + 1] = (byte)bG;
+                dst[i + 2] = (byte)bB;
+                dst[i + 3] = (byte)bA;
+                continue;
+            }
+            var invSa = 255 - sa;
+            dst[i] = (byte)Math.Min(255, src[i] + (bR * invSa + 127) / 255);
+            dst[i + 1] = (byte)Math.Min(255, src[i + 1] + (bG * invSa + 127) / 255);
+            dst[i + 2] = (byte)Math.Min(255, src[i + 2] + (bB * invSa + 127) / 255);
+            dst[i + 3] = (byte)Math.Min(255, sa + (bA * invSa + 127) / 255);
         }
         return o;
     }

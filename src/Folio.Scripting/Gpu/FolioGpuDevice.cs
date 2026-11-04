@@ -40,7 +40,7 @@ internal static class FolioGpuBackend
     }
 }
 
-internal sealed class FolioGpuDevice : IGpuDevice
+internal sealed class FolioGpuDevice : IGpuDevice, INativeWebGlFactory
 {
     private readonly object _gate = new();
     private readonly IntPtr _device;
@@ -50,6 +50,7 @@ internal sealed class FolioGpuDevice : IGpuDevice
     private long _peakReserved;
     private bool _disposed;
     private readonly HashSet<FolioGpuSurface> _surfaces = [];
+    private readonly HashSet<FolioNativeWebGlContext> _contexts = [];
 
     // Cached delegates
     private readonly FolioD3D11Interop.CreateTexture2DDelegate _createTexture2D;
@@ -68,6 +69,8 @@ internal sealed class FolioGpuDevice : IGpuDevice
     public long PeakReservedBytes { get { lock (_gate) return _peakReserved; } }
     public bool IsDisposed { get { lock (_gate) return _disposed; } }
     internal object Gate => _gate;
+    internal IntPtr DevicePtr => _device;
+    internal IntPtr ContextPtr => _context;
 
     private FolioGpuDevice(IntPtr device, IntPtr context, GpuRendererKind kind, long maxBytes, int featureLevel)
     {
@@ -149,6 +152,87 @@ internal sealed class FolioGpuDevice : IGpuDevice
                 return new(null, new(GpuFailureKind.NativeError, error.Message));
             }
         }
+    }
+
+    public bool TryCreateNativeWebGlContext(WebGlContextOptions options, out FolioNativeWebGlContext? context, out GpuFailure? failure)
+    {
+        context = null;
+        failure = null;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                failure = new(GpuFailureKind.Unavailable, "The GPU device is disposed.");
+                return false;
+            }
+            if (options is null)
+            {
+                failure = new(GpuFailureKind.NativeError, "The WebGL context options are required.");
+                return false;
+            }
+            if (options.Width < 0 || options.Height < 0 || options.Width > 4096 || options.Height > 4096)
+            {
+                failure = new(GpuFailureKind.NativeError, "The WebGL surface dimensions are invalid.");
+                return false;
+            }
+            if (options.MaxBytes < 0 || options.MaxShaderSourceBytes <= 0)
+            {
+                failure = new(GpuFailureKind.BudgetExceeded, "The WebGL budget is invalid.");
+                return false;
+            }
+
+            long surfaceBytes;
+            try { surfaceBytes = checked((long)Math.Max(1, options.Width) * Math.Max(1, options.Height) * 4); }
+            catch (OverflowException)
+            {
+                failure = new(GpuFailureKind.BudgetExceeded, "The WebGL surface size overflowed.");
+                return false;
+            }
+
+            if (options.MaxBytes > 0 && surfaceBytes > options.MaxBytes)
+            {
+                failure = new(GpuFailureKind.BudgetExceeded, "The WebGL context budget was exceeded.");
+                return false;
+            }
+            if (!TryReserveLocked(surfaceBytes, out var reservation))
+            {
+                failure = new(GpuFailureKind.BudgetExceeded, "The GPU budget was exceeded.");
+                return false;
+            }
+
+            try
+            {
+                context = new FolioNativeWebGlContext(this, options, reservation, surfaceBytes);
+                _contexts.Add(context);
+                return true;
+            }
+            catch (Exception error)
+            {
+                reservation.Dispose();
+                failure = new(GpuFailureKind.NativeError, error.Message);
+                return false;
+            }
+        }
+    }
+
+    public bool TryCreateNativeWebGlContext(int width, int height, out FolioNativeWebGlContext? context, out GpuFailure? failure)
+    {
+        var attributes = new WebGlContextAttributes(
+            WebGlContextVersion.WebGl2,
+            Alpha: true,
+            Depth: true,
+            Stencil: false,
+            Antialias: false,
+            PremultipliedAlpha: true,
+            PreserveDrawingBuffer: false);
+        return TryCreateNativeWebGlContext(new(WebGlContextVersion.WebGl2, width, height, attributes, _maxBytes), out context, out failure);
+    }
+
+    bool INativeWebGlFactory.TryCreate(WebGlContextOptions options, out INativeWebGlContext? context, out GpuFailure? failure)
+    {
+        var ok = TryCreateNativeWebGlContext(options, out var typed, out failure);
+        context = typed;
+        return ok;
     }
 
     internal bool TryCreateNativeSurface(int width, int height, out IntPtr texture, out IntPtr rtv, out IntPtr staging)
@@ -321,6 +405,11 @@ internal sealed class FolioGpuDevice : IGpuDevice
         lock (_gate) _surfaces.Remove(surface);
     }
 
+    internal void ForgetWebGlContext(FolioNativeWebGlContext context)
+    {
+        lock (_gate) _contexts.Remove(context);
+    }
+
     internal bool TryReserve(long bytes, out IDisposable reservation)
     {
         lock (_gate) return TryReserveLocked(bytes, out reservation);
@@ -349,6 +438,12 @@ internal sealed class FolioGpuDevice : IGpuDevice
         lock (_gate)
         {
             if (_disposed) return;
+            foreach (var context in _contexts.ToArray())
+            {
+                try { context.Dispose(); }
+                catch { }
+            }
+            _contexts.Clear();
             foreach (var surface in _surfaces.ToArray())
             {
                 try { surface.Dispose(); }

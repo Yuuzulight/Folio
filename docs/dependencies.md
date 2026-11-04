@@ -228,7 +228,7 @@ ship intermediate dependency-backed implementations while the replacements are
 being built, but Folio itself is complete only after all five replacement tracks below
 are selected by production and their superseded dependencies are removable.
 
-**Current status (2026-10-29):** the latest Release build and direct M1–M6
+**Completed status (2026-11-04, M7 [#579](https://github.com/Yuuzulight/Folio/issues/579)):** All five Folio-owned replacement tracks (Shaping, Rasterisation, Image Codecs, JavaScript, WebAssembly, and Native Direct3D 11 GPU / GLSL translation) are complete and selected by default in production. Production libraries (Folio, Folio.Scripting, Folio.WinForms) and the published Folio.ContentHost contain zero SkiaSharp, HarfBuzzSharp, Avalonia.Angle.Windows.Natives, Jint, or Wasmtime assemblies or native binaries, enforced by the CI publish guard (ctions/runs/41685962868). Historical notes from the staged replacement process: the latest Release build and direct M1–M6
 acceptance suites pass. Native D2–D7 now passes 60/60, including the React host
 reconciliation interaction fixed in #645; the mandatory replacement gate remains
 open. The production Skia path now selects

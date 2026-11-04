@@ -186,18 +186,7 @@ public sealed class GpuSurfaceTests
 
     private static IGpuDevice CreateWarpDevice(long budget)
     {
-        var rid = RuntimeInformation.ProcessArchitecture switch
-        {
-            Architecture.X64 => "win-x64",
-            Architecture.X86 => "win-x86",
-            Architecture.Arm64 => "win-arm64",
-            _ => "win-x64"
-        };
-        var asset = Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", "av_libglesv2.dll");
-        if (!File.Exists(asset))
-            asset = Path.Combine(AppContext.BaseDirectory, "av_libglesv2.dll");
-        Assert.True(File.Exists(asset), "The pinned ANGLE native asset is required for the WARP proof.");
-        var result = AngleGpuBackend.TryCreate(asset!, budget, GpuRendererPreference.WarpOnly);
+        var result = FolioGpuBackend.TryCreate(budget, GpuRendererPreference.WarpOnly);
         Assert.True(result.Succeeded, result.Failure?.Message);
         return result.Device!;
     }
