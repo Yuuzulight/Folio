@@ -230,7 +230,7 @@ public static class Program
                 failures++;
                 continue;
             }
-            var folio = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft, language);
+            var folio = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
             var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
             var glyphs = folio.Glyphs.SequenceEqual(oracle.Glyphs);
             var clusters = folio.Clusters.SequenceEqual(oracle.Clusters);
@@ -301,7 +301,7 @@ public static class Program
             var complex = script is "Arabic" or "Hebrew" or "Indic" or "Southeast Asian";
             var rightToLeft = script is "Arabic" or "Hebrew";
             var language = script == "Arabic" ? "ar" : script == "Hebrew" ? "he" : null;
-            var folio = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft, language);
+            var folio = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
             var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
             var pass = folio.Glyphs.SequenceEqual(oracle.Glyphs)
                 && folio.Clusters.SequenceEqual(oracle.Clusters)
