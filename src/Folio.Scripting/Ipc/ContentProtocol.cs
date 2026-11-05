@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Folio.Scripting.Ipc;
 
@@ -24,12 +25,19 @@ public enum ContentMessageKind
     Capabilities,
     StorageRequest,
     StorageResponse,
+    Viewport,
 }
 
 public sealed record ContentMessage(ContentMessageKind Kind, long Sequence, JsonElement Payload, int Version = 1)
 {
     public const int CurrentVersion = 1;
 }
+
+[JsonSerializable(typeof(ContentMessage))]
+[JsonSerializable(typeof(ContentFramePayload))]
+[JsonSerializable(typeof(ContentViewport))]
+[JsonSerializable(typeof(ResourceLimits))]
+internal partial class ContentProtocolJsonContext : JsonSerializerContext;
 
 /// <summary>Length-prefixed, bounded protocol codec used by the content-process transport.</summary>
 public static class ContentProtocol
@@ -39,7 +47,7 @@ public static class ContentProtocol
     public static byte[] Encode(ContentMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
-        var payload = JsonSerializer.SerializeToUtf8Bytes(message);
+        var payload = JsonSerializer.SerializeToUtf8Bytes(message, ContentProtocolJsonContext.Default.ContentMessage);
         if (payload.Length > MaxPayloadBytes)
             throw new InvalidDataException("Content protocol payload exceeds the configured limit.");
         var frame = new byte[sizeof(int) + payload.Length];
@@ -56,7 +64,7 @@ public static class ContentProtocol
         if (length < 0 || length > MaxPayloadBytes || frame.Length != sizeof(int) + length) return false;
         try
         {
-            message = JsonSerializer.Deserialize<ContentMessage>(frame[sizeof(int)..]);
+            message = JsonSerializer.Deserialize(frame[sizeof(int)..], ContentProtocolJsonContext.Default.ContentMessage);
             return message is not null && message.Version == ContentMessage.CurrentVersion;
         }
         catch (JsonException)

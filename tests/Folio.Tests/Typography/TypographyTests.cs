@@ -34,7 +34,7 @@ public class TypographyTests
             _ = SoftwareCanvas.Flattened(face, (ushort)glyph, 0.05f + step * 0.01f);
 
         var usage = SoftwareCanvas.GlyphCacheUsage(face);
-        Assert.InRange(usage.Outlines + usage.Flattened, 0, 8L * 1024 * 1024);
+        Assert.InRange(usage.Outlines + usage.Flattened + usage.Coverage, 0, 8L * 1024 * 1024);
     }
 
     [Fact]

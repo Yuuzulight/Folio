@@ -4,10 +4,10 @@
     <OutputType Condition="'$(OS)' == 'Windows_NT'">WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <!-- ReadyToRun apphosts fail-fast inside the Windows AppContainer on the
-         supported runner. Keep the published host framework-dependent and
-         runnable; startup targets are measured on this exact artifact. -->
-    <PublishReadyToRun>false</PublishReadyToRun>
+    <!-- Publish through tools/publish-content-host.ps1: its isolated build path
+         prevents stale composite images from contaminating this non-composite host. -->
+    <PublishReadyToRun Condition="'$(RuntimeIdentifier)' != ''">true</PublishReadyToRun>
+    <PublishReadyToRunComposite>false</PublishReadyToRunComposite>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Folio.Scripting\Folio.Scripting.csproj" />
@@ -15,5 +15,9 @@
     <ProjectReference Include="..\..\src\Folio.Scripting.Jint\Folio.Scripting.Jint.csproj" Condition="'$(FolioOracleHost)' == 'true'" />
     <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
     <ProjectReference Include="..\..\src\Folio.Diagrams\Folio.Diagrams.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="../../tests/fonts/SourceSans3-*.ttf;../../tests/fonts/SourceCodePro-*.ttf;../../tests/fonts/SourceSerif4-*.ttf;../../tests/fonts/Noto*.ttf;../../tests/fonts/Noto*.otf;../../tests/fonts/*-OFL.txt;../../tests/fonts/LICENSES.md;../../tests/fonts/SHA256SUMS"
+             Link="fonts/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -16,6 +16,196 @@ namespace Folio.RenderTests;
 /// </summary>
 public class SoftwareRasterTests(ITestOutputHelper output)
 {
+    [Theory]
+    [InlineData(1f)]
+    public void OverlappingGlyphsPreservePaintOrderAndTranslucentCompositing(float scale)
+    {
+        var face = Load("SourceSans3-Regular.ttf");
+        var glyphs = new[] { face.GlyphFor('A'), face.GlyphFor('V'), face.GlyphFor('I'), face.GlyphFor('Z') };
+        Check("overlapping glyph groups", canvas =>
+        {
+            canvas.Save();
+            canvas.Transform(Matrix3x2.CreateScale(scale));
+            canvas.ClipRoundedRect(new RoundedRect(new RectF(8, 8, 100, 104),
+                new CornerRadii(new(12, 12), new(12, 12), new(12, 12), new(12, 12))));
+            for (var row = 0; row < 2; row++)
+                canvas.DrawGlyphs(face, 32, glyphs,
+                    [new(12.25f, 45 + row * 42), new(20.5f, 45 + row * 42), new(65.25f, 45 + row * 42), new(78.5f, 45 + row * 42)],
+                    Solid(.2f, .5f, .8f, .45f));
+            canvas.Restore();
+        });
+    }
+
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.1f)]
+    [InlineData(1.5f)]
+    public void OverlappingGlyphRunMatchesIndividualGlyphPaints(float scale)
+    {
+        var face = Load("SourceSans3-Regular.ttf");
+        ushort[] glyphs = [face.GlyphFor('A'), face.GlyphFor('V'), face.GlyphFor('I'), face.GlyphFor('Z')];
+        Vector2[] origins = [new(12.25f, 45), new(20.5f, 45), new(65.25f, 45), new(78.5f, 45)];
+        using var actual = new SoftwareRasterSurface(160, 100);
+        using var expected = new SoftwareRasterSurface(160, 100);
+        foreach (var surface in new[] { actual, expected })
+        {
+            surface.Canvas.Transform(Matrix3x2.CreateScale(scale));
+            surface.Canvas.ClipRoundedRect(new RoundedRect(new RectF(8, 8, 100, 70),
+                new CornerRadii(new(12, 12), new(12, 12), new(12, 12), new(12, 12))));
+        }
+        var paint = Solid(.2f, .5f, .8f, .45f);
+        actual.Canvas.DrawGlyphs(face, 32, glyphs, origins, paint);
+        for (var index = 0; index < glyphs.Length; index++)
+            expected.Canvas.DrawGlyphs(face, 32, glyphs.AsSpan(index, 1), origins.AsSpan(index, 1), paint);
+        Assert.Equal(expected.PremultipliedPixels, actual.PremultipliedPixels);
+    }
+
+    [Theory]
+    [InlineData(FillRule.NonZero)]
+    [InlineData(FillRule.EvenOdd)]
+    public void WideScanlinesPreserveCoverageAcrossIndependentClips(FillRule rule)
+    {
+        Vector2[][] polygons =
+        [
+            [new(.25f, .5f), new(220.75f, 4.5f), new(240.25f, 25.5f), new(2.25f, 30.5f)],
+            [new(40.25f, 8.5f), new(40.25f, 20.5f), new(180.75f, 20.5f), new(180.75f, 8.5f)],
+        ];
+        var full = Rasterizer.Fill(polygons, rule, new IntRect(0, 0, 256, 32))!;
+        // Independently rasterizing narrow tiles exercises the edge path,
+        // including hole boundaries, without wide interior span batches.
+        for (var left = 0; left < 240; left += 8)
+        {
+            var tile = Rasterizer.Fill(polygons, rule, new IntRect(left, 0, left + 8, 32));
+            if (tile is null) continue;
+            for (var y = tile.Bounds.Top; y < tile.Bounds.Bottom; y++)
+                for (var x = tile.Bounds.Left; x < tile.Bounds.Right; x++)
+                    Assert.InRange(Math.Abs(full.At(x, y) - tile.At(x, y)), 0, 1);
+        }
+    }
+
+    [Fact]
+    public void OpaqueRectanglesRespectRoundedClipEdges() => Check("opaque clipped rectangles", canvas =>
+    {
+        canvas.Save();
+        canvas.ClipRoundedRect(new RoundedRect(new RectF(5, 5, 110, 110), new CornerRadii(new(20, 20), new(20, 20), new(20, 20), new(20, 20))));
+        canvas.FillRoundedRect(new RoundedRect(new RectF(0, 0, 128, 128), default), Solid(.2f, .5f, .8f));
+        canvas.FillRoundedRect(new RoundedRect(new RectF(25, 25, 60, 60), default), Solid(.8f, .2f, .1f));
+        canvas.FillRoundedRect(new RoundedRect(new RectF(10, 50, 80, 40), default), Solid(.1f, .8f, .2f, .5f));
+        canvas.Restore();
+    });
+
+    [Fact]
+    public void GlyphCoverageCacheStaysInsideTheSharedFontBudget()
+    {
+        var face = Load("SourceSans3-Regular.ttf");
+        using var surface = new SoftwareRasterSurface(64, 64);
+        for (var glyph = 0; glyph < face.GlyphCount; glyph++)
+            surface.Canvas.DrawGlyphs(face, 18, [(ushort)glyph], [new Vector2(16.25f, 40)], Solid(0, 0, 0));
+        var usage = SoftwareCanvas.GlyphCacheUsage(face);
+        Assert.InRange(usage.Coverage, 1, 1024 * 1024);
+        Assert.InRange(usage.Outlines + usage.Flattened + usage.Coverage, 1, 8L * 1024 * 1024);
+    }
+
+    [Fact]
+    public void RectangularRingsPreserveFractionalCoverageAndClip()
+    {
+        foreach (var reversed in new[] { false, true })
+        {
+            Vector2[] outer = [new(.2f, .3f), new(6.8f, .3f), new(6.8f, 5.6f), new(.2f, 5.6f)];
+            Vector2[] inner = [new(.8f, .9f), new(5.7f, .9f), new(5.7f, 4.8f), new(.8f, 4.8f)];
+            var coverage = Rasterizer.Fill(reversed ? [inner, outer] : [outer, inner], FillRule.EvenOdd, new IntRect(0, 1, 6, 5));
+            Assert.NotNull(coverage);
+            for (var y = 1; y < 5; y++)
+                for (var x = 0; x < 6; x++)
+                {
+                    var area = Overlap(x, .2f, 6.8f) * Overlap(y, .3f, 5.6f)
+                        - Overlap(x, .8f, 5.7f) * Overlap(y, .9f, 4.8f);
+                    Assert.Equal((byte)Math.Clamp((int)MathF.Round(area * 255), 0, 255), coverage.At(x, y));
+                }
+        }
+        static float Overlap(int pixel, float start, float end) => Math.Max(0, Math.Min(pixel + 1, end) - Math.Max(pixel, start));
+    }
+
+    [Fact]
+    public void RectangularRingsMatchTheRasterOracle() => Check("rectangular rings", canvas =>
+    {
+        foreach (var fraction in new[] { 0f, .25f, .5f })
+        {
+            var outer = new RoundedRect(new RectF(10 + fraction, 10 + fraction * 120, 90, 20), default);
+            var inner = outer.Inset(1, 2, 3, 4);
+            canvas.FillPath(new PathData().AddRoundedRect(outer).AddRoundedRect(inner), FillRule.EvenOdd, Solid(.2f, .5f, .8f));
+        }
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TranslucentRectangularRingsPreserveClippedAndScaledEdges(bool scaled) => Check("clipped translucent rings", canvas =>
+    {
+        canvas.Save();
+        canvas.ClipRoundedRect(new RoundedRect(new RectF(6.25f, 5.5f, 110, 110),
+            new CornerRadii(new(18, 18), new(18, 18), new(18, 18), new(18, 18))));
+        if (scaled) canvas.Transform(Matrix3x2.CreateScale(1.15f, .9f));
+        for (var index = 0; index < 4; index++)
+        {
+            var outer = new RoundedRect(new RectF(2.25f, 6.5f + index * 26, 110.5f, 24.25f), default);
+            var inner = outer.Inset(1.25f, 2.5f, 3.75f, 4.25f);
+            var path = index % 2 == 0 ? new PathData().AddRoundedRect(outer).AddRoundedRect(inner)
+                : new PathData().AddRoundedRect(inner).AddRoundedRect(outer);
+            canvas.FillPath(path, FillRule.EvenOdd, Solid(.2f, .5f, .8f, .45f));
+        }
+        canvas.Restore();
+    });
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void SingleSquareBorderSideMatchesItsSolidStrip(int side)
+    {
+        foreach (var fraction in new[] { 0f, .25f, .5f })
+        {
+            var widths = new float[4];
+            widths[side] = 3;
+            var red = new Folio.Css.CssColor(1, 0, 0, .5f);
+            var border = new Folio.Style.BorderGroup(widths[0], widths[1], widths[2], widths[3],
+                Folio.Style.BorderStyle.Solid, Folio.Style.BorderStyle.Solid, Folio.Style.BorderStyle.Solid, Folio.Style.BorderStyle.Solid,
+                red, red, red, red);
+            var box = new RectF(10 + fraction, 10 + fraction, 50, 30);
+            var strip = side switch
+            {
+                0 => new RectF(box.X, box.Y, box.Width, 3),
+                1 => new RectF(box.Right - 3, box.Y, 3, box.Height),
+                2 => new RectF(box.X, box.Bottom - 3, box.Width, 3),
+                _ => new RectF(box.X, box.Y, 3, box.Height),
+            };
+            var list = new DisplayList();
+            list.Items.Add(new DisplayItem(DisplayItemKind.Border, new RoundedRect(box, default), Border: border));
+            using var actual = new SoftwareRasterSurface(80, 60);
+            using var expected = new SoftwareRasterSurface(80, 60);
+            DisplayListPlayer.Replay(list, actual.Canvas);
+            expected.Canvas.FillRoundedRect(new RoundedRect(strip, default), new Paint(new Rgba(1, 0, 0, .5f)));
+            Assert.Equal(expected.PremultipliedPixels, actual.PremultipliedPixels);
+        }
+    }
+
+    [Fact]
+    public void AsciiShapingPreservesGlyphsClustersAdvancesAndOffsets()
+    {
+        var face = Load("SourceSans3-Regular.ttf");
+        var text = "prefix:" + new string(Enumerable.Range(0, 128).Select(value => (char)value).ToArray()) + ":suffix";
+        var shaped = ComplexShaper.Instance.Shape(text, 7, 128, face, 18, false, "en");
+        for (var index = 0; index < 128; index++)
+        {
+            var glyph = face.GlyphFor(index);
+            Assert.Equal(glyph, shaped.Glyphs[index]);
+            Assert.Equal(7 + index, shaped.Clusters[index]);
+            Assert.Equal(face.Advance(glyph) * (18f / face.UnitsPerEm), shaped.Advances[index]);
+            Assert.Equal(Vector2.Zero, shaped.Offsets[index]);
+        }
+    }
+
     [Fact]
     public void SideBySideTextReviewAt100And150Percent()
     {
@@ -348,7 +538,7 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         }
 
         var usage = SoftwareCanvas.GlyphCacheUsage(face);
-        Assert.InRange(usage.Outlines + usage.Flattened, 0, 8L * 1024 * 1024);
+        Assert.InRange(usage.Outlines + usage.Flattened + usage.Coverage, 0, 8L * 1024 * 1024);
     }
 
     private static byte[] AddTables(byte[] source, params (string Tag, byte[] Data)[] additions)

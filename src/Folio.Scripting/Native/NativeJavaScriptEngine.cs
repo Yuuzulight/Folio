@@ -27,19 +27,30 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     private readonly Queue<Action> _microtasks = new();
     private int _maxSteps = ScriptLimits.Default.MaxStatements ?? 100_000;
     private TimeSpan? _timeout = ScriptLimits.Default.Timeout;
+    private long? _sequenceMemoryLimit = ScriptLimits.Default.MemoryLimitBytes;
     private long _deadlineTicks;
-    private bool _interrupted;
+    private volatile bool _interrupted;
+    private ScriptLimits _executionLimits = ScriptLimits.Default;
     private bool _disposed;
 
     public NativeJavaScriptEngine(int? inheritedMaxSteps = null, TimeSpan? inheritedTimeout = null)
     {
         if (inheritedMaxSteps is > 0) _maxSteps = inheritedMaxSteps.Value;
         if (inheritedTimeout is not null) _timeout = inheritedTimeout;
+        _executionLimits = _executionLimits with { MaxStatements = _maxSteps, Timeout = _timeout };
         _bindings["Infinity"] = double.PositiveInfinity;
         _bindings["NaN"] = double.NaN;
-        var arrayConstructor = new NativeFunction(args => args.Count == 1 && args[0] is double length
-            ? Enumerable.Repeat<object?>(JavaScriptEvaluator.UndefinedValue.Instance, Math.Max(0, (int)length)).ToList()
-            : args.ToList());
+        var arrayConstructor = new NativeFunction(args =>
+        {
+            if (args.Count == 1 && args[0] is double length)
+            {
+                if (!double.IsFinite(length) || length < 0 || length != Math.Truncate(length) || length > int.MaxValue)
+                    throw WebIdlException.RangeError("Invalid array length.");
+                NativeExecutionBudget.CheckAllocation(64L + (long)length * IntPtr.Size);
+                return Enumerable.Repeat<object?>(JavaScriptEvaluator.UndefinedValue.Instance, (int)length).ToList();
+            }
+            return args.ToList();
+        });
         arrayConstructor.SetProperty("isArray", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyList<object?>));
         arrayConstructor.SetProperty("from", (Func<IReadOnlyList<object?>, object?>)(args =>
         {
@@ -571,7 +582,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _bindings["btoa"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? string.Empty : Convert.ToBase64String(Encoding.Latin1.GetBytes(StringValue(args[0]))));
         var arrayBuffer = new NativeFunction(args =>
         {
-            var length = args.Count == 0 ? 0 : Math.Max(0, (int)NumberValue(args[0]));
+            var length = args.Count == 0 ? 0 : BufferIndex(args[0]);
+            NativeExecutionBudget.CheckAllocation(32L + length);
             return new NativeBuffer(ScriptBufferSourceKind.ArrayBuffer, new byte[length], 1);
         });
         arrayBuffer.SetProperty("isView", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is INativeBuffer buffer && buffer.TypeName != "ArrayBuffer"));
@@ -602,8 +614,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     public void Configure(ScriptLimits limits)
     {
-        _maxSteps = Math.Max(1, limits.MaxStatements ?? 100_000);
+        ArgumentNullException.ThrowIfNull(limits);
+        _executionLimits = limits;
+        _maxSteps = Math.Max(1, limits.MaxStatements ?? int.MaxValue);
         _timeout = limits.Timeout;
+        _sequenceMemoryLimit = limits.MemoryLimitBytes;
     }
 
     private NativeFunction StubConstructor(string name)
@@ -618,21 +633,43 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         var constructor = new NativeFunction(args =>
         {
             var elementSize = ElementSize(kind);
+            if (kind == ScriptBufferSourceKind.DataView && (args.Count == 0 || args[0] is not NativeBuffer { Kind: ScriptBufferSourceKind.ArrayBuffer }))
+                throw WebIdlException.TypeError("DataView requires an ArrayBuffer.");
             if (args.Count == 0) return new NativeBuffer(kind, [], elementSize);
             if (args[0] is NativeBuffer existing)
-                return new NativeBuffer(kind, existing.Bytes.ToArray(), elementSize);
+            {
+                if (!existing.IsAttached) throw WebIdlException.TypeError("Cannot construct a view from a detached buffer.");
+                if (existing.Kind == ScriptBufferSourceKind.ArrayBuffer)
+                    return existing.CreateView(kind, args.Count > 1 ? BufferIndex(args[1]) : 0,
+                        args.Count > 2 && args[2] is not JavaScriptEvaluator.UndefinedValue ? BufferIndex(args[2]) : null);
+                var copied = existing.Kind == ScriptBufferSourceKind.DataView ? []
+                    : Enumerable.Range(0, existing.Length).Select(index => existing.ReadElement(index)).ToArray();
+                return new NativeBuffer(kind, EncodeElements(kind, copied), elementSize);
+            }
             if (args[0] is IReadOnlyList<object?> values)
                 return new NativeBuffer(kind, EncodeElements(kind, values), elementSize);
-            var length = Math.Max(0, (int)NumberValue(args[0]));
+            var length = BufferIndex(args[0]);
+            if ((long)length * elementSize > int.MaxValue) throw WebIdlException.RangeError("Typed array length exceeds the supported buffer size.");
+            NativeExecutionBudget.CheckAllocation(32L + (long)length * elementSize);
             return new NativeBuffer(kind, new byte[length * elementSize], elementSize);
         });
         constructor.SetProperty("prototype", new Dictionary<string, object?>(StringComparer.Ordinal));
         return constructor;
     }
 
+    private static int BufferIndex(object? value)
+    {
+        var index = Math.Truncate(NumberValue(value));
+        if (double.IsNaN(index)) return 0;
+        if (!double.IsFinite(index) || index < 0 || index > int.MaxValue)
+            throw WebIdlException.RangeError("Invalid buffer offset or length.");
+        return (int)index;
+    }
+
     private static byte[] EncodeElements(ScriptBufferSourceKind kind, IReadOnlyList<object?> values)
     {
         var size = ElementSize(kind);
+        NativeExecutionBudget.CheckAllocation(32L + (long)values.Count * size);
         var bytes = new byte[values.Count * size];
         for (var i = 0; i < values.Count; i++)
         {
@@ -657,7 +694,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         return bytes;
     }
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<JavaScriptStatement>> AstCache = new();
+    private static readonly BoundedScriptCache<string, IReadOnlyList<JavaScriptStatement>> AstCache = new(256, 1024 * 1024);
 
     public static void Prime()
     {
@@ -667,14 +704,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     internal static IReadOnlyList<JavaScriptStatement> GetOrParseProgram(string source)
     {
         if (source.Length <= 65536)
-        {
-            if (AstCache.TryGetValue(source, out var cached))
-                return cached;
-            var parsed = new JavaScriptParser(source).ParseProgram();
-            if (AstCache.Count < 500)
-                AstCache.TryAdd(source, parsed);
-            return parsed;
-        }
+            return AstCache.GetOrAdd(source, source.Length, static text => new JavaScriptParser(text).ParseProgram());
         return new JavaScriptParser(source).ParseProgram();
     }
 
@@ -684,15 +714,19 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         if (_interrupted) { _interrupted = false; throw new ScriptInterruptedException("The native script was interrupted."); }
         var previousDeadline = _deadlineTicks;
         if (previousDeadline == 0) _deadlineTicks = NewDeadline();
+        using var budget = NativeExecutionBudget.Begin(this, _executionLimits, IsDeadlineExceeded, () => _interrupted);
         try
         {
             var statements = GetOrParseProgram(source);
+            NativeExecutionBudget.CheckCurrent();
             var evaluator = new JavaScriptEvaluator(_bindings, _maxSteps, preserveUndefined: true, deadlineExceeded: IsDeadlineExceeded);
             var result = statements.Count == 1 && statements[0] is JavaScriptExpressionStatement expression
                 ? evaluator.Evaluate(expression.Expression)
                 : evaluator.Execute(statements);
+            NativeExecutionBudget.CheckCurrent();
             return ToScriptValue(result);
         }
+        catch (ScriptInterruptedException) { _interrupted = false; throw; }
         finally { _deadlineTicks = previousDeadline; }
     }
 
@@ -708,20 +742,24 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         EnsureLive();
         var previousDeadline = _deadlineTicks;
         if (previousDeadline == 0) _deadlineTicks = NewDeadline();
+        using var budget = NativeExecutionBudget.Begin(this, _executionLimits, IsDeadlineExceeded, () => _interrupted);
         try
         {
             var values = new object?[args.Length];
             for (var i = 0; i < args.Length; i++)
                 values[i] = ToObject(args[i]);
             var receiver = ToObject(thisValue);
-            return function.Raw switch
+            var result = function.Raw switch
             {
                 Func<IReadOnlyList<object?>, object?> callable => ToScriptValue(JavaScriptEvaluator.InvokeWithReceiver(callable, receiver, values)),
                 NativeReceiverFunction callable => ToScriptValue(callable.Invoke(receiver, values)),
                 INativeCallable callable => ToScriptValue(callable.Invoke(values)),
                 _ => throw new InvalidOperationException("Value is not callable."),
             };
+            NativeExecutionBudget.CheckCurrent();
+            return result;
         }
+        catch (ScriptInterruptedException) { _interrupted = false; throw; }
         finally { _deadlineTicks = previousDeadline; }
     }
 
@@ -778,6 +816,85 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         if (value.Raw is IReadOnlyList<object?> array) { items = array.Select(ToScriptValue).ToArray(); return true; }
         items = []; return false;
+    }
+    public bool CoerceBoolean(ScriptValue value) => JavaScriptEvaluator.Truth(ToObject(value));
+
+    public bool TryReadSequence(ScriptValue value, Action<ScriptValue> append)
+    {
+        EnsureLive();
+        ArgumentNullException.ThrowIfNull(append);
+        var started = Stopwatch.GetTimestamp();
+        long count = 0;
+        void Append(ScriptValue item)
+        {
+            NativeExecutionBudget.Step();
+            if (_interrupted)
+            {
+                // Preserve a containing task's sticky failure before consuming
+                // a standalone sequence conversion's interrupt flag.
+                NativeExecutionBudget.CheckCurrent();
+                _interrupted = false;
+                throw new ScriptInterruptedException("The native script was interrupted.");
+            }
+            if (_timeout is { } timeout && timeout > TimeSpan.Zero && Stopwatch.GetElapsedTime(started) > timeout)
+                throw new ScriptLimitExceededException("Timeout", "Sequence conversion exceeded the execution time limit.");
+            if (++count > _maxSteps)
+                throw new ScriptLimitExceededException("Statements", "Sequence conversion exceeded the evaluation step limit.");
+            if (_sequenceMemoryLimit is { } memory && count > Math.Max(0, memory / 64))
+                throw new ScriptLimitExceededException("Memory", "Sequence conversion exceeded the allocation limit.");
+            append(item);
+        }
+        if (value.Raw is NativeBuffer buffer)
+        {
+            if (buffer.Kind is ScriptBufferSourceKind.ArrayBuffer or ScriptBufferSourceKind.DataView) return false;
+            if (!buffer.IsAttached) throw WebIdlException.TypeError("Cannot iterate a detached typed array.");
+            var length = buffer.Length;
+            for (var index = 0; index < length; index++)
+            {
+                if (!buffer.TryGetIndex(index, out var item)) throw WebIdlException.TypeError("The typed array was detached during conversion.");
+                Append(ToScriptValue(item));
+            }
+            return true;
+        }
+        IEnumerable<object?>? values = value.Raw switch
+        {
+            IReadOnlyList<object?> array => array,
+            NativeSet set => set.Values(),
+            NativeMap map => map.Entries(),
+            string text => text.EnumerateRunes().Select(rune => (object?)rune.ToString()),
+            _ => null,
+        };
+        if (values is not null)
+        {
+            foreach (var item in values) Append(ToScriptValue(item));
+            return true;
+        }
+        if (value.IsNullOrUndefined) return false;
+        var method = GetProperty(value, "Symbol.iterator");
+        if (method.IsNullOrUndefined) return false;
+        var iterator = Call(method, value, []);
+        if (!iterator.IsObject) throw WebIdlException.TypeError("The sequence iterator did not return an object.");
+        var next = GetProperty(iterator, "next");
+        while (true)
+        {
+            var step = Call(next, iterator, []);
+            if (!step.IsObject) throw WebIdlException.TypeError("The sequence iterator step did not return an object.");
+            if (CoerceBoolean(GetProperty(step, "done"))) return true;
+            var item = GetProperty(step, "value");
+            try { Append(item); }
+            catch
+            {
+                // Close only an abrupt conversion, preserving its original
+                // failure even if the iterator's return getter/call also fails.
+                try
+                {
+                    var close = GetProperty(iterator, "return");
+                    if (!close.IsNullOrUndefined) Call(close, iterator, []);
+                }
+                catch { }
+                throw;
+            }
+        }
     }
     public bool TrySetArrayItem(ScriptValue value, int index, ScriptValue item)
     {
@@ -1213,12 +1330,30 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     public void PerformMicrotaskCheckpoint()
     {
         EnsureLive();
-        var budget = _maxSteps;
-        while (_microtasks.Count > 0 && budget-- > 0) _microtasks.Dequeue()();
-        if (_microtasks.Count > 0) throw new InvalidOperationException("The microtask queue exceeded its evaluation step limit.");
+        var previousDeadline = _deadlineTicks;
+        if (previousDeadline == 0) _deadlineTicks = NewDeadline();
+        using var scope = NativeExecutionBudget.Begin(this, _executionLimits, IsDeadlineExceeded, () => _interrupted);
+        try
+        {
+            var budget = _maxSteps;
+            while (_microtasks.Count > 0 && budget-- > 0)
+            {
+                NativeExecutionBudget.Step();
+                _microtasks.Dequeue()();
+            }
+            NativeExecutionBudget.CheckCurrent();
+            if (_microtasks.Count > 0) throw new ScriptLimitExceededException("Statements", "The microtask queue exceeded its evaluation step limit.");
+        }
+        catch (ScriptInterruptedException) { _interrupted = false; throw; }
+        finally { _deadlineTicks = previousDeadline; }
     }
     public void Interrupt() => _interrupted = true;
-    public IScriptEngine CreateIsolated() => new NativeJavaScriptEngine(_maxSteps, _timeout);
+    public IScriptEngine CreateIsolated()
+    {
+        var engine = new NativeJavaScriptEngine();
+        engine.Configure(_executionLimits);
+        return engine;
+    }
 
     string IStructuredCloneEngine.ClassifyCloneObject(ScriptValue value)
     {
@@ -1252,6 +1387,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         var isolatedScope = source.Contains("with (scope)", StringComparison.Ordinal);
         return (Func<IReadOnlyList<object?>, object?>)(values =>
         {
+            using var callScope = NativeExecutionBudget.EnterCall();
             var local = new Dictionary<string, object?>(StringComparer.Ordinal);
             for (var i = 0; i < parameters.Length; i++) local[parameters[i]] = i < values.Count ? values[i] : null;
             local["arguments"] = values.ToList();
@@ -1395,14 +1531,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             if (double.TryParse(text[..length], NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) return value;
         return double.NaN;
     }
-    private static bool TruthValue(object? value) => value switch
-    {
-        null or JavaScriptEvaluator.UndefinedValue => false,
-        bool boolean => boolean,
-        double number => number != 0 && !double.IsNaN(number),
-        string text => text.Length != 0,
-        _ => true,
-    };
+    private static bool TruthValue(object? value) => JavaScriptEvaluator.Truth(value);
     private static string StringValue(object? value) => value switch
     {
         null => "null",
@@ -1783,6 +1912,17 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         internal int ByteLength => IsAttached ? _viewByteLength : 0;
         internal int Length => IsAttached ? _viewByteLength / ElementSize : 0;
         internal bool IsAttached => !_storage.Detached;
+        internal NativeBuffer CreateView(ScriptBufferSourceKind kind, int byteOffset, int? length)
+        {
+            if (!IsAttached) throw WebIdlException.TypeError("Cannot construct a view from a detached buffer.");
+            var size = ElementSize(kind);
+            var remaining = Bytes.Length - byteOffset;
+            if (byteOffset > Bytes.Length || byteOffset % size != 0 || (length is null && remaining % size != 0))
+                throw WebIdlException.RangeError("Invalid typed array alignment or offset.");
+            var bytes = length is { } count ? (long)count * size : remaining;
+            if (bytes > remaining) throw WebIdlException.RangeError("The view exceeds its backing buffer.");
+            return new NativeBuffer(kind, _storage, byteOffset, (int)bytes, size);
+        }
         internal void Detach() { _storage.Bytes = []; _storage.Detached = true; _viewByteLength = 0; }
         public bool TryGetProperty(string name, out object? value)
         {
@@ -1848,7 +1988,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             WriteElement(index, number);
             return true;
         }
-        private object ReadElement(int index)
+        internal object ReadElement(int index)
         {
             var span = Bytes.AsSpan(_offset + index * ElementSize, ElementSize);
             return Kind switch

@@ -3,6 +3,18 @@ namespace Folio.RenderTests;
 public class ConformanceTests
 {
     [Fact]
+    public void StrictConformanceRejectsAnEmptySelection() =>
+        Assert.Equal(1, Program.Main(["conformance", "--strict", "missing-release-corpus"]));
+
+    [Fact]
+    public void NativePantryReactUpdatesQuantityAfterFiltering()
+    {
+        var artifact = Conformance.Discover().Single(item => item.Id == "D2/pantry-react-jsx");
+        var result = Conformance.Run(artifact, engineFactory: static () => new Folio.Scripting.Native.NativeJavaScriptEngine());
+        Assert.True(result.Passed, $"{result.Outcome}: {result.Detail}");
+    }
+
+    [Fact]
     public void SortableDirectoryMatchesItsReference()
     {
         var artifact = Conformance.Discover().Single(a => a.Id == "D1/sortable-filter-table");

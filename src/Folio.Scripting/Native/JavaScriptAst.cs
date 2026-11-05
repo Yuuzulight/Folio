@@ -117,19 +117,19 @@ internal sealed record JavaScriptClassExpression(string? Name, string? Parent, I
 
 internal abstract record JavaScriptStatement;
 internal sealed record JavaScriptExpressionStatement(JavaScriptExpression Expression) : JavaScriptStatement;
-internal sealed record JavaScriptVariableStatement(string Name, JavaScriptExpression? Initializer) : JavaScriptStatement;
+internal sealed record JavaScriptVariableStatement(string Name, JavaScriptExpression? Initializer, bool Lexical = false) : JavaScriptStatement;
 internal sealed record JavaScriptFunctionDeclarationStatement(string Name, JavaScriptFunctionExpression Function) : JavaScriptStatement;
 internal sealed record JavaScriptClassDeclarationStatement(string Name, JavaScriptClassExpression Class) : JavaScriptStatement;
 internal sealed record JavaScriptReturnStatement(JavaScriptExpression? Expression) : JavaScriptStatement;
 internal sealed record JavaScriptYieldStatement(JavaScriptExpression? Expression, bool Delegate = false) : JavaScriptStatement;
-internal sealed record JavaScriptBlockStatement(IReadOnlyList<JavaScriptStatement> Statements) : JavaScriptStatement;
+internal sealed record JavaScriptBlockStatement(IReadOnlyList<JavaScriptStatement> Statements, bool CreatesScope = true) : JavaScriptStatement;
 internal sealed record JavaScriptIfStatement(JavaScriptExpression Condition, JavaScriptStatement Then, JavaScriptStatement? Else) : JavaScriptStatement;
 internal sealed record JavaScriptWhileStatement(JavaScriptExpression Condition, JavaScriptStatement Body, string? Label = null) : JavaScriptStatement;
 internal sealed record JavaScriptDoWhileStatement(JavaScriptStatement Body, JavaScriptExpression Condition, string? Label = null) : JavaScriptStatement;
 internal sealed record JavaScriptBreakStatement(string? Label = null) : JavaScriptStatement;
 internal sealed record JavaScriptContinueStatement(string? Label = null) : JavaScriptStatement;
 internal sealed record JavaScriptForStatement(JavaScriptStatement? Initializer, JavaScriptExpression? Condition, JavaScriptExpression? Update, JavaScriptStatement Body, string? Label = null) : JavaScriptStatement;
-internal sealed record JavaScriptForEachStatement(string Name, JavaScriptExpression Iterable, JavaScriptStatement Body, bool Keys, string? Label = null) : JavaScriptStatement;
+internal sealed record JavaScriptForEachStatement(string Name, JavaScriptExpression Iterable, JavaScriptStatement Body, bool Keys, string? Label = null, bool Lexical = false) : JavaScriptStatement;
 internal sealed record JavaScriptLabeledStatement(string Label, JavaScriptStatement Body) : JavaScriptStatement;
 internal sealed record JavaScriptWithStatement(JavaScriptExpression Scope, JavaScriptStatement Body) : JavaScriptStatement;
 internal sealed record JavaScriptThrowStatement(JavaScriptExpression Expression) : JavaScriptStatement;

@@ -2076,7 +2076,9 @@ public sealed class DomStyleDeclarationTests
         };
         await client.SendAsync(ContentMessageKind.Load, new { script = "while (true) {}", url = "hostile" }, TestContext.Current.CancellationToken);
         var result = await diagnostic.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-        Assert.Contains(result.Payload.GetProperty("code").GetString(), new[] { "Timeout", "Statements" });
+        // The first exhausted resource can vary with execution speed and
+        // allocation accounting; every result must be a typed limit diagnostic.
+        Assert.Contains(result.Payload.GetProperty("code").GetString(), new[] { "Timeout", "Statements", "Memory" });
     }
 
     [Fact]

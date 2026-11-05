@@ -4,6 +4,55 @@ namespace Folio.Scripting.Tests;
 
 public sealed class CanvasFrameStoreTests
 {
+    [Fact]
+    public async Task ConcurrentFramesNeverReturnMixedPixels()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"folio-canvas-{Guid.NewGuid():N}.frame");
+        try
+        {
+            using var writer = new CanvasFrameStore(path, 64, 64, 256);
+            using var reader = new CanvasFrameStore(path, 64, 64, 256);
+            var publishing = Task.Run(() =>
+            {
+                for (var index = 1; index <= 200; index++)
+                    writer.Publish(Enumerable.Repeat((byte)(index % 251), 64 * 64 * 4).ToArray());
+            }, TestContext.Current.CancellationToken);
+            do
+            {
+                try
+                {
+                    var pixels = reader.ReadLatest(out var sequence);
+                    Assert.All(pixels, pixel => Assert.Equal((byte)(sequence % 251), pixel));
+                }
+                catch (IOException) { } // A busy writer may force a bounded retry by the caller.
+            } while (!publishing.IsCompleted);
+            await publishing;
+            var final = reader.ReadLatest(out var finalSequence);
+            Assert.Equal(200, finalSequence);
+            Assert.All(final, pixel => Assert.Equal((byte)200, pixel));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ExistingReaderSeesPublishedPixelsWithoutDiskFlush()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"folio-canvas-{Guid.NewGuid():N}.frame");
+        try
+        {
+            using var writer = new CanvasFrameStore(path, 2, 1, 8);
+            using var reader = new CanvasFrameStore(path, 2, 1, 8);
+            for (var value = 1; value <= 100; value++)
+            {
+                var pixels = Enumerable.Repeat((byte)value, 8).ToArray();
+                writer.Publish(pixels);
+                Assert.Equal(pixels, reader.ReadLatest(out var sequence));
+                Assert.Equal(value, sequence);
+            }
+        }
+        finally { File.Delete(path); }
+    }
+
     [Theory]
     [InlineData(0, 2, 8)]
     [InlineData(2, 2, 7)]

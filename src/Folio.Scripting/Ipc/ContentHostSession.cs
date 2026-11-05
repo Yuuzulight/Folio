@@ -437,11 +437,18 @@ public sealed partial class ContentHostSession : IAsyncDisposable
 
     private async ValueTask WriteAsync(ContentMessageKind kind, long sequence, object payload, CancellationToken cancellationToken)
     {
-        using var document = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+        var element = payload switch
+        {
+            ContentFramePayload frame => JsonSerializer.SerializeToElement(frame, ContentProtocolJsonContext.Default.ContentFramePayload),
+            ContentViewport viewport => JsonSerializer.SerializeToElement(viewport, ContentProtocolJsonContext.Default.ContentViewport),
+            ContentInputEvent input => JsonSerializer.SerializeToElement(input, ContentInputJsonContext.Default.ContentInputEvent),
+            JsonElement json => json.Clone(),
+            _ => JsonSerializer.SerializeToElement(payload),
+        };
         await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await ContentTransport.WriteAsync(_output, new ContentMessage(kind, sequence, document.RootElement.Clone()), cancellationToken).ConfigureAwait(false);
+            await ContentTransport.WriteAsync(_output, new ContentMessage(kind, sequence, element), cancellationToken).ConfigureAwait(false);
         }
         finally
         {

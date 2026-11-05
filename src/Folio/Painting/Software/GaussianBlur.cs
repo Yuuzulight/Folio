@@ -12,6 +12,7 @@ namespace Folio.Painting.Software;
 internal static class GaussianBlur
 {
     private const float BoxThreshold = 2.0f;
+    private const long ParallelMinimumSamples = 1 << 18;
     private static readonly ConcurrentDictionary<(int SigmaBits, int Radius), float[]> Kernels = new();
     private static readonly object KernelGate = new();
 
@@ -76,7 +77,9 @@ internal static class GaussianBlur
                 pool.Return(scratchB);
             }
         }
-        if (lines < 64)
+        // Lines are independent, so the split never changes the result. Below ~256K samples (a canvas shadow, a small
+        // filter region) handing ranges to the thread pool costs more than the blur.
+        if (lines < 64 || (long)lines * length * channels < ParallelMinimumSamples)
             ProcessRange(0, lines);
         else
             Parallel.ForEach(Partitioner.Create(0, lines), range => ProcessRange(range.Item1, range.Item2));

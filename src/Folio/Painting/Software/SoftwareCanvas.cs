@@ -105,8 +105,19 @@ internal sealed class SoftwareCanvas : ICanvas
                 }
             }
         }
+        // A page clips the same rounded box again for each layer or stacking context inside it. The result depends only
+        // on these inputs, and clip masks are never written after they are made, so the last one is reused.
+        var key = (rect, _state.Transform, _state.Clip, _state.ClipMask);
+        if (_lastRoundedClip is { } last && last.Key.Equals(key))
+        {
+            (_state.Clip, _state.ClipMask) = (last.Clip, last.Mask);
+            return;
+        }
         ClipPath(new PathData().AddRoundedRect(rect), FillRule.NonZero);
+        _lastRoundedClip = (key, _state.Clip, _state.ClipMask);
     }
+
+    private ((RoundedRect, Matrix33, IntRect, byte[]?) Key, IntRect Clip, byte[]? Mask)? _lastRoundedClip;
 
     public void ClipPath(PathData path, FillRule rule)
     {
@@ -131,9 +142,24 @@ internal sealed class SoftwareCanvas : ICanvas
             _state.ClipMask = null;
             return;
         }
+        // Coverage and saved clip masks are immutable. Keep the rasterizer's
+        // buffer when no prior mask needs multiplying, rather than copying a
+        // viewport-sized rounded clip pixel by pixel on every replay.
+        if (_state.ClipMask is null && bounds == coverage.Bounds)
+        {
+            _state.Clip = bounds;
+            _state.ClipMask = coverage.Data;
+            return;
+        }
         var mask = new byte[bounds.Width * bounds.Height];
         for (var y = bounds.Top; y < bounds.Bottom; y++)
         {
+            if (_state.ClipMask is null)
+            {
+                coverage.Data.AsSpan((y - coverage.Bounds.Top) * coverage.Bounds.Width + bounds.Left - coverage.Bounds.Left, bounds.Width)
+                    .CopyTo(mask.AsSpan((y - bounds.Top) * bounds.Width, bounds.Width));
+                continue;
+            }
             for (var x = bounds.Left; x < bounds.Right; x++)
             {
                 var c = coverage.At(x, y);
@@ -183,10 +209,10 @@ internal sealed class SoftwareCanvas : ICanvas
 
     private bool TryFillAxisAlignedRect(RectF rect, in Paint paint)
     {
-        if (paint.Blur > 0 || paint.Gradient is not null || paint.Pattern is not null || _state.ClipMask is not null || !_state.Transform.IsAffine)
+        if (paint.Blur > 0 || paint.Gradient is not null || paint.Pattern is not null || !_state.Transform.IsAffine)
             return false;
         if (paint.Blend == BlendMode.Copy && paint.Color.A <= 0)
-            return TryClearAxisAlignedRect(rect);
+            return _state.ClipMask is null && TryClearAxisAlignedRect(rect);
         if (paint.Blend != BlendMode.Normal)
             return false;
         var m = _state.Transform;
@@ -204,6 +230,18 @@ internal sealed class SoftwareCanvas : ICanvas
         var a = paint.Color.A;
         if (a <= 0)
             return true;
+
+        if (_state.ClipMask is { } clipMask)
+        {
+            // Most cells lie wholly inside the opaque center of a rounded
+            // ancestor clip. SIMD-check that region before taking the same
+            // exact rectangle fill as an unclipped cell; retain the mask path
+            // whenever any antialiased edge actually intersects this fill.
+            var clip = _state.Clip;
+            for (var y = area.Top; y < area.Bottom; y++)
+                if (clipMask.AsSpan((y - clip.Top) * clip.Width + area.Left - clip.Left, area.Width).IndexOfAnyExcept((byte)255) >= 0)
+                    return false;
+        }
 
         var premul = Shader.Premultiplied(paint.Color);
         var cR = To8(premul.X);
@@ -291,8 +329,62 @@ internal sealed class SoftwareCanvas : ICanvas
     public void FillPath(PathData path, FillRule rule, in Paint paint)
     {
         var polygons = PathGeometry.Polygons(PathGeometry.Flatten(path, FlattenTolerance / Math.Max(Scale(), 1e-3f)), _state.Transform);
+        if (rule == FillRule.EvenOdd && paint.Blur == 0 && paint.Blend == BlendMode.Normal
+            && paint.Gradient is null && paint.Pattern is null
+            && Rasterizer.TryRectangularRing(polygons, out var outer, out var inner, snapEdges: true)
+            && TryDrawRectangularRing(outer, inner, paint.Color)) return;
         if (Rasterizer.Fill(polygons, rule, ClipForPaint(paint), snapEdges: true) is { } coverage)
             Draw(coverage, paint);
+    }
+
+    private bool TryDrawRectangularRing(RectF outer, RectF inner, Rgba color)
+    {
+        if (Math.Abs(outer.X) > 1_000_000_000 || Math.Abs(outer.Y) > 1_000_000_000
+            || Math.Abs(outer.Right) > 1_000_000_000 || Math.Abs(outer.Bottom) > 1_000_000_000) return false;
+        var bounds = IntRect.Intersect(IntRect.Intersect(_state.Clip, _targetBounds),
+            new IntRect((int)MathF.Floor(outer.X), (int)MathF.Floor(outer.Y), (int)MathF.Ceiling(outer.Right), (int)MathF.Ceiling(outer.Bottom)));
+        if (bounds.IsEmpty || outer == inner) return true;
+        var premul = Shader.Premultiplied(color);
+        var cr = To8(premul.X); var cg = To8(premul.Y); var cb = To8(premul.Z); var ca = To8(premul.W);
+        if (ca == 0) return true;
+        var holeLeft = Math.Clamp((int)MathF.Ceiling(inner.X), bounds.Left, bounds.Right);
+        var holeRight = Math.Clamp((int)MathF.Floor(inner.Right), holeLeft, bounds.Right);
+        // Visit only border pixels. A full-size zero-filled coverage bitmap for
+        // every cell would allocate and scan the transparent hole repeatedly.
+        for (var y = bounds.Top; y < bounds.Bottom; y++)
+        {
+            var outerY = Overlap(y, outer.Y, outer.Bottom);
+            var innerY = Overlap(y, inner.Y, inner.Bottom);
+            if (y >= MathF.Ceiling(inner.Y) && y < MathF.Floor(inner.Bottom))
+            {
+                DrawSpan(bounds.Left, holeLeft);
+                DrawSpan(holeRight, bounds.Right);
+            }
+            else DrawSpan(bounds.Left, bounds.Right);
+
+            void DrawSpan(int left, int right)
+            {
+                for (var x = left; x < right; x++)
+                {
+                    var amount = outerY * Overlap(x, outer.X, outer.Right) - innerY * Overlap(x, inner.X, inner.Right);
+                    var c = (byte)Math.Clamp((int)MathF.Round(amount * 255), 0, 255);
+                    if (_state.ClipMask is { } mask)
+                        c = (byte)((c * mask[(y - _state.Clip.Top) * _state.Clip.Width + x - _state.Clip.Left] + 127) / 255);
+                    if (c == 0) continue;
+                    var alpha = (ca * c + 127) / 255;
+                    var inverse = 255 - alpha;
+                    var offset = ((y - _targetBounds.Top) * _target.Width + x - _targetBounds.Left) * 4;
+                    var data = _target.Data;
+                    data[offset] = (byte)((cr * c + 127) / 255 + (data[offset] * inverse + 127) / 255);
+                    data[offset + 1] = (byte)((cg * c + 127) / 255 + (data[offset + 1] * inverse + 127) / 255);
+                    data[offset + 2] = (byte)((cb * c + 127) / 255 + (data[offset + 2] * inverse + 127) / 255);
+                    data[offset + 3] = (byte)(alpha + (data[offset + 3] * inverse + 127) / 255);
+                }
+            }
+        }
+        return true;
+        static float Overlap(int pixel, float start, float end) => Math.Max(0, Math.Min(pixel + 1, end) - Math.Max(pixel, start));
+        static byte To8(float value) => value <= 0 ? (byte)0 : value >= 1 ? (byte)255 : (byte)(value * 255 + .5f);
     }
 
     public void StrokePath(PathData path, in Stroke stroke, in Paint paint)
@@ -350,6 +442,18 @@ internal sealed class SoftwareCanvas : ICanvas
             {
                 var row = (y - coverage.Bounds.Top) * covWidth - coverage.Bounds.Left;
                 var targetRow = (y - _targetBounds.Top) * targetWidth - _targetBounds.Left;
+                // A row of one colour (a vertical linear gradient) is looked up once, not per pixel.
+                if (shader.TryRowColor(area.Left, y, out var rowColor))
+                {
+                    var source = rowColor * alpha;
+                    for (var x = area.Left; x < area.Right; x++)
+                    {
+                        var c = covData[row + x];
+                        if (c != 0)
+                            Compositor.Blend(data, (targetRow + x) * 4, source, c / 255f, blend);
+                    }
+                    continue;
+                }
                 for (var x = area.Left; x < area.Right; x++)
                 {
                     var c = covData[row + x];
@@ -363,6 +467,8 @@ internal sealed class SoftwareCanvas : ICanvas
         {
             var row = (y - coverage.Bounds.Top) * covWidth - coverage.Bounds.Left;
             var targetRow = (y - _targetBounds.Top) * targetWidth - _targetBounds.Left;
+            var rowConstant = shader.TryRowColor(area.Left, y, out var rowColor);
+            var rowSource = rowColor * alpha;
             for (var x = area.Left; x < area.Right; x++)
             {
                 var c = covData[row + x];
@@ -370,7 +476,7 @@ internal sealed class SoftwareCanvas : ICanvas
                     continue;
                 var amount = c / 255f * ClipAt(x, y);
                 if (amount > 0)
-                    Compositor.Blend(data, (targetRow + x) * 4, shader.ColorAt(x, y) * alpha, amount, blend);
+                    Compositor.Blend(data, (targetRow + x) * 4, rowConstant ? rowSource : shader.ColorAt(x, y) * alpha, amount, blend);
             }
         }
     }
@@ -460,6 +566,8 @@ internal sealed class SoftwareCanvas : ICanvas
             var cWidth = coverage.Bounds.Width;
             var mWidth = maskClip.Width;
             var tWidth = _target.Width;
+            var maskedWords = cA == 255 ? MemoryMarshal.Cast<byte, uint>(targetData.AsSpan()) : default;
+            var maskedPacked = (uint)cR | ((uint)cG << 8) | ((uint)cB << 16) | 0xff000000u;
 
             for (var y = area.Top; y < area.Bottom; y++)
             {
@@ -474,6 +582,13 @@ internal sealed class SoftwareCanvas : ICanvas
                     var mVal = mask[maskRow + x];
                     if (mVal == 0)
                         continue;
+                    if (cA == 255 && c == 255 && mVal == 255)
+                    {
+                        var first = x;
+                        while (x + 1 < w && covDataClip[covRow + x + 1] == 255 && mask[maskRow + x + 1] == 255) x++;
+                        maskedWords.Slice(targetRow / 4 + first, x - first + 1).Fill(maskedPacked);
+                        continue;
+                    }
                     var effCov = (c * mVal + 127) / 255;
                     var sa = (cA * effCov + 127) / 255;
                     if (sa > 0)
@@ -587,8 +702,9 @@ internal sealed class SoftwareCanvas : ICanvas
     // backend glyph-cache budget. The parsed outline and flattened caches each receive
     // half so their combined retained footprint cannot exceed the cap.
     private const long GlyphCacheBudget = 8L * 1024 * 1024;
-    private const long OutlineCacheBudget = GlyphCacheBudget / 2;
-    private const long FlattenedCacheBudget = GlyphCacheBudget - OutlineCacheBudget;
+    private const long CoverageCacheBudget = 1024 * 1024;
+    private const long OutlineCacheBudget = 3L * 1024 * 1024;
+    private const long FlattenedCacheBudget = GlyphCacheBudget - OutlineCacheBudget - CoverageCacheBudget;
     private sealed class OutlineCache
     {
         private readonly Dictionary<ushort, (PathData? Path, long Bytes, LinkedListNode<ushort> Node)> _entries = [];
@@ -689,11 +805,92 @@ internal sealed class SoftwareCanvas : ICanvas
         FlattenedGlyphs.GetOrCreateValue(face).Get(face, glyph, tolerance);
 
     /// <summary>Returns the currently retained native glyph-cache bytes for diagnostics and conformance tests.</summary>
-    internal static (long Outlines, long Flattened) GlyphCacheUsage(FontFace face)
+    internal static (long Outlines, long Flattened, long Coverage) GlyphCacheUsage(FontFace face)
     {
         var outlines = Outlines.TryGetValue(face, out var outlineCache) ? outlineCache.Bytes : 0;
         var flattened = FlattenedGlyphs.TryGetValue(face, out var flattenedCache) ? flattenedCache.Bytes : 0;
-        return (outlines, flattened);
+        var coverage = GlyphCoverages.TryGetValue(face, out var coverageCache) ? coverageCache.Bytes : 0;
+        return (outlines, flattened, coverage);
+    }
+
+    private sealed class GlyphCoverageCache
+    {
+        private readonly Dictionary<(ushort Glyph, int Size, int Phase), Coverage?> _entries = [];
+        private long _bytes;
+        internal long Bytes { get { lock (_entries) return _bytes; } }
+
+        internal bool TryGet(FontFace face, ushort glyph, float size, float phase, out Coverage? result)
+        {
+            var key = (glyph, BitConverter.SingleToInt32Bits(size), BitConverter.SingleToInt32Bits(phase));
+            lock (_entries)
+            {
+                if (_entries.TryGetValue(key, out result)) return true;
+                var scale = size / face.UnitsPerEm;
+                var paths = Flattened(face, glyph, FlattenTolerance / Math.Max(scale, 1e-6f));
+                var polygons = new List<Vector2[]>(paths.Length);
+                var minX = float.MaxValue; var minY = float.MaxValue;
+                var maxX = float.MinValue; var maxY = float.MinValue;
+                foreach (var path in paths)
+                {
+                    var points = new Vector2[path.Points.Length];
+                    for (var index = 0; index < points.Length; index++)
+                    {
+                        var point = points[index] = path.Points[index] * new Vector2(scale, -scale) + new Vector2(phase, 0);
+                        if (!float.IsFinite(point.X) || !float.IsFinite(point.Y)) { result = null; return false; }
+                        minX = Math.Min(minX, point.X); minY = Math.Min(minY, point.Y);
+                        maxX = Math.Max(maxX, point.X); maxY = Math.Max(maxY, point.Y);
+                    }
+                    polygons.Add(points);
+                }
+                result = null;
+                if (polygons.Count > 0)
+                {
+                    // Huge glyphs keep the ordinary viewport-clipped path rather
+                    // than allocating an unbounded offscreen cache entry.
+                    if (minX < -2048 || minY < -2048 || maxX > 2048 || maxY > 2048
+                        || (maxX - minX + 2) * (maxY - minY + 2) > CoverageCacheBudget / 2) return false;
+                    result = Rasterizer.Fill(polygons, FillRule.NonZero,
+                        new IntRect((int)MathF.Floor(minX), (int)MathF.Floor(minY), (int)MathF.Ceiling(maxX), (int)MathF.Ceiling(maxY)));
+                }
+                var bytes = 128L + (result?.Data.Length ?? 0);
+                while (_bytes + bytes > CoverageCacheBudget && _entries.Count > 0)
+                {
+                    var oldest = _entries.First();
+                    _bytes -= 128L + (oldest.Value?.Data.Length ?? 0);
+                    _entries.Remove(oldest.Key);
+                }
+                _entries.Add(key, result);
+                _bytes += bytes;
+                return true;
+            }
+        }
+    }
+
+    private static readonly ConditionalWeakTable<FontFace, GlyphCoverageCache> GlyphCoverages = new();
+
+    private bool TryDrawCachedGlyphs(FontFace face, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
+    {
+        if (paint.Blur != 0 || !float.IsFinite(size) || size <= 0 || !_state.Transform.IsAffine) return false;
+        var transform = _state.Transform.Affine;
+        if (transform.M11 != 1 || transform.M22 != 1 || transform.M12 != 0 || transform.M21 != 0
+            || transform.M31 != MathF.Floor(transform.M31) || transform.M32 != MathF.Floor(transform.M32)) return false;
+        var cache = GlyphCoverages.GetOrCreateValue(face);
+        var masks = new List<Coverage>(Math.Min(glyphs.Length, 256));
+        for (var index = 0; index < glyphs.Length && index < origins.Length; index++)
+        {
+            var device = Vector2.Transform(SnapToTextGrid(origins[index]), transform);
+            if (!float.IsFinite(device.X) || !float.IsFinite(device.Y) || Math.Abs(device.X) > int.MaxValue - 4096d || Math.Abs(device.Y) > int.MaxValue - 4096d) return false;
+            var x = (int)MathF.Floor(device.X); var y = (int)MathF.Floor(device.Y);
+            if (!cache.TryGet(face, glyphs[index], size, device.X - x, out var coverage)) return false;
+            if (coverage is null) continue;
+            var bounds = coverage.Bounds;
+            bounds = new IntRect(bounds.Left + x, bounds.Top + y, bounds.Right + x, bounds.Bottom + y);
+            masks.Add(new Coverage(bounds, coverage.Data));
+        }
+        // Glyphs are separate paint primitives, including when their ink
+        // overlaps. Combining their contours would incorrectly union alpha.
+        foreach (var mask in masks) Draw(mask, paint);
+        return true;
     }
 
     private PathData? Outline(IFontHandle font, ushort glyph)
@@ -749,9 +946,13 @@ internal sealed class SoftwareCanvas : ICanvas
             DrawBitmapGlyphs(colorFace2, size, glyphs, origins, paint);
             return;
         }
-        var polygons = PathGeometry.Polygons(Glyphs(font, size, glyphs, origins), _state.Transform);
-        if (polygons.Count > 0 && Rasterizer.Fill(polygons, FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
-            Draw(coverage, paint);
+        if (font is FontFace cachedFace && TryDrawCachedGlyphs(cachedFace, size, glyphs, origins, paint)) return;
+        for (var index = 0; index < glyphs.Length && index < origins.Length; index++)
+        {
+            var polygons = PathGeometry.Polygons(Glyphs(font, size, glyphs.Slice(index, 1), origins.Slice(index, 1)), _state.Transform);
+            if (polygons.Count > 0 && Rasterizer.Fill(polygons, FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
+                Draw(coverage, paint);
+        }
     }
 
     private static bool HasRenderableColorGlyph(FontFace face, ReadOnlySpan<ushort> glyphs)

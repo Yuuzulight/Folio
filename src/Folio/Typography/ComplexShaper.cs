@@ -18,6 +18,26 @@ public sealed class ComplexShaper : ITextShaper
         if (length == 0 || font is not FontFace face)
             return new ShapedText([], [], [], []);
 
+        var ascii = true;
+        foreach (var character in text.AsSpan(start, length))
+            if (character > 0x7f) { ascii = false; break; }
+        if (ascii)
+        {
+            var simpleGlyphs = new ushort[length];
+            var simpleClusters = new int[length];
+            var simpleAdvances = new float[length];
+            var simpleOffsets = new Vector2[length];
+            var simpleScale = size / face.UnitsPerEm;
+            for (var index = 0; index < length; index++)
+            {
+                var glyph = face.GlyphFor(text[start + index]);
+                simpleGlyphs[index] = glyph;
+                simpleClusters[index] = start + index;
+                simpleAdvances[index] = face.Advance(glyph) * simpleScale;
+            }
+            return new ShapedText(simpleGlyphs, simpleClusters, simpleAdvances, simpleOffsets);
+        }
+
         var runes = new List<(Rune Rune, int Index)>();
         for (var i = start; i < start + length;)
         {

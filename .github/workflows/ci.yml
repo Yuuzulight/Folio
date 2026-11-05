@@ -82,11 +82,11 @@ jobs:
       # watchdog during cold startup on a small runner.
       - run: dotnet test --solution Folio.slnx -c Release --no-build --max-parallel-test-modules 1
 
-      # Pass rates per conformance category, also on the run's summary page. Runtime/interaction failures and stale
-      # expected-failure marks fail both the tests and report command; ordinary image mismatches remain report-only.
+      # Release conformance requires matching references: mismatches, missing
+      # references and an empty corpus fail rather than producing a green report.
       - name: Conformance report
         if: always()
-        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance --strict
 
       # Keep the mandatory Folio-owned replacement path on the complete
       # conformance corpus, not only the focused WebGL category.
@@ -94,7 +94,17 @@ jobs:
         if: always() && matrix.os == 'windows-latest'
         env:
           FOLIO_CONFORMANCE_ENGINE: native
-        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance --strict
+
+      - name: WebGL page regressions with both script engines
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          foreach ($engine in 'native', 'jint') {
+            $env:FOLIO_SCRIPT_ENGINE = $engine
+            dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class '*NativeWebGlPageTests' -parallelMode none
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Differential shaping corpus
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll shaping-differential
@@ -108,7 +118,7 @@ jobs:
         if: always() && matrix.os == 'windows-latest'
         env:
           FOLIO_CONFORMANCE_ENGINE: native
-        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance D8
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance --strict D8
 
       # The Folio-owned engine must keep the canvas animation budget; the command
       # exits non-zero when any D5/D7 artifact exceeds the 16.7 ms p95 target.
@@ -124,25 +134,18 @@ jobs:
         run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll bench
 
       # M4 scripted startup, first-paint and content-process working-set evidence.
-      # The command reports target misses as warnings while #677 is open; keeping it
-      # in the Windows matrix prevents the recovery gate from becoming stale.
-      # ReadyToRun apphosts currently fail-fast inside the AppContainer on the
-      # Windows runner (0xC0000602), before the protocol can emit a frame. The
-      # framework-dependent published apphost is the same shipped layout and
-      # remains runnable under the sandbox, so benchmark that artifact instead.
+      # Target misses and invalid/empty frames fail the production acceptance gate.
+      # Isolate the publish from normal/oracle/composite build intermediates.
+      # Mixed ReadyToRun images can reference an absent composite image and
+      # fail-fast before the protocol can emit a frame.
       - name: Publish content host for scripted benchmarks
         if: matrix.os == 'windows-latest'
-        # This runtime-specific publish needs its own assets file entry. The
-        # solution restore above is framework-only, so --no-restore produces
-        # NETSDK1047 before the benchmark can run. The benchmark explicitly
-        # uses FOLIO_UNSANDBOXED=1, so ReadyToRun is safe here and removes the
-        # CLI/JIT bootstrap from the measured cold-start path.
-        run: dotnet publish tools/Folio.ContentHost/Folio.ContentHost.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=true -o tools/Folio.ContentHost/bin/Release/net10.0/win-x64/publish
+        run: pwsh -File tools/publish-content-host.ps1
       - name: Verify production publish excludes superseded dependencies
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          $publish = Join-Path $env:GITHUB_WORKSPACE 'tools/Folio.ContentHost/bin/Release/net10.0/win-x64/publish'
+          $publish = Join-Path $env:GITHUB_WORKSPACE 'artifacts/content-host'
           $superseded = Get-ChildItem -Path $publish -File -Recurse |
             Where-Object { $_.Name -match '^(Jint|Folio\.Scripting\.Jint|Wasmtime|SkiaSharp|libSkiaSharp|HarfBuzzSharp|libHarfBuzzSharp|av_libglesv2|av_libegl|Avalonia\.Angle)(\.|$)' }
           if ($superseded) {
@@ -150,10 +153,16 @@ jobs:
             exit 1
           }
           Write-Host 'Production publish contains none of SkiaSharp, HarfBuzzSharp, ANGLE, Jint or Wasmtime.'
+      - name: Published production-host regressions
+        if: matrix.os == 'windows-latest'
+        env:
+          FOLIO_CONTENT_HOST: ${{ github.workspace }}\artifacts\content-host\Folio.ContentHost.exe
+        run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class '*ContentHostProductionTests' -parallelMode none
+
       - name: Scripted process benchmarks
         if: matrix.os == 'windows-latest'
         env:
-          FOLIO_CONTENT_HOST: ${{ github.workspace }}\tools\Folio.ContentHost\bin\Release\net10.0\win-x64\publish\Folio.ContentHost.exe
+          FOLIO_CONTENT_HOST: ${{ github.workspace }}\artifacts\content-host\Folio.ContentHost.exe
         run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll scripted
 
       - name: Sandboxed GPU memory
