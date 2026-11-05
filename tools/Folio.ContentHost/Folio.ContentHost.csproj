@@ -4,10 +4,16 @@
     <OutputType Condition="'$(OS)' == 'Windows_NT'">WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <!-- Publish through tools/publish-content-host.ps1: its isolated build path
-         prevents stale composite images from contaminating this non-composite host. -->
+    <!-- The production script publishes a standalone native executable from isolated intermediates.
+         Ordinary solution builds remain managed for tests and explicit oracle builds. -->
     <PublishReadyToRun Condition="'$(RuntimeIdentifier)' != ''">true</PublishReadyToRun>
     <PublishReadyToRunComposite>false</PublishReadyToRunComposite>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FolioOracleHost)' == 'true'">
+    <DefineConstants>$(DefineConstants);FOLIO_ORACLE_HOST</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FolioAngleOracle)' == 'true'">
+    <DefineConstants>$(DefineConstants);FOLIO_ANGLE_ORACLE</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Folio.Scripting\Folio.Scripting.csproj" />

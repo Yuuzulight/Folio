@@ -9,8 +9,7 @@ public sealed class CapabilityHostBoundaryTests
     public async Task WebAssemblyMemoryLimitIsEnforcedInsideTheContentProcess()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-            "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         await using var client = ContentProcessClient.Start(host,
             limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
             documentLimits: ResourceLimits.Default with { MaxWebAssemblyBytes = 65536 });
@@ -53,8 +52,7 @@ public sealed class CapabilityHostBoundaryTests
     public async Task InvalidOrOmittedGrantsCannotRetainPreviousArtifactAuthority(string path)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-            "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         await using var client = ContentProcessClient.Start(host,
             limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
             documentLimits: ResourceLimits.Default with { MaxWebAssemblyBytes = 65536 });

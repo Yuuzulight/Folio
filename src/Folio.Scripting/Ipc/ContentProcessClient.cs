@@ -175,7 +175,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
                     var token = Guid.NewGuid().ToString("N");
                     _mediaCaptureSessions[token] = session;
                     session.VideoFrameAvailable += frame => SendCaptureActivity(token, new JsonObject { ["video"] = new JsonObject { ["width"] = frame.Width, ["height"] = frame.Height, ["rgba"] = Convert.ToBase64String(frame.Rgba.ToArray()) } });
-                    session.AudioFrameAvailable += audio => SendCaptureActivity(token, new JsonObject { ["audio"] = new JsonObject { ["sampleRate"] = audio.SampleRate, ["channels"] = audio.Channels, ["samples"] = JsonSerializer.SerializeToNode(audio.Samples.ToArray()) } });
+                    session.AudioFrameAvailable += audio => SendCaptureActivity(token, new JsonObject { ["audio"] = new JsonObject { ["sampleRate"] = audio.SampleRate, ["channels"] = audio.Channels, ["samples"] = ScriptJson.SerializeToNode(audio.Samples.ToArray()) } });
                     session.Revoked += () => SendCaptureActivity(token, new JsonObject { ["revoked"] = true });
                     result = CaptureWire.Read(session, token);
                 }
@@ -213,7 +213,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
             if (session.CurrentVideoFrame is { } video && video.IsValid)
                 result["video"] = new JsonObject { ["width"] = video.Width, ["height"] = video.Height, ["rgba"] = Convert.ToBase64String(video.Rgba.ToArray()) };
             if (session.CurrentAudioFrame is { } audio)
-                result["audio"] = new JsonObject { ["sampleRate"] = audio.SampleRate, ["channels"] = audio.Channels, ["samples"] = JsonSerializer.SerializeToNode(audio.Samples.ToArray()) };
+                result["audio"] = new JsonObject { ["sampleRate"] = audio.SampleRate, ["channels"] = audio.Channels, ["samples"] = ScriptJson.SerializeToNode(audio.Samples.ToArray()) };
             return result;
         }
     }
@@ -222,7 +222,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
     {
         if (kind == ContentMessageKind.Load)
         {
-            var profile = JsonSerializer.SerializeToNode(payload) as JsonObject ?? throw new ArgumentException("Load payload must be an object.", nameof(payload));
+            var profile = ScriptJson.SerializeToNode(payload) as JsonObject ?? throw new ArgumentException("Load payload must be an object.", nameof(payload));
             profile["artifactId"] = _artifact;
             profile["storageEnabled"] = _storageEnabled;
             profile["limits"] = JsonSerializer.SerializeToNode(_documentLimits, ContentProtocolJsonContext.Default.ResourceLimits);

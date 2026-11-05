@@ -147,14 +147,7 @@ internal sealed class CssomRegistry(DomContext context)
         string? href = null;
         if (owner.LocalName == "link" && Folio.Resources.ResourceLoader.Resolve(Folio.Style.StyleResolver.BaseUrl(context.Document, context.BaseUri?.AbsoluteUri), owner.GetAttribute("href") ?? "") is { } resolved)
             href = resolved;
-        return JsonSerializer.Serialize(new
-        {
-            id = sheet.Id,
-            href,
-            title = owner.GetAttribute("title"),
-            media = MediaText(sheet),
-            disabled = owner.GetAttribute("disabled") is not null,
-        });
+        return ScriptJson.Serialize(new Dictionary<string, object?> { ["id"] = sheet.Id, ["href"] = href, ["title"] = owner.GetAttribute("title"), ["media"] = MediaText(sheet), ["disabled"] = owner.GetAttribute("disabled") is not null });
     }
 
     public string MediaText(CssomSheet sheet)
@@ -164,23 +157,7 @@ internal sealed class CssomRegistry(DomContext context)
         return CssomParser.Print(values, source, CssomParser.Mode.Condition);
     }
 
-    public string RuleJson(CssomRule rule) => JsonSerializer.Serialize(new
-    {
-        id = rule.Id,
-        kind = rule.Kind.ToString(),
-        type = rule.Type,
-        cssText = rule.CssText,
-        prelude = rule.Prelude,
-        href = rule.Href,
-        media = rule.MediaText,
-        layerName = rule.LayerName,
-        supports = rule.SupportsText,
-        prefix = rule.Prefix,
-        names = rule.LayerNames,
-        attached = rule.Sheet is not null,
-        owned = rule.ParentRule?.Id ?? 0,
-        sheet = rule.Sheet?.Id ?? 0,
-    });
+    public string RuleJson(CssomRule rule) => ScriptJson.Serialize(new Dictionary<string, object?> { ["id"] = rule.Id, ["kind"] = rule.Kind.ToString(), ["type"] = rule.Type, ["cssText"] = rule.CssText, ["prelude"] = rule.Prelude, ["href"] = rule.Href, ["media"] = rule.MediaText, ["layerName"] = rule.LayerName, ["supports"] = rule.SupportsText, ["prefix"] = rule.Prefix, ["names"] = rule.LayerNames, ["attached"] = rule.Sheet is not null, ["owned"] = rule.ParentRule?.Id ?? 0, ["sheet"] = rule.Sheet?.Id ?? 0 });
 
     // ---------------------------------------------------------------------------------------------- editing
 

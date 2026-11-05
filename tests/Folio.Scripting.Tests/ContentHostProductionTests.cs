@@ -10,8 +10,7 @@ public sealed class ContentHostProductionTests
     public async Task CssAnimationPublishesChangingPixelsWithoutAdditionalLoads()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST") ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-            $"../../../../../tools/Folio.ContentHost/bin/{configuration}/net10.0/Folio.ContentHost.dll"));
+        var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST") ?? ContentHostTestPaths.Resolve();
         await using var client = ContentProcessClient.Start(host);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var frames = Channel.CreateUnbounded<ContentMessage>();
@@ -52,8 +51,7 @@ public sealed class ContentHostProductionTests
     public async Task ShippedFontsPaintVisibleTextWithoutWebFonts(string family, string text, string label)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST") ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-            $"../../../../../tools/Folio.ContentHost/bin/{configuration}/net10.0/Folio.ContentHost.dll"));
+        var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST") ?? ContentHostTestPaths.Resolve();
         await using var client = ContentProcessClient.Start(host);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var frames = Channel.CreateUnbounded<ContentMessage>();
@@ -102,8 +100,7 @@ public sealed class ContentHostProductionTests
     public async Task ResizeAndDpiChangesPreserveScriptStateAndRenderPhysicalPixels()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST") ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-            $"../../../../../tools/Folio.ContentHost/bin/{configuration}/net10.0/Folio.ContentHost.dll"));
+        var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST") ?? ContentHostTestPaths.Resolve();
         await using var client = ContentProcessClient.Start(host);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var frames = Channel.CreateUnbounded<ContentMessage>();
@@ -150,8 +147,7 @@ public sealed class ContentHostProductionTests
     public async Task ShippedHostPaintsNavigatesDispatchesInputAndTicksWithoutLoads()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST") ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-            $"../../../../../tools/Folio.ContentHost/bin/{configuration}/net10.0/Folio.ContentHost.dll"));
+        var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST") ?? ContentHostTestPaths.Resolve();
         await using var client = ContentProcessClient.Start(host);
         var messages = Channel.CreateUnbounded<ContentMessage>();
         client.ScriptStopped += (_, stopped) => messages.Writer.TryComplete(new IOException($"Content host stopped: {stopped.Reason}; stderr: {client.StandardError}"));
@@ -215,6 +211,27 @@ public sealed class ContentHostProductionTests
         await client.DisposeAsync();
         Assert.False(File.Exists(framePath));
         Assert.DoesNotContain(System.Diagnostics.Process.GetProcessesByName("Folio.ContentHost"), process => process.Id == processId);
+    }
+
+    [Fact]
+    public async Task DiagnosticJsonSurvivesAScriptFailureAndTheHostCanContinue()
+    {
+        await using var client = ContentProcessClient.Start(ContentHostTestPaths.Resolve());
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var messages = Channel.CreateUnbounded<ContentMessage>();
+        client.ScriptStopped += (_, stopped) => messages.Writer.TryComplete(new IOException(stopped.Reason + "; " + client.StandardError));
+        client.MessageReceived += (message, _) => { messages.Writer.TryWrite(message); return ValueTask.CompletedTask; };
+        await client.SendAsync(ContentMessageKind.Load, new { html = "<p>diagnostic</p>", script = "throw new Error('diagnostic-roundtrip')" }, timeout.Token);
+        ContentMessage diagnostic;
+        do { diagnostic = await messages.Reader.ReadAsync(timeout.Token); } while (diagnostic.Kind != ContentMessageKind.Diagnostic);
+        Assert.Contains("diagnostic-roundtrip", diagnostic.Payload.GetProperty("message").GetString());
+        Assert.False(client.Process.HasExited);
+        await client.SendAsync(ContentMessageKind.Load, new { script = "JSON.stringify({value:42})" }, timeout.Token);
+        ContentMessage frame;
+        do { frame = await messages.Reader.ReadAsync(timeout.Token); }
+        while (frame.Kind != ContentMessageKind.Frame || frame.Payload.GetProperty("sequence").GetInt64() == 0);
+        Assert.Equal("{\"value\":42}", frame.Payload.GetProperty("value").GetString());
+        Assert.Empty(frame.Payload.GetProperty("diagnostics").EnumerateArray());
     }
 
     [Theory]

@@ -38,7 +38,7 @@ async Task TickAsync()
             try { if (runtime.Tick()) await SendFrame(0, null, ticking.Token); }
             catch (Exception error) when (error is not OperationCanceledException)
             {
-                await session.SendAsync(ContentMessageKind.Diagnostic, new { code = "Runtime", message = error.Message }, ticking.Token);
+                await session.SendAsync(ContentMessageKind.Diagnostic, new Dictionary<string, object?> { ["code"] = "Runtime", ["message"] = error.Message }, ticking.Token);
                 runtime.StopDocument();
             }
             finally { runtimeGate.Release(); }
@@ -49,9 +49,13 @@ async Task TickAsync()
 
 static IScriptEngine CreateOracleEngine()
 {
+#if FOLIO_ORACLE_HOST
     var type = Type.GetType("Folio.Scripting.Jint.JintScriptEngine, Folio.Scripting.Jint", throwOnError: true)
         ?? throw new InvalidOperationException("The Jint oracle is not present in this production host.");
     return (IScriptEngine)Activator.CreateInstance(type)!;
+#else
+    throw new InvalidOperationException("The Jint oracle is not present in this production host.");
+#endif
 }
 
 session.MessageReceived += async (message, cancellationToken) =>
@@ -61,13 +65,13 @@ session.MessageReceived += async (message, cancellationToken) =>
     {
         if (message.Kind == ContentMessageKind.Hello)
         {
-            await session.SendAsync(ContentMessageKind.Hello, new { protocol = ContentMessage.CurrentVersion }, cancellationToken);
+            await session.SendAsync(ContentMessageKind.Hello, new Dictionary<string, object?> { ["protocol"] = ContentMessage.CurrentVersion }, cancellationToken);
             return;
         }
         if (message.Kind == ContentMessageKind.Capabilities)
         {
             var accepted = runtime.ApplyCapabilities(message);
-            await session.SendAsync(ContentMessageKind.Capabilities, new { sequence = message.Sequence, capabilities = runtime.Capabilities, accepted }, cancellationToken);
+            await session.SendAsync(ContentMessageKind.Capabilities, new Dictionary<string, object?> { ["sequence"] = message.Sequence, ["capabilities"] = runtime.Capabilities, ["accepted"] = accepted }, cancellationToken);
             return;
         }
         if (message.Kind == ContentMessageKind.MediaCaptureActivity)
@@ -81,7 +85,7 @@ session.MessageReceived += async (message, cancellationToken) =>
                 ?? throw new InvalidDataException("Missing viewport.");
             runtime.ConfigureViewport(viewport);
             if (runtime.Document is not null) await SendFrame(message.Sequence, null, cancellationToken);
-            else await session.SendAsync(ContentMessageKind.Viewport, new { sequence = message.Sequence, accepted = true }, cancellationToken);
+            else await session.SendAsync(ContentMessageKind.Viewport, new Dictionary<string, object?> { ["sequence"] = message.Sequence, ["accepted"] = true }, cancellationToken);
             return;
         }
         if (message.Kind == ContentMessageKind.Input && message.TryGetInput(out var input) && input is not null)
@@ -106,7 +110,7 @@ session.MessageReceived += async (message, cancellationToken) =>
                 InvalidOperationException error when error.Message.Contains("evaluation step limit", StringComparison.OrdinalIgnoreCase) => "Statements",
                 _ => "Host"
             };
-            await session.SendAsync(ContentMessageKind.Diagnostic, new { sequence = message.Sequence, code, message = exception.Message }, cancellationToken);
+            await session.SendAsync(ContentMessageKind.Diagnostic, new Dictionary<string, object?> { ["sequence"] = message.Sequence, ["code"] = code, ["message"] = exception.Message }, cancellationToken);
         }
     }
     finally { runtimeGate.Release(); }

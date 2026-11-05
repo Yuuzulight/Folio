@@ -10,7 +10,7 @@ public sealed class ContentCaptureBridgeTests
     public async Task ContentProcessForwardsCaptureFramesAndRevocation()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         var provider = new Provider();
         await using var client = ContentProcessClient.Start(host, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)), mediaCaptureProvider: provider);
 
@@ -50,7 +50,7 @@ public sealed class ContentCaptureBridgeTests
     public async Task ContentProcessDeathReleasesCaptureSessionWithoutClientDisposal()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         var provider = new Provider();
         var client = ContentProcessClient.Start(host, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)), mediaCaptureProvider: provider);
         try

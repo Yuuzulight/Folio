@@ -558,3 +558,44 @@ Repairs:
 - Added reproducible, project-owned colour-font seeds below 11 KiB: v0 layers, offset-addressed v1 transforms,
   v1 gradients and sbix PNG. They remain below the mutation harness's 64 KiB ceiling. The font target now reaches
   bitmap/COLR decoding directly as well as through painting. Recheck: **371,134 mutations / ten seeds / zero failures**.
+
+## Paused at user request
+
+The user approved finishing the fully native compiled (NativeAOT) production host and validating every supported feature. No NativeAOT production source/build changes have begun. The experiment remains isolated and unqualified; next work is replacing reflection-dependent JSON/IPC paths, then rebuilding and validating all features, performance, memory and cleanup. The final colour-format full-solution recheck was interrupted on pause and is not a completed result. Local test/helper processes were verified gone. Latest pushed checkpoint: 5f15f935; this pause note is local only.
+
+## NativeAOT continuation, 2026-11-06
+
+The user approved finishing the fully native production host and updating the system SDK/runtime. The installed SDK
+is now **10.0.403**, with runtime **10.0.14**; `global.json` pins that minimum SDK. This also fixes the
+[Brotli decoder advisory](https://github.com/advisories/GHSA-p3jp-9v83-76w9) affecting the earlier native runtime used
+for untrusted web-font decoding. No vulnerable compiler/runtime package is accepted by the production publisher.
+
+Implementation:
+- Explicit JSON writing for IPC maps and browser bridges, source-generated cache contracts, and an independently
+  case-insensitive capability contract. Ordinary SDK clients retain their existing reflection fallback; it is excluded
+  at compile time from the native production host. Native JSON handles ordinary script values without generated
+  serializers, including undefined/function omission, non-finite numbers, typed arrays, dates, BigInt errors and cycles.
+- Optional ANGLE/Jint oracle loading is fenced away from the production image; Folio-owned GPU/WebGL remains present.
+- The cache's lazy entries use reference identity rather than generated record equality. The one narrow trimming
+  annotation documents that the explicit value factory never asks reflection to construct an AST/list instance.
+- Publishing uses isolated native intermediates and a fresh sibling staging directory. It validates the PE architecture,
+  absence of runtime sidecars, compiler provenance, and all 20 font pins/notices, then exchanges the validated publish.
+  Existing unknown directories and links are refused; stage/backup cleanup targets are checked before removal.
+- All content-process tests, including window ownership/watchdogs, can select the published executable. CI repeats
+  the scripting suite against it, all 12 capability rows, and the view lifecycle instead of testing only the old
+  16-case production smoke suite.
+
+Checkpoint evidence (final checks continue):
+- Patched full solution build: zero warnings/errors. Focused native JSON/parity/lazy-cache checks: **49/49**.
+- The previous native-host scripting run passed **1,564/1,564** on the earlier runtime; the patched final image and
+  additional diagnostic regression are being rechecked. That older result is not substituted for final qualification.
+- The preliminary native profile passed the existing cold/warm/memory gates, at **334.3 ms** cold, **46.9 ms** table,
+  and **47.2 MiB** maximum. Final repeated measurements must use the patched, published image.
+
+Patched native-image evidence:
+- Published scripting suite **1,571/1,571**, all 12 native capability rows **144/144**, and native view lifecycle
+  **10/10**, with zero skips or failures. Every process test selects the validated standalone executable.
+- Complete 18-target mutation campaign passed without failures (including colour fonts and script JSON/cache paths).
+- Production publishing accepts no compiler/trimming warnings. The native manifest records SDK **10.0.403** and both
+  NativeAOT compiler packages at **10.0.14**. There are no managed/native engine DLL or CLR sidecars in the publish.
+- Final solution, genuine native rendering, repeated publication/performance, and hosted CI remain in progress.

@@ -10,8 +10,7 @@ public sealed class ContentProcessClientCleanupTests
     public async Task DisposeCleansProcessAndFrameAfterMessageCallbackFaults()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-            "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         Assert.True(File.Exists(host), $"Content host was not built: {host}");
 
         var client = ContentProcessClient.Start(host,

@@ -10,7 +10,7 @@ public sealed class FeatureFallbackContentProcessTests
     {
         Assert.SkipWhen(!OperatingSystem.IsWindows(), "The real WebGL content-process pixel path is Windows-backed.");
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         await using var client = ContentProcessClient.Start(host,
             limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)));
         var denied = await Exchange(client, ContentMessageKind.Load, new

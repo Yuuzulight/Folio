@@ -5,7 +5,12 @@ namespace Folio.Scripting.Native;
 internal sealed class BoundedScriptCache<TKey, TValue>(int maxEntries, int maxSourceCharacters) where TKey : notnull
 {
     private readonly object _gate = new();
-    private sealed record Entry(Lazy<TValue> Value, int Weight, LinkedListNode<TKey> Node);
+    private sealed class Entry(Lazy<TValue> value, int weight, LinkedListNode<TKey> node)
+    {
+        internal Lazy<TValue> Value { get; } = value;
+        internal int Weight { get; } = weight;
+        internal LinkedListNode<TKey> Node { get; } = node;
+    }
     private readonly Dictionary<TKey, Entry> _entries = new();
     private readonly LinkedList<TKey> _order = new();
     private int _sourceCharacters;
@@ -13,6 +18,8 @@ internal sealed class BoundedScriptCache<TKey, TValue>(int maxEntries, int maxSo
     internal int Count { get { lock (_gate) return _entries.Count; } }
     internal int SourceCharacters { get { lock (_gate) return _sourceCharacters; } }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2091",
+        Justification = "Every Lazy<TValue> has an explicit value factory; it never reflects for a parameterless TValue constructor.")]
     internal TValue GetOrAdd(TKey key, int sourceCharacters, Func<TKey, TValue> factory)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(sourceCharacters);

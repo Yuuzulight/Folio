@@ -28,6 +28,12 @@ public sealed class NativeDifferentialParityTests
         yield return ["bigint-typed-array", "Array.from(new BigInt64Array([1n,-2n])).map(String).join(',')", "1,-2"];
         yield return ["bigint-type", "typeof BigInt(2) + ':' + typeof 2n + ':' + String(2n)", "bigint:bigint:2"];
         yield return ["date-json", "JSON.stringify({d:new Date('2020-01-02T03:04:05Z').toISOString()})", "{\"d\":\"2020-01-02T03:04:05.000Z\"}"];
+        yield return ["json-undefined-array", "JSON.stringify([undefined,NaN,Infinity,-0])", "[null,null,null,0]"];
+        yield return ["json-date-value", "JSON.stringify(new Date('2020-01-02T03:04:05Z'))", "\"2020-01-02T03:04:05.000Z\""];
+        yield return ["json-native-collections", "JSON.stringify([new Map(),new Set(),Promise.resolve(1),new ArrayBuffer(1),new DataView(new ArrayBuffer(1)),new Error('x')])", "[{},{},{},{},{},{}]"];
+        yield return ["json-typed-array", "JSON.stringify(new Uint8Array([1,255]))", "{\"0\":1,\"1\":255}"];
+        yield return ["json-bigint-error", "var rejected=false;try{JSON.stringify(1n)}catch(e){rejected=e.name==='TypeError'}rejected", "true"];
+        yield return ["json-cycle-error", "var value={};value.self=value;var rejected=false;try{JSON.stringify(value)}catch(e){rejected=e.name==='TypeError'}rejected", "true"];
         yield return ["promise", "var result='pending'; Promise.resolve(4).then(v => result=String(v+1)); result", "pending"];
         yield return ["bitwise", "((0xff & 15) << 1) | 1", "31"];
         yield return ["optional-chain", "const x={nested:{value:4}}; (x.missing?.value ?? x.nested.value)", "4"];

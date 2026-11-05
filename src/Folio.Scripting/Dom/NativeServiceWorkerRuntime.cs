@@ -137,14 +137,14 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
                 {
                     var type = _engine.GetGlobalProperty("__folio_service_worker_type");
                     var status = _engine.GetGlobalProperty("__folio_service_worker_status");
-                    return JsonSerializer.Serialize(new { ok = true, body = Convert.ToBase64String(bytes), status = status.IsNumber ? (int)status.AsNumber() : 200, contentType = type.IsString ? type.AsString() : null });
+                    return ScriptJson.Serialize(new Dictionary<string, object?> { ["ok"] = true, ["body"] = Convert.ToBase64String(bytes), ["status"] = status.IsNumber ? (int)status.AsNumber() : 200, ["contentType"] = type.IsString ? type.AsString() : null });
                 }
             }
-            return JsonSerializer.Serialize(new { ok = false, error = "no-response" });
+            return ScriptJson.Serialize(new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no-response" });
         }
         catch (Exception error)
         {
-            return JsonSerializer.Serialize(new { ok = false, error = error.Message });
+            return ScriptJson.Serialize(new Dictionary<string, object?> { ["ok"] = false, ["error"] = error.Message });
         }
     }
 

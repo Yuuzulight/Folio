@@ -481,7 +481,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         };
         _bindings["JSON"] = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["stringify"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? null : JsonSerializer.Serialize(args[0])),
+            ["stringify"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? JavaScriptEvaluator.UndefinedValue.Instance : ScriptJson.Stringify(args[0])),
             ["parse"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? null : ParseJson(StringValue(args[0]))),
         };
         var weakMapPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)

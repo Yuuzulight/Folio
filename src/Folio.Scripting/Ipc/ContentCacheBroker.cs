@@ -25,17 +25,17 @@ internal sealed class ContentCacheBroker(IArtifactStorage storage, string artifa
         Reply reply;
         try
         {
-            var request = JsonSerializer.Deserialize<Request>(bytes) ?? throw WebIdlException.TypeError("Missing storage request.");
+            var request = ScriptJson.Deserialize<Request>(bytes) ?? throw WebIdlException.TypeError("Missing storage request.");
             if (!Guid.TryParseExact(request.Context, "N", out _)) throw WebIdlException.TypeError("Invalid storage context.");
-            reply = new(JsonSerializer.SerializeToElement(Execute(request)));
+            reply = new(ScriptJson.SerializeToElement(Execute(request)));
         }
         catch (WebIdlException error) { reply = new(default, error.Kind.ToString(), error.Name, error.Message); }
         catch (Exception error) when (error is JsonException or ArgumentException or InvalidOperationException or NullReferenceException)
         { reply = new(default, "TypeError", "TypeError", "Invalid storage request."); }
         catch (Exception) { reply = new(default, "DOMException", "UnknownError", "The host storage operation failed."); }
         // Undefined JsonElement cannot be serialized, even on error.
-        if (reply.Value.ValueKind == JsonValueKind.Undefined) reply = reply with { Value = JsonSerializer.SerializeToElement<object?>(null) };
-        return JsonSerializer.SerializeToUtf8Bytes(reply);
+        if (reply.Value.ValueKind == JsonValueKind.Undefined) reply = reply with { Value = ScriptJson.SerializeToElement<object?>(null) };
+        return ScriptJson.SerializeToUtf8Bytes(reply);
     }
 
     private object? Execute(Request request)
@@ -137,8 +137,8 @@ internal sealed class BrokerArtifactStorage(ContentHostSession session) : IArtif
     internal JsonElement Call(ContentCacheBroker.Request request) => CallAsync(request).GetAwaiter().GetResult();
     internal async Task<JsonElement> CallAsync(ContentCacheBroker.Request request)
     {
-        var bytes = await session.RequestStorageAsync(JsonSerializer.SerializeToUtf8Bytes(request)).ConfigureAwait(false);
-        var reply = JsonSerializer.Deserialize<ContentCacheBroker.Reply>(bytes) ?? throw new InvalidDataException("Missing storage reply.");
+        var bytes = await session.RequestStorageAsync(ScriptJson.SerializeToUtf8Bytes(request)).ConfigureAwait(false);
+        var reply = ScriptJson.Deserialize<ContentCacheBroker.Reply>(bytes) ?? throw new InvalidDataException("Missing storage reply.");
         if (reply.ErrorName is not null) throw reply.ErrorKind == "DOMException"
             ? WebIdlException.DomException(reply.ErrorName, reply.ErrorMessage ?? "Storage operation failed.")
             : WebIdlException.TypeError(reply.ErrorMessage ?? "Invalid storage operation.");
@@ -147,7 +147,7 @@ internal sealed class BrokerArtifactStorage(ContentHostSession session) : IArtif
     public string? Read(string key) => Call(new("metadataRead", _context, Key: key)).GetString();
     public void Write(string key, string value) => Call(new("metadataWrite", _context, Key: key, Value: value));
     public void Delete(string key) => Call(new("metadataDelete", _context, Key: key));
-    public IReadOnlyList<string> Keys(string prefix) => Call(new("metadataKeys", _context, Key: prefix)).Deserialize<string[]>()!;
+    public IReadOnlyList<string> Keys(string prefix) => Call(new("metadataKeys", _context, Key: prefix)).Deserialize(ScriptingJsonContext.Default.StringArray)!;
     public ICacheStorageBackend CreateCacheBackend(string artifact, long quota) => new RemoteCacheBackend(this);
 
     private sealed class RemoteCacheBackend(BrokerArtifactStorage storage) : ICacheStorageBackend
@@ -200,11 +200,11 @@ internal sealed class BrokerArtifactStorage(ContentHostSession session) : IArtif
             ? handle.Id : throw WebIdlException.TypeError("Invalid Cache handle.");
         public CacheStorageHandle Open(string name, long quota) => new Handle(this, Call(new("open", _context, Name: name)).GetString()!);
         public bool Has(string name) => Call(new("has", _context, Name: name)).GetBoolean();
-        public string[] Names() => Call(new("names", _context)).Deserialize<string[]>()!;
+        public string[] Names() => Call(new("names", _context)).Deserialize(ScriptingJsonContext.Default.StringArray)!;
         public bool Delete(string name, long quota) => Call(new("delete", _context, Name: name)).GetBoolean();
         public CacheStorageState.Entry[] Match(CacheStorageHandle? cache, string? name, CacheStorageState.Request? request, CacheStorageState.Query query, bool first) =>
             (cache is null ? Call(new("match", _context, Name: name, RequestValue: request, Query: query, First: first))
-                : WithHandle(cache, new("match", _context, Id(cache), name, request, query, First: first))).Deserialize<CacheStorageState.Entry[]>()!;
+                : WithHandle(cache, new("match", _context, Id(cache), name, request, query, First: first))).Deserialize(ScriptingJsonContext.Default.EntryArray)!;
         public void Put(CacheStorageHandle cache, IReadOnlyList<CacheStorageState.Entry> entries, bool batch, long quota) =>
             WithHandle(cache, new("put", _context, Id(cache), Entries: entries.ToArray(), Batch: batch));
         public bool DeleteEntries(CacheStorageHandle cache, CacheStorageState.Request request, CacheStorageState.Query query, long quota) =>

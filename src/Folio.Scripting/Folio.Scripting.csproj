@@ -18,6 +18,16 @@
     <PackageReference Include="Wasmtime" Version="48.0.2" Condition="'$(FolioWasmOracle)' == 'true'" />
   </ItemGroup>
 
+  <!-- The production NativeAOT host accepts explicit wire contracts only. The normal SDK keeps its JIT fallback. -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <DefineConstants>$(DefineConstants);FOLIO_NATIVE_HOST</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(PublishAot)' == 'true' and '$(FolioAngleOracle)' != 'true'">
+    <Compile Remove="Gpu/Angle*.cs" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(FolioAngleOracle)' == 'true'">
+    <DefineConstants>$(DefineConstants);FOLIO_ANGLE_ORACLE</DefineConstants>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(FolioWasmOracle)' == 'true'">
     <DefineConstants>$(DefineConstants);FOLIO_WASM_ORACLE</DefineConstants>
   </PropertyGroup>

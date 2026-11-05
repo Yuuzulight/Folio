@@ -11,7 +11,7 @@ public sealed class WebAssemblyContentProcessTests
     public async Task RealContentProcessRunsNestedBlobWorkersAndTheirPlatformApis(bool wasm)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         await using var client = ContentProcessClient.Start(host,
             limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
             documentLimits: ResourceLimits.Default with { MaxWorkers = 2 });
@@ -40,7 +40,7 @@ public sealed class WebAssemblyContentProcessTests
     public async Task RealContentProcessWorkerCanFetchWithoutWindowBindings(bool wasm)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         await using var client = ContentProcessClient.Start(host,
             limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)));
         const string source = "onmessage=()=>fetch('data:text/plain,%E2%98%83').then(r=>r.text()).then(text=>postMessage(text+':'+typeof document+':'+typeof window));";
@@ -56,7 +56,7 @@ public sealed class WebAssemblyContentProcessTests
     public async Task RealContentProcessPropagatesGrantsToExistingWorkersAndReleasesRevokedWorkers(bool initiallyGranted)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         await using var client = ContentProcessClient.Start(host,
             limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
             documentLimits: ResourceLimits.Default with { MaxWebAssemblyBytes = 65536, MaxWorkers = 1 });
@@ -90,7 +90,7 @@ public sealed class WebAssemblyContentProcessTests
     public async Task RealContentProcessAppliesGrantsRevocationAndRegrantToRetainedApi()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         await using var client = ContentProcessClient.Start(host,
             limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
             documentLimits: ResourceLimits.Default with { MaxWebAssemblyBytes = 65536 });

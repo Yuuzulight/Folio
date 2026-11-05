@@ -17,8 +17,8 @@ internal sealed class CacheStorageState : ICacheStorageBackend
         internal List<Entry> Entries = entries;
     }
     internal sealed record Query(bool IgnoreSearch, bool IgnoreMethod, bool IgnoreVary, bool RequestOnly = false);
-    private sealed record StoredCache(string Name, List<Entry> Entries);
-    private sealed record Snapshot(int Version, List<StoredCache> Caches);
+    internal sealed record StoredCache(string Name, List<Entry> Entries);
+    internal sealed record Snapshot(int Version, List<StoredCache> Caches);
     private sealed class HostStores
     {
         internal readonly Dictionary<string, WeakReference<CacheStorageState>> Artifacts = new(StringComparer.Ordinal);
@@ -50,7 +50,7 @@ internal sealed class CacheStorageState : ICacheStorageBackend
         }
         try
         {
-            var snapshot = JsonSerializer.Deserialize<Snapshot>(serialized)
+            var snapshot = ScriptJson.Deserialize<Snapshot>(serialized)
                 ?? throw new InvalidDataException("Missing cache snapshot.");
             if (snapshot.Version != 1 || snapshot.Caches is null) throw new InvalidDataException("Unsupported cache snapshot.");
             foreach (var stored in snapshot.Caches)
@@ -262,7 +262,7 @@ internal sealed class CacheStorageState : ICacheStorageBackend
         if (!live.Contains(changed)) live.Add(changed);
         var accounting = new Snapshot(1, live.Select(cache =>
             new StoredCache(cache.Name ?? "", ReferenceEquals(cache, changed) ? entries : cache.Entries)).ToList());
-        if (Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(accounting)) > Math.Max(0, quota))
+        if (Encoding.UTF8.GetByteCount(ScriptJson.Serialize(accounting)) > Math.Max(0, quota))
             throw WebIdlException.DomException("QuotaExceededError", "The Cache API storage quota has been exceeded.");
         Persist(names, changed, entries);
     }
@@ -272,7 +272,7 @@ internal sealed class CacheStorageState : ICacheStorageBackend
         if (_storage is null) return;
         var snapshot = new Snapshot(1, names.Select(pair => new StoredCache(pair.Key,
             ReferenceEquals(pair.Value, changed) ? entries! : pair.Value.Entries)).ToList());
-        var serialized = JsonSerializer.Serialize(snapshot);
+        var serialized = ScriptJson.Serialize(snapshot);
         _persisting = true;
         try { _storage.Write(_key, serialized); }
         catch (Exception) { throw WebIdlException.DomException("UnknownError", "The host could not persist the Cache API transaction."); }

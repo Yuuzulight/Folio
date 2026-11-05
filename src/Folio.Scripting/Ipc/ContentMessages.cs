@@ -80,7 +80,7 @@ public static class ContentMessagePayloads
                     return false;
             }
 
-            capabilities = JsonSerializer.Deserialize<FeatureCapabilities>(value.GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            capabilities = value.Deserialize(CapabilityJsonContext.Default.FeatureCapabilities)
                 ?? FeatureCapabilities.Default;
             return true;
         }

@@ -141,17 +141,17 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             // Acknowledgements are terminal, not another heartbeat request.
             // Queue requests with document work so a hung script cannot fake health.
             if (!message.Payload.TryGetProperty("acknowledged", out _))
-                await SendAsync(ContentMessageKind.Heartbeat, new { acknowledged = message.Sequence }, cancellationToken).ConfigureAwait(false);
+                await SendAsync(ContentMessageKind.Heartbeat, new Dictionary<string, object?> { ["acknowledged"] = message.Sequence }, cancellationToken).ConfigureAwait(false);
         }
         else if (message.Kind == ContentMessageKind.ResourceRequest)
         {
             var response = await LoadResourceAsync(message, cancellationToken).ConfigureAwait(false);
-            await SendAsync(ContentMessageKind.ResourceResponse, new { requestId = message.Sequence, status = response.Succeeded ? 200 : 0, data = response.Data, contentType = response.ContentType, error = response.Error }, cancellationToken).ConfigureAwait(false);
+            await SendAsync(ContentMessageKind.ResourceResponse, new Dictionary<string, object?> { ["requestId"] = message.Sequence, ["status"] = response.Succeeded ? 200 : 0, ["data"] = response.Data, ["contentType"] = response.ContentType, ["error"] = response.Error }, cancellationToken).ConfigureAwait(false);
         }
         else if (message.Kind == ContentMessageKind.MediaDecodeRequest)
         {
             var response = await DecodeMediaAsync(message, cancellationToken).ConfigureAwait(false);
-            await SendAsync(ContentMessageKind.MediaDecodeResponse, new { requestId = message.Sequence, result = response }, cancellationToken).ConfigureAwait(false);
+            await SendAsync(ContentMessageKind.MediaDecodeResponse, new Dictionary<string, object?> { ["requestId"] = message.Sequence, ["result"] = response }, cancellationToken).ConfigureAwait(false);
         }
         else if (message.Kind == ContentMessageKind.MediaAudioSubmit)
         {
@@ -248,10 +248,10 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             var totalOutputBytes = checked(videoBytes + audioBytes);
             if (totalOutputBytes > maxOutputBytes || totalOutputBytes > MaxResourceResponseBytes)
                 return null;
-            var frame = result.VideoFrame is null ? null : new { width = result.VideoFrame.Width, height = result.VideoFrame.Height, pixels = Convert.ToBase64String(result.VideoFrame.Pixels.ToArray()) };
-            var frames = result.VideoFrames?.Select(item => new { time = item.Time, width = item.Frame.Width, height = item.Frame.Height, pixels = Convert.ToBase64String(item.Frame.Pixels.ToArray()) }).ToArray();
-            var audio = result.Audio is { } sound ? new { sampleRate = sound.SampleRate, channels = sound.Channels, samples = sound.Samples.ToArray() } : null;
-            return new { duration = result.Duration, frame, frames, audio };
+            var frame = result.VideoFrame is null ? null : new Dictionary<string, object?> { ["width"] = result.VideoFrame.Width, ["height"] = result.VideoFrame.Height, ["pixels"] = Convert.ToBase64String(result.VideoFrame.Pixels.ToArray()) };
+            var frames = result.VideoFrames?.Select(item => new Dictionary<string, object?> { ["time"] = item.Time, ["width"] = item.Frame.Width, ["height"] = item.Frame.Height, ["pixels"] = Convert.ToBase64String(item.Frame.Pixels.ToArray()) }).ToArray();
+            var audio = result.Audio is { } sound ? new Dictionary<string, object?> { ["sampleRate"] = sound.SampleRate, ["channels"] = sound.Channels, ["samples"] = sound.Samples.ToArray() } : null;
+            return new Dictionary<string, object?> { ["duration"] = result.Duration, ["frame"] = frame, ["frames"] = frames, ["audio"] = audio };
         }
         catch { return null; }
     }
@@ -269,7 +269,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
         _mediaDecodeRequests[sequence] = completion;
         try
         {
-            WriteAsync(ContentMessageKind.MediaDecodeRequest, sequence, new { data = Convert.ToBase64String(data.Span), contentType, video, maxOutputBytes }, timeout.Token).AsTask().GetAwaiter().GetResult();
+            WriteAsync(ContentMessageKind.MediaDecodeRequest, sequence, new Dictionary<string, object?> { ["data"] = Convert.ToBase64String(data.Span), ["contentType"] = contentType, ["video"] = video, ["maxOutputBytes"] = maxOutputBytes }, timeout.Token).AsTask().GetAwaiter().GetResult();
             return completion.Task.WaitAsync(timeout.Token).GetAwaiter().GetResult();
         }
         finally { _mediaDecodeRequests.TryRemove(sequence, out _); _requestSlots.Release(); }
@@ -400,7 +400,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
         try
         {
             if (_connectionClosed) return ResourceResponse.Refused("The content connection closed.");
-            await WriteAsync(ContentMessageKind.ResourceRequest, sequence, new { url = request.Url, kind = (int)request.Kind, integrity = request.Integrity }, timeout.Token).ConfigureAwait(false);
+            await WriteAsync(ContentMessageKind.ResourceRequest, sequence, new Dictionary<string, object?> { ["url"] = request.Url, ["kind"] = (int)request.Kind, ["integrity"] = request.Integrity }, timeout.Token).ConfigureAwait(false);
             return await completion.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
         }
         finally { _resourceRequests.TryRemove(sequence, out _); _requestSlots.Release(); }
@@ -443,7 +443,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             ContentViewport viewport => JsonSerializer.SerializeToElement(viewport, ContentProtocolJsonContext.Default.ContentViewport),
             ContentInputEvent input => JsonSerializer.SerializeToElement(input, ContentInputJsonContext.Default.ContentInputEvent),
             JsonElement json => json.Clone(),
-            _ => JsonSerializer.SerializeToElement(payload),
+            _ => ScriptJson.SerializeToElement(payload),
         };
         await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try

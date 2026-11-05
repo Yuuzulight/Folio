@@ -206,7 +206,7 @@ public sealed class ContentDocumentRuntime : IDisposable
                 ArtifactId = message.Payload.TryGetProperty("artifactId", out var artifact) ? artifact.GetString() ?? "default" : "default",
                 ArtifactStorage = message.Payload.TryGetProperty("storageEnabled", out var storageEnabled) && storageEnabled.GetBoolean() ? new BrokerArtifactStorage(_session) : null,
                 Limits = message.Payload.TryGetProperty("limits", out var limits) ? limits.Deserialize(ContentProtocolJsonContext.Default.ResourceLimits) ?? ResourceLimits.Default : ResourceLimits.Default,
-                MediaCaptureActivityChanged = active => _ = _session.SendAsync(ContentMessageKind.MediaCaptureActivity, new { active }, cancellationToken),
+                MediaCaptureActivityChanged = active => _ = _session.SendAsync(ContentMessageKind.MediaCaptureActivity, new Dictionary<string, object?> { ["active"] = active }, cancellationToken),
                 Raster = Folio.Painting.SoftwareRasterBackend.Instance
             };
             _session.SetStorageLimit(options.Limits.MaxServiceWorkerCacheBytes);
@@ -224,9 +224,14 @@ public sealed class ContentDocumentRuntime : IDisposable
             if (message.Payload.TryGetProperty("missingNativeLibrary", out var missingNative)
                 && missingNative.ValueKind == JsonValueKind.True)
             {
+#if FOLIO_ANGLE_ORACLE
                 var missingPath = Path.Combine(Path.GetTempPath(), $"folio-angle-missing-{Guid.NewGuid():N}.dll");
                 DomBindings.ConfigureGpuFactory(_engine,
                     maxBytes => AngleGpuBackend.TryCreate(missingPath, maxBytes, GpuRendererPreference.HardwareThenWarp));
+#else
+                DomBindings.ConfigureGpuFactory(_engine, _ => new GpuDeviceResult(null,
+                    new GpuFailure(GpuFailureKind.Unavailable, "The GPU native backend is unavailable.")));
+#endif
             }
             DomBindings.Install(_engine, _document, eventLoop: _eventLoop);
             Mark("bindings");
@@ -307,7 +312,7 @@ public sealed class ContentDocumentRuntime : IDisposable
         private readonly ConcurrentDictionary<string, BrokerMediaCaptureSession> _sessions = new();
         public IMediaCaptureSession? Open(MediaCaptureRequest request)
         {
-            var result = session.RequestMediaCaptureAsync(new { action = "open", audio = request.Audio, video = request.Video }).GetAwaiter().GetResult();
+            var result = session.RequestMediaCaptureAsync(new Dictionary<string, object?> { ["action"] = "open", ["audio"] = request.Audio, ["video"] = request.Video }).GetAwaiter().GetResult();
             if (!result.TryGetProperty("ok", out var ok) || !ok.GetBoolean() || !result.TryGetProperty("token", out var token)) return null;
             var capture = new BrokerMediaCaptureSession(session, token.GetString()!, () => _sessions.TryRemove(token.GetString()!, out _));
             _sessions[capture.Token] = capture;
@@ -339,7 +344,7 @@ public sealed class ContentDocumentRuntime : IDisposable
         private (MediaCaptureVideoFrame? video, MediaAudioFrame? audio) Read()
         {
             if (Volatile.Read(ref _disposed) != 0) return (null, null);
-            var result = session.RequestMediaCaptureAsync(new { action = "current", token }).GetAwaiter().GetResult();
+            var result = session.RequestMediaCaptureAsync(new Dictionary<string, object?> { ["action"] = "current", ["token"] = token }).GetAwaiter().GetResult();
             MediaCaptureVideoFrame? video = null;
             if (result.TryGetProperty("video", out var v) && v.TryGetProperty("width", out var w) && v.TryGetProperty("height", out var h) && v.TryGetProperty("rgba", out var rgba)
                 && w.TryGetInt32(out var width) && h.TryGetInt32(out var height))
@@ -357,7 +362,7 @@ public sealed class ContentDocumentRuntime : IDisposable
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-            try { session.RequestMediaCaptureAsync(new { action = "close", token }).GetAwaiter().GetResult(); } catch { }
+            try { session.RequestMediaCaptureAsync(new Dictionary<string, object?> { ["action"] = "close", ["token"] = token }).GetAwaiter().GetResult(); } catch { }
             removed();
             _videoFrameAvailable = null; _audioFrameAvailable = null; _revoked = null;
         }
@@ -382,13 +387,13 @@ public sealed class ContentDocumentRuntime : IDisposable
         public void Submit(MediaAudioFrame frame)
         {
             if (frame.SampleRate <= 0 || frame.Channels <= 0 || frame.Samples.Length > 2_000_000) return;
-            session.SendAsync(ContentMessageKind.MediaAudioSubmit, new { sampleRate = frame.SampleRate, channels = frame.Channels, samples = frame.Samples.ToArray() }).AsTask().GetAwaiter().GetResult();
+            session.SendAsync(ContentMessageKind.MediaAudioSubmit, new Dictionary<string, object?> { ["sampleRate"] = frame.SampleRate, ["channels"] = frame.Channels, ["samples"] = frame.Samples.ToArray() }).AsTask().GetAwaiter().GetResult();
         }
         public void Start() => Send("start");
         public void Pause() => Send("pause");
         public void Flush() => Send("flush");
         public void Stop() => Send("stop");
-        private void Send(string action) => session.SendAsync(ContentMessageKind.MediaAudioLifecycle, new { action }).AsTask().GetAwaiter().GetResult();
+        private void Send(string action) => session.SendAsync(ContentMessageKind.MediaAudioLifecycle, new Dictionary<string, object?> { ["action"] = action }).AsTask().GetAwaiter().GetResult();
     }
 }
 

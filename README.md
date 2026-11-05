@@ -52,7 +52,7 @@ File.WriteAllBytes("report.png", png);
 On Windows, `FolioView` (in `Folio.WinForms`) shows a document in a window: call `LoadHtml(html)` on it. Scripted documents can use `Folio.ContentHost` through `ContentProcessClient`; configure `FolioOptions.Scripting` as `ContentProcess` and provide `ContentProcessPath`.
 
 ## Building
-Needs the .NET 10 SDK. The engine and its tests run on Windows and Linux; the WinForms control runs on Windows.
+Needs .NET SDK 10.0.403 or newer (including the patched .NET 10.0.14 runtime). The engine and its tests run on Windows and Linux; the WinForms control runs on Windows.
 
 ```
 dotnet build Folio.slnx
@@ -65,9 +65,20 @@ dotnet tests/Folio.Benchmarks/bin/Debug/net10.0/Folio.Benchmarks.dll
 dotnet tests/Folio.WinForms.Tests/bin/Debug/net10.0-windows/Folio.WinForms.Tests.dll
 ```
 
-The solution-level `dotnet test` wrapper does not discover these in-process
-runners; use the direct commands above (or the equivalent `Release` paths after
-a Release build) so the tests actually execute.
+The solution uses Microsoft.Testing.Platform. Run the complete suite with
+`dotnet test --solution Folio.slnx -c Release --max-parallel-test-modules 1`, or use the direct commands above
+for individual projects.
+
+The Windows production content host is a standalone NativeAOT executable. Publishing it requires the patched SDK
+above and Visual Studio C++ build tools with a Windows SDK (plus ARM64 tools when targeting ARM64):
+
+```powershell
+pwsh -File tools/publish-content-host.ps1
+```
+
+The script validates the native image, patched compiler packages, font hashes and license notices before replacing
+an existing publish. It writes `native-build.json` with the build provenance. Published-host integration tests use
+`FOLIO_CONTENT_HOST` to select that exact executable; ordinary developer builds remain available for engine oracles.
 
 The render tests include an equivalence check: after random style changes to a page, an incremental update must draw exactly what a fresh render draws.
 

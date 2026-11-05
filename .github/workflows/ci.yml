@@ -135,9 +135,7 @@ jobs:
 
       # M4 scripted startup, first-paint and content-process working-set evidence.
       # Target misses and invalid/empty frames fail the production acceptance gate.
-      # Isolate the publish from normal/oracle/composite build intermediates.
-      # Mixed ReadyToRun images can reference an absent composite image and
-      # fail-fast before the protocol can emit a frame.
+      # Qualify the shipped NativeAOT image, isolated from developer/oracle build intermediates.
       - name: Publish content host for scripted benchmarks
         if: matrix.os == 'windows-latest'
         run: pwsh -File tools/publish-content-host.ps1
@@ -157,7 +155,29 @@ jobs:
         if: matrix.os == 'windows-latest'
         env:
           FOLIO_CONTENT_HOST: ${{ github.workspace }}\artifacts\content-host\Folio.ContentHost.exe
-        run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class '*ContentHostProductionTests' -parallelMode none
+          FOLIO_SCRIPT_ENGINE: native
+          FOLIO_CAPABILITY_MATRIX: all
+        run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -parallelMode none
+
+      - name: Published native capability matrix
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          FOLIO_CONTENT_HOST: ${{ github.workspace }}\artifacts\content-host\Folio.ContentHost.exe
+          FOLIO_SCRIPT_ENGINE: native
+        run: |
+          foreach ($row in 'none','webgl','media','sound','camera','microphone','workers','webassembly','iframes','webrtc','service-workers','all') {
+            $env:FOLIO_CAPABILITY_MATRIX = $row
+            Write-Host "Published native capability row: $row"
+            dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class '*CapabilityMatrixTests' -class '*WindowsSandboxTests' -parallelMode none
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Published native view lifecycle
+        if: matrix.os == 'windows-latest'
+        env:
+          FOLIO_CONTENT_HOST: ${{ github.workspace }}\artifacts\content-host\Folio.ContentHost.exe
+        run: dotnet tests/Folio.WinForms.Tests/bin/Release/net10.0-windows/Folio.WinForms.Tests.dll
 
       - name: Scripted process benchmarks
         if: matrix.os == 'windows-latest'

@@ -11,6 +11,8 @@
 
   <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
     <ProjectReference Include="..\..\src\Folio.WinForms\Folio.WinForms.csproj" />
+    <Compile Include="../Folio.Scripting.Tests/ContentHostTestPaths.cs" Link="Shared/ContentHostTestPaths.cs" />
+    <Using Include="Folio.Scripting.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Folio.Scripting\Folio.Scripting.csproj" />

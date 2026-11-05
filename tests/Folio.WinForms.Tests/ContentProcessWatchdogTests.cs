@@ -18,7 +18,7 @@ public sealed class ContentProcessWatchdogTests
     public Task ContentFrameRemainsVisibleWhenBrokerHangStopsChild() => RunStaAsync(async () =>
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         var (row, capabilities) = MatrixCapabilities();
         var attached = false;
         using var form = new Form { ClientSize = new Size(220, 80), ShowInTaskbar = false, Opacity = 0, Location = new Point(-32000, -32000) };
@@ -116,7 +116,7 @@ public sealed class ContentProcessWatchdogTests
     public Task StoppedChildBeforeFirstFrameShowsNotice() => RunStaAsync(async () =>
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         var (row, capabilities) = MatrixCapabilities();
         using var form = new Form { ClientSize = new Size(220, 80), ShowInTaskbar = false, Opacity = 0, Location = new Point(-32000, -32000) };
         using var view = new FolioView { Dock = DockStyle.Fill, Options = new FolioOptions { Scripting = ScriptingPolicy.ContentProcess } };
