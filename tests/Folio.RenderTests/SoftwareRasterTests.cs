@@ -640,8 +640,8 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
         BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
         colr[44] = 14; colr[45] = 0; colr[46] = 0; colr[47] = 12; // PaintTranslate -> PaintGlyph
-        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(48), 20 << 16);
-        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(52), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(48), 320);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(50), 0);
         colr[56] = 10; colr[57] = 0; colr[58] = 0; colr[59] = 6;
         BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(60), glyph);
         colr[62] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(63), 0); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(65), 0x4000);
@@ -663,16 +663,21 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
         BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
         BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
-        colr[44] = 12; colr[45] = 0; colr[46] = 0; colr[47] = 28; // PaintTransform -> PaintGlyph
-        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(48), 1 << 16);
-        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(52), 0);
+        colr[44] = 12; colr[47] = 28; // child PaintGlyph at 72
+        colr[50] = 8; // separate Affine2x3 at 52 (relative offset 8)
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(52), 1 << 16);
         BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(56), 0);
-        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(60), 1 << 16);
-        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(64), 20 << 16);
-        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(68), 0);
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(60), 0);
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(64), 1 << 16);
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(68), 320 << 16);
+        // Put the child after the complete affine table (the matrix ends at 76).
+        Array.Resize(ref colr, 88);
+        colr[47] = 32;
         colr[72] = 10; colr[73] = 0; colr[74] = 0; colr[75] = 6;
         BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(76), glyph);
         colr[78] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(79), 0); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(81), 0x4000);
+        colr.AsSpan(72, 12).CopyTo(colr.AsSpan(76));
+        BinaryPrimitives.WriteInt32BigEndian(colr.AsSpan(72), 0);
         return colr;
     }
 
@@ -745,9 +750,9 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         colr[56] = 6; // PaintRadialGradient
         BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(60), 500);
         BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(62), 500);
-        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(64), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(64), 0);
         BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(66), 500);
-        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(68), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(68), 500);
         BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(70), 500);
         BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(72), 500);
         return colr;
@@ -805,9 +810,9 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
-    internal static byte[] SyntheticCpal() => [0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 12, 0, 0, 255, 255];
+    internal static byte[] SyntheticCpal() => [0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 14, 0, 0, 0, 0, 255, 255];
 
-    private static byte[] SyntheticCpalTwo() => [0, 0, 0, 2, 0, 1, 0, 2, 0, 0, 0, 12, 0, 0, 255, 255, 255, 0, 0, 255];
+    private static byte[] SyntheticCpalTwo() => [0, 0, 0, 2, 0, 1, 0, 2, 0, 0, 0, 14, 0, 0, 0, 0, 255, 255, 255, 0, 0, 255];
 
     private static byte[] SyntheticColrV0(ushort glyph) =>
     [

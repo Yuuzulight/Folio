@@ -516,3 +516,27 @@ Shared-cache verification checkpoint:
   guard. CI must validate the exact pushed revision before this can be considered qualified.
 - Quiet timing qualification is still pending: `deadlock` was using about five CPU cores, alongside busy browser
   processes. The user has been asked to close them. No performance claim is made from those conditions.
+
+
+### Second-audit finding: COLR binary layouts and mixed glyph runs
+
+Independent review against the [OpenType COLR specification](https://learn.microsoft.com/en-us/typography/opentype/spec/colr)
+found that existing synthetic fixtures repeated decoder mistakes: translation used Fixed values instead of FWORDs,
+Affine2x3 data was inlined instead of offset-addressed, and CPAL fixtures omitted the palette-index array.
+
+Repairs:
+- Follow separate affine offsets and the specified basis-vector ordering; decode signed 16-bit translations, correct
+  variable scale-center offsets, compose child transforms before parent transforms, and scale font coordinates only
+  after applying the colour graph.
+- Honour CPAL's first-palette record offset, foreground solid alpha, radial field ordering/unsigned radii, and linear
+  gradient rotation points. Preserve the gradient's full coordinate transform instead of approximating rotated/skewed
+  circles through radii alone.
+- Mixed colour/ordinary glyph runs now draw the ordinary outlines rather than silently dropping them. The same fallback
+  applies to missing bitmap-strike glyphs.
+- Corrected the fixtures and added independent affine-coordinate, nested-transform, center-invariance, palette-offset,
+  foreground-alpha and mixed-run regressions: focused raster/cache/format suite **78/78**.
+- Exact shared-cache commit `adfd1363` full solution: **4,538 total / 4,536 passed / two skips / zero failures**.
+  Its production-host checks passed **16/16**. These checkpoint results precede this additional colour-format repair.
+- Published profile after the colour repair, on the now quiet machine: cold **518.5 ms**, table **60.5 ms**, peak
+  **81.2 MiB**. The table profile is layout **23.25 ms**, raster **19.56 ms**, retirement **4.38 ms**. These fail the
+  existing targets; performance work is still required. No threshold has been changed.

@@ -165,6 +165,7 @@ public class GlyphCacheBudgetTests
         BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(94), glyph);
         colr[96] = 4; colr[99] = 30;
         BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(104), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(110), 500);
         BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(127), 512);
         for (var i = 0; i < 512; i++) BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(133 + 6 * i), 0x4000);
         var face = FontFace.Parse(SoftwareRasterTests.AddTables(source,

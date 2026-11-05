@@ -977,6 +977,11 @@ internal sealed class SoftwareCanvas : ICanvas
             DrawBitmapGlyphs(colorFace2, size, glyphs, origins, paint);
             return;
         }
+        DrawMonochromeGlyphs(font, size, glyphs, origins, paint);
+    }
+
+    private void DrawMonochromeGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
+    {
         if (font is FontFace cachedFace && TryDrawCachedGlyphs(cachedFace, size, glyphs, origins, paint)) return;
         for (var index = 0; index < glyphs.Length && index < origins.Length; index++)
         {
@@ -1004,13 +1009,17 @@ internal sealed class SoftwareCanvas : ICanvas
         for (var i = 0; i < glyphs.Length && i < origins.Length; i++)
         {
             if (ColorGlyphs.Get(face, glyphs[i]) is not { } layers)
+            {
+                if (BitmapGlyphs.Has(face)) DrawBitmapGlyphs(face, size, glyphs.Slice(i, 1), origins.Slice(i, 1), paint);
+                else DrawMonochromeGlyphs(face, size, glyphs.Slice(i, 1), origins.Slice(i, 1), paint);
                 continue;
+            }
             var origin = SnapToTextGrid(origins[i]);
             foreach (var layer in layers)
             {
                 if (Outline(face, layer.Glyph) is not { } path)
                     continue;
-                var matrix = Matrix3x2.CreateScale(scale, -scale) * layer.TransformOrIdentity * Matrix3x2.CreateTranslation(origin);
+                var matrix = layer.TransformOrIdentity * Matrix3x2.CreateScale(scale, -scale) * Matrix3x2.CreateTranslation(origin);
                 var subpaths = PathGeometry.Flatten(path, tolerance);
                 var points = new List<Subpath>(subpaths.Count);
                 foreach (var subpath in subpaths)
@@ -1032,19 +1041,12 @@ internal sealed class SoftwareCanvas : ICanvas
                         var transformedGradient = gradient with
                         {
                             Stops = stops,
-                            Start = Vector2.Transform(gradient.Start, matrix),
-                            End = Vector2.Transform(gradient.End, matrix),
-                            Center = Vector2.Transform(gradient.Center, matrix),
-                            Radii = new Vector2(Vector2.TransformNormal(new Vector2(gradient.Radii.X, 0), matrix).Length(),
-                                Vector2.TransformNormal(new Vector2(0, gradient.Radii.Y), matrix).Length()),
-                            Focus = gradient.Focus is { } focus ? Vector2.Transform(focus, matrix) : null,
-                            FocusRadius = gradient.FocusRadius * Vector2.TransformNormal(Vector2.UnitX, matrix).Length(),
-                            Transform = null,
+                            Transform = matrix,
                         };
                         Draw(coverage, new Paint(paint.Color, Gradient: transformedGradient, Blend: blend));
                         continue;
                     }
-                    var colour = (layer.Color ?? paint.Color) with { A = (layer.Color?.A ?? 1) * paint.Color.A };
+                    var colour = (layer.Color ?? paint.Color) with { A = (layer.Color?.A ?? 1) * paint.Color.A * layer.Opacity };
                     var blendMode = layer.Blend == BlendMode.Normal ? paint.Blend : layer.Blend;
                     Draw(coverage, new Paint(colour, Blend: blendMode));
                 }
@@ -1058,7 +1060,10 @@ internal sealed class SoftwareCanvas : ICanvas
         for (var i = 0; i < glyphs.Length && i < origins.Length; i++)
         {
             if (BitmapGlyphs.Get(face, glyphs[i]) is not { } bitmap)
+            {
+                DrawMonochromeGlyphs(face, size, glyphs.Slice(i, 1), origins.Slice(i, 1), paint);
                 continue;
+            }
             var scale = size / bitmap.PixelsPerEm;
             var origin = SnapToTextGrid(origins[i]);
             var destination = new RectF(origin.X + bitmap.BearingX * scale, origin.Y - bitmap.BearingY * scale, bitmap.Image.Width * scale, bitmap.Image.Height * scale);
