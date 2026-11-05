@@ -418,3 +418,65 @@ Still open: the table's production target and a consistent cold start; the 110% 
 - **Test.** New `SoftwareClipTests.ARepeatedRoundedClipFollowsTheTransformAndTheClipAroundIt` fails when the cache key leaves out the transform and clip.
 - **Verification.** Render suite 864/864, Folio.Tests 2,004 (the one symlink skip), strict native conformance 174/174 (`artifacts/resume3-*`).
 - **Not yet measured in production.** The whole-page timings were noisy (other apps at 45% CPU). The production sample is still to be taken.
+
+## Continuation: native conformance correction and owned font hinting
+
+**Important correction to the earlier 174/174 claims.** The old `native` conformance command selected Folio's
+JavaScript engine, but still rendered through Skia and HybridShaper. It did not validate the shipped all-Folio
+renderer. The command now uses SoftwareRasterBackend and ComplexShaper by default, including compatibility-JS
+runs. The explicit diagnostic `--oracle-renderer` switch cannot be combined with native mode. Tests reject a
+request for native shaping with the oracle rasterizer. The initial correctly wired result was **139/174**.
+
+PR **#699** is open as a draft, branch `fix/folio-production-audit`. CI on the old head `3026baab`, run
+**42058001987**, passed all 24 capability jobs but failed Ubuntu reference rendering (two text/iframe mismatches)
+and the Windows animation gate (bars 22.60 ms, snake 17.39 ms). Later production/fuzz steps were skipped in that
+run. Those failures are not evidence that the current continuation code passes CI.
+
+### Correctness repairs
+
+- Native ASCII shaping now applies the font's Latin ligature substitutions, pair kerning and pair placement.
+  Three independent HarfBuzz comparisons cover glyph ids, clusters, advances and offsets.
+- Bitmap emoji shaping now resolves variation selectors, regional flags, modifiers, keycaps and supported ZWJ
+  sequences through the font's own substitutions, preserving source grapheme clusters. Seven oracle cases pass.
+- Default iframe borders now use the browser's inset border style rather than a flat gray border. D12 passes 4/4;
+  its two obsolete known-gap exclusions were removed.
+- The user approved an owned font-hint interpreter, keeping the visual requirements. TrueType `fpgm`, `prep` and
+  glyph programs run with bounded stack, storage, CVT, point count, calls and execution steps. Glyphs get isolated
+  copies of prepared state; composite components share an overall execution budget. Phantom points and contour
+  interpolation are supported. Invalid programs fall back to complete original outlines, never partial fitted data.
+- Hinting uses device pixel size, including 110% and 150% scale. Its per-face cache shares the existing 8 MiB
+  total glyph budget; no production font-rendering library was added. Malformed-input, isolation, size-churn,
+  bundled-font execution and raster comparisons are covered by tests.
+- **170/174** full native corpus after TrueType hinting: `artifacts/continue-hinted-native-conformance.log`.
+  All remaining failures were CFF CJK pages. The 110% and 150% overlapping-text oracle checks now pass and were
+  restored; the whole-page text-review loop also includes 110% again.
+- Added owned CFF stem/mask/blue-zone fitting, bounded counter preservation, quarter-pixel stem widths and optical
+  compensation for thin vertical strokes. Declared hints are bounded to 96 and masks are checked before use.
+  Dense grid fits preserve contour order. All Chinese/Japanese corpus glyphs execute across five sizes without
+  falling back. The selected **S6 corpus now passes 12/12**, with no tolerance changes.
+- Added colour-aware grayscale text coverage correction, using eight fixed luminance tables (2 KiB). Cached
+  coverage includes its luminance key; opacity and clipping are applied after mask correction. Scaling checks at
+  100%, 110% and 150% pass. The old text-hint exclusions were removed entirely.
+- Page-run oracle comparisons exposed Japanese pair kerning and Latin ligatures disabled by mixed punctuation.
+  Both are repaired. The two native shapers also replace malformed UTF-16 within the requested run rather than
+  throwing or reading the next run's surrogate. Regression tests cover these cases.
+- Preparation supports font/CVT function definitions and forward-compatible instruction definitions; point-flag
+  operations respect the selected zone. Unsupported or malformed font programs retain whole-outline fallback.
+
+### Current validation and remaining work
+
+- Full solution snapshot before the last safety refinements: **4,523 total, 4,521 passed, two skips, no failures**
+  (`artifacts/continue-final-solution-tests.log`). Skips: unavailable local symlink privilege and the explicitly
+  excluded Wasmtime-oracle benchmark. Final-code rebuild and rerun are still required.
+- Final focused owned-text checks: **154/154**, including TrueType/CFF execution, resources, safety, text coverage,
+  mixed-language page runs and independent shaping/raster comparisons (`artifacts/continue-owned-text-tests.log`).
+- Added font-program mutation coverage and extended font mutation rendering to TrueType as well as CFF.
+  The first campaign found an empty CFF font-dictionary indexing crash; the parser now rejects invalid dictionaries,
+  and the failing binary is a permanent regression. Recheck: **501,933 font-program mutations and 349,205 font
+  mutations, no failures** (`artifacts/continue-hint-fuzz-recheck.log`). The final full campaign is still pending.
+- An ignored, development-only FreeType oracle was installed under `artifacts/font-oracle` for diagnosis.
+  It is not referenced by production projects or packages. Pixel probes are also ignored artifacts.
+- Remaining: final complete native corpus run, safety review, full solution and fuzz
+  verification; production-host republish and checks; current-head CI; consistent cold/warm/animation/memory
+  qualification. **Timing measurements are deferred at the user's request while other applications are busy.**
+  The older table/cold-start timings above remain the latest production evidence, not a pass on the new code.

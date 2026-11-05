@@ -3,6 +3,15 @@ namespace Folio.RenderTests;
 public class ConformanceTests
 {
     [Fact]
+    public void NativeShapingCannotSilentlyUseTheOracleRasterizer()
+    {
+        var artifact = Conformance.Discover().Single(item => item.Id == "D1/sortable-filter-table");
+        Assert.Throws<ArgumentException>(() => Conformance.Run(artifact, software: false, nativeShaping: true));
+        using var document = Document.Parse("<p>AVATAR office</p>", Conformance.Options);
+        Assert.Throws<ArgumentException>(() => SoftwareRender.Pixels(document, new Folio.Skia.RenderRequest(100, 100), software: false, nativeShaping: true));
+    }
+
+    [Fact]
     public void StrictConformanceRejectsAnEmptySelection() =>
         Assert.Equal(1, Program.Main(["conformance", "--strict", "missing-release-corpus"]));
 

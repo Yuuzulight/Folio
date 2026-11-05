@@ -434,9 +434,9 @@ internal static class SimpleShaper
         var markFlags = new bool[length];
         var count = 0;
         var hasMarks = false;
-        for (var i = start; i < start + length;)
+        var i = start;
+        foreach (var rune in text.AsSpan(start, length).EnumerateRunes())
         {
-            var rune = Rune.GetRuneAt(text, i);
             var glyph = face.GlyphFor(rune.Value);
             var isMark = IsSimpleMark(rune.Value);
             if (isMark) hasMarks = true;

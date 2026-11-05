@@ -378,10 +378,17 @@ public static class Program
     private static int ConformanceReport(string[] filters)
     {
         var strict = filters.Contains("--strict", StringComparer.Ordinal);
-        filters = filters.Where(filter => filter != "--strict").ToArray();
+        var nativeDrawing = !filters.Contains("--oracle-renderer", StringComparer.Ordinal);
+        filters = filters.Where(filter => filter is not ("--strict" or "--oracle-renderer")).ToArray();
         var native = string.Equals(Environment.GetEnvironmentVariable("FOLIO_CONFORMANCE_ENGINE"), "native", StringComparison.OrdinalIgnoreCase);
+        if (native && !nativeDrawing)
+        {
+            Console.Error.WriteLine("Native conformance cannot use an oracle renderer.");
+            return 1;
+        }
         Func<IScriptEngine>? engineFactory = native ? static () => new NativeJavaScriptEngine() : null;
         Console.WriteLine($"Conformance engine: {(native ? "native Folio" : "Jint compatibility")}");
+        Console.WriteLine(nativeDrawing ? "Rendering: Folio software raster + ComplexShaper" : "Rendering: Skia raster + hybrid shaping oracle");
         var discovered = Conformance.Discover();
         if (!native)
         {
@@ -392,7 +399,7 @@ public static class Program
         }
         var results = discovered
             .Where(a => filters.Length == 0 || filters.Any(f => a.Id == f || a.Id.StartsWith(f.TrimEnd('/') + "/", StringComparison.Ordinal)))
-            .Select(a => Conformance.Run(a, engineFactory: engineFactory))
+            .Select(a => Conformance.Run(a, software: nativeDrawing, engineFactory: engineFactory, nativeShaping: nativeDrawing))
             .ToList();
         var report = Conformance.Report(results);
         Console.WriteLine(report);

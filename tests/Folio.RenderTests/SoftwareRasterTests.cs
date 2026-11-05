@@ -18,6 +18,8 @@ public class SoftwareRasterTests(ITestOutputHelper output)
 {
     [Theory]
     [InlineData(1f)]
+    [InlineData(1.1f)]
+    [InlineData(1.5f)]
     public void OverlappingGlyphsPreservePaintOrderAndTranslucentCompositing(float scale)
     {
         var face = Load("SourceSans3-Regular.ttf");
@@ -103,7 +105,7 @@ public class SoftwareRasterTests(ITestOutputHelper output)
             surface.Canvas.DrawGlyphs(face, 18, [(ushort)glyph], [new Vector2(16.25f, 40)], Solid(0, 0, 0));
         var usage = SoftwareCanvas.GlyphCacheUsage(face);
         Assert.InRange(usage.Coverage, 1, 1024 * 1024);
-        Assert.InRange(usage.Outlines + usage.Flattened + usage.Coverage, 1, 8L * 1024 * 1024);
+        Assert.InRange(usage.Outlines + usage.Flattened + usage.Coverage + FontHinting.CacheBytes(face), 1, 8L * 1024 * 1024);
     }
 
     [Fact]
@@ -201,13 +203,15 @@ public class SoftwareRasterTests(ITestOutputHelper output)
             var glyph = face.GlyphFor(index);
             Assert.Equal(glyph, shaped.Glyphs[index]);
             Assert.Equal(7 + index, shaped.Clusters[index]);
-            Assert.Equal(face.Advance(glyph) * (18f / face.UnitsPerEm), shaped.Advances[index]);
-            Assert.Equal(Vector2.Zero, shaped.Offsets[index]);
+            var units = face.Advance(glyph) + (index + 1 < 128 ? face.Kerning(glyph, face.GlyphFor(index + 1)) : 0);
+            Assert.Equal(units * (18f / face.UnitsPerEm), shaped.Advances[index]);
+            var placement = index > 0 ? face.PairPlacement(face.GlyphFor(index - 1), glyph) * (18f / face.UnitsPerEm) : 0;
+            Assert.Equal(new Vector2(placement, 0), shaped.Offsets[index]);
         }
     }
 
     [Fact]
-    public void SideBySideTextReviewAt100And150Percent()
+    public void SideBySideTextReviewAt100And110And150Percent()
     {
         TextReviewRunner.Run();
     }
@@ -538,7 +542,7 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         }
 
         var usage = SoftwareCanvas.GlyphCacheUsage(face);
-        Assert.InRange(usage.Outlines + usage.Flattened + usage.Coverage, 0, 8L * 1024 * 1024);
+        Assert.InRange(usage.Outlines + usage.Flattened + usage.Coverage + FontHinting.CacheBytes(face), 0, 8L * 1024 * 1024);
     }
 
     private static byte[] AddTables(byte[] source, params (string Tag, byte[] Data)[] additions)

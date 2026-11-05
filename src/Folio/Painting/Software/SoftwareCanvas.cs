@@ -699,12 +699,14 @@ internal sealed class SoftwareCanvas : ICanvas
     // Keep the native outline cache bounded per font.  The cache is shared by canvases for
     // the same face, but a face can be released as soon as the font itself is no longer
     // reachable through the ConditionalWeakTable. Eight MiB is the documented default
-    // backend glyph-cache budget. The parsed outline and flattened caches each receive
-    // half so their combined retained footprint cannot exceed the cap.
+    // backend glyph-cache budget, divided between outlines, flattening, coverage and prepared hinting.
     private const long GlyphCacheBudget = 8L * 1024 * 1024;
+    // Fitted font coordinates use a 1/64-pixel grid; flatten text curves to that accuracy rather than the
+    // looser tolerance used for general page shapes. Cached masks amortise the additional subdivision.
+    private const float GlyphFlattenTolerance = 1f / 64;
     private const long CoverageCacheBudget = 1024 * 1024;
     private const long OutlineCacheBudget = 3L * 1024 * 1024;
-    private const long FlattenedCacheBudget = GlyphCacheBudget - OutlineCacheBudget - CoverageCacheBudget;
+    private const long FlattenedCacheBudget = GlyphCacheBudget - OutlineCacheBudget - CoverageCacheBudget - FontHinting.CacheBudget;
     private sealed class OutlineCache
     {
         private readonly Dictionary<ushort, (PathData? Path, long Bytes, LinkedListNode<ushort> Node)> _entries = [];
@@ -815,18 +817,21 @@ internal sealed class SoftwareCanvas : ICanvas
 
     private sealed class GlyphCoverageCache
     {
-        private readonly Dictionary<(ushort Glyph, int Size, int Phase), Coverage?> _entries = [];
+        private readonly Dictionary<(ushort Glyph, int Size, int Phase, int Luminance), Coverage?> _entries = [];
         private long _bytes;
         internal long Bytes { get { lock (_entries) return _bytes; } }
 
-        internal bool TryGet(FontFace face, ushort glyph, float size, float phase, out Coverage? result)
+        internal bool TryGet(FontFace face, ushort glyph, float size, float phase, int luminance, out Coverage? result)
         {
-            var key = (glyph, BitConverter.SingleToInt32Bits(size), BitConverter.SingleToInt32Bits(phase));
+            var key = (glyph, BitConverter.SingleToInt32Bits(size), BitConverter.SingleToInt32Bits(phase), luminance);
             lock (_entries)
             {
                 if (_entries.TryGetValue(key, out result)) return true;
                 var scale = size / face.UnitsPerEm;
-                var paths = Flattened(face, glyph, FlattenTolerance / Math.Max(scale, 1e-6f));
+                Subpath[] paths;
+                if (FontHinting.TryGet(face, glyph, size, out var hinted, out _) && hinted is not null)
+                { paths = PathGeometry.Flatten(hinted, GlyphFlattenTolerance).ToArray(); scale = 1; }
+                else paths = Flattened(face, glyph, FlattenTolerance / Math.Max(scale, 1e-6f));
                 var polygons = new List<Vector2[]>(paths.Length);
                 var minX = float.MaxValue; var minY = float.MaxValue;
                 var maxX = float.MinValue; var maxY = float.MinValue;
@@ -851,6 +856,7 @@ internal sealed class SoftwareCanvas : ICanvas
                         || (maxX - minX + 2) * (maxY - minY + 2) > CoverageCacheBudget / 2) return false;
                     result = Rasterizer.Fill(polygons, FillRule.NonZero,
                         new IntRect((int)MathF.Floor(minX), (int)MathF.Floor(minY), (int)MathF.Ceiling(maxX), (int)MathF.Ceiling(maxY)));
+                    if (result is not null) TextCoverage.Apply(result, luminance);
                 }
                 var bytes = 128L + (result?.Data.Length ?? 0);
                 while (_bytes + bytes > CoverageCacheBudget && _entries.Count > 0)
@@ -881,7 +887,7 @@ internal sealed class SoftwareCanvas : ICanvas
             var device = Vector2.Transform(SnapToTextGrid(origins[index]), transform);
             if (!float.IsFinite(device.X) || !float.IsFinite(device.Y) || Math.Abs(device.X) > int.MaxValue - 4096d || Math.Abs(device.Y) > int.MaxValue - 4096d) return false;
             var x = (int)MathF.Floor(device.X); var y = (int)MathF.Floor(device.Y);
-            if (!cache.TryGet(face, glyphs[index], size, device.X - x, out var coverage)) return false;
+            if (!cache.TryGet(face, glyphs[index], size, device.X - x, TextCoverage.Luminance(paint), out var coverage)) return false;
             if (coverage is null) continue;
             var bounds = coverage.Bounds;
             bounds = new IntRect(bounds.Left + x, bounds.Top + y, bounds.Right + x, bounds.Bottom + y);
@@ -910,8 +916,19 @@ internal sealed class SoftwareCanvas : ICanvas
         var tolerance = FlattenTolerance / Math.Max(scale * Math.Max(Scale(), 1e-3f), 1e-6f);
         for (var i = 0; i < glyphs.Length && i < origins.Length; i++)
         {
-            var matrix = Matrix3x2.CreateScale(scale, -scale) * Matrix3x2.CreateTranslation(SnapToTextGrid(origins[i]));
-            foreach (var subpath in Flattened(face, glyphs[i], tolerance))
+            var glyphScale = scale;
+            Subpath[] paths;
+            var transform = _state.Transform;
+            if (transform.IsAffine && transform.M12 == 0 && transform.M21 == 0 && transform.M11 > 0
+                && transform.M11 == transform.M22 && transform.M33 == 1
+                && FontHinting.TryGet(face, glyphs[i], size * transform.M11, out var hinted, out _) && hinted is not null)
+            {
+                glyphScale = 1 / transform.M11;
+                paths = PathGeometry.Flatten(hinted, GlyphFlattenTolerance).ToArray();
+            }
+            else paths = Flattened(face, glyphs[i], tolerance);
+            var matrix = Matrix3x2.CreateScale(glyphScale, -glyphScale) * Matrix3x2.CreateTranslation(SnapToTextGrid(origins[i]));
+            foreach (var subpath in paths)
             {
                 var points = new Vector2[subpath.Points.Length];
                 for (var k = 0; k < points.Length; k++)
@@ -951,7 +968,10 @@ internal sealed class SoftwareCanvas : ICanvas
         {
             var polygons = PathGeometry.Polygons(Glyphs(font, size, glyphs.Slice(index, 1), origins.Slice(index, 1)), _state.Transform);
             if (polygons.Count > 0 && Rasterizer.Fill(polygons, FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
+            {
+                TextCoverage.Apply(coverage, TextCoverage.Luminance(paint));
                 Draw(coverage, paint);
+            }
         }
     }
 
