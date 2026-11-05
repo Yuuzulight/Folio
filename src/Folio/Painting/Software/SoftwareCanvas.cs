@@ -696,32 +696,29 @@ internal sealed class SoftwareCanvas : ICanvas
 
     // ---- text ----
 
-    // Keep the native outline cache bounded per font.  The cache is shared by canvases for
-    // the same face, but a face can be released as soon as the font itself is no longer
-    // reachable through the ConditionalWeakTable. Eight MiB is the documented default
-    // backend glyph-cache budget, divided between outlines, flattening, coverage and prepared hinting.
-    private const long GlyphCacheBudget = 8L * 1024 * 1024;
+    // The eight MiB backend budget is shared across all faces. Per-region caps prevent one kind of data from
+    // monopolising it. Weak keys/registrations let a retired face release both its font data and glyph caches.
     // Fitted font coordinates use a 1/64-pixel grid; flatten text curves to that accuracy rather than the
     // looser tolerance used for general page shapes. Cached masks amortise the additional subdivision.
     private const float GlyphFlattenTolerance = 1f / 64;
     private const long CoverageCacheBudget = 1024 * 1024;
     private const long OutlineCacheBudget = 3L * 1024 * 1024;
-    private const long FlattenedCacheBudget = GlyphCacheBudget - OutlineCacheBudget - CoverageCacheBudget - FontHinting.CacheBudget;
-    private sealed class OutlineCache
+    private const long FlattenedCacheBudget = GlyphCacheBudget.Limit - OutlineCacheBudget - CoverageCacheBudget - FontHinting.CacheBudget;
+    private sealed class OutlineCache : GlyphCacheBudget.Region
     {
-        private readonly Dictionary<ushort, (PathData? Path, long Bytes, LinkedListNode<ushort> Node)> _entries = [];
+        private Dictionary<ushort, (PathData? Path, long Bytes, LinkedListNode<ushort> Node)> _entries = [];
         private readonly LinkedList<ushort> _lru = [];
         private long _bytes;
 
         public PathData? Get(FontFace face, ushort glyph)
         {
-            lock (_entries)
+            lock (GlyphCacheBudget.Sync)
             {
+                GlyphCacheBudget.Touch(this);
                 if (_entries.TryGetValue(glyph, out var cached))
                 {
                     _lru.Remove(cached.Node);
-                    cached.Node = _lru.AddFirst(glyph);
-                    _entries[glyph] = cached;
+                    _lru.AddFirst(cached.Node);
                     return cached.Path;
                 }
 
@@ -730,25 +727,28 @@ internal sealed class SoftwareCanvas : ICanvas
                 var node = _lru.AddFirst(glyph);
                 _entries[glyph] = (path, bytes, node);
                 _bytes += bytes;
-                while (_bytes > OutlineCacheBudget && _lru.Last is { } last)
+                while (RetainedBytes > OutlineCacheBudget && _lru.Last is { } last)
                 {
                     var evictedGlyph = last.Value;
                     _lru.RemoveLast();
                     if (_entries.Remove(evictedGlyph, out var evicted))
                         _bytes -= evicted.Bytes;
                 }
+                GlyphCacheBudget.Update(this, RetainedBytes);
                 return path;
             }
         }
 
-        private static long Estimate(PathData? path) => path is null
-            ? 128
-            : 256L + path.Commands.Count * 64L;
+        private long RetainedBytes => _bytes + _entries.EnsureCapacity(0) * 64L;
+
+        private static long Estimate(PathData? path) => 256L + (path?.Commands.Count ?? 0) * 64L;
 
         public long Bytes
         {
-            get { lock (_entries) return _bytes; }
+            get { lock (GlyphCacheBudget.Sync) return RetainedBytes; }
         }
+
+        internal override void ClearCachedValues() { _entries = []; _lru.Clear(); _bytes = 0; }
     }
 
     private static readonly ConditionalWeakTable<FontFace, OutlineCache> Outlines = new();
@@ -757,16 +757,17 @@ internal sealed class SoftwareCanvas : ICanvas
     // small per-face cache so animation frames do not repeatedly subdivide the
     // same outlines. The bound prevents a large font corpus from retaining all
     // tolerances indefinitely.
-    private sealed class FlattenedGlyphCache
+    private sealed class FlattenedGlyphCache : GlyphCacheBudget.Region
     {
-        private readonly Dictionary<(ushort Glyph, int ToleranceBits), Subpath[]> _entries = [];
+        private Dictionary<(ushort Glyph, int ToleranceBits), Subpath[]> _entries = [];
         private long _bytes;
 
         public Subpath[] Get(FontFace face, ushort glyph, float tolerance)
         {
             var key = (glyph, BitConverter.SingleToInt32Bits(tolerance));
-            lock (_entries)
+            lock (GlyphCacheBudget.Sync)
             {
+                GlyphCacheBudget.Touch(this);
                 if (_entries.TryGetValue(key, out var cached))
                     return cached;
                 var flattened = Outlines.GetOrCreateValue(face).Get(face, glyph) is { } path
@@ -775,17 +776,20 @@ internal sealed class SoftwareCanvas : ICanvas
                 var bytes = Estimate(flattened);
                 if (bytes > FlattenedCacheBudget)
                     return flattened;
-                while (_bytes + bytes > FlattenedCacheBudget && _entries.Count > 0)
+                _entries[key] = flattened;
+                _bytes += bytes;
+                while (RetainedBytes > FlattenedCacheBudget && _entries.Count > 0)
                 {
                     var evictedKey = _entries.Keys.First();
                     _bytes -= Estimate(_entries[evictedKey]);
                     _entries.Remove(evictedKey);
                 }
-                _entries[key] = flattened;
-                _bytes += bytes;
+                GlyphCacheBudget.Update(this, RetainedBytes);
                 return flattened;
             }
         }
+
+        private long RetainedBytes => _bytes + _entries.EnsureCapacity(0) * 64L;
 
         private static long Estimate(Subpath[] paths)
         {
@@ -797,8 +801,10 @@ internal sealed class SoftwareCanvas : ICanvas
 
         public long Bytes
         {
-            get { lock (_entries) return _bytes; }
+            get { lock (GlyphCacheBudget.Sync) return RetainedBytes; }
         }
+
+        internal override void ClearCachedValues() { _entries = []; _bytes = 0; }
     }
 
     private static readonly ConditionalWeakTable<FontFace, FlattenedGlyphCache> FlattenedGlyphs = new();
@@ -807,25 +813,32 @@ internal sealed class SoftwareCanvas : ICanvas
         FlattenedGlyphs.GetOrCreateValue(face).Get(face, glyph, tolerance);
 
     /// <summary>Returns the currently retained native glyph-cache bytes for diagnostics and conformance tests.</summary>
-    internal static (long Outlines, long Flattened, long Coverage) GlyphCacheUsage(FontFace face)
+    internal static (long Outlines, long Flattened, long Coverage, long Hinting) GlyphCacheUsage(FontFace face)
     {
-        var outlines = Outlines.TryGetValue(face, out var outlineCache) ? outlineCache.Bytes : 0;
-        var flattened = FlattenedGlyphs.TryGetValue(face, out var flattenedCache) ? flattenedCache.Bytes : 0;
-        var coverage = GlyphCoverages.TryGetValue(face, out var coverageCache) ? coverageCache.Bytes : 0;
-        return (outlines, flattened, coverage);
+        lock (GlyphCacheBudget.Sync)
+        {
+            var outlines = Outlines.TryGetValue(face, out var outlineCache) ? outlineCache.Bytes : 0;
+            var flattened = FlattenedGlyphs.TryGetValue(face, out var flattenedCache) ? flattenedCache.Bytes : 0;
+            var coverage = GlyphCoverages.TryGetValue(face, out var coverageCache) ? coverageCache.Bytes : 0;
+            return (outlines, flattened, coverage, FontHinting.CacheBytes(face));
+        }
     }
 
-    private sealed class GlyphCoverageCache
+    private sealed class GlyphCoverageCache : GlyphCacheBudget.Region
     {
-        private readonly Dictionary<(ushort Glyph, int Size, int Phase, int Luminance), Coverage?> _entries = [];
+        private Dictionary<(ushort Glyph, int Size, int Phase, int Luminance), Coverage?> _entries = [];
         private long _bytes;
-        internal long Bytes { get { lock (_entries) return _bytes; } }
+        private const long EntryOverhead = 256;
+        private long RetainedBytes => _bytes + _entries.EnsureCapacity(0) * 64L;
+        internal long Bytes { get { lock (GlyphCacheBudget.Sync) return RetainedBytes; } }
+        internal override void ClearCachedValues() { _entries = []; _bytes = 0; }
 
         internal bool TryGet(FontFace face, ushort glyph, float size, float phase, int luminance, out Coverage? result)
         {
             var key = (glyph, BitConverter.SingleToInt32Bits(size), BitConverter.SingleToInt32Bits(phase), luminance);
-            lock (_entries)
+            lock (GlyphCacheBudget.Sync)
             {
+                GlyphCacheBudget.Touch(this);
                 if (_entries.TryGetValue(key, out result)) return true;
                 var scale = size / face.UnitsPerEm;
                 Subpath[] paths;
@@ -858,15 +871,16 @@ internal sealed class SoftwareCanvas : ICanvas
                         new IntRect((int)MathF.Floor(minX), (int)MathF.Floor(minY), (int)MathF.Ceiling(maxX), (int)MathF.Ceiling(maxY)));
                     if (result is not null) TextCoverage.Apply(result, luminance);
                 }
-                var bytes = 128L + (result?.Data.Length ?? 0);
-                while (_bytes + bytes > CoverageCacheBudget && _entries.Count > 0)
-                {
-                    var oldest = _entries.First();
-                    _bytes -= 128L + (oldest.Value?.Data.Length ?? 0);
-                    _entries.Remove(oldest.Key);
-                }
+                var bytes = EntryOverhead + (result?.Data.Length ?? 0);
                 _entries.Add(key, result);
                 _bytes += bytes;
+                while (RetainedBytes > CoverageCacheBudget && _entries.Count > 0)
+                {
+                    var oldest = _entries.First();
+                    _bytes -= EntryOverhead + (oldest.Value?.Data.Length ?? 0);
+                    _entries.Remove(oldest.Key);
+                }
+                GlyphCacheBudget.Update(this, RetainedBytes);
                 return true;
             }
         }

@@ -480,3 +480,39 @@ run. Those failures are not evidence that the current continuation code passes C
   verification; production-host republish and checks; current-head CI; consistent cold/warm/animation/memory
   qualification. **Timing measurements are deferred at the user's request while other applications are busy.**
   The older table/cold-start timings above remain the latest production evidence, not a pass on the new code.
+
+
+## Shared glyph-cache continuation, 2026-11-06
+
+The user selected **8 MiB across all fonts**, including emoji and colour layers. Previously the outline/mask/hint
+limits applied independently to each face; bitmap strikes used a glyph-count bound and COLR parsed every glyph eagerly.
+
+- Added a process-wide weak, age-ordered coordinator with a single reentrant lock order and at most 256 registrations.
+  Cache accounting includes allocated dictionary slots, not just live entries. Eviction replaces containers so their
+  backing arrays can be collected. The budget limits retained cache estimates; live font files, scratch decoding and
+  in-flight draw references are separate and still require the published-process working-set qualification.
+- Outlines, flattened paths, coverage masks, prepared hint state, bitmap strikes and decoded COLR layers share that
+  budget. COLR decodes only the requested glyph. Font references are not rooted by the coordinator.
+- Bound colour paint depth, visits, layers and gradient stops; bound sbix duplicate depth and bitmap decode pixels.
+  CBLC strike metadata is temporary rather than retained outside cache accounting.
+- Focused native raster/cache checks: **66/66 passing**, including live-font pressure, emoji eviction, pixel-preserving
+  reload, retired-font collection, parallel lookups and malformed deep colour/bitmap inputs.
+- The preceding pushed checkpoint `9d217737` passed genuine native conformance **174/174**, and the full solution
+  **4,529 total / 4,527 passed / two explicit skips** (local symlink privilege and excluded Wasmtime-oracle benchmark).
+  Its hosted Ubuntu job and all 24 capability jobs passed. Windows passed correctness, native animation and production
+  host checks, but failed scripted first-frame/memory targets. This is not a completed performance qualification.
+- Final shared-cache solution, complete mutation campaign and published-host checks are being rerun. Performance
+  remains open; no thresholds or reference pixels were relaxed.
+
+
+Shared-cache verification checkpoint:
+
+- Full solution: **4,536 total / 4,534 passed / two skips / zero failures**, 5m40s.
+- Genuine all-native conformance: **174/174**; published production-host regressions: **16/16**.
+- Complete mutation campaign: **18 targets**, no failures (log `artifacts/shared-cache-fuzz.log`).
+- Final review also bounded the *combined* gradient-stop allocation across repeated COLR branches, not merely each
+  branch individually. Boundary regressions accept 4,096 total stops and reject the next repeated branch. The final
+  focused raster/cache suite is **68/68** after that guard; the complete solution checkpoint above precedes this final
+  guard. CI must validate the exact pushed revision before this can be considered qualified.
+- Quiet timing qualification is still pending: `deadlock` was using about five CPU cores, alongside busy browser
+  processes. The user has been asked to close them. No performance claim is made from those conditions.

@@ -21,12 +21,14 @@ internal static class FontHinting
 
     internal static long CacheBytes(FontFace face) => Fonts.TryGetValue(face, out var cache) ? cache.Bytes : 0;
 
-    private sealed class FontCache
+    private sealed class FontCache : GlyphCacheBudget.Region
     {
-        private readonly Dictionary<int, (TrueTypeMachine? Machine, string? Error, long Bytes)> _sizes = [];
-        private readonly Dictionary<(int Size, ushort Glyph), (PathData? Path, string? Error, long Bytes)> _glyphs = [];
+        private Dictionary<int, (TrueTypeMachine? Machine, string? Error, long Bytes)> _sizes = [];
+        private Dictionary<(int Size, ushort Glyph), (PathData? Path, string? Error, long Bytes)> _glyphs = [];
         private long _bytes;
-        internal long Bytes { get { lock (_sizes) return _bytes; } }
+        private long RetainedBytes => _bytes + (_sizes.EnsureCapacity(0) + _glyphs.EnsureCapacity(0)) * 64L;
+        internal long Bytes { get { lock (GlyphCacheBudget.Sync) return RetainedBytes; } }
+        internal override void ClearCachedValues() { _sizes = []; _glyphs = []; _bytes = 0; }
 
         internal bool TryGet(FontFace face, ushort glyph, float size, out PathData? path, out string? error)
         {
@@ -34,8 +36,9 @@ internal static class FontHinting
             if (!float.IsFinite(size) || size <= 0 || size > 4096) return false;
             var key = (int)MathF.Round(size * 64);
             if (key == 0) return false;
-            lock (_sizes)
+            lock (GlyphCacheBudget.Sync)
             {
+                GlyphCacheBudget.Touch(this);
                 if (_glyphs.TryGetValue((key, glyph), out var existing))
                 { path = existing.Path; error = existing.Error; return error is null; }
                 if (face.RawTable("glyf") is null)
@@ -70,17 +73,19 @@ internal static class FontHinting
 
                 void Remember(PathData? storedPath, string? storedError)
                 {
-                    var bytes = 2048L + (storedPath?.Commands.Count ?? 0) * 48L;
+                    var bytes = 2048L + (storedPath?.Commands.Count ?? 0) * 64L;
                     Trim(bytes);
                     if (bytes <= CacheBudget)
                     { _glyphs[(key, glyph)] = (storedPath, storedError, bytes); _bytes += bytes; }
+                    Trim(0);
+                    GlyphCacheBudget.Update(this, RetainedBytes);
                 }
             }
         }
 
         private void Trim(long incoming)
         {
-            while (_bytes + incoming > CacheBudget && (_glyphs.Count > 0 || _sizes.Count > 0))
+            while (RetainedBytes + incoming > CacheBudget && (_glyphs.Count > 0 || _sizes.Count > 0))
             {
                 if (_glyphs.Count > 0)
                 { var item = _glyphs.First(); _bytes -= item.Value.Bytes; _glyphs.Remove(item.Key); }

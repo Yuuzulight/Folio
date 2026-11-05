@@ -99,13 +99,17 @@ public class SoftwareRasterTests(ITestOutputHelper output)
     [Fact]
     public void GlyphCoverageCacheStaysInsideTheSharedFontBudget()
     {
-        var face = Load("SourceSans3-Regular.ttf");
-        using var surface = new SoftwareRasterSurface(64, 64);
-        for (var glyph = 0; glyph < face.GlyphCount; glyph++)
-            surface.Canvas.DrawGlyphs(face, 18, [(ushort)glyph], [new Vector2(16.25f, 40)], Solid(0, 0, 0));
-        var usage = SoftwareCanvas.GlyphCacheUsage(face);
-        Assert.InRange(usage.Coverage, 1, 1024 * 1024);
-        Assert.InRange(usage.Outlines + usage.Flattened + usage.Coverage + FontHinting.CacheBytes(face), 1, 8L * 1024 * 1024);
+        lock (GlyphCacheBudget.Sync)
+        {
+            var face = Load("SourceSans3-Regular.ttf");
+            using var surface = new SoftwareRasterSurface(64, 64);
+            for (var glyph = 0; glyph < face.GlyphCount; glyph++)
+                surface.Canvas.DrawGlyphs(face, 18, [(ushort)glyph], [new Vector2(16.25f, 40)], Solid(0, 0, 0));
+            var usage = SoftwareCanvas.GlyphCacheUsage(face);
+            Assert.InRange(usage.Coverage, 1, 1024 * 1024);
+            Assert.InRange(usage.Outlines + usage.Flattened + usage.Coverage + usage.Hinting, 1, 8L * 1024 * 1024);
+            Assert.InRange(GlyphCacheBudget.Usage.Bytes, 1, GlyphCacheBudget.Limit);
+        }
     }
 
     [Fact]
@@ -542,10 +546,10 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         }
 
         var usage = SoftwareCanvas.GlyphCacheUsage(face);
-        Assert.InRange(usage.Outlines + usage.Flattened + usage.Coverage + FontHinting.CacheBytes(face), 0, 8L * 1024 * 1024);
+        Assert.InRange(usage.Outlines + usage.Flattened + usage.Coverage + usage.Hinting, 0, 8L * 1024 * 1024);
     }
 
-    private static byte[] AddTables(byte[] source, params (string Tag, byte[] Data)[] additions)
+    internal static byte[] AddTables(byte[] source, params (string Tag, byte[] Data)[] additions)
     {
         var oldCount = BinaryPrimitives.ReadUInt16BigEndian(source.AsSpan(4));
         var directoryShift = 16 * additions.Length;
@@ -577,7 +581,7 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return output;
     }
 
-    private static byte[] SyntheticSbix(int glyphCount, ushort glyph, byte[] png)
+    internal static byte[] SyntheticSbix(int glyphCount, ushort glyph, byte[] png)
     {
         // sbix header + one strike. Strike offsets and glyph data offsets are
         // relative to the strike, as required by the OpenType sbix table.
@@ -599,7 +603,7 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return sbix;
     }
 
-    private static byte[] SyntheticColrV1(ushort glyph)
+    internal static byte[] SyntheticColrV1(ushort glyph)
     {
         // COLR v1 header (base glyph list at offset 34), followed by one
         // PaintGlyph->PaintSolid graph using palette entry 0.
@@ -801,7 +805,7 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
-    private static byte[] SyntheticCpal() => [0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 12, 0, 0, 255, 255];
+    internal static byte[] SyntheticCpal() => [0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 12, 0, 0, 255, 255];
 
     private static byte[] SyntheticCpalTwo() => [0, 0, 0, 2, 0, 1, 0, 2, 0, 0, 0, 12, 0, 0, 255, 255, 255, 0, 0, 255];
 
