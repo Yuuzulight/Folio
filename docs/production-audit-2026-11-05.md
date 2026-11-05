@@ -540,3 +540,21 @@ Repairs:
 - Published profile after the colour repair, on the now quiet machine: cold **518.5 ms**, table **60.5 ms**, peak
   **81.2 MiB**. The table profile is layout **23.25 ms**, raster **19.56 ms**, retirement **4.38 ms**. These fail the
   existing targets; performance work is still required. No threshold has been changed.
+
+
+### Performance experiments and colour mutation coverage
+
+- Alternating three ordinary and three composite ReadyToRun samples gave ordinary cold starts of **385.0 / 394.6 /
+  387.7 ms**, table **65.3 / 60.0 / 60.1 ms**, table working set **81.2 / 81.1 / 81.1 MiB**. Composite did not solve the
+  table or memory target and its first cold sample was **784.5 ms**; it is not adopted. Both experiments used isolated
+  build and publish directories.
+- A separate NativeAOT trial compiled a 17.3 MB content-host executable. Its tested early loads had markedly lower
+  layout cost, but the benchmark stopped before completing the corpus. A direct diagnostic confirmed reflection-based
+  JSON serialization is disabled, and even the diagnostic IPC reply falls through reflection serialization.
+  Compiler analysis identified 28 locations to review, primarily JSON, plus the optional ANGLE loader and a generic
+  lazy-cache annotation. This trial is **not shippable**, and its timings are not a successful benchmark result.
+- Asked the user whether to finish and qualify a NativeAOT production host or keep the existing build format and
+  optimize it further. No default production build setting has changed while that choice is pending.
+- Added reproducible, project-owned colour-font seeds below 11 KiB: v0 layers, offset-addressed v1 transforms,
+  v1 gradients and sbix PNG. They remain below the mutation harness's 64 KiB ceiling. The font target now reaches
+  bitmap/COLR decoding directly as well as through painting. Recheck: **371,134 mutations / ten seeds / zero failures**.

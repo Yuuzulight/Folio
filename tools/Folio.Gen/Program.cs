@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 //   dotnet run --project tools/Folio.Gen -- entities [entities.json]
 //   dotnet run --project tools/Folio.Gen -- colors [css-color-4.html]
 //   dotnet run --project tools/Folio.Gen -- boxfont
+//   dotnet run --project tools/Folio.Gen -- colour-font-seeds
 //   dotnet run --project tools/Folio.Gen -- unicode [ucd-folder]
 // Without a file, the source is downloaded from the specification. The Unicode tables are generated from a local
 // copy of the Unicode Character Database (default .cache/unicode/<version>), checked against unicode-<version>.sha256.
@@ -16,6 +17,7 @@ return args switch
     ["entities", ..] => await Entities(args.Length > 1 ? args[1] : null),
     ["colors", ..] => await Colors(args.Length > 1 ? args[1] : null),
     ["boxfont"] => await WriteBoxFont(),
+    ["colour-font-seeds"] => ColourFontSeeds.Generate(FindRoot()),
     ["unicode", ..] => await Unicode.Generate(FindRoot(), args.Length > 1 ? args[1] : null),
     ["idl", ..] => await GenerateIdl(args.Length > 1 ? args[1] : null, args.Length > 2 ? args[2] : null),
     _ => Usage(),
@@ -23,7 +25,7 @@ return args switch
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: Folio.Gen entities [entities.json] | colors [css-color-4.html] | boxfont | unicode [ucd-folder] | idl [input.idl] [output.g.cs]");
+    Console.Error.WriteLine("usage: Folio.Gen entities [entities.json] | colors [css-color-4.html] | boxfont | colour-font-seeds | unicode [ucd-folder] | idl [input.idl] [output.g.cs]");
     return 2;
 }
 

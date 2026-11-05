@@ -7,6 +7,7 @@ using Folio.Html;
 using Folio.Imaging;
 using Folio.Layout;
 using Folio.Painting;
+using Folio.Painting.Software;
 using Folio.Resources;
 using Folio.RenderTests;
 using Folio.Scripting.Dom;
@@ -115,6 +116,9 @@ internal static class Targets
             return;
         face.Kerning(face.GlyphFor('A'), face.GlyphFor('V'));
         face.Substitute(face.GlyphFor('1'), "pnum tnum");
+        // Reach colour decoders directly as well as through the normal draw path.
+        if (ColorGlyphs.Has(face)) ColorGlyphs.Get(face, face.GlyphFor('A'));
+        if (BitmapGlyphs.Has(face)) BitmapGlyphs.Get(face, face.GlyphFor('A'));
         if (face.RawTable("glyf") is not null || face.RawTable("CFF ") is not null || face.RawTable("CFF2") is not null)
         {
             using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96);
@@ -220,7 +224,9 @@ internal static class Targets
         var text = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
         var cff2 = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.otf"));
         var cff2Woff2 = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.woff2"));
-        return [box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box), text, cff2, cff2Woff2];
+        return new[] { box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box), text, cff2, cff2Woff2 }
+            .Concat(Directory.GetFiles(Path.Combine(RepoPaths.Tests, "Folio.Fuzz", "Seeds", "font"), "*.ttf")
+                .Order(StringComparer.Ordinal).Select(File.ReadAllBytes));
     }
 
     private static void Css(byte[] data)
