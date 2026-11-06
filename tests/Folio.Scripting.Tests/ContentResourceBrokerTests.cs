@@ -53,7 +53,7 @@ public sealed class ContentResourceBrokerTests
         await using var client = ContentProcessClient.StartWithOptions(ContentHostPath(),
             new FolioOptions { ResourceInterceptor = new OfflineScript() });
         var frame = await Load(client, new { html = "<script src='https://offline.invalid/code.js'></script>", script = "offlineValue" });
-        Assert.Equal(42, frame.Payload.GetProperty("value").GetInt32());
+        Assert.Equal("42", frame.Payload.GetProperty("value").GetString());
     }
 
     private sealed class OfflineScript : IResourceInterceptor
