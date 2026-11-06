@@ -1,5 +1,8 @@
 # Dependencies and what Folio builds itself
 
+> Current consumer contract (2026-11-07): production uses Folio-owned rendering, shaping, scripting and WebAssembly, with a shared 8 MiB glyph budget across fonts. Bundled fonts replace system discovery in the default headless/control/standalone-host path. The detailed table below retains historical dependency/replacement decisions; it is not the current package-install contract. See [consumer readiness](consumer-readiness-audit.md) and the source/published-host dependency guard.
+
+
 Folio builds the engine itself: everything that decides *what* a page looks like and how it behaves. It relies on the operating system for services the OS owns, and on a small number of libraries for work where the quality and speed bar is very high and not specific to HTML. Every library sits behind a Folio-defined interface so it can be replaced without touching the engine.
 
 Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, `net10.0-windows` for the WinForms control and the content process). No other runtimes are targeted.

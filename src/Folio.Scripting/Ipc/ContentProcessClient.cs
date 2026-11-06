@@ -92,12 +92,24 @@ public sealed class ContentProcessClient : IAsyncDisposable
         Func<MediaCaptureRequest, CancellationToken, ValueTask<bool>>? mediaCapturePermission = null)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var client = Start(executablePath, limits: limits, resourceLoader: options.ResourceLoader,
+        IResourceLoader? loader = options.ResourceInterceptor is { } interceptor
+            ? new InterceptedHostLoader(interceptor, options.ResourceLoader) : options.ResourceLoader;
+        var client = Start(executablePath, limits: limits, resourceLoader: loader,
             artifactStorage: options.ArtifactStorage, artifactId: options.ArtifactId, documentLimits: options.Limits,
             mediaDecoder: options.MediaDecoder, mediaAudioOutput: options.MediaAudioOutput, mediaCaptureProvider: options.MediaCaptureProvider);
         client._mediaCapturePermission = mediaCapturePermission ?? (options.MediaCapturePermission is { } permission
             ? (request, _) => ValueTask.FromResult(permission(request)) : null);
         return client;
+    }
+
+    private sealed class InterceptedHostLoader(IResourceInterceptor interceptor, IResourceLoader? next) : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return interceptor.Intercept(request) is { } response ? Task.FromResult<ResourceResponse?>(response)
+                : next?.LoadAsync(request, cancellationToken) ?? Task.FromResult<ResourceResponse?>(null);
+        }
     }
 
     /// <param name="executablePath">The content-host executable or assembly.</param>
