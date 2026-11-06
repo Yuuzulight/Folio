@@ -264,20 +264,10 @@ internal sealed class SoftwareCanvas : ICanvas
             return true;
         }
 
-        var data = _target.Data;
-        var invA = 255 - cA;
-        var targetWidth = _target.Width;
         for (var y = area.Top; y < area.Bottom; y++)
         {
-            var targetRow = ((y - _targetBounds.Top) * targetWidth + (area.Left - _targetBounds.Left)) * 4;
-            for (var x = 0; x < area.Width; x++)
-            {
-                var offset = targetRow + x * 4;
-                data[offset] = (byte)(cR + (data[offset] * invA + 127) / 255);
-                data[offset + 1] = (byte)(cG + (data[offset + 1] * invA + 127) / 255);
-                data[offset + 2] = (byte)(cB + (data[offset + 2] * invA + 127) / 255);
-                data[offset + 3] = (byte)(cA + (data[offset + 3] * invA + 127) / 255);
-            }
+            var offset = ((y - _targetBounds.Top) * _target.Width + area.Left - _targetBounds.Left) * 4;
+            Compositor.BlendConstantSpan(_target.Data.AsSpan(offset, area.Width * 4), cR, cG, cB, cA);
         }
         return true;
 
@@ -519,22 +509,15 @@ internal sealed class SoftwareCanvas : ICanvas
                     while (x < width)
                     {
                         var c = covData[covRow + x];
-                        if (c == 255 && opaque)
-                        {
-                            var runStart = x;
-                            do x++; while (x < width && covData[covRow + x] == 255);
-                            var first = (y - _targetBounds.Top) * targetWidth + (area.Left + runStart - _targetBounds.Left);
-                            words.Slice(first, x - runStart).Fill(packed);
-                            continue;
-                        }
                         if (c == 255)
                         {
-                            var offset = targetRow + x * 4;
-                            var invA = 255 - cA;
-                            data[offset] = (byte)(cR + (data[offset] * invA + 127) / 255);
-                            data[offset + 1] = (byte)(cG + (data[offset + 1] * invA + 127) / 255);
-                            data[offset + 2] = (byte)(cB + (data[offset + 2] * invA + 127) / 255);
-                            data[offset + 3] = (byte)(cA + (data[offset + 3] * invA + 127) / 255);
+                            var runStart = x;
+                            var run = covData.AsSpan(covRow + x, width - x).IndexOfAnyExcept((byte)255);
+                            x = run < 0 ? width : x + run;
+                            var first = (y - _targetBounds.Top) * targetWidth + (area.Left + runStart - _targetBounds.Left);
+                            if (opaque) words.Slice(first, x - runStart).Fill(packed);
+                            else Compositor.BlendConstantSpan(data.AsSpan(first * 4, (x - runStart) * 4), cR, cG, cB, cA);
+                            continue;
                         }
                         else if (c != 0)
                         {

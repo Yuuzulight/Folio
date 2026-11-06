@@ -598,4 +598,37 @@ Patched native-image evidence:
 - Complete 18-target mutation campaign passed without failures (including colour fonts and script JSON/cache paths).
 - Production publishing accepts no compiler/trimming warnings. The native manifest records SDK **10.0.403** and both
   NativeAOT compiler packages at **10.0.14**. There are no managed/native engine DLL or CLR sidecars in the publish.
-- Final solution, genuine native rendering, repeated publication/performance, and hosted CI remain in progress.
+- Final full solution: **4,571 total / 4,569 passed / two explicit skips / zero failures**. The skips are the
+  unavailable local symbolic-link privilege and the opt-in Wasmtime comparison benchmark.
+- Genuine Folio-native conformance: **174/174**, with zero mismatches, crashes, hangs, resource-limit failures or script errors.
+- Final mutation campaign: **26,802,838 mutations across 18 targets, zero failures**.
+- Repeated publication successfully replaced an older managed publish, leaving no DLL/CLR sidecars or staging/backup
+  directories. Publishing into an unrelated nonempty directory was refused and its sentinel remained unchanged.
+- Hosted Ubuntu build, solution tests, conformance and fuzzing passed. Windows correctness gates through native WebGL
+  passed, but the animated-bars canvas frame gate failed at **24.47 ms p95 against 16.7 ms**. The downstream Windows
+  publish/production checks therefore have not executed in that attempt. This is an unresolved qualification failure.
+- A separate native service-worker matrix job failed during a NuGet package download after repeated transport resets;
+  that setup failure is being retried without changing source or thresholds.
+- Final repeated local performance qualification remains deferred at the user's request while busy applications run.
+  Preliminary measurements above do not substitute for this final gate. PR #699 remains a draft.
+
+## Final timing continuation, 2026-11-06
+
+After games were closed, the patched NativeAOT image passed three startup/page/memory runs: cold first frames
+**384.4 / 185.7 / 177.9 ms**, table **35.5 / 36.5 / 34.0 ms**, maximum working set **47.4 MiB**.
+Subsequent processes benefit from OS file caching; these are fresh-process starts, not three OS-cold boots.
+The unchanged local frame gate passed once at **14.26 ms**, but repeated runs and Windows CI still exposed
+animated-bars spikes (the CI retry measured **21.43 ms p95**). Those failures were not discarded.
+
+The canvas repair preserves byte output and thresholds:
+- Reuse a raster row only after two complete rows have the same vertical active edges, with no starting/ending/sloping
+  edge. Copy rounded bytes rather than reassociating floating-point coverage sums.
+- Blend fully covered constant-colour spans with widened integer vectors and the same rounded division by 255.
+  Fractional coverage, blend modes and nonconstant gradients retain their existing paths.
+- Pool only the private horizontal Gaussian intermediate. Clear it before use and on return, including exception
+  paths; the returned final bitmap remains separately owned with exactly its original length.
+- Eleven regression checks pass: whole-path versus independently clipped rows for both fill rules and snap modes,
+  exhaustive alpha/destination-byte scalar equivalence with unaligned tails, and blur two-pass equivalence after
+  pool reuse across sizes/channel masks. Genuine native corpus remains **174/174** without reference changes.
+- Three frame runs after the repairs pass all cases: animated-bars p95 **14.61 / 11.05 / 10.53 ms**.
+  Final solution, rebuilt production-host measurements and hosted CI are being rechecked on these source changes.

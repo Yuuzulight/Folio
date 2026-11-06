@@ -127,6 +127,7 @@ internal static class Rasterizer
         var active = new List<int>();
         var crossings = new List<(float X, int Direction)>();
         var next = 0;
+        var previousRowSteady = false;
 
         try
         {
@@ -136,6 +137,17 @@ internal static class Rasterizer
                 var minTouch = width;
                 var maxTouch = -1;
                 var lastSample = y + (Samples - 0.5f) / Samples;
+                var rowSteady = Steady(edges, active, next, lastSample);
+                if (previousRowSteady && rowSteady)
+                {
+                    // Two consecutive complete rows with the same vertical edges have identical crossings at
+                    // all sixteen sample heights. Copy the rounded bytes, preserving the original accumulation
+                    // order and avoiding both scan conversion and per-pixel conversion in long straight sides.
+                    data.AsSpan((y - bounds.Top - 1) * width, width)
+                        .CopyTo(data.AsSpan((y - bounds.Top) * width, width));
+                    continue;
+                }
+                previousRowSteady = rowSteady;
                 for (var s = 0; s < Samples; s++)
                 {
                     var ys = y + (s + 0.5f) / Samples;

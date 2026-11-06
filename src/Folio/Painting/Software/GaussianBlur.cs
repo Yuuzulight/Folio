@@ -18,21 +18,33 @@ internal static class GaussianBlur
 
     public static byte[] Apply(byte[] source, int width, int height, int channels, float sigmaX, float sigmaY, int activeChannelMask = -1)
     {
-        var current = source;
-        if (sigmaX > 0)
-            current = Pass(current, width, height, channels, sigmaX, horizontal: true, activeChannelMask);
-        if (sigmaY > 0)
-            current = Pass(current, width, height, channels, sigmaY, horizontal: false, activeChannelMask);
-        return ReferenceEquals(current, source) ? (byte[])source.Clone() : current;
+        if (!(sigmaX > 0 || sigmaY > 0)) return (byte[])source.Clone();
+        var output = new byte[source.Length];
+        if (sigmaX > 0 && sigmaY > 0)
+        {
+            // The horizontal result is private scratch, not a retained image. Reuse it instead of creating a
+            // large-object-heap array for every animated shadow. Clear skipped channels and empty lines exactly
+            // as a newly allocated buffer would, and return it even if processing throws.
+            var scratch = ArrayPool<byte>.Shared.Rent(source.Length);
+            try
+            {
+                scratch.AsSpan(0, source.Length).Clear();
+                Pass(source, scratch, width, height, channels, sigmaX, horizontal: true, activeChannelMask);
+                Pass(scratch, output, width, height, channels, sigmaY, horizontal: false, activeChannelMask);
+            }
+            finally { ArrayPool<byte>.Shared.Return(scratch, clearArray: true); }
+        }
+        else
+            Pass(source, output, width, height, channels, sigmaX > 0 ? sigmaX : sigmaY, horizontal: sigmaX > 0, activeChannelMask);
+        return output;
     }
 
-    private static byte[] Pass(byte[] source, int width, int height, int channels, float sigma, bool horizontal, int activeChannelMask)
+    private static void Pass(byte[] source, byte[] output, int width, int height, int channels, float sigma, bool horizontal, int activeChannelMask)
     {
         var length = horizontal ? width : height;
         var lines = horizontal ? height : width;
         var stride = horizontal ? channels : width * channels; // distance between samples along a line
         var lineStride = horizontal ? width * channels : channels; // distance between lines
-        var output = new byte[source.Length];
         var pool = ArrayPool<float>.Shared;
         var radius = sigma < BoxThreshold ? Math.Max(1, (int)MathF.Ceiling(sigma * 3)) : 0;
         var kernel = radius == 0 ? [] : GetKernel(sigma, radius);
@@ -83,7 +95,6 @@ internal static class GaussianBlur
             ProcessRange(0, lines);
         else
             Parallel.ForEach(Partitioner.Create(0, lines), range => ProcessRange(range.Item1, range.Item2));
-        return output;
     }
 
     private static float[] GetKernel(float sigma, int radius)

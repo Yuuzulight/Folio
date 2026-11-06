@@ -75,6 +75,39 @@ internal static class Compositor
         data[offset + 3] = 255;
     }
 
+    // Exact byte source-over for a fully covered solid span. Widening keeps every product below 65536;
+    // (n + 1 + (n >> 8)) >> 8 is integer division by 255 over this range, including the rounding bias.
+    internal static void BlendConstantSpan(Span<byte> destination, byte r, byte g, byte b, byte a)
+    {
+        var inverse = 255 - a;
+        var index = 0;
+        if (Vector.IsHardwareAccelerated && destination.Length >= Vector<byte>.Count)
+        {
+            var packed = (uint)r | ((uint)g << 8) | ((uint)b << 16) | ((uint)a << 24);
+            var source = Vector.AsVectorByte(new Vector<uint>(packed));
+            Vector.Widen(source, out var sourceLow, out var sourceHigh);
+            var factor = new Vector<ushort>((ushort)inverse);
+            var bias = new Vector<ushort>(127);
+            var one = Vector<ushort>.One;
+            for (; index <= destination.Length - Vector<byte>.Count; index += Vector<byte>.Count)
+            {
+                Vector.Widen(new Vector<byte>(destination.Slice(index)), out var low, out var high);
+                low = low * factor + bias;
+                high = high * factor + bias;
+                low = sourceLow + ((low + one + (low >> 8)) >> 8);
+                high = sourceHigh + ((high + one + (high >> 8)) >> 8);
+                Vector.Narrow(low, high).CopyTo(destination.Slice(index));
+            }
+        }
+        for (; index < destination.Length; index += 4)
+        {
+            destination[index] = (byte)(r + (destination[index] * inverse + 127) / 255);
+            destination[index + 1] = (byte)(g + (destination[index + 1] * inverse + 127) / 255);
+            destination[index + 2] = (byte)(b + (destination[index + 2] * inverse + 127) / 255);
+            destination[index + 3] = (byte)(a + (destination[index + 3] * inverse + 127) / 255);
+        }
+    }
+
     /// <summary>The blend of a premultiplied source over a premultiplied backdrop (components 0 to 1), without rounding.</summary>
     public static Vector4 Mix(BlendMode mode, Vector4 source, Vector4 backdrop) =>
         mode == BlendMode.Normal ? source + backdrop * (1 - source.W) : Combine(mode, source, backdrop);
