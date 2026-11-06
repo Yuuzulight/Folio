@@ -13,6 +13,68 @@ internal static class GlyphOutlines
     private const int MaxCompositeDepth = 8;
     private const int MaxCompositeParts = 256;
 
+    internal static PathData GetHintedCff(FontFace face, ushort glyph, float pixelsPerEm)
+    {
+        if (glyph >= face.GlyphCount) throw new InvalidDataException("Invalid CFF glyph id.");
+        if (face.RawTable("CFF ") is { } cff)
+            return CffFont.For(face, cff, false).Outline(glyph, pixelsPerEm / face.UnitsPerEm);
+        if (face.RawTable("CFF2") is { } cff2)
+            return CffFont.For(face, cff2, true).Outline(glyph, pixelsPerEm / face.UnitsPerEm);
+        throw new InvalidDataException("No CFF outline.");
+    }
+
+    // A distinct entry point keeps unhinted font-unit outlines reusable. Failure is explicit: a renderer must fall
+    // back to the complete original outline, never cache partially modified points as successfully fitted text.
+    internal static PathData GetHinted(FontFace face, ushort glyph, TrueTypeMachine prepared)
+    {
+        if (glyph >= face.GlyphCount || face.RawTable("glyf") is not { } glyf || face.RawTable("loca") is not { } loca)
+            throw new InvalidDataException("No TrueType glyph outline.");
+        var (start, end) = GlyphRange(face, loca, glyph);
+        if (end <= start) return new PathData();
+        var contours = new Contours();
+        var parts = 0;
+        var budget = new HintBudget();
+        Collect(face, glyf, loca, glyph, contours, 0, ref parts, prepared, budget);
+        var shift = contours.Phantoms?[0].X ?? 0;
+        var scale = prepared.PixelsPerEm / face.UnitsPerEm;
+        var fitted = contours.Points.Select(p => new Point((p.X - shift) * scale, p.Y * scale, p.OnCurve)).ToList();
+        var path = new PathData(); var first = 0;
+        foreach (var last in contours.Ends) { AddContour(path, fitted, first, last); first = last + 1; }
+        return path;
+    }
+
+    private sealed class HintBudget { internal int Remaining = TrueTypeMachine.InstructionLimit; }
+
+    private static void Fit(FontFace face, ushort glyph, FontData data, Contours contours, TrueTypeMachine prepared, HintBudget budget)
+    {
+        if (contours.Points.Count > TrueTypeMachine.PointLimit - 4) throw new InvalidDataException("Too many hinting points.");
+        var points = new Vector2[contours.Points.Count + 4];
+        var flags = new bool[points.Length];
+        var scale = prepared.PixelsPerEm * 64 / face.UnitsPerEm;
+        for (var i = 0; i < contours.Points.Count; i++)
+        {
+            var p = contours.Points[i];
+            points[i] = new Vector2(MathF.Round(p.X * scale), MathF.Round(p.Y * scale)); flags[i] = p.OnCurve;
+        }
+        var left = data.S16(2) - (LeftSideBearing(face, glyph) ?? data.S16(2));
+        points[^4] = new Vector2(MathF.Round(left * scale), 0);
+        points[^3] = new Vector2(MathF.Round((left + face.Advance(glyph)) * scale), 0);
+        // Vertical phantom points are defined even in a horizontally laid-out glyph.
+        points[^2] = new Vector2(0, MathF.Round(face.Ascent * scale));
+        points[^1] = new Vector2(0, MathF.Round(face.Descent * scale));
+        if (contours.Phantoms is { } inherited)
+            for (var i = 0; i < 4; i++) points[points.Length - 4 + i] = inherited[i] * scale;
+        var zone = new TrueTypeMachine.Zone(points, contours.Ends.ToArray(), flags);
+        var machine = prepared.Fork();
+        machine.StartGlyph(zone, prepared.Graphics, budget.Remaining);
+        if (!prepared.Graphics.Inhibit) machine.Execute(contours.Instructions);
+        budget.Remaining -= machine.InstructionsUsed;
+        if (budget.Remaining < 0) throw new InvalidDataException("Composite hinting instruction budget exhausted.");
+        for (var i = 0; i < contours.Points.Count; i++)
+            contours.Points[i] = new Point(zone.Current[i].X / scale, zone.Current[i].Y / scale, zone.OnCurve[i]);
+        contours.Phantoms = zone.Current[^4..].Select(p => p / scale).ToArray();
+    }
+
     public static PathData? Get(FontFace face, ushort glyph)
     {
         try
@@ -41,6 +103,8 @@ internal static class GlyphOutlines
     {
         public readonly List<Point> Points = [];
         public readonly List<int> Ends = [];
+        public byte[] Instructions = [];
+        public Vector2[]? Phantoms;
     }
 
     private static PathData TrueType(FontFace face, FontData glyf, FontData loca, ushort glyph)
@@ -88,10 +152,11 @@ internal static class GlyphOutlines
         return (2 * loca.U16(2 * glyph), 2 * loca.U16(2 * (glyph + 1)));
     }
 
-    private static void Collect(FontFace face, FontData glyf, FontData loca, ushort glyph, Contours output, int depth, ref int parts)
+    private static void Collect(FontFace face, FontData glyf, FontData loca, ushort glyph, Contours output, int depth, ref int parts,
+        TrueTypeMachine? prepared = null, HintBudget? budget = null)
     {
         if (glyph >= face.GlyphCount || depth > MaxCompositeDepth)
-            return;
+            throw new InvalidDataException("Invalid composite glyph or excessive depth.");
         var (start, end) = GlyphRange(face, loca, glyph);
         if (end <= start)
             return; // an empty glyph, such as a space
@@ -100,19 +165,25 @@ internal static class GlyphOutlines
         if (contourCount >= 0)
             Simple(data, contourCount, output);
         else
-            Composite(face, glyf, loca, data, output, depth, ref parts);
+            Composite(face, glyf, loca, data, output, depth, ref parts, prepared, budget);
+        if (prepared is not null) Fit(face, glyph, data, output, prepared, budget!);
     }
 
     private static void Simple(FontData data, int contourCount, Contours output)
     {
         if (contourCount == 0)
+        {
+            output.Instructions = data.Bytes(12, data.U16(10)).ToArray();
             return;
+        }
         var position = 10;
         var ends = new int[contourCount];
         for (var i = 0; i < contourCount; i++, position += 2)
             ends[i] = data.U16(position);
         var pointCount = ends[^1] + 1;
-        position += 2 + data.U16(position); // the instructions
+        var instructionLength = data.U16(position);
+        output.Instructions = data.Bytes(position + 2, instructionLength).ToArray();
+        position += 2 + instructionLength;
 
         var flags = new byte[pointCount];
         for (var i = 0; i < pointCount;)
@@ -164,14 +235,17 @@ internal static class GlyphOutlines
             output.Ends.Add(baseIndex + end);
     }
 
-    private static void Composite(FontFace face, FontData glyf, FontData loca, FontData data, Contours output, int depth, ref int parts)
+    private static void Composite(FontFace face, FontData glyf, FontData loca, FontData data, Contours output, int depth, ref int parts,
+        TrueTypeMachine? prepared = null, HintBudget? budget = null)
     {
         var position = 10;
+        var instructions = false;
         while (true)
         {
             if (++parts > MaxCompositeParts)
                 throw new InvalidDataException("Too many composite parts.");
             var flags = data.U16(position);
+            instructions |= (flags & 0x100) != 0;
             var component = data.U16(position + 2);
             position += 4;
 
@@ -228,7 +302,7 @@ internal static class GlyphOutlines
             }
 
             var part = new Contours();
-            Collect(face, glyf, loca, component, part, depth + 1, ref parts);
+            Collect(face, glyf, loca, component, part, depth + 1, ref parts, prepared, budget);
 
             // x' = a x + c y + dx, y' = b x + d y + dy.
             float dx, dy;
@@ -240,6 +314,12 @@ internal static class GlyphOutlines
                 {
                     // SCALED_COMPONENT_OFFSET: the offset is transformed too.
                     (dx, dy) = (a * dx + c * dy, b * dx + d * dy);
+                }
+                if (prepared is not null && (flags & 4) != 0)
+                {
+                    var scale = prepared.PixelsPerEm / face.UnitsPerEm;
+                    dx = MathF.Floor(dx * scale + .5f) / scale;
+                    dy = MathF.Floor(dy * scale + .5f) / scale;
                 }
             }
             else
@@ -258,10 +338,14 @@ internal static class GlyphOutlines
                 output.Points.Add(new Point(a * p.X + c * p.Y + dx, b * p.X + d * p.Y + dy, p.OnCurve));
             foreach (var end in part.Ends)
                 output.Ends.Add(offset + end);
+            if (prepared is not null && (flags & 0x200) != 0 && part.Phantoms is { } phantoms)
+                output.Phantoms = phantoms.Select(p => new Vector2(a * p.X + c * p.Y, b * p.X + d * p.Y)).ToArray();
+            if (output.Points.Count > TrueTypeMachine.PointLimit - 4) throw new InvalidDataException("Composite point limit exceeded.");
 
             if ((flags & 0x20) == 0)
                 break;
         }
+        if (instructions) output.Instructions = data.Bytes(position + 2, data.U16(position)).ToArray();
     }
 
     // One closed contour of on- and off-curve points: quadratic curves between off-curve points have an implied on-curve
@@ -455,6 +539,7 @@ internal static class GlyphOutlines
 
         private readonly double[] _defaultWidth;
         private readonly double[] _nominalWidth;
+        private readonly Dict[] _hintParameters;
 
         private CffFont(FontData data, bool cff2)
         {
@@ -487,11 +572,14 @@ internal static class GlyphOutlines
             {
                 // CID-keyed: one font dictionary, with its own private dictionary, per range of glyphs.
                 var fdArray = Index.Read(data, (int)fdArrayOffset, cff2);
+                if (fdArray.Count is < 1 or > 256)
+                    throw new InvalidDataException("CFF font dictionary count exceeds host limits.");
                 _localSubrs = new Index[fdArray.Count];
                 _defaultWidth = new double[fdArray.Count];
                 _nominalWidth = new double[fdArray.Count];
+                _hintParameters = new Dict[fdArray.Count];
                 for (var i = 0; i < fdArray.Count; i++)
-                (_localSubrs[i], _defaultWidth[i], _nominalWidth[i]) = ReadPrivate(Dict.Parse(fdArray.Item(i)));
+                (_localSubrs[i], _defaultWidth[i], _nominalWidth[i], _hintParameters[i]) = ReadPrivate(Dict.Parse(fdArray.Item(i)));
                 if (top.Number(0x0C25) is { } fdSelect)
                 {
                     _fdSelectOffset = (int)fdSelect;
@@ -503,21 +591,22 @@ internal static class GlyphOutlines
                 _localSubrs = new Index[1];
                 _defaultWidth = new double[1];
                 _nominalWidth = new double[1];
-                (_localSubrs[0], _defaultWidth[0], _nominalWidth[0]) = ReadPrivate(top);
+                _hintParameters = new Dict[1];
+                (_localSubrs[0], _defaultWidth[0], _nominalWidth[0], _hintParameters[0]) = ReadPrivate(top);
             }
         }
 
-        private (Index Subrs, double DefaultWidth, double NominalWidth) ReadPrivate(Dict owner)
+        private (Index Subrs, double DefaultWidth, double NominalWidth, Dict Hints) ReadPrivate(Dict owner)
         {
             if (!owner.Entries.TryGetValue(18, out var priv) || priv.Length < 2)
-                return (default, 0, 0);
+                return (default, 0, 0, new());
             var size = (int)priv[0];
             var offset = (int)priv[1];
             if (size == 0)
-                return (default, 0, 0);
+                return (default, 0, 0, new());
             var dict = Dict.Parse(_data.Slice(offset, size));
             var subrs = dict.Number(19) is { } subrsOffset ? Index.Read(_data, offset + (int)subrsOffset, _cff2) : default;
-            return (subrs, dict.Number(20) ?? 0, dict.Number(21) ?? 0);
+            return (subrs, dict.Number(20) ?? 0, dict.Number(21) ?? 0, dict);
         }
 
         private int FontDictionaryFor(int glyph)
@@ -541,10 +630,16 @@ internal static class GlyphOutlines
             return 0;
         }
 
-        public PathData Outline(int glyph)
+        public PathData Outline(int glyph, float scale = 0)
         {
-            var fd = Math.Min(FontDictionaryFor(glyph), _localSubrs.Length - 1);
-            var run = new Interpreter(this, _localSubrs[fd], _cff2);
+            var fd = FontDictionaryFor(glyph);
+            if ((uint)fd >= (uint)_localSubrs.Length) throw new InvalidDataException("Invalid CFF font dictionary selector.");
+            var parameters = _hintParameters[fd];
+            var hints = scale > 0 ? new CffHintMap(scale,
+                parameters.Entries.GetValueOrDefault(6), parameters.Entries.GetValueOrDefault(7),
+                (float)(parameters.Number(0x0C0B) ?? 1), (float)(parameters.Number(0x0C09) ?? .039625),
+                (float)(parameters.Number(0x0C0A) ?? 7)) : null;
+            var run = new Interpreter(this, _localSubrs[fd], _cff2, hints);
             run.Run(_charStrings.Item(glyph), 0);
             return run.Finish();
         }
@@ -552,7 +647,7 @@ internal static class GlyphOutlines
         private static int Bias(int count) => count < 1240 ? 107 : count < 33900 ? 1131 : 32768;
 
         // The Type 2 charstring machine (Adobe Technical Note 5177).
-        private sealed class Interpreter(CffFont font, Index local, bool cff2)
+        private sealed class Interpreter(CffFont font, Index local, bool cff2, CffHintMap? hints)
         {
             private readonly double[] _stack = new double[96];
             private int _depth;
@@ -590,7 +685,8 @@ internal static class GlyphOutlines
                 Close();
                 _x += dx;
                 _y += dy;
-                _path.MoveTo(_x, _y);
+                var point = hints?.Map(new(_x, _y)) ?? new Vector2(_x, _y);
+                _path.MoveTo(point.X, point.Y);
                 _open = true;
             }
 
@@ -598,7 +694,8 @@ internal static class GlyphOutlines
             {
                 _x += dx;
                 _y += dy;
-                _path.LineTo(_x, _y);
+                var point = hints?.Map(new(_x, _y)) ?? new Vector2(_x, _y);
+                _path.LineTo(point.X, point.Y);
             }
 
             private void CurveTo(float dx1, float dy1, float dx2, float dy2, float dx3, float dy3)
@@ -606,7 +703,7 @@ internal static class GlyphOutlines
                 var p1 = new Vector2(_x + dx1, _y + dy1);
                 var p2 = new Vector2(p1.X + dx2, p1.Y + dy2);
                 var p3 = new Vector2(p2.X + dx3, p2.Y + dy3);
-                _path.CubicTo(p1, p2, p3);
+                _path.CubicTo(hints?.Map(p1) ?? p1, hints?.Map(p2) ?? p2, hints?.Map(p3) ?? p3);
                 (_x, _y) = (p3.X, p3.Y);
             }
 
@@ -666,14 +763,23 @@ internal static class GlyphOutlines
                         case 18: // hstemhm
                         case 23: // vstemhm
                             TakeWidth((_depth & 1) == 1);
+                            hints?.AddStems(b is 1 or 18, _stack.AsSpan(0, _depth));
                             _stems += _depth / 2;
+                            if (_stems > 96) throw new InvalidDataException("Too many CFF hints.");
                             _depth = 0;
                             break;
                         case 19: // hintmask
                         case 20: // cntrmask
                             TakeWidth((_depth & 1) == 1);
+                            hints?.AddStems(false, _stack.AsSpan(0, _depth));
                             _stems += _depth / 2;
+                            if (_stems > 96) throw new InvalidDataException("Too many CFF hints.");
                             _depth = 0;
+                            if (hints is not null)
+                            {
+                                var mask = code.Bytes(position, (_stems + 7) / 8);
+                                if (b == 20) hints.CounterMask(mask); else hints.Mask(mask);
+                            }
                             position += (_stems + 7) / 8;
                             break;
                         case 21: // rmoveto

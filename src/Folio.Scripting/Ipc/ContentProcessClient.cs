@@ -37,7 +37,9 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private readonly ConcurrentDictionary<string, IMediaCaptureSession> _mediaCaptureSessions = new();
     private readonly Stream _input;
     private readonly Stream _error;
-    private readonly CanvasFrameStore _frameStore;
+    private ContentViewport _viewport = new(1280, 720);
+    private readonly SemaphoreSlim _viewportGate = new(1, 1);
+    private readonly ConcurrentDictionary<string, long> _framePaths = new();
     private readonly IDisposable _security;
     private event Func<ContentMessage, CancellationToken, ValueTask>? _messageReceived;
 
@@ -46,7 +48,8 @@ public sealed class ContentProcessClient : IAsyncDisposable
         _process = process;
         _supervisor = supervisor;
         _job = job;
-        _input = input; _error = error; _frameStore = frameStore; _security = security; _frameStorePath = framePath;
+        _input = input; _error = error; _security = security; _frameStorePath = framePath;
+        _framePaths.TryAdd(framePath, 0);
         _artifact = artifact; _documentLimits = documentLimits; _storageEnabled = storage is not null;
         _mediaCaptureProvider = mediaCaptureProvider;
         _session = new ContentHostSession(output, input, supervisor, resourcePolicy, resourceLoader, mediaDecoder, mediaAudioOutput);
@@ -68,7 +71,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
     public event EventHandler<ContentProcessStoppedEventArgs>? ScriptStopped;
     public event Func<ContentMessage, CancellationToken, ValueTask>? MessageReceived { add => _messageReceived += value; remove => _messageReceived -= value; }
     public string FramePath => _frameStorePath;
-    private readonly string _frameStorePath;
+    private string _frameStorePath;
 
     /// <summary>Starts a content process without a resource loader.</summary>
     public static ContentProcessClient Start(string executablePath, string? arguments, ContentProcessLimits? limits) =>
@@ -99,6 +102,9 @@ public sealed class ContentProcessClient : IAsyncDisposable
         WindowsContentLaunch? isolated = null;
         try
         {
+            // The child owns the writable mapping. Keeping this initialization
+            // mapping open would prevent it growing the file during a resize.
+            frameStore.Dispose();
             if (OperatingSystem.IsWindows() && !string.Equals(Environment.GetEnvironmentVariable("FOLIO_UNSANDBOXED"), "1", StringComparison.Ordinal))
                 isolated = WindowsContentLauncher.Start(executablePath, arguments, effectiveLimits, framePath);
             else
@@ -133,7 +139,20 @@ public sealed class ContentProcessClient : IAsyncDisposable
                 if (frame.ValueKind != JsonValueKind.Object || !frame.TryGetProperty("path", out var p) || !frame.TryGetProperty("width", out var w) || !frame.TryGetProperty("height", out var h) || !frame.TryGetProperty("stride", out var s)
                     || !w.TryGetInt32(out var width) || !h.TryGetInt32(out var height) || !s.TryGetInt32(out var stride)) throw new InvalidDataException();
                 var path = p.GetString();
-                if (!string.Equals(path, FramePath, StringComparison.Ordinal) || (width, height, stride) != (_frameStore.Width, _frameStore.Height, _frameStore.Stride)) throw new InvalidDataException();
+                var viewport = Volatile.Read(ref _viewport);
+                var revision = frame.TryGetProperty("viewportRevision", out var revisionValue) ? revisionValue.GetInt64() : 0;
+                if (revision >= 0 && revision < viewport.Revision) return;
+                if (revision != viewport.Revision || !string.Equals(path, FramePath, StringComparison.Ordinal)
+                    || (width, height, stride) != (viewport.Width, viewport.Height, viewport.Width * 4)) throw new InvalidDataException();
+                foreach (var retired in _framePaths)
+                    if (retired.Value < viewport.Revision)
+                        try
+                        {
+                            File.Delete(retired.Key);
+                            _framePaths.TryRemove(retired.Key, out _);
+                            if (OperatingSystem.IsWindows() && _security is AppContainerSecurity security) security.ForgetFrame(retired.Key);
+                        }
+                        catch (IOException) { } catch (UnauthorizedAccessException) { }
             }
             catch (Exception error) when (error is InvalidDataException or InvalidOperationException or FormatException or KeyNotFoundException or JsonException) { _supervisor.Stop("invalid content frame descriptor"); return; }
         }
@@ -156,7 +175,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
                     var token = Guid.NewGuid().ToString("N");
                     _mediaCaptureSessions[token] = session;
                     session.VideoFrameAvailable += frame => SendCaptureActivity(token, new JsonObject { ["video"] = new JsonObject { ["width"] = frame.Width, ["height"] = frame.Height, ["rgba"] = Convert.ToBase64String(frame.Rgba.ToArray()) } });
-                    session.AudioFrameAvailable += audio => SendCaptureActivity(token, new JsonObject { ["audio"] = new JsonObject { ["sampleRate"] = audio.SampleRate, ["channels"] = audio.Channels, ["samples"] = JsonSerializer.SerializeToNode(audio.Samples.ToArray()) } });
+                    session.AudioFrameAvailable += audio => SendCaptureActivity(token, new JsonObject { ["audio"] = new JsonObject { ["sampleRate"] = audio.SampleRate, ["channels"] = audio.Channels, ["samples"] = ScriptJson.SerializeToNode(audio.Samples.ToArray()) } });
                     session.Revoked += () => SendCaptureActivity(token, new JsonObject { ["revoked"] = true });
                     result = CaptureWire.Read(session, token);
                 }
@@ -194,7 +213,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
             if (session.CurrentVideoFrame is { } video && video.IsValid)
                 result["video"] = new JsonObject { ["width"] = video.Width, ["height"] = video.Height, ["rgba"] = Convert.ToBase64String(video.Rgba.ToArray()) };
             if (session.CurrentAudioFrame is { } audio)
-                result["audio"] = new JsonObject { ["sampleRate"] = audio.SampleRate, ["channels"] = audio.Channels, ["samples"] = JsonSerializer.SerializeToNode(audio.Samples.ToArray()) };
+                result["audio"] = new JsonObject { ["sampleRate"] = audio.SampleRate, ["channels"] = audio.Channels, ["samples"] = ScriptJson.SerializeToNode(audio.Samples.ToArray()) };
             return result;
         }
     }
@@ -203,10 +222,10 @@ public sealed class ContentProcessClient : IAsyncDisposable
     {
         if (kind == ContentMessageKind.Load)
         {
-            var profile = JsonSerializer.SerializeToNode(payload) as JsonObject ?? throw new ArgumentException("Load payload must be an object.", nameof(payload));
+            var profile = ScriptJson.SerializeToNode(payload) as JsonObject ?? throw new ArgumentException("Load payload must be an object.", nameof(payload));
             profile["artifactId"] = _artifact;
             profile["storageEnabled"] = _storageEnabled;
-            profile["limits"] = JsonSerializer.SerializeToNode(_documentLimits);
+            profile["limits"] = JsonSerializer.SerializeToNode(_documentLimits, ContentProtocolJsonContext.Default.ResourceLimits);
             var url = profile["url"] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
             _session.SetStorageDocumentUri(Uri.TryCreate(url, UriKind.Absolute, out var baseUri) ? baseUri : null);
             payload = profile;
@@ -223,6 +242,29 @@ public sealed class ContentProcessClient : IAsyncDisposable
     }
 
     public Task Completion => _reader;
+
+    /// <summary>Changes the physical viewport without reloading the document. Each revision receives its own bounded, host-owned frame file.</summary>
+    public async ValueTask UpdateViewportAsync(int width, int height, double deviceScale = 1, CancellationToken cancellationToken = default)
+    {
+        var requested = new ContentViewport(width, height, deviceScale);
+        if (!requested.IsValid) throw new ArgumentOutOfRangeException(nameof(width), "Invalid viewport dimensions or device scale.");
+        await _viewportGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var previous = Volatile.Read(ref _viewport);
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            var framePath = Path.Combine(Path.GetDirectoryName(FramePath)!, $"frame-{Guid.NewGuid():N}.bin");
+            using (var initialized = new CanvasFrameStore(framePath, width, height, width * 4)) { }
+            _framePaths.TryAdd(framePath, checked(previous.Revision + 1));
+            if (OperatingSystem.IsWindows() && _security is AppContainerSecurity security) security.GrantFrame(framePath);
+            requested = requested with { Revision = checked(previous.Revision + 1), FramePath = framePath };
+            Volatile.Write(ref _frameStorePath, framePath);
+            Volatile.Write(ref _viewport, requested);
+            try { await _session.SendAsync(ContentMessageKind.Viewport, requested, cancellationToken).ConfigureAwait(false); }
+            catch { _supervisor.Stop("viewport update failed"); throw; }
+        }
+        finally { _viewportGate.Release(); }
+    }
 
     private async Task ReadMessagesAsync()
     {
@@ -352,13 +394,14 @@ public sealed class ContentProcessClient : IAsyncDisposable
         catch (Exception error) { failure ??= error; }
         ReleaseMediaCaptureSessions();
         _process.Exited -= OnProcessExited;
+        await _viewportGate.WaitAsync().ConfigureAwait(false);
         Release(_job);
         Release(_input);
         Release(_error);
-        Release(_frameStore);
         Release(_security);
         Release(_process);
-        CleanupFrame(FramePath);
+        foreach (var path in _framePaths.Keys) CleanupFrame(path);
+        _viewportGate.Release();
         Release(_shutdown);
         if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
 

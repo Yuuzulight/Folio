@@ -10,6 +10,71 @@ namespace Folio.RenderTests;
 public class HarfBuzzShaperTests
 {
     [Fact]
+    public void NativeShapingReplacesMalformedUtf16AndDoesNotReadPastTheRun()
+    {
+        var face = Fonts.Value.Match("Source Sans 3", FaceStyle.Normal, 400, 100)!;
+        var expected = ComplexShaper.Instance.Shape("X\uFFFDY", 1, 1, face, 16, false, null);
+        foreach (var text in new[] { "X" + new string((char)0xD800, 1) + "Y", "X" + new string((char)0xDC00, 1) + "Y", "X😀Y" })
+        {
+            var actual = ComplexShaper.Instance.Shape(text, 1, 1, face, 16, false, null);
+            Assert.Equal(expected.Glyphs, actual.Glyphs); Assert.Equal(expected.Clusters, actual.Clusters);
+            Assert.Equal(expected.Advances, actual.Advances);
+            var simple = SimpleShaper.Shape(text, 1, 1, face, 16);
+            Assert.Equal(expected.Glyphs, simple.Glyphs); Assert.Equal(expected.Clusters, simple.Clusters);
+        }
+    }
+    [Theory]
+    [InlineData("Noto Sans JP", "新幹線 上り 発車案内 東京 品川 名古屋", "ja")]
+    [InlineData("Noto Sans JP", "城市电动公交覆盖率突破六成 骨直令返曜", "zh-CN")]
+    [InlineData("Noto Sans SC", "城市电动公交覆盖率突破六成 骨直令返曜", "zh-CN")]
+    [InlineData("Source Sans 3", "Shinkansen departures for Tokyo · office AVATAR", "en")]
+    public void NativeMixedTextPreservesOracleGlyphSelectionAndPositioning(string family, string text, string language)
+    {
+        var face = Fonts.Value.Match(family, FaceStyle.Normal, 400, 100)!;
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 17, false, language);
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 17, false, language);
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets, actual.Offsets);
+    }
+    [Theory]
+    [InlineData("❤️")]
+    [InlineData("👨‍👩‍👧‍👦")]
+    [InlineData("🇯🇵")]
+    [InlineData("👍🏽")]
+    [InlineData("1️⃣")]
+    [InlineData("😀‍😀")]
+    [InlineData("👩🏽‍💻")]
+    public void NativeEmojiClustersMatchTheFontSubstitutionOracle(string text)
+    {
+        var face = Fonts.Value.Match("Noto Color Emoji", FaceStyle.Normal, 400, 100)!;
+        var contextual = "prefix:" + text + ":suffix";
+        var actual = ComplexShaper.Instance.Shape(contextual, 7, text.Length, face, 32, false, null);
+        var oracle = new HarfBuzzShaper().Shape(contextual, 7, text.Length, face, 32, false, null);
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets, actual.Offsets);
+    }
+
+    [Theory]
+    [InlineData("AVATAR To Wa")]
+    [InlineData("office affiliation efficient final flight")]
+    [InlineData("A pinned React library artifact exercising Folio's scripted rendering")]
+    public void NativeAsciiShapingMatchesOracleKerningAndLigatures(string text)
+    {
+        var face = Fonts.Value.Match("Source Sans 3", FaceStyle.Normal, 400, 100)!;
+        var contextual = "prefix:" + text + ":suffix";
+        var actual = ComplexShaper.Instance.Shape(contextual, 7, text.Length, face, 16, false, "en");
+        var oracle = new HarfBuzzShaper().Shape(contextual, 7, text.Length, face, 16, false, "en");
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets, actual.Offsets);
+    }
+
+    [Fact]
     public void TestKhmerShapingMatchesHarfBuzz()
     {
         var fonts = FontCollection.For(new FontSettings { Source = new SystemFontSource() });

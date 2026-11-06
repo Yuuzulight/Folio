@@ -307,8 +307,12 @@ public static class DomBindings
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
         }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.MaxWorkers, document.MaxWorkerMemoryBytes, document.MaxAggregateWorkerMemoryBytes, document.MaxWorkerExecutionTime, document.MaxServiceWorkerCacheBytes, document.MaxIframes, document.MaxWebRtcConnections, document.WebRtcAllowedOrigins, document.MediaCapturePermission, document.MediaCaptureProvider, document.ArtifactStorage, document.ArtifactId, document.Options.ResourceLoader, document.Options.BaseUri, document.Options.MediaAudioOutput, document.Options.MediaDecoder,
         document.Options.Raster, () => document.CanvasText, document.Options.MediaCaptureActivityChanged, document.Options.IframeNavigationRequested, document.Options, document.FormsAllowed);
-        if (Contexts.TryGetValue(engine, out var context) && document.Options.ResourceInterceptor is null)
-            document.Options.ResourceInterceptor = context.CreateServiceWorkerResourceInterceptor();
+        if (Contexts.TryGetValue(engine, out var context))
+        {
+            context.InputRouter = document.Input;
+            if (document.Options.ResourceInterceptor is null)
+                document.Options.ResourceInterceptor = context.CreateServiceWorkerResourceInterceptor();
+        }
         return result;
     }
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,

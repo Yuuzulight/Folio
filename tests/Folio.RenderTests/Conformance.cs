@@ -131,9 +131,10 @@ public static class Conformance
         return manifest;
     }
 
-    public static ConformanceResult Run(ConformanceArtifact artifact, bool software = false, Func<IScriptEngine>? engineFactory = null)
+    public static ConformanceResult Run(ConformanceArtifact artifact, bool software = false, Func<IScriptEngine>? engineFactory = null, bool nativeShaping = false)
     {
-        var result = RunArtifact(artifact, software, engineFactory);
+        if (nativeShaping && !software) throw new ArgumentException("Native shaping requires the Folio raster path.", nameof(software));
+        var result = RunArtifact(artifact, software, engineFactory, nativeShaping);
         if (ManifestOf(artifact).ExpectedToFail is not { } reason)
             return result;
         return result.Outcome switch
@@ -144,7 +145,7 @@ public static class Conformance
         };
     }
 
-    private static ConformanceResult RunArtifact(ConformanceArtifact artifact, bool software, Func<IScriptEngine>? engineFactory)
+    private static ConformanceResult RunArtifact(ConformanceArtifact artifact, bool software, Func<IScriptEngine>? engineFactory, bool nativeShaping)
     {
         var manifest = ManifestOf(artifact);
         var reference = LoadIfExists(Path.Combine(artifact.Folder, "reference.png"));
@@ -161,7 +162,7 @@ public static class Conformance
             var document = lifecycle.Document;
             document.Paint(manifest.Viewport, reference?.Height ?? 600);
             // The picture is the page as it loads, like the reference; the interaction script then runs against it as assertions.
-            var (width, height, pixels, renderDiagnostics) = SoftwareRender.Pixels(document, request, software);
+            var (width, height, pixels, renderDiagnostics) = SoftwareRender.Pixels(document, request, software, nativeShaping);
             var image = new PixelBuffer(width, height, pixels);
             if (manifest.Interaction is { Length: > 0 } script)
             {

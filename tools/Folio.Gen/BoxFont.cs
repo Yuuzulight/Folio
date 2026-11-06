@@ -26,7 +26,7 @@ internal static class BoxFont
 
     private static bool IsBlank(int codePoint) => codePoint is 0x20 or 0xA0;
 
-    public static byte[] Build()
+    public static byte[] Build(IReadOnlyDictionary<string, byte[]>? additions = null)
     {
         // Glyph 0 is .notdef; glyph i + 1 maps CodePoints[i].
         var glyphCount = CodePoints.Length + 1;
@@ -58,6 +58,7 @@ internal static class BoxFont
             ["name"] = Name(),
             ["post"] = Post(),
         };
+        if (additions is not null) foreach (var (tag, data) in additions) tables[tag] = data;
         return Assemble(tables);
     }
 

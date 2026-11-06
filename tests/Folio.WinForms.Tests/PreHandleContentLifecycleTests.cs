@@ -13,6 +13,35 @@ namespace Folio.WinForms.Tests;
 public sealed class PreHandleContentLifecycleTests
 {
     [Fact]
+    public Task WindowResizeReflowsTheLiveContentPage() => RunStaAsync(async () =>
+    {
+        var client = StartClient();
+        using var view = new FolioView { Dock = DockStyle.Fill, Options = new FolioOptions { Scripting = ScriptingPolicy.ContentProcess } };
+        using var form = new Form { ClientSize = new Size(320, 200), ShowInTaskbar = false, Opacity = 0, Location = new Point(-32000, -32000) };
+        form.Controls.Add(view);
+        form.Show();
+        view.AttachContentProcess(client);
+        view.LoadHtml("<style>body{margin:0;background:blue}@media(min-width:500px){body{background:red}}</style><script>var keep=1;</script>");
+        await WaitForColor(false);
+        form.ClientSize = new Size(800, 400);
+        await WaitForColor(true);
+        view.ZoomFactor = 2;
+        await WaitForColor(false);
+
+        async Task WaitForColor(bool red)
+        {
+            for (var attempt = 0; attempt < 400; attempt++)
+            {
+                using var bitmap = Capture(view);
+                var color = bitmap.GetPixel(bitmap.Width - 10, bitmap.Height - 10);
+                if (red ? color.R > 180 && color.B < 40 : IsBlue(color)) return;
+                await Task.Delay(25, TestContext.Current.CancellationToken);
+            }
+            throw new TimeoutException("Content pixels did not reflow after a viewport/zoom change.");
+        }
+    });
+
+    [Fact]
     public Task FrameArrivingBeforeHandleIsAppliedAfterHandleCreation() => RunStaAsync(async () =>
     {
         var client = StartClient();
@@ -109,7 +138,7 @@ public sealed class PreHandleContentLifecycleTests
     private static ContentProcessClient StartClient()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostTestPaths.Resolve();
         return ContentProcessClient.Start(host,
             limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(5)),
             resourceLoader: new NeverCompletingLoader());

@@ -497,8 +497,8 @@ public sealed class ScriptRunner : IDisposable
         // Dispatch 'error' event on window
         try
         {
-            var messageLiteral = System.Text.Json.JsonSerializer.Serialize(message);
-            var filename = System.Text.Json.JsonSerializer.Serialize(url ?? "");
+            var messageLiteral = ScriptJson.Serialize(message);
+            var filename = ScriptJson.Serialize(url ?? "");
             var line = loc?.Line ?? 0;
             var column = loc?.Column ?? 0;
             _engine.Evaluate($$"""

@@ -1,6 +1,7 @@
 using System.Numerics;
 using Folio.Css;
 using Folio.Painting;
+using Folio.Painting.Software;
 using Folio.Style;
 
 namespace Folio.Tests.Painting;
@@ -92,6 +93,30 @@ public class GradientTests
         foreach (var bad in (string[])["linear-gradient(red)", "linear-gradient(to left right, red, blue)", "linear-gradient(red, 10%, 20%, blue)",
                      "radial-gradient(square, red, blue)", "conic-gradient(red 10px, blue)"])
             Assert.Null(Specified(bad));
+    }
+
+    [Fact]
+    public void AVerticalLinearGradientShadesARowWithOneLookup()
+    {
+        // The software raster looks a row of a gradient along y up once (SoftwareCanvas.BlendShader). That is only
+        // allowed when every pixel of the row gets the same bits from ColorAt.
+        GradientStop[] stops = [new(0, new Rgba(0.97f, 0.4f, 0.03f, 1)), new(1, new Rgba(0.85f, 0.28f, 0.06f, 0.6f))];
+        var vertical = new Folio.Painting.Gradient(GradientKind.Linear, stops, Start: new Vector2(3, 10.25f), End: new Vector2(3, 260.75f));
+        foreach (var transform in (Matrix33[])[Matrix33.Identity, Matrix33.FromAffine(Matrix3x2.CreateScale(1.25f) * Matrix3x2.CreateTranslation(-7.5f, 3))])
+        {
+            var shader = GradientShader.Create(vertical, transform);
+            for (var y = -5; y < 300; y += 7)
+            {
+                Assert.True(shader.TryRowColor(-40, y, out var row));
+                for (var x = -40; x < 400; x++)
+                    Assert.Equal(row, shader.ColorAt(x, y));
+            }
+        }
+
+        // Along x, or turned, the colour changes along the row: no shortcut.
+        var horizontal = vertical with { Start = new Vector2(0, 5), End = new Vector2(100, 5) };
+        Assert.False(GradientShader.Create(horizontal, Matrix33.Identity).TryRowColor(0, 0, out _));
+        Assert.False(GradientShader.Create(vertical, Matrix33.FromAffine(Matrix3x2.CreateRotation(0.3f))).TryRowColor(0, 0, out _));
     }
 
     private static float[] Offsets(string image) => [.. Gradient(image)!.Stops.Select(s => MathF.Round(s.Offset, 3))];

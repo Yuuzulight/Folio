@@ -25,6 +25,7 @@ internal sealed class JavaScriptEvaluator
     private static readonly ConditionalWeakTable<Func<IReadOnlyList<object?>, object?>, ReceiverBinding> ReceiverBindings = new();
     private readonly IDictionary<string, object?> _bindings;
     private readonly IDictionary<string, object?>? _parentBindings;
+    private IDictionary<string, object?>? _varBindings;
     private readonly JavaScriptEvaluator? _parentEvaluator;
     private readonly IReadOnlyList<IDictionary<string, object?>> _withScopes;
     private readonly int _maxSteps;
@@ -48,6 +49,7 @@ internal sealed class JavaScriptEvaluator
 
     internal object? Evaluate(JavaScriptExpression expression)
     {
+        NativeExecutionBudget.EnsureStack();
         ThrowIfExpired();
         if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
         return expression switch
@@ -83,7 +85,7 @@ internal sealed class JavaScriptEvaluator
     }
 
     private sealed record TemplatePart(string? Literal, IReadOnlyList<JavaScriptStatement>? Statements);
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, TemplatePart[]> TemplatePartsCache = new(StringComparer.Ordinal);
+    private static readonly BoundedScriptCache<string, TemplatePart[]> TemplatePartsCache = new(256, 128 * 1024);
 
     private static TemplatePart[] ParseTemplateParts(string text)
     {
@@ -112,7 +114,7 @@ internal sealed class JavaScriptEvaluator
 
     private object Template(string text)
     {
-        var parts = TemplatePartsCache.GetOrAdd(text, ParseTemplateParts);
+        var parts = TemplatePartsCache.GetOrAdd(text, text.Length, ParseTemplateParts);
         if (parts.Length == 1 && parts[0].Literal is { } singleLit)
             return singleLit;
         var result = new System.Text.StringBuilder();
@@ -150,28 +152,81 @@ internal sealed class JavaScriptEvaluator
 
     internal object? Execute(IReadOnlyList<JavaScriptStatement> statements)
     {
-        try { HoistVariables(statements); return ExecuteCore(statements); }
-        catch (ReturnSignal returned) { return returned.Value; }
+        HoistVariables(statements);
+        var result = ExecuteCore(statements);
+        return TakeReturn(out var returned) ? returned : result;
     }
 
     internal object? ExecuteFunctionBody(IReadOnlyList<JavaScriptStatement> statements)
     {
-        try
+        HoistVariables(statements);
+        ExecuteCore(statements);
+        return TakeReturn(out var returned) ? returned : UndefinedOrNull();
+    }
+
+    // return, break and continue are completions (ECMA-262 §6.2.4) kept on the evaluator, not exceptions: a .NET
+    // throw per return cost a callback-heavy page a fifth of its load. A statement that completes abruptly sets one;
+    // statement lists stop there, loops, switch and labels take the ones that are theirs, and a function body (or a
+    // program) turns a return into its value.
+    private enum CompletionKind : byte { Normal, Return, Break, Continue }
+
+    private CompletionKind _completion;
+    private string? _completionLabel;
+    private object? _completionValue;
+
+    private bool Abrupt => _completion != CompletionKind.Normal;
+
+    private void Complete(CompletionKind kind, string? label = null, object? value = null) =>
+        (_completion, _completionLabel, _completionValue) = (kind, label, value);
+
+    private void ClearCompletion() => Complete(CompletionKind.Normal);
+
+    // A child scope's abrupt completion belongs to the statement that made the scope.
+    private void TakeCompletion(JavaScriptEvaluator scope)
+    {
+        if (ReferenceEquals(scope, this) || !scope.Abrupt) return;
+        (_completion, _completionLabel, _completionValue) = (scope._completion, scope._completionLabel, scope._completionValue);
+        scope.ClearCompletion();
+    }
+
+    // The end of a function body or program: a return gives its value; a break or continue with no loop to take it
+    // leaves as it did before, as the signal exception.
+    private bool TakeReturn(out object? value)
+    {
+        var (kind, label) = (_completion, _completionLabel);
+        value = _completionValue;
+        ClearCompletion();
+        return kind switch
         {
-            HoistVariables(statements);
-            ExecuteCore(statements);
-            return UndefinedOrNull();
+            CompletionKind.Return => true,
+            CompletionKind.Break => throw new BreakSignal(label),
+            CompletionKind.Continue => throw new ContinueSignal(label),
+            _ => false,
+        };
+    }
+
+    // After a loop body: true when the loop goes on (a continue for it is taken), false when it ends (a break for it
+    // is taken; any other abrupt completion stays for an enclosing statement).
+    private bool ContinueLoop(string? loopLabel)
+    {
+        if (_completion == CompletionKind.Continue && (_completionLabel is null || _completionLabel == loopLabel))
+            ClearCompletion();
+        if (_completion == CompletionKind.Break && (_completionLabel is null || _completionLabel == loopLabel))
+        {
+            ClearCompletion();
+            return false;
         }
-        catch (ReturnSignal returned) { return returned.Value; }
+        return !Abrupt;
     }
 
     private void HoistVariables(IReadOnlyList<JavaScriptStatement> statements)
     {
+        NativeExecutionBudget.EnsureStack();
         foreach (var statement in statements)
         {
             switch (statement)
             {
-                case JavaScriptVariableStatement variable:
+                case JavaScriptVariableStatement variable when !variable.Lexical:
                     HoistBinding(variable.Name);
                     break;
                 case JavaScriptBlockStatement block:
@@ -192,7 +247,7 @@ internal sealed class JavaScriptEvaluator
                     HoistStatement(loop.Body);
                     break;
                 case JavaScriptForEachStatement each:
-                    HoistBinding(each.Name);
+                    if (!each.Lexical) HoistBinding(each.Name);
                     HoistStatement(each.Body);
                     break;
                 case JavaScriptLabeledStatement labeled:
@@ -215,6 +270,39 @@ internal sealed class JavaScriptEvaluator
     }
 
     private void HoistStatement(JavaScriptStatement statement) => HoistVariables([statement]);
+
+    private JavaScriptEvaluator CreateLexicalScope(IDictionary<string, object?>? bindings = null) =>
+        new(bindings ?? new Dictionary<string, object?>(StringComparer.Ordinal), Math.Max(1, _maxSteps - _steps),
+            _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded, _yieldValues)
+        { _varBindings = _varBindings ?? _bindings };
+
+    private void ExecuteLexicalFor(JavaScriptForStatement loop, ref object? lastResult)
+    {
+        var scope = CreateLexicalScope();
+        try
+        {
+            scope.ExecuteStatement(loop.Initializer!, ref lastResult);
+            while (loop.Condition is null || Truth(scope.Evaluate(loop.Condition)))
+            {
+                scope.ThrowIfExpired();
+                if (++scope._steps > scope._maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
+                scope.ExecuteStatement(loop.Body, ref lastResult);
+                if (!scope.ContinueLoop(loop.Label))
+                {
+                    TakeCompletion(scope);
+                    break;
+                }
+                // The update belongs to the next iteration's environment. A
+                // closure from the completed body must retain its old value.
+                var bindings = new Dictionary<string, object?>(scope._bindings, StringComparer.Ordinal);
+                _steps += scope._steps;
+                scope._steps = 0;
+                scope = CreateLexicalScope(bindings);
+                if (loop.Update is not null) scope.Evaluate(loop.Update);
+            }
+        }
+        finally { _steps += scope._steps; }
+    }
 
     private void HoistBinding(string name)
     {
@@ -239,6 +327,7 @@ internal sealed class JavaScriptEvaluator
 
     private object? ExecuteCore(IReadOnlyList<JavaScriptStatement> statements)
     {
+        NativeExecutionBudget.EnsureStack();
         ThrowIfExpired();
         for (var i = 0; i < statements.Count; i++)
         {
@@ -246,7 +335,7 @@ internal sealed class JavaScriptEvaluator
                 _bindings[declaration.Name] = Evaluate(declaration.Function);
         }
         object? lastResult = UndefinedValue.Instance;
-        for (var i = 0; i < statements.Count; i++)
+        for (var i = 0; i < statements.Count && !Abrupt; i++)
         {
             ExecuteStatement(statements[i], ref lastResult);
         }
@@ -262,6 +351,7 @@ internal sealed class JavaScriptEvaluator
             case JavaScriptExpressionStatement expression: lastResult = Evaluate(expression.Expression); break;
             case JavaScriptVariableStatement variable:
             {
+                var declarationBindings = variable.Lexical ? _bindings : _varBindings ?? _bindings;
                 var value = variable.Initializer is null ? UndefinedOrNull() : Evaluate(variable.Initializer);
                 if (variable.Name.StartsWith("[", StringComparison.Ordinal) && variable.Name.EndsWith("]", StringComparison.Ordinal))
                 {
@@ -274,12 +364,12 @@ internal sealed class JavaScriptEvaluator
                             var rest = value is IReadOnlyList<object?> readOnly
                                 ? readOnly.Skip(index).ToArray()
                                 : Array.Empty<object?>();
-                            _bindings[names[index][3..]] = rest;
+                            declarationBindings[names[index][3..]] = rest;
                             break;
                         }
                         var item = value is IList<object?> list && index < list.Count ? list[index] : value is IReadOnlyList<object?> values && index < values.Count ? values[index] : UndefinedValue.Instance;
                         if (names[index].StartsWith("[", StringComparison.Ordinal) || names[index].StartsWith("{", StringComparison.Ordinal)) BindPattern(names[index], item);
-                        else _bindings[names[index]] = item;
+                        else declarationBindings[names[index]] = item;
                     }
                 }
                 else if (variable.Name.StartsWith("{", StringComparison.Ordinal) && variable.Name.EndsWith("}", StringComparison.Ordinal))
@@ -295,7 +385,7 @@ internal sealed class JavaScriptEvaluator
                             if (value is IReadOnlyDictionary<string, object?> map)
                                 foreach (var pair in map)
                                     if (!excluded.Contains(pair.Key)) rest[pair.Key] = pair.Value;
-                            _bindings[entry[3..].Trim()] = rest;
+                            declarationBindings[entry[3..].Trim()] = rest;
                             continue;
                         }
                         var parts = entry.Split(':', 2);
@@ -304,20 +394,27 @@ internal sealed class JavaScriptEvaluator
                         var propertyValue = MemberValue(value, property);
                         var targetValue = propertyValue is UndefinedValue ? UndefinedValue.Instance : propertyValue;
                         if (local.StartsWith("[", StringComparison.Ordinal) || local.StartsWith("{", StringComparison.Ordinal)) BindPattern(local, targetValue);
-                        else _bindings[local] = targetValue;
+                        else declarationBindings[local] = targetValue;
                     }
                 }
-                else _bindings[variable.Name] = value;
+                else declarationBindings[variable.Name] = value;
                 break;
             }
             case JavaScriptFunctionDeclarationStatement function: _bindings[function.Name] = Evaluate(function.Function); break;
             case JavaScriptClassDeclarationStatement @class: _bindings[@class.Name] = Evaluate(@class.Class); break;
             case JavaScriptBlockStatement block:
-                if (block.Statements.Count == 1 && block.Statements[0] is not JavaScriptFunctionDeclarationStatement)
-                    ExecuteStatement(block.Statements[0], ref lastResult);
-                else
+            {
+                if (!block.CreatesScope)
+                {
                     lastResult = ExecuteCore(block.Statements);
+                    break;
+                }
+                var scope = CreateLexicalScope();
+                try { lastResult = scope.ExecuteCore(block.Statements); }
+                finally { _steps += scope._steps; }
+                TakeCompletion(scope);
                 break;
+            }
             case JavaScriptWithStatement with:
             {
                 var scope = Evaluate(with.Scope);
@@ -334,6 +431,7 @@ internal sealed class JavaScriptEvaluator
                     ? scoped.ExecuteCore(scopedBlock.Statements)
                     : scoped.ExecuteStatementWithResult(with.Body);
                 _steps += scoped._steps;
+                TakeCompletion(scoped);
                 break;
             }
             case JavaScriptIfStatement conditional:
@@ -341,48 +439,42 @@ internal sealed class JavaScriptEvaluator
                 else if (conditional.Else is { } alternative) ExecuteStatement(alternative, ref lastResult);
                 break;
             case JavaScriptWhileStatement loop:
-                try
+                while (Truth(Evaluate(loop.Condition)))
                 {
-                    while (Truth(Evaluate(loop.Condition)))
-                    {
-                        ThrowIfExpired();
-                        if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
-                        try { ExecuteStatement(loop.Body, ref lastResult); }
-                        catch (ContinueSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
-                    }
+                    ThrowIfExpired();
+                    if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
+                    ExecuteStatement(loop.Body, ref lastResult);
+                    if (!ContinueLoop(loop.Label)) break;
                 }
-                catch (BreakSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
                 break;
             case JavaScriptDoWhileStatement loop:
-                try
+                do
                 {
-                    do
-                    {
-                        ThrowIfExpired();
-                        if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
-                        try { ExecuteStatement(loop.Body, ref lastResult); }
-                        catch (ContinueSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
-                    }
-                    while (Truth(Evaluate(loop.Condition)));
+                    ThrowIfExpired();
+                    if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
+                    ExecuteStatement(loop.Body, ref lastResult);
+                    if (!ContinueLoop(loop.Label)) break;
                 }
-                catch (BreakSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
+                while (Truth(Evaluate(loop.Condition)));
                 break;
-            case JavaScriptBreakStatement breakStatement: throw new BreakSignal(breakStatement.Label);
-            case JavaScriptContinueStatement continueStatement: throw new ContinueSignal(continueStatement.Label);
+            case JavaScriptBreakStatement breakStatement: Complete(CompletionKind.Break, breakStatement.Label); break;
+            case JavaScriptContinueStatement continueStatement: Complete(CompletionKind.Continue, continueStatement.Label); break;
             case JavaScriptForStatement loop:
-                if (loop.Initializer is not null) ExecuteStatement(loop.Initializer, ref lastResult);
-                try
+                if (loop.Initializer is JavaScriptVariableStatement { Lexical: true }
+                    or JavaScriptBlockStatement { CreatesScope: false, Statements: [JavaScriptVariableStatement { Lexical: true }, ..] })
                 {
-                    while (loop.Condition is null || Truth(Evaluate(loop.Condition)))
-                    {
-                        ThrowIfExpired();
-                        if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
-                        try { ExecuteStatement(loop.Body, ref lastResult); }
-                        catch (ContinueSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
-                        if (loop.Update is not null) Evaluate(loop.Update);
-                    }
+                    ExecuteLexicalFor(loop, ref lastResult);
+                    break;
                 }
-                catch (BreakSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
+                if (loop.Initializer is not null) ExecuteStatement(loop.Initializer, ref lastResult);
+                while (loop.Condition is null || Truth(Evaluate(loop.Condition)))
+                {
+                    ThrowIfExpired();
+                    if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
+                    ExecuteStatement(loop.Body, ref lastResult);
+                    if (!ContinueLoop(loop.Label)) break;
+                    if (loop.Update is not null) Evaluate(loop.Update);
+                }
                 break;
             case JavaScriptForEachStatement each:
                 var source = Evaluate(each.Iterable);
@@ -393,62 +485,80 @@ internal sealed class JavaScriptEvaluator
                         ? Enumerable.Range(0, Math.Max(0, (int)Number(hostLength)))
                             .Select(index => host.TryGetIndex(index, out var value) ? value : UndefinedOrNull()).ToArray()
                         : Array.Empty<object?>();
-                try
                 {
                     foreach (var item in items)
                     {
                         ThrowIfExpired();
                         if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
+                        var iteration = new JavaScriptEvaluator(new Dictionary<string, object?>(StringComparer.Ordinal), Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded)
+                            { _varBindings = _varBindings ?? _bindings };
+                        var iterationBindings = each.Lexical ? iteration._bindings : _varBindings ?? _bindings;
                         if (each.Name.StartsWith("[", StringComparison.Ordinal) && each.Name.EndsWith("]", StringComparison.Ordinal))
                         {
                             var names = each.Name[1..^1].Split(',', StringSplitOptions.None);
                             var values = item as IReadOnlyList<object?>;
-                            for (var index = 0; index < names.Length; index++) if (!string.IsNullOrEmpty(names[index])) _bindings[names[index]] = values is not null && index < values.Count ? values[index] : null;
+                            for (var index = 0; index < names.Length; index++) if (!string.IsNullOrEmpty(names[index])) iterationBindings[names[index]] = values is not null && index < values.Count ? values[index] : null;
                         }
-                        else _bindings[each.Name] = item;
-                        try { ExecuteStatement(each.Body, ref lastResult); }
-                        catch (ContinueSignal signal) when (signal.Label is null || signal.Label == each.Label) { }
+                        else iterationBindings[each.Name] = item;
+                        try { iteration.ExecuteStatement(each.Body, ref lastResult); }
+                        finally { if (!ReferenceEquals(iteration, this)) _steps += iteration._steps; }
+                        TakeCompletion(iteration);
+                        if (!ContinueLoop(each.Label)) break;
                     }
                 }
-                catch (BreakSignal signal) when (signal.Label is null || signal.Label == each.Label) { }
                 break;
             case JavaScriptLabeledStatement labeled:
-                try { ExecuteStatement(labeled.Body, ref lastResult); }
-                catch (BreakSignal signal) when (signal.Label == labeled.Label) { }
+                ExecuteStatement(labeled.Body, ref lastResult);
+                if (_completion == CompletionKind.Break && _completionLabel == labeled.Label) ClearCompletion();
                 break;
             case JavaScriptThrowStatement thrown: throw new JavaScriptThrownException(Evaluate(thrown.Expression));
             case JavaScriptTryStatement guarded:
                 object? tryResult = UndefinedValue.Instance;
-                try { tryResult = ExecuteStatementWithResult(guarded.Body); }
-                catch (JavaScriptThrownException error) when (guarded.CatchBody is not null)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo? pending = null;
+                try
                 {
-                    if (guarded.CatchName is not null) _bindings[guarded.CatchName] = error.Value;
-                    tryResult = ExecuteStatementWithResult(guarded.CatchBody);
+                    try { tryResult = ExecuteStatementWithResult(guarded.Body); }
+                    catch (JavaScriptThrownException error) when (guarded.CatchBody is not null)
+                    {
+                        if (guarded.CatchName is not null) _bindings[guarded.CatchName] = error.Value;
+                        tryResult = ExecuteStatementWithResult(guarded.CatchBody);
+                    }
                 }
-                finally
+                catch (Exception error) when (guarded.FinallyBody is not null)
                 {
-                    if (guarded.FinallyBody is not null) ExecuteStatementWithResult(guarded.FinallyBody);
+                    pending = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
                 }
+                if (guarded.FinallyBody is not null)
+                {
+                    // The finally block runs whole whatever completed the try, a throw included. An abrupt completion
+                    // of its own (a return, break or continue) replaces that one, the throw too; otherwise it stands.
+                    var (kind, label, value) = (_completion, _completionLabel, _completionValue);
+                    ClearCompletion();
+                    ExecuteStatementWithResult(guarded.FinallyBody);
+                    if (Abrupt) pending = null;
+                    else Complete(kind, label, value);
+                }
+                pending?.Throw();
                 lastResult = tryResult;
                 break;
             case JavaScriptSwitchStatement selection:
                 var switchValue = Evaluate(selection.Expression);
                 var activeCase = false;
-                try
+                foreach (var @case in selection.Cases)
                 {
-                    foreach (var @case in selection.Cases)
+                    if (!activeCase && (@case.Test is null || Equals(switchValue, Evaluate(@case.Test)))) activeCase = true;
+                    if (activeCase)
                     {
-                        if (!activeCase && (@case.Test is null || Equals(switchValue, Evaluate(@case.Test)))) activeCase = true;
-                        if (activeCase)
-                        {
-                            for (var i = 0; i < @case.Statements.Count; i++)
-                                ExecuteStatement(@case.Statements[i], ref lastResult);
-                        }
+                        for (var i = 0; i < @case.Statements.Count && !Abrupt; i++)
+                            ExecuteStatement(@case.Statements[i], ref lastResult);
                     }
+                    if (Abrupt) break;
                 }
-                catch (BreakSignal signal) when (signal.Label is null) { }
+                if (_completion == CompletionKind.Break && _completionLabel is null) ClearCompletion();
                 break;
-            case JavaScriptReturnStatement returned: throw new ReturnSignal(returned.Expression is null ? UndefinedOrNull() : Evaluate(returned.Expression));
+            case JavaScriptReturnStatement returned:
+                Complete(CompletionKind.Return, value: returned.Expression is null ? UndefinedOrNull() : Evaluate(returned.Expression));
+                break;
             case JavaScriptYieldStatement yielded:
                 if (_yieldValues is null) throw new InvalidDataException("yield is only valid inside a generator.");
                 AddYield(yielded.Expression is null ? UndefinedOrNull() : Evaluate(yielded.Expression), yielded.Delegate);
@@ -723,7 +833,7 @@ internal sealed class JavaScriptEvaluator
                 JavaScriptBinaryOp.Add => ld + rd,
                 JavaScriptBinaryOp.Sub => ld - rd,
                 JavaScriptBinaryOp.Mul => ld * rd,
-                JavaScriptBinaryOp.Div => rd == 0 ? double.NaN : ld / rd,
+                JavaScriptBinaryOp.Div => ld / rd,
                 JavaScriptBinaryOp.Mod => rd == 0 ? double.NaN : ld % rd,
                 JavaScriptBinaryOp.LessThan => ld < rd,
                 JavaScriptBinaryOp.GreaterThan => ld > rd,
@@ -749,7 +859,7 @@ internal sealed class JavaScriptEvaluator
             JavaScriptBinaryOp.Sub => l - r,
             JavaScriptBinaryOp.Mul => l * r,
             JavaScriptBinaryOp.Power => Math.Pow(l, r),
-            JavaScriptBinaryOp.Div => r == 0 ? double.NaN : l / r,
+            JavaScriptBinaryOp.Div => l / r,
             JavaScriptBinaryOp.Mod => r == 0 ? double.NaN : l % r,
             JavaScriptBinaryOp.LessThan => l < r,
             JavaScriptBinaryOp.GreaterThan => l > r,
@@ -868,7 +978,7 @@ internal sealed class JavaScriptEvaluator
         if (operation == "+" && (left is string || right is string))
             return StringValue(left) + StringValue(right);
         var l = Number(left); var r = Number(right);
-        return operation switch { "+" => l + r, "-" => l - r, "*" => l * r, "/" => r == 0 ? double.NaN : l / r, "%" => r == 0 ? double.NaN : l % r, _ => throw new NotSupportedException($"Unsupported compound operator '{op}'.") };
+        return operation switch { "+" => l + r, "-" => l - r, "*" => l * r, "/" => l / r, "%" => r == 0 ? double.NaN : l % r, _ => throw new NotSupportedException($"Unsupported compound operator '{op}'.") };
     }
 
     private static bool ContainsProperty(object? key, object? target) => target switch
@@ -1220,6 +1330,7 @@ internal sealed class JavaScriptEvaluator
 
     private object? ExecuteFunctionWithThis(JavaScriptFunctionExpression function, object? receiver, IReadOnlyList<object?> arguments)
     {
+        using var callScope = NativeExecutionBudget.EnterCall();
         var local = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["this"] = receiver,
@@ -1286,7 +1397,7 @@ internal sealed class JavaScriptEvaluator
             }
             return groups;
         }
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Pattern, RegexOptions Options), Regex> CompiledCache = new();
+        private static readonly BoundedScriptCache<(string Pattern, RegexOptions Options), Regex> CompiledCache = new(128, 64 * 1024);
 
         internal static RegexValue Create(string source)
         {
@@ -1297,7 +1408,7 @@ internal sealed class JavaScriptEvaluator
             if (flags.Contains('i')) options |= RegexOptions.IgnoreCase;
             if (flags.Contains('m')) options |= RegexOptions.Multiline;
             if (flags.Contains('s')) options |= RegexOptions.Singleline;
-            var regex = CompiledCache.GetOrAdd((pattern, options), static key => new Regex(key.Pattern, key.Options, TimeSpan.FromMilliseconds(100)));
+            var regex = CompiledCache.GetOrAdd((pattern, options), pattern.Length, static key => new Regex(key.Pattern, key.Options, TimeSpan.FromMilliseconds(100)));
             return new RegexValue(regex, pattern, flags);
         }
         internal bool TryGetProperty(string name, out object? value)
@@ -1660,9 +1771,11 @@ internal sealed class JavaScriptEvaluator
 
     private static object?[] Flatten(IEnumerable<object?> values, int depth)
     {
+        using var callScope = NativeExecutionBudget.EnterCall();
         var result = new List<object?>();
         foreach (var value in values)
         {
+            NativeExecutionBudget.Step();
             if (depth > 0 && value is IEnumerable<object?> nested)
                 result.AddRange(Flatten(nested, depth == int.MaxValue ? int.MaxValue : depth - 1));
             else
@@ -1918,6 +2031,7 @@ internal sealed class JavaScriptEvaluator
                 if (target <= value.Length) return value;
                 var fill = args.Count > 1 ? StringValue(args[1]) : " ";
                 if (fill.Length == 0) return value;
+                NativeExecutionBudget.CheckAllocation(6L * target + 2L * fill.Length + 128);
                 return string.Concat(string.Concat(Enumerable.Repeat(fill, (target - value.Length + fill.Length - 1) / fill.Length))[..(target - value.Length)], value);
             }),
             "padEnd" => (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -1926,12 +2040,19 @@ internal sealed class JavaScriptEvaluator
                 if (target <= value.Length) return value;
                 var fill = args.Count > 1 ? StringValue(args[1]) : " ";
                 if (fill.Length == 0) return value;
+                NativeExecutionBudget.CheckAllocation(6L * target + 2L * fill.Length + 128);
                 return value + string.Concat(Enumerable.Repeat(fill, (target - value.Length + fill.Length - 1) / fill.Length))[..(target - value.Length)];
             }),
             "repeat" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
-                var count = args.Count == 0 ? 0 : (int)Number(args[0]);
-                if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), "Invalid count value.");
+                var requested = args.Count == 0 ? 0 : Number(args[0]);
+                var integer = double.IsNaN(requested) ? 0 : Math.Truncate(requested);
+                if (!double.IsFinite(integer) || integer < 0 || integer > int.MaxValue)
+                    throw WebIdlException.RangeError("Invalid count value.");
+                var count = (int)integer;
+                if (value.Length == 0 || count == 0) return string.Empty;
+                if ((long)count * value.Length > int.MaxValue) throw WebIdlException.RangeError("Repeated string exceeds the supported size.");
+                NativeExecutionBudget.CheckAllocation(4L * count * value.Length + 128);
                 return string.Concat(Enumerable.Repeat(value, count));
             }),
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -2004,6 +2125,7 @@ internal sealed class JavaScriptEvaluator
 
         object? InvokeBody(object? receiver, IReadOnlyList<object?> arguments)
         {
+            using var callScope = NativeExecutionBudget.EnterCall();
             var local = new Dictionary<string, object?>(StringComparer.Ordinal);
             JavaScriptEvaluator? bodyEvaluator = null;
             if (function.Name is { } functionName) local[functionName] = functionValue;
@@ -2125,11 +2247,15 @@ internal sealed class JavaScriptEvaluator
         foreach (var pair in local) _bindings[pair.Key] = pair.Value;
     }
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Source, bool KeepEmpty), string[]> BindingItemsCache = new();
+    private static readonly BoundedScriptCache<(string Source, bool KeepEmpty), string[]> BindingItemsCache = new(200, 64 * 1024);
 
     private static string[] SplitBindingItems(string source, bool keepEmpty = false)
     {
-        if (BindingItemsCache.TryGetValue((source, keepEmpty), out var cached)) return cached;
+        return BindingItemsCache.GetOrAdd((source, keepEmpty), source.Length, static key => ParseBindingItems(key.Source, key.KeepEmpty));
+    }
+
+    private static string[] ParseBindingItems(string source, bool keepEmpty)
+    {
         var items = new List<string>();
         var start = 0;
         var depth = 0;
@@ -2145,7 +2271,6 @@ internal sealed class JavaScriptEvaluator
         }
         items.Add(source[start..].Trim());
         var result = keepEmpty ? items.ToArray() : items.Where(item => item.Length > 0).ToArray();
-        if (BindingItemsCache.Count < 200) BindingItemsCache.TryAdd((source, keepEmpty), result);
         return result;
     }
 
@@ -2234,6 +2359,7 @@ internal sealed class JavaScriptEvaluator
 
     private object? ExecuteClassMethod(JavaScriptFunctionExpression function, object instance, IReadOnlyList<object?> arguments, string? parentName = null)
     {
+        using var callScope = NativeExecutionBudget.EnterCall();
         var local = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["this"] = instance,
@@ -2265,7 +2391,12 @@ internal sealed class JavaScriptEvaluator
 
     private void ThrowIfExpired()
     {
-        if ((_steps & 63) == 0 && _deadlineExceeded?.Invoke() == true)
+        NativeExecutionBudget.Step();
+        // Every function call starts a fresh evaluator at step 0, so polling there read the clock once per call (a
+        // callback-heavy page spent a fifth of its load in it). Each evaluator polls on its 64th step instead: anything
+        // unbounded still runs that many steps in some evaluator (the loop's, or the caller's for repeated calls), and the
+        // shared task budget polls every 64 steps across calls.
+        if ((_steps & 63) == 63 && _deadlineExceeded?.Invoke() == true)
             throw new ScriptLimitExceededException("Timeout", "The native script exceeded its execution time limit.");
     }
 
@@ -2280,6 +2411,7 @@ internal sealed class JavaScriptEvaluator
     }
     private bool TryLookup(string name, out object? value)
     {
+        NativeExecutionBudget.EnsureStack();
         if (_withScopes.Count != 0)
         {
             for (var i = _withScopes.Count - 1; i >= 0; i--)
@@ -2322,7 +2454,7 @@ internal sealed class JavaScriptEvaluator
         bindings[name] = value;
     }
 
-    internal static bool Truth(object? value) => value switch { null or UndefinedValue => false, bool boolean => boolean, double number => number != 0 && !double.IsNaN(number), string text => text.Length != 0, _ => true };
+    internal static bool Truth(object? value) => value switch { null or UndefinedValue => false, bool boolean => boolean, double number => number != 0 && !double.IsNaN(number), BigInteger integer => !integer.IsZero, string text => text.Length != 0, _ => true };
     private static double Number(object? value) => value switch { null => 0, UndefinedValue => double.NaN, bool boolean => boolean ? 1 : 0, double number => number, int integer => integer, string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) => number, _ => double.NaN };
     private static int ToInt32(double value) => unchecked((int)value);
 
@@ -2448,10 +2580,6 @@ internal sealed class JavaScriptEvaluator
     private sealed class ContinueSignal(string? label) : Exception
     {
         internal string? Label { get; } = label;
-    }
-    private sealed class ReturnSignal(object? value) : Exception
-    {
-        internal object? Value { get; } = value;
     }
     private sealed class JavaScriptThrownException : Exception
     {

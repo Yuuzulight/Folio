@@ -35,8 +35,8 @@ internal static class FetchBindings
     {
         var (outcome, error) = context.Fetch(url, integrity);
         if (outcome is not { } response)
-            return JsonSerializer.Serialize(new { ok = false, error });
-        return JsonSerializer.Serialize(new { ok = true, contentType = response.ContentType, length = response.Data!.Length, body = head ? 0 : context.StoreFetchBody(response.Data) });
+            return ScriptJson.Serialize(new Dictionary<string, object?> { ["ok"] = false, ["error"] = error });
+        return ScriptJson.Serialize(new Dictionary<string, object?> { ["ok"] = true, ["contentType"] = response.ContentType, ["length"] = response.Data!.Length, ["body"] = head ? 0 : context.StoreFetchBody(response.Data) });
     }
 
     private static int Handle(ReadOnlySpan<ScriptValue> args) => args.Length > 0 ? (int)args[0].AsNumber() : 0;

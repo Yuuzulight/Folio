@@ -35,6 +35,7 @@ internal sealed class JavaScriptParser
 
     private JavaScriptStatement ParseStatement()
     {
+        NativeExecutionBudget.EnsureStack();
         if (Match(";")) return new JavaScriptExpressionStatement(new JavaScriptLiteralExpression("undefined", JavaScriptTokenKind.Identifier));
         if (_current.Kind == JavaScriptTokenKind.Identifier && Peek(0).Text == ":")
         {
@@ -94,16 +95,17 @@ internal sealed class JavaScriptParser
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text is "const" or "let" or "var")
         {
+            var lexical = _current.Text != "var";
             Take();
             var declarations = new List<JavaScriptStatement>();
             do
             {
                 var name = ParseBindingName();
                 JavaScriptExpression? initializer = Match("=") ? ParseBinary(0) : null;
-                declarations.Add(new JavaScriptVariableStatement(name, initializer));
+                declarations.Add(new JavaScriptVariableStatement(name, initializer, lexical));
             } while (Match(","));
             Match(";");
-            return declarations.Count == 1 ? declarations[0] : new JavaScriptBlockStatement(declarations);
+            return declarations.Count == 1 ? declarations[0] : new JavaScriptBlockStatement(declarations, CreatesScope: false);
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "return")
         {
@@ -162,24 +164,25 @@ internal sealed class JavaScriptParser
             {
                 if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text is "const" or "let" or "var")
                 {
+                    var lexical = _current.Text != "var";
                     Take();
                     var name = ParseBindingName();
                     if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text is "of" or "in")
                     {
                         var keys = _current.Text == "in"; Take();
                         var iterable = ParseSequenceExpression(); Expect(")");
-                        return new JavaScriptForEachStatement(name, iterable, ParseStatement(), keys);
+                        return new JavaScriptForEachStatement(name, iterable, ParseStatement(), keys, Lexical: lexical);
                     }
                     var declarations = new List<JavaScriptStatement>
                     {
-                        new JavaScriptVariableStatement(name, Match("=") ? ParseBinary(0) : null)
+                        new JavaScriptVariableStatement(name, Match("=") ? ParseBinary(0) : null, lexical)
                     };
                     while (Match(","))
                     {
                         var nextName = ParseBindingName();
-                        declarations.Add(new JavaScriptVariableStatement(nextName, Match("=") ? ParseBinary(0) : null));
+                        declarations.Add(new JavaScriptVariableStatement(nextName, Match("=") ? ParseBinary(0) : null, lexical));
                     }
-                    initializer = declarations.Count == 1 ? declarations[0] : new JavaScriptBlockStatement(declarations);
+                    initializer = declarations.Count == 1 ? declarations[0] : new JavaScriptBlockStatement(declarations, CreatesScope: false);
                 }
                 else
                 {
@@ -328,6 +331,7 @@ internal sealed class JavaScriptParser
 
     private JavaScriptExpression ParseBinary(int minimumPrecedence)
     {
+        NativeExecutionBudget.EnsureStack();
         var left = ParsePostfix();
         while (_current.Kind == JavaScriptTokenKind.Punctuation || _current.Kind == JavaScriptTokenKind.Identifier && _current.Text is "in" or "instanceof")
         {
@@ -419,6 +423,7 @@ internal sealed class JavaScriptParser
 
     private JavaScriptExpression ParseUnary()
     {
+        NativeExecutionBudget.EnsureStack();
         if (_current.Kind == JavaScriptTokenKind.Punctuation && _current.Text is "!" or "-" or "+" or "~" or "++" or "--")
         {
             var op = _current.Text; Take();

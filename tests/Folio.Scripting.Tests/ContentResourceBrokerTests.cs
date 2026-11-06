@@ -107,7 +107,7 @@ public sealed class ContentResourceBrokerTests
         var loader = new RecordingLoader((request, _) => ResourceResponse.Loaded(Encoding.ASCII.GetBytes("RIFFxxxxWAVE"), "audio/test"));
         var decoder = new DebugDecoder();
         var output = new DebugAudioOutput();
-        await using var client = ContentProcessClient.Start("dotnet", $"\"{ContentHostPath()}\"", new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)), resourceLoader: loader, resourcePolicy: AllowExampleOrigin(), mediaDecoder: decoder, mediaAudioOutput: output);
+        await using var client = ContentProcessClient.Start(ContentHostPath(), null, new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)), resourceLoader: loader, resourcePolicy: AllowExampleOrigin(), mediaDecoder: decoder, mediaAudioOutput: output);
         var frame = await Load(client, new { html = "<audio id='a' src='clip'></audio>", script = "const a=document.getElementById('a'); a.play(); a.readyState + ':' + a.error + ':' + a.paused", url = "https://example.test/index.html", capabilities = new FeatureCapabilities { Media = true, Sound = true } });
         Assert.Equal("4:null:false", frame.Payload.GetProperty("value").GetString());
         Assert.Equal(1, decoder.Calls);
@@ -121,7 +121,7 @@ public sealed class ContentResourceBrokerTests
         var loader = new RecordingLoader((request, _) => ResourceResponse.Loaded(Encoding.ASCII.GetBytes("RIFFxxxxWAVE"), "audio/test"));
         var decoder = new DebugDecoder();
         var output = new DebugAudioOutput();
-        var client = ContentProcessClient.Start("dotnet", $"\"{ContentHostPath()}\"",
+        var client = ContentProcessClient.Start(ContentHostPath(), null,
             new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)), resourceLoader: loader,
             resourcePolicy: AllowExampleOrigin(), mediaDecoder: decoder, mediaAudioOutput: output);
         try
@@ -147,7 +147,7 @@ public sealed class ContentResourceBrokerTests
                 ? ResourceResponse.Loaded(Encoding.ASCII.GetBytes("RIFFxxxxWAVE"), "audio/test")
                 : ResourceResponse.Refused("unsupported"));
         var decoder = new DebugDecoder();
-        await using var client = ContentProcessClient.Start("dotnet", $"\"{ContentHostPath()}\"",
+        await using var client = ContentProcessClient.Start(ContentHostPath(), null,
             new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
             resourceLoader: loader, resourcePolicy: AllowExampleOrigin(), mediaDecoder: decoder);
 
@@ -298,7 +298,7 @@ public sealed class ContentResourceBrokerTests
     };
 
     private static ContentProcessClient StartClient(RecordingLoader loader, ContentResourcePolicy policy, IArtifactStorage? storage = null, string artifactId = "default", ResourceLimits? limits = null) =>
-        ContentProcessClient.Start("dotnet", $"\"{ContentHostPath()}\"",
+        ContentProcessClient.Start(ContentHostPath(), null,
             new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
             resourceLoader: loader, resourcePolicy: policy, artifactStorage: storage, artifactId: artifactId, documentLimits: limits);
 
@@ -347,7 +347,7 @@ public sealed class ContentResourceBrokerTests
     private static string ContentHostPath()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Parent!.Name;
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        return ContentHostTestPaths.Resolve();
     }
 
     private sealed class RecordingLoader(Func<ResourceRequest, CancellationToken, ResourceResponse> load) : IResourceLoader

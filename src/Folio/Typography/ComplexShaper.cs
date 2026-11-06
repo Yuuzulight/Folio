@@ -18,12 +18,47 @@ public sealed class ComplexShaper : ITextShaper
         if (length == 0 || font is not FontFace face)
             return new ShapedText([], [], [], []);
 
-        var runes = new List<(Rune Rune, int Index)>();
-        for (var i = start; i < start + length;)
+        var ascii = true;
+        foreach (var character in text.AsSpan(start, length))
+            if (character > 0x7f) { ascii = false; break; }
+        if (ascii)
         {
-            var r = Rune.GetRuneAt(text, i);
-            runes.Add((r, i));
-            i += r.Utf16SequenceLength;
+            var simpleGlyphs = new ushort[length];
+            var hasLigatureStart = false;
+            for (var index = 0; index < length; index++)
+            {
+                var glyph = face.GlyphFor(text[start + index]);
+                simpleGlyphs[index] = glyph;
+                hasLigatureStart |= face.StartsLigature(glyph);
+            }
+            var ligatures = hasLigatureStart ? face.SubstituteLigatures(simpleGlyphs, "liga clig rlig", "latn") : null;
+            var count = ligatures?.Length ?? length;
+            var mapped = ligatures is null ? simpleGlyphs : new ushort[count];
+            var simpleClusters = new int[count];
+            var simpleAdvances = new float[count];
+            var simpleOffsets = new Vector2[count];
+            var simpleScale = size / face.UnitsPerEm;
+            for (var index = 0; index < count; index++)
+            {
+                mapped[index] = ligatures is not null ? ligatures[index].Glyph : simpleGlyphs[index];
+                simpleClusters[index] = start + (ligatures is not null ? ligatures[index].SourceStart : index);
+            }
+            for (var index = 0; index < count; index++)
+            {
+                var units = face.Advance(mapped[index]);
+                if (index + 1 < count) units += face.Kerning(mapped[index], mapped[index + 1]);
+                simpleAdvances[index] = units * simpleScale;
+                if (index > 0) simpleOffsets[index] = new Vector2(face.PairPlacement(mapped[index - 1], mapped[index]) * simpleScale, 0);
+            }
+            return new ShapedText(mapped, simpleClusters, simpleAdvances, simpleOffsets);
+        }
+
+        var runes = new List<(Rune Rune, int Index)>();
+        var runeIndex = start;
+        foreach (var r in text.AsSpan(start, length).EnumerateRunes())
+        {
+            runes.Add((r, runeIndex));
+            runeIndex += r.Utf16SequenceLength;
         }
 
         var glyphs = new List<ushort>(runes.Count);
@@ -45,6 +80,56 @@ public sealed class ComplexShaper : ITextShaper
         {
             ShapeIndic(runes, face, scale, glyphs, clusters, advances, offsets, language);
         }
+        else if (face.RawTable("CBDT") is not null || face.RawTable("sbix") is not null)
+        {
+            // Emoji selectors affect presentation, not spacing. The font's
+            // default substitutions combine flags, modifiers, keycaps and ZWJ
+            // sequences into one glyph while retaining the source cluster.
+            var visible = runes.Where(item => item.Rune.Value is not (>= 0xfe00 and <= 0xfe0f)
+                and not (>= 0xe0100 and <= 0xe01ef)).ToArray();
+            var input = visible.Select(item => face.GlyphFor(item.Rune.Value)).ToArray();
+            var sourceClusters = new int[visible.Length];
+            var clusterStart = start;
+            var clusterEnd = start;
+            for (var index = 0; index < visible.Length; index++)
+            {
+                if (visible[index].Index >= clusterEnd)
+                {
+                    clusterStart = visible[index].Index;
+                    clusterEnd = clusterStart + StringInfo.GetNextTextElementLength(text, clusterStart);
+                }
+                sourceClusters[index] = clusterStart;
+            }
+            foreach (var item in face.SubstituteLigatures(input, "ccmp liga clig rlig", "DFLT"))
+            {
+                var source = visible[item.SourceStart];
+                var ignorable = item.SourceLength == 1 && Rune.GetUnicodeCategory(source.Rune) == UnicodeCategory.Format;
+                var glyph = ignorable ? face.GlyphFor(' ') : item.Glyph;
+                glyphs.Add(glyph);
+                clusters.Add(sourceClusters[item.SourceStart]);
+                advances.Add(ignorable ? 0 : face.Advance(glyph) * scale);
+                offsets.Add(Vector2.Zero);
+            }
+        }
+        else if (!rightToLeft && SimpleShaper.CanShape(text.AsSpan(start, length), face))
+        {
+            // Punctuation such as a middle dot must not disable Latin ligatures/kerning for the entire run.
+            var script = runes.Any(r => r.Rune.Value is >= 0x0370 and <= 0x03FF) ? "grek"
+                : runes.Any(r => r.Rune.Value is >= 0x0400 and <= 0x052F) ? "cyrl" : "latn";
+            var input = runes.Select(r => face.GlyphFor(r.Rune.Value)).ToArray();
+            input = face.Substitute(input, "ccmp locl", script);
+            var substitutions = face.SubstituteLigatures(input, "liga clig rlig", script);
+            foreach (var item in substitutions)
+            {
+                glyphs.Add(item.Glyph); clusters.Add(runes[item.SourceStart].Index);
+                advances.Add(face.Advance(item.Glyph) * scale); offsets.Add(Vector2.Zero);
+            }
+            for (var index = 0; index + 1 < glyphs.Count; index++)
+            {
+                advances[index] = (face.Advance(glyphs[index]) + face.Kerning(glyphs[index], glyphs[index + 1])) * scale;
+                offsets[index + 1] = new Vector2(face.PairPlacement(glyphs[index], glyphs[index + 1]) * scale, 0);
+            }
+        }
         else
         {
             // Fallback simple 1:1 mapping
@@ -55,6 +140,11 @@ public sealed class ComplexShaper : ITextShaper
                 clusters.Add(index);
                 advances.Add(face.Advance(glyph) * scale);
                 offsets.Add(Vector2.Zero);
+            }
+            for (var index = 0; index + 1 < glyphs.Count; index++)
+            {
+                advances[index] = (face.Advance(glyphs[index]) + face.Kerning(glyphs[index], glyphs[index + 1])) * scale;
+                offsets[index + 1] = new Vector2(face.PairPlacement(glyphs[index], glyphs[index + 1]) * scale, 0);
             }
         }
 

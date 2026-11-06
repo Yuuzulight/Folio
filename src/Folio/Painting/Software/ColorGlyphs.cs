@@ -8,17 +8,24 @@ namespace Folio.Painting.Software;
 /// <summary>Layered colour glyphs from the OpenType COLR v0/v1 and CPAL tables.</summary>
 internal static class ColorGlyphs
 {
-    internal readonly record struct Layer(ushort Glyph, Rgba? Color, Matrix3x2 Transform = default, Gradient? Gradient = null, BlendMode Blend = BlendMode.Normal)
+    internal readonly record struct Layer(ushort Glyph, Rgba? Color, Matrix3x2 Transform = default, Gradient? Gradient = null, BlendMode Blend = BlendMode.Normal, float Opacity = 1)
     {
         public Matrix3x2 TransformOrIdentity => Transform == default ? Matrix3x2.Identity : Transform;
     }
 
-    private sealed class Palette
+    private sealed class Palette : GlyphCacheBudget.Region
     {
-        public readonly Dictionary<ushort, Layer[]> Glyphs = [];
+        public Dictionary<ushort, Layer[]?> Glyphs = [];
+        public long Bytes;
+        internal override void ClearCachedValues() { Glyphs = []; Bytes = 0; }
     }
 
     private static readonly ConditionalWeakTable<FontFace, Palette?> Palettes = new();
+
+    internal static long CacheBytes(FontFace face)
+    {
+        lock (GlyphCacheBudget.Sync) return Palettes.TryGetValue(face, out var palette) ? palette?.Bytes ?? 0 : 0;
+    }
 
     public static bool Has(FontFace face)
     {
@@ -30,8 +37,17 @@ internal static class ColorGlyphs
     {
         try
         {
-            var palette = Palettes.GetValue(face, Read);
-            return palette is not null && palette.Glyphs.TryGetValue(glyph, out var layers) ? layers : null;
+            lock (GlyphCacheBudget.Sync)
+            {
+                var palette = Palettes.GetValue(face, static _ => new Palette())!;
+                GlyphCacheBudget.Touch(palette);
+                if (palette.Glyphs.TryGetValue(glyph, out var cached)) return cached;
+                var layers = Read(face, glyph);
+                palette.Glyphs[glyph] = layers;
+                palette.Bytes += 256L + (layers?.Sum(layer => 128L + (layer.Gradient?.Stops.Count ?? 0) * 64L) ?? 0);
+                GlyphCacheBudget.Update(palette, palette.Bytes);
+                return layers;
+            }
         }
         catch (Exception e) when (e is InvalidDataException or IndexOutOfRangeException or ArgumentException or OverflowException)
         {
@@ -39,7 +55,7 @@ internal static class ColorGlyphs
         }
     }
 
-    private static Palette? Read(FontFace face)
+    private static Layer[]? Read(FontFace face, ushort requestedGlyph)
     {
         if (face.RawTable("COLR") is not { } colr || face.RawTable("CPAL") is not { } cpal)
             return null;
@@ -51,14 +67,15 @@ internal static class ColorGlyphs
         var colorOffset = (int)cpal.U32(8);
         if (records == 0 || palettes == 0)
             return null;
+        var firstColor = cpal.U16(12);
+        if ((long)firstColor + records > cpal.U16(6)) throw new InvalidDataException("CPAL palette range is out of bounds.");
         var palette = new Rgba[records];
         for (var i = 0; i < records; i++)
         {
-            var p = colorOffset + 4 * i;
+            var p = checked(colorOffset + 4 * (firstColor + i));
             palette[i] = new Rgba(cpal.U8(p + 2) / 255f, cpal.U8(p + 1) / 255f, cpal.U8(p) / 255f, cpal.U8(p + 3) / 255f);
         }
 
-        var result = new Palette();
         if (version == 1 && colr.Length >= 34 && colr.U32(14) is var baseListOffset and not 0)
         {
             var baseList = checked((int)baseListOffset);
@@ -71,13 +88,12 @@ internal static class ColorGlyphs
                 var record = baseList + 4 + 6 * i;
                 roots[colr.U16(record)] = checked(baseList + (int)colr.U32(record + 2));
             }
-            foreach (var (glyph, root) in roots)
-                if (Paint(colr, root, baseList, colr.U32(18) is var layerList and not 0 ? checked((int)layerList) : 0, palette, records, roots, new HashSet<int>()) is { Count: > 0 } layers)
-                    result.Glyphs[glyph] = layers.ToArray();
-            if (result.Glyphs.Count > 0) return result;
+            return roots.TryGetValue(requestedGlyph, out var root)
+                ? Paint(colr, root, baseList, colr.U32(18) is var layerList and not 0 ? checked((int)layerList) : 0,
+                    palette, records, roots, new PaintPath())?.ToArray() : null;
         }
 
-        if (version != 0) return result.Glyphs.Count == 0 ? null : result;
+        if (version != 0) return null;
         var countV0 = colr.U16(2);
         var baseOffset = (int)colr.U32(4);
         var layerOffset = (int)colr.U32(8);
@@ -86,10 +102,12 @@ internal static class ColorGlyphs
         {
             var b = baseOffset + 6 * i;
             var glyph = colr.U16(b);
+            if (glyph != requestedGlyph) continue;
             var first = colr.U16(b + 2);
             var number = colr.U16(b + 4);
             if ((long)first + number > layerCount)
                 throw new InvalidDataException("COLR layer range out of bounds.");
+            if (number > 4096) throw new InvalidDataException("COLR glyph has too many layers.");
             var layers = new Layer[number];
             for (var j = 0; j < number; j++)
             {
@@ -100,13 +118,17 @@ internal static class ColorGlyphs
                     throw new InvalidDataException("CPAL palette index out of bounds.");
                 layers[j] = new Layer(layerGlyph, paletteIndex == 0xFFFF ? null : palette[paletteIndex]);
             }
-            result.Glyphs[glyph] = layers;
+            return layers;
         }
-        return result;
+        return null;
     }
 
-    private static List<Layer>? Paint(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    private sealed class PaintPath : HashSet<int> { internal int Visits, Stops; }
+
+    private static List<Layer>? Paint(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, PaintPath path)
     {
+        if (++path.Visits > 4096 || path.Count >= 64)
+            throw new InvalidDataException("COLR paint graph exceeds its execution budget.");
         if (offset < 0 || offset >= colr.Length || !path.Add(offset)) return null;
         try
         {
@@ -127,7 +149,7 @@ internal static class ColorGlyphs
         finally { path.Remove(offset); }
     }
 
-    private static List<Layer>? PaintLayers(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    private static List<Layer>? PaintLayers(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, PaintPath path)
     {
         var count = colr.U8(offset + 1);
         var first = checked((int)colr.U32(offset + 2));
@@ -140,34 +162,37 @@ internal static class ColorGlyphs
             var child = checked(layerList + 4 + 4 * (first + i));
             var childOffset = checked(layerList + (int)colr.U32(child));
             if (Paint(colr, childOffset, baseList, layerList, palette, records, roots, path) is { } layers)
+            {
+                if (result.Count + layers.Count > 4096) throw new InvalidDataException("COLR glyph has too many layers.");
                 result.AddRange(layers);
+            }
         }
         return result;
     }
 
-    private static List<Layer>? PaintGlyph(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    private static List<Layer>? PaintGlyph(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, PaintPath path)
     {
         var childOffset = checked(offset + ReadU24(colr, offset + 1));
         var glyph = colr.U16(offset + 4);
         var index = colr.U16(childOffset + 1);
         if (colr.U8(childOffset) is 2 or 3)
         {
-            if (index == 0xFFFF) return [new Layer(glyph, null)];
+            if (index == 0xFFFF) return [new Layer(glyph, null, Opacity: Math.Clamp(colr.S16(childOffset + 3) / 16384f, 0, 1))];
             if (PaintSolid(colr, childOffset, palette, records) is not { } color) return null;
             return [new Layer(glyph, color)];
         }
-        if (colr.U8(childOffset) is 4 or 5 or 6 or 7 or 8 or 9 && PaintGradient(colr, childOffset, palette, records) is { } gradient)
+        if (colr.U8(childOffset) is 4 or 5 or 6 or 7 or 8 or 9 && PaintGradient(colr, childOffset, palette, records, path) is { } gradient)
             return [new Layer(glyph, gradient.Stops[0].Color, Gradient: gradient)];
         return null;
     }
 
-    private static Gradient? PaintGradient(FontData colr, int offset, Rgba[] palette, int records)
+    private static Gradient? PaintGradient(FontData colr, int offset, Rgba[] palette, int records, PaintPath path)
     {
         // PaintLinearGradient/PaintRadialGradient: format, ColorLine offset and FWORD geometry.
         var colorLine = checked(offset + ReadU24(colr, offset + 1));
         if (colr.U8(offset) is not (4 or 5 or 6 or 7 or 8 or 9) || colorLine < 0 || colorLine + 3 > colr.Length)
             return null;
-        var stops = ReadColorStops(colr, colorLine, palette, records, out var spread);
+        var stops = ReadColorStops(colr, colorLine, palette, records, path, out var spread);
         if (stops is null) return null;
         var x0 = colr.S16(offset + 4);
         var y0 = colr.S16(offset + 6);
@@ -180,27 +205,35 @@ internal static class ColorGlyphs
             // the sweep span while converting the start axis.
             var start = (x1 / 16384f + 1) * 180;
             var end = (y1 / 16384f + 1) * 180;
-            var shaderStart = 90 - start;
+            var shaderStart = 90 + start;
             return new Gradient(GradientKind.Conic, stops, spread,
                 Center: new Vector2(x0, y0), StartAngle: shaderStart, EndAngle: shaderStart + end - start);
         }
         if (colr.U8(offset) is 6 or 7)
         {
-            var r0 = Math.Max(0, (int)colr.S16(offset + 12));
-            var r1 = Math.Max(0, (int)colr.S16(offset + 14));
+            var r0 = colr.U16(offset + 8);
+            x1 = colr.S16(offset + 10); y1 = colr.S16(offset + 12);
+            var r1 = colr.U16(offset + 14);
             return new Gradient(GradientKind.Radial, stops, spread,
                 Center: new Vector2(x1, y1), Radii: new Vector2(r1, r1),
                 Focus: new Vector2(x0, y0), FocusRadius: r0);
         }
-        return new Gradient(GradientKind.Linear, stops, spread, new Vector2(x0, y0), new Vector2(x1, y1));
+        var startPoint = new Vector2(x0, y0);
+        var rotation = new Vector2(colr.S16(offset + 12) - x0, colr.S16(offset + 14) - y0);
+        var normal = new Vector2(-rotation.Y, rotation.X);
+        var projection = Vector2.Dot(new Vector2(x1, y1) - startPoint, normal);
+        if (normal.LengthSquared() == 0 || projection == 0) return null;
+        var endPoint = startPoint + normal * (projection / normal.LengthSquared());
+        return new Gradient(GradientKind.Linear, stops, spread, startPoint, endPoint);
     }
 
-    private static List<GradientStop>? ReadColorStops(FontData colr, int colorLine, Rgba[] palette, int records, out GradientSpread spread)
+    private static List<GradientStop>? ReadColorStops(FontData colr, int colorLine, Rgba[] palette, int records, PaintPath path, out GradientSpread spread)
     {
         spread = GradientSpread.Pad;
         var extend = colr.U8(colorLine);
         var count = colr.U16(colorLine + 1);
-        if (count == 0 || (long)colorLine + 3 + 6L * count > colr.Length)
+        if ((path.Stops += count) > 4096) throw new InvalidDataException("COLR glyph exceeds its gradient-stop budget.");
+        if (count == 0 || count > 4096 || (long)colorLine + 3 + 6L * count > colr.Length)
             throw new InvalidDataException("COLR color line is out of bounds.");
         var stops = new List<GradientStop>(count);
         for (var i = 0; i < count; i++)
@@ -224,20 +257,20 @@ internal static class ColorGlyphs
         return stops;
     }
 
-    private static List<Layer>? PaintTranslate(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    private static List<Layer>? PaintTranslate(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, PaintPath path)
     {
         var childOffset = checked(offset + ReadU24(colr, offset + 1));
-        var dx = colr.S32(offset + 4) / 65536f;
-        var dy = colr.S32(offset + 8) / 65536f;
+        var dx = colr.S16(offset + 4);
+        var dy = colr.S16(offset + 6);
         if (Paint(colr, childOffset, baseList, layerList, palette, records, roots, path) is not { } layers)
             return null;
         var translation = Matrix3x2.CreateTranslation(dx, dy);
         for (var i = 0; i < layers.Count; i++)
-            layers[i] = layers[i] with { Transform = translation * layers[i].TransformOrIdentity };
+            layers[i] = layers[i] with { Transform = layers[i].TransformOrIdentity * translation };
         return layers;
     }
 
-    private static List<Layer>? PaintComposite(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    private static List<Layer>? PaintComposite(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, PaintPath path)
     {
         // The backdrop is painted first; the source layers then carry the
         // supported COLR composite mode into the software compositor.
@@ -250,6 +283,7 @@ internal static class ColorGlyphs
             return backdrop;
         for (var i = 0; i < source.Count; i++)
             source[i] = source[i] with { Blend = blend };
+        if (backdrop.Count + source.Count > 4096) throw new InvalidDataException("COLR glyph has too many layers.");
         backdrop.AddRange(source);
         return backdrop;
     }
@@ -272,24 +306,25 @@ internal static class ColorGlyphs
         return mode is 1 or >= 3 and <= 27;
     }
 
-    private static List<Layer>? PaintTransform(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    private static List<Layer>? PaintTransform(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, PaintPath path)
     {
         var childOffset = checked(offset + ReadU24(colr, offset + 1));
-        var xx = colr.S32(offset + 4) / 65536f;
-        var xy = colr.S32(offset + 8) / 65536f;
-        var yx = colr.S32(offset + 12) / 65536f;
-        var yy = colr.S32(offset + 16) / 65536f;
-        var dx = colr.S32(offset + 20) / 65536f;
-        var dy = colr.S32(offset + 24) / 65536f;
+        var affine = checked(offset + ReadU24(colr, offset + 4));
+        var xx = colr.S32(affine) / 65536f;
+        var yx = colr.S32(affine + 4) / 65536f;
+        var xy = colr.S32(affine + 8) / 65536f;
+        var yy = colr.S32(affine + 12) / 65536f;
+        var dx = colr.S32(affine + 16) / 65536f;
+        var dy = colr.S32(affine + 20) / 65536f;
         if (Paint(colr, childOffset, baseList, layerList, palette, records, roots, path) is not { } layers)
             return null;
-        var transform = new Matrix3x2(xx, xy, yx, yy, dx, dy);
+        var transform = new Matrix3x2(xx, yx, xy, yy, dx, dy);
         for (var i = 0; i < layers.Count; i++)
-            layers[i] = layers[i] with { Transform = transform * layers[i].TransformOrIdentity };
+            layers[i] = layers[i] with { Transform = layers[i].TransformOrIdentity * transform };
         return layers;
     }
 
-    private static List<Layer>? PaintScale(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    private static List<Layer>? PaintScale(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, PaintPath path)
     {
         var childOffset = checked(offset + ReadU24(colr, offset + 1));
         var format = colr.U8(offset);
@@ -298,18 +333,18 @@ internal static class ColorGlyphs
         var transform = Matrix3x2.CreateScale(sx, sy);
         if (format is 18 or 19 or 22 or 23)
         {
-            var cx = colr.S16(offset + (format == 18 ? 8 : 6));
-            var cy = colr.S16(offset + (format == 18 ? 10 : 8));
+            var cx = colr.S16(offset + (format is 18 or 19 ? 8 : 6));
+            var cy = colr.S16(offset + (format is 18 or 19 ? 10 : 8));
             transform = Matrix3x2.CreateTranslation(-cx, -cy) * transform * Matrix3x2.CreateTranslation(cx, cy);
         }
         if (Paint(colr, childOffset, baseList, layerList, palette, records, roots, path) is not { } layers)
             return null;
         for (var i = 0; i < layers.Count; i++)
-            layers[i] = layers[i] with { Transform = transform * layers[i].TransformOrIdentity };
+            layers[i] = layers[i] with { Transform = layers[i].TransformOrIdentity * transform };
         return layers;
     }
 
-    private static List<Layer>? PaintRotate(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    private static List<Layer>? PaintRotate(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, PaintPath path)
     {
         var childOffset = checked(offset + ReadU24(colr, offset + 1));
         var radians = colr.S16(offset + 4) / 16384f * MathF.PI;
@@ -323,11 +358,11 @@ internal static class ColorGlyphs
         if (Paint(colr, childOffset, baseList, layerList, palette, records, roots, path) is not { } layers)
             return null;
         for (var i = 0; i < layers.Count; i++)
-            layers[i] = layers[i] with { Transform = transform * layers[i].TransformOrIdentity };
+            layers[i] = layers[i] with { Transform = layers[i].TransformOrIdentity * transform };
         return layers;
     }
 
-    private static List<Layer>? PaintSkew(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    private static List<Layer>? PaintSkew(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, PaintPath path)
     {
         var childOffset = checked(offset + ReadU24(colr, offset + 1));
         var xAngle = colr.S16(offset + 4) / 16384f * MathF.PI;
@@ -342,7 +377,7 @@ internal static class ColorGlyphs
         if (Paint(colr, childOffset, baseList, layerList, palette, records, roots, path) is not { } layers)
             return null;
         for (var i = 0; i < layers.Count; i++)
-            layers[i] = layers[i] with { Transform = transform * layers[i].TransformOrIdentity };
+            layers[i] = layers[i] with { Transform = layers[i].TransformOrIdentity * transform };
         return layers;
     }
 

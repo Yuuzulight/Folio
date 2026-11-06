@@ -222,11 +222,11 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
             .DefineMethod("register", (_, _, a) => state.Register(a[0], a[1].AsString() ?? "", a[2]))
             .DefineMethod("live", (_, _, a) => ScriptValue.FromBoolean(a.Length > 0 && state.IsLive(a[0], a.Length > 1 && a[1].AsBoolean())))
             .DefineMethod("stop", (_, _, a) => { if (a.Length > 0 && state.Find(a[0]) is { } track) state.Retire(track, notify: false); return ScriptValue.Undefined; })
-            .DefineMethod("devices", (_, _, _) => ScriptValue.FromString(JsonSerializer.Serialize(new[]
+            .DefineMethod("devices", (_, _, _) => ScriptValue.FromString(ScriptJson.Serialize(new[]
             {
-                new { deviceId = "folio-audio", kind = "audioinput", label = "Folio audio" },
-                new { deviceId = "folio-video", kind = "videoinput", label = "Folio video" }
-            }.Where(device => device.kind == "audioinput" ? state._microphoneLabels && state.HasGrant(true, false, false) : state._cameraLabels && state.HasGrant(false, true, false)))))
+                new Dictionary<string, object?> { ["deviceId"] = "folio-audio", ["kind"] = "audioinput", ["label"] = "Folio audio" },
+                new Dictionary<string, object?> { ["deviceId"] = "folio-video", ["kind"] = "videoinput", ["label"] = "Folio video" }
+            }.Where(device => (string?)device["kind"] == "audioinput" ? state._microphoneLabels && state.HasGrant(true, false, false) : state._cameraLabels && state.HasGrant(false, true, false)))))
             .DefineMethod("onchange", (_, _, a) => { state._deviceChange = a.Length > 0 && a[0].IsFunction ? a[0] : ScriptValue.Undefined; return ScriptValue.Undefined; });
         engine.SetGlobalProperty("__folio_capture_authority", engine.CreateHostObject(host, new object()));
         try { engine.EvaluateHostScript(Source, "folio:capture-permissions"); }

@@ -514,6 +514,27 @@ internal static class DisplayListPlayer
         // One solid colour all round: a single ring. Checked before anything is made: most boxes with a border, and
         // every cell of a table with collapsed borders, take this path.
         var (top, right, bottom, left) = (border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth);
+        // Square solid sides that never meet are rectangles: a lone side, or a facing pair (a collapsed table cell's top
+        // and bottom). With no width on the sides between, the joins from the outer corners to the inner ones are straight
+        // across, so each side's region is exactly its strip. Avoid rasterizing a ring and a side clip for each cell.
+        var box = outer.Rect;
+        var (hasTop, hasRight, hasBottom, hasLeft) = (top > 0, right > 0, bottom > 0, left > 0);
+        if (outer.Radii.IsZero
+            && (hasTop || hasBottom) != (hasLeft || hasRight)
+            && (!hasTop || border.TopStyle == BorderStyle.Solid) && (!hasBottom || border.BottomStyle == BorderStyle.Solid)
+            && (!hasLeft || border.LeftStyle == BorderStyle.Solid) && (!hasRight || border.RightStyle == BorderStyle.Solid)
+            && (!(hasTop && hasBottom) || top + bottom <= box.Height) && (!(hasLeft && hasRight) || left + right <= box.Width))
+        {
+            if (hasTop)
+                canvas.FillRoundedRect(new RoundedRect(new RectF(box.X, box.Y, box.Width, Math.Min(top, box.Height)), default), new Paint(ToRgba(border.TopColor)));
+            if (hasBottom)
+                canvas.FillRoundedRect(new RoundedRect(new RectF(box.X, Math.Max(box.Y, box.Bottom - bottom), box.Width, Math.Min(bottom, box.Height)), default), new Paint(ToRgba(border.BottomColor)));
+            if (hasLeft)
+                canvas.FillRoundedRect(new RoundedRect(new RectF(box.X, box.Y, Math.Min(left, box.Width), box.Height), default), new Paint(ToRgba(border.LeftColor)));
+            if (hasRight)
+                canvas.FillRoundedRect(new RoundedRect(new RectF(Math.Max(box.X, box.Right - right), box.Y, Math.Min(right, box.Width), box.Height), default), new Paint(ToRgba(border.RightColor)));
+            return;
+        }
         if (border is { TopStyle: BorderStyle.Solid, RightStyle: BorderStyle.Solid, BottomStyle: BorderStyle.Solid, LeftStyle: BorderStyle.Solid }
             && border.TopColor == border.RightColor && border.TopColor == border.BottomColor && border.TopColor == border.LeftColor
             && top > 0 && right > 0 && bottom > 0 && left > 0)

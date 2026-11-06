@@ -4,6 +4,7 @@ using Folio.Scripting.Jint;
 
 namespace Folio.Scripting.Tests;
 
+[Collection("Content process round trips")]
 public sealed class WorkerFetchContextTests
 {
     [Fact]
@@ -28,11 +29,24 @@ public sealed class WorkerFetchContextTests
         using var cancellation = new CancellationTokenSource();
         var loader = new WaitingLoader();
         using var context = new WorkerFetchContext(null, loader, cancellation.Token, ScriptMessageBudget.For(engine, 1024));
-        var fetch = Task.Run(() => context.Fetch("https://worker.example/data"));
-        await loader.Started.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
-        cancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await fetch.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
-        await loader.Canceled.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        // Fetch synchronously waits on the asynchronous loader. Give that blocking
+        // bridge a dedicated thread so a busy test-runner pool cannot prevent
+        // the loader from starting before the cancellation assertion is reached.
+        var fetch = Task.Factory.StartNew(() => context.Fetch("https://worker.example/data"),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        try
+        {
+            await loader.Started.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await fetch.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
+            await loader.Canceled.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            try { await fetch.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken); }
+            catch (OperationCanceledException) { }
+        }
     }
 
     private sealed class WaitingLoader : IResourceLoader

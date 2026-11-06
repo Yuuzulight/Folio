@@ -63,7 +63,9 @@ public static class Program
 
     private static int CanvasFrames(int frameCount)
     {
+        var native = string.Equals(Environment.GetEnvironmentVariable("FOLIO_CONFORMANCE_ENGINE"), "native", StringComparison.OrdinalIgnoreCase);
         Console.WriteLine($"Script-driven canvas frame benchmark ({frameCount} frames, 16.7 ms virtual ticks)");
+        Console.WriteLine($"Script engine: {(native ? "native Folio" : "Jint compatibility")}");
         Console.WriteLine("| Artifact | Script/update p95 ms | Display-list p95 ms | Host paint p95 ms | Total p95 ms | Target |");
         Console.WriteLine("|---|--:|--:|--:|--:|---:|");
         var failed = false;
@@ -72,7 +74,7 @@ public static class Program
             var html = File.ReadAllText(Path.Combine(artifact.Folder, "index.html"));
             using var document = Document.Parse(html, Conformance.Options);
             document.Paint(Conformance.ManifestOf(artifact).Viewport, 600);
-            using var engine = string.Equals(Environment.GetEnvironmentVariable("FOLIO_CONFORMANCE_ENGINE"), "native", StringComparison.OrdinalIgnoreCase)
+            using var engine = native
                 ? (IScriptEngine)new NativeJavaScriptEngine()
                 : new JintScriptEngine();
             var clock = new VirtualEventLoopClock();
@@ -375,9 +377,18 @@ public static class Program
     // the GitHub Actions job summary). Fails on runtime/interaction failures and stale expected-failure marks.
     private static int ConformanceReport(string[] filters)
     {
+        var strict = filters.Contains("--strict", StringComparer.Ordinal);
+        var nativeDrawing = !filters.Contains("--oracle-renderer", StringComparer.Ordinal);
+        filters = filters.Where(filter => filter is not ("--strict" or "--oracle-renderer")).ToArray();
         var native = string.Equals(Environment.GetEnvironmentVariable("FOLIO_CONFORMANCE_ENGINE"), "native", StringComparison.OrdinalIgnoreCase);
+        if (native && !nativeDrawing)
+        {
+            Console.Error.WriteLine("Native conformance cannot use an oracle renderer.");
+            return 1;
+        }
         Func<IScriptEngine>? engineFactory = native ? static () => new NativeJavaScriptEngine() : null;
         Console.WriteLine($"Conformance engine: {(native ? "native Folio" : "Jint compatibility")}");
+        Console.WriteLine(nativeDrawing ? "Rendering: Folio software raster + ComplexShaper" : "Rendering: Skia raster + hybrid shaping oracle");
         var discovered = Conformance.Discover();
         if (!native)
         {
@@ -388,12 +399,17 @@ public static class Program
         }
         var results = discovered
             .Where(a => filters.Length == 0 || filters.Any(f => a.Id == f || a.Id.StartsWith(f.TrimEnd('/') + "/", StringComparison.Ordinal)))
-            .Select(a => Conformance.Run(a, engineFactory: engineFactory))
+            .Select(a => Conformance.Run(a, software: nativeDrawing, engineFactory: engineFactory, nativeShaping: nativeDrawing))
             .ToList();
         var report = Conformance.Report(results);
         Console.WriteLine(report);
         if (Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY") is { Length: > 0 } summary)
             File.AppendAllText(summary, "### Conformance\n\n" + report);
+        if (strict && (results.Count == 0 || results.Any(result => !result.Passed)))
+        {
+            Console.Error.WriteLine("Strict conformance requires a nonempty corpus with every artifact passing its reference checks.");
+            return 1;
+        }
         return results.Any(r => r.Broke) ? 1 : 0;
     }
 

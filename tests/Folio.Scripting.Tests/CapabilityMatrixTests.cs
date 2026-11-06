@@ -4,6 +4,7 @@ using Folio.Resources;
 using Folio.Scripting.Ipc;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 using Folio.Scripting.Gpu;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -12,6 +13,8 @@ namespace Folio.Scripting.Tests;
 
 public sealed class CapabilityMatrixTests
 {
+    private static IScriptEngine CreateEngine() => string.Equals(Environment.GetEnvironmentVariable("FOLIO_SCRIPT_ENGINE"), "jint", StringComparison.OrdinalIgnoreCase)
+        ? new JintScriptEngine() : new NativeJavaScriptEngine();
     internal static FeatureCapabilities CapabilitiesFor(string row) => row switch
     {
         "webgl" => new FeatureCapabilities { WebGl = true },
@@ -67,7 +70,7 @@ public sealed class CapabilityMatrixTests
         var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
         if (row is not ("service-workers" or "all")) return;
 
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
         {
             BaseUri = new Uri("https://worker.example/"),
@@ -90,7 +93,7 @@ public sealed class CapabilityMatrixTests
         var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
         if (row is not ("iframes" or "all")) return;
 
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         DomBindings.Install(engine, Document.Parse(
             "<iframe id='one' sandbox='allow-same-origin' srcdoc='<p id=child>ok</p>'></iframe><iframe id='two'></iframe>",
             new FolioOptions
@@ -113,7 +116,7 @@ public sealed class CapabilityMatrixTests
         var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
         if (row is not ("webgl" or "all") || !OperatingSystem.IsWindows()) return;
 
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         var rid = RuntimeInformation.ProcessArchitecture switch
         {
             Architecture.X64 => "win-x64", Architecture.Arm64 => "win-arm64", Architecture.X86 => "win-x86",
@@ -148,7 +151,7 @@ public sealed class CapabilityMatrixTests
         var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
         if (row is not ("media" or "all")) return;
 
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         using var document = Document.Parse("<audio id='a' src='clip'></audio>", new FolioOptions
         {
             BaseUri = new Uri("https://matrix.example/"),
@@ -175,7 +178,7 @@ public sealed class CapabilityMatrixTests
         var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
         if (row is not ("webrtc" or "all")) return;
 
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         using var document = Document.Parse("<html></html>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { WebRtc = true },
@@ -197,7 +200,7 @@ public sealed class CapabilityMatrixTests
         var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
         if (row is not ("webassembly" or "all")) return;
 
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         using var document = Document.Parse("<html></html>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { WebAssembly = true },

@@ -261,6 +261,12 @@ internal sealed class AppContainerSecurity : IDisposable
     }
 
     internal IDisposable Detach() => this;
+    internal void GrantFrame(string path)
+    {
+        GrantFile(Sid, path, _aclPaths);
+        SetLowIntegrityLabel(path);
+    }
+    internal void ForgetFrame(string path) => WithAclLock(() => _aclPaths.Remove(path));
     internal string GetPrivateProfilePath()
     {
         if (GetAppContainerFolderPath(Sid.Value, out var pointer) != 0 || pointer == IntPtr.Zero)

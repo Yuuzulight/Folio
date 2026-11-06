@@ -3,6 +3,7 @@ using Folio.Dom;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Gpu;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 using Folio.Skia;
 
 namespace Folio.Scripting.Tests;
@@ -10,11 +11,13 @@ namespace Folio.Scripting.Tests;
 [Collection("Content process round trips")]
 public sealed class NativeWebGlPageTests
 {
+    private static IScriptEngine CreateEngine() => string.Equals(Environment.GetEnvironmentVariable("FOLIO_SCRIPT_ENGINE"), "jint", StringComparison.OrdinalIgnoreCase)
+        ? new JintScriptEngine() : new NativeJavaScriptEngine();
     [Fact]
     public void TextureUploadBeyondGpuBudgetIsRefused()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -35,7 +38,7 @@ public sealed class NativeWebGlPageTests
     public void PresentationIgnoresAndRestoresPagePixelPacking()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='3' height='2'></canvas>", new FolioOptions
         {
@@ -63,7 +66,7 @@ public sealed class NativeWebGlPageTests
     public void ZeroSizeContextSurvivesResizeWithoutFallback(int width, int height)
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse($"<canvas id='c' width='{width}' height='{height}'></canvas>", new FolioOptions
         {
@@ -95,7 +98,7 @@ public sealed class NativeWebGlPageTests
     public void MalformedPageShaderKeepsInfoLogAndReportsHostDiagnostic()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='4' height='4'></canvas>", new FolioOptions
         {
@@ -125,7 +128,7 @@ public sealed class NativeWebGlPageTests
     public void PageDrawMatchesIndependentChromeGolden(string mode, string kind, int language)
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='32' height='32'></canvas>", new FolioOptions
         {
@@ -162,7 +165,7 @@ public sealed class NativeWebGlPageTests
     public void NativeTextureUploadAndFramebufferAttachmentAreRealObjects()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -199,7 +202,7 @@ public sealed class NativeWebGlPageTests
     public void NativeTextureIsSampledByTheRealShaderPipeline()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='8' height='8'></canvas>", new FolioOptions
         {
@@ -239,7 +242,7 @@ public sealed class NativeWebGlPageTests
     public void NativeTextureSubImageUpdatesExistingStorage()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -269,7 +272,7 @@ public sealed class NativeWebGlPageTests
     public void NativeTextureUploadsExpandPackedColorTypes()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -319,7 +322,7 @@ public sealed class NativeWebGlPageTests
     public void NativeTextureUploadsReportWebGlErrorsBeforeCallingAngle()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -339,7 +342,7 @@ public sealed class NativeWebGlPageTests
     public void NativeTextureSamplingReadsAnExplicitMipmapLevel()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -377,7 +380,7 @@ public sealed class NativeWebGlPageTests
     public void NativeGeneratedMipLevelsExposeDimensions()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -401,7 +404,7 @@ public sealed class NativeWebGlPageTests
     public void NativeTextureMinificationUsesGeneratedMipLevel()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -438,7 +441,7 @@ public sealed class NativeWebGlPageTests
     public void NativeGeneratedMipLevelsRespectTheGpuBudget()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -461,7 +464,7 @@ public sealed class NativeWebGlPageTests
     public void NativeCubeMapTextureIsSampledByTheRealShaderPipeline()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -489,7 +492,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2DerivativesWorkForComputedExpressions()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -519,7 +522,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2ClearBufferuivClearsIntegerColorAttachment()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -543,7 +546,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2ClearBufferfiClearsDepthStencilAttachment()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -565,7 +568,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2ClearBufferfvClearsColorAttachment()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -586,7 +589,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2SupportsMultisampleRenderbufferStorage()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -606,7 +609,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2BlitsBetweenFramebufferAttachments()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -627,7 +630,7 @@ public sealed class NativeWebGlPageTests
     public void NativeCopyTextureImageCanBeSampledAfterFramebufferClear()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -653,7 +656,7 @@ public sealed class NativeWebGlPageTests
     public void NativeImmutableTextureStorageCanBeUpdatedAndSampled()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -674,7 +677,7 @@ public sealed class NativeWebGlPageTests
     public void NativeTextureMipmapGenerationUsesTheRealContext()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -693,7 +696,7 @@ public sealed class NativeWebGlPageTests
     public void NativeRenderbufferAttachmentUsesTheRealContext()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -714,7 +717,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2AcceptsTheCoreRenderbufferFormatMatrix()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -735,7 +738,7 @@ public sealed class NativeWebGlPageTests
     public void NativeReadPixelsSupportsRgbByteRowsAndPackAlignment()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='1'></canvas>", new FolioOptions
         {
@@ -758,7 +761,7 @@ public sealed class NativeWebGlPageTests
     public void NativeReadPixelsHonorsPackRowAndSkipState()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
         DomBindings.Install(engine, document);
@@ -778,7 +781,7 @@ public sealed class NativeWebGlPageTests
     public void NativeReadPixelsRejectsAnUndersizedDestination()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
         DomBindings.Install(engine, document);
@@ -794,7 +797,7 @@ public sealed class NativeWebGlPageTests
     public void NativeReadPixelsRejectsAPackRowLengthSmallerThanTheRead()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='1'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
         DomBindings.Install(engine, document);
@@ -811,7 +814,7 @@ public sealed class NativeWebGlPageTests
     public void NativePixelStoreRejectsInvalidPackAlignmentWithoutChangingState()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
         DomBindings.Install(engine, document);
@@ -829,7 +832,7 @@ public sealed class NativeWebGlPageTests
     public void NativeReadPixelsSupportsPackedRgb565()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -849,7 +852,7 @@ public sealed class NativeWebGlPageTests
     public void NativeReadPixelsSupportsPackedRgbaFormats()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -870,7 +873,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2SupportsThreeDimensionalTextureStorage()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -890,7 +893,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2ImmutableStorageCanBeUpdatedForVolumes()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -916,7 +919,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2SamplesThreeDimensionalTextures()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='8' height='8'></canvas>", new FolioOptions
         {
@@ -944,7 +947,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2SubImageUpdatesThreeDimensionalTextureStorage()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='8' height='8'></canvas>", new FolioOptions
         {
@@ -970,7 +973,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2AttachesTextureArrayLayerToFramebuffer()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -992,7 +995,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2SamplesTwoDimensionalArrayTextures()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='8' height='8'></canvas>", new FolioOptions
         {
@@ -1020,7 +1023,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2SamplesFloatingPointTextures()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='8' height='8'></canvas>", new FolioOptions
         {
@@ -1048,7 +1051,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2SamplesHalfFloatingPointTextures()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='8' height='8'></canvas>", new FolioOptions
         {
@@ -1076,7 +1079,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2FloatRenderbuffersRemainFramebufferCompleteOnWarp()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -1099,7 +1102,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2HalfFloatRenderbuffersRemainFramebufferCompleteOnWarp()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -1122,7 +1125,7 @@ public sealed class NativeWebGlPageTests
     public void NativeTextureResourcesRetireAcrossCapabilityLossAndRestore()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -1151,7 +1154,7 @@ public sealed class NativeWebGlPageTests
     public void NativeLoseContextExtensionRecreatesContext()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1175,7 +1178,7 @@ public sealed class NativeWebGlPageTests
     public void HostGpuResetLosesAndRestoresGrantedContexts()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1201,7 +1204,7 @@ public sealed class NativeWebGlPageTests
     public void NativeReadPixelsSupportsFloatOutput()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1224,7 +1227,7 @@ public sealed class NativeWebGlPageTests
     public void NativeTextureQueriesReportTrackedParametersAndLevels()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -1246,7 +1249,7 @@ public sealed class NativeWebGlPageTests
     public void NativeDepthTextureCanCompleteAFramebuffer()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
         {
@@ -1266,7 +1269,7 @@ public sealed class NativeWebGlPageTests
     public void NativeDepthTextureSupportsShadowComparisonSampling()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='8' height='8'></canvas>", new FolioOptions
         {
@@ -1294,7 +1297,7 @@ public sealed class NativeWebGlPageTests
     public void NativeWebGl2SamplesUnsignedIntegerTextures()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='8' height='8'></canvas>", new FolioOptions
         {
@@ -1326,7 +1329,7 @@ public sealed class NativeWebGlPageTests
     public void PageContextPreservesIdentityAttributesPixelsAndResize(string kind, bool antialias)
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='4' height='4'></canvas>", new FolioOptions
         {
@@ -1379,7 +1382,7 @@ public sealed class NativeWebGlPageTests
     public void UnsignedIntegerVertexAttributeConstantReachesTheNativeShader()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1416,7 +1419,7 @@ public sealed class NativeWebGlPageTests
     public void UnsignedIntegerUniformReachesTheNativeShader()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1448,7 +1451,7 @@ public sealed class NativeWebGlPageTests
     public void ThreeDimensionalUnsignedIntegerTextureCanBeSampled()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1481,7 +1484,7 @@ public sealed class NativeWebGlPageTests
     public void UnsignedIntegerArrayTextureCanBeFetchedFromAnExplicitLayer()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1515,7 +1518,7 @@ public sealed class NativeWebGlPageTests
     public void SignedIntegerArrayTextureCanBeFetchedFromAnExplicitLayer()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1549,7 +1552,7 @@ public sealed class NativeWebGlPageTests
     public void UnsignedIntegerArrayTextureStorageAndSubImageReachTheNativeShader()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
         DomBindings.Install(engine, document);
@@ -1579,7 +1582,7 @@ public sealed class NativeWebGlPageTests
     public void SignedIntegerArrayTextureStorageAndSubImageReachTheNativeShader()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
         DomBindings.Install(engine, document);
@@ -1609,7 +1612,7 @@ public sealed class NativeWebGlPageTests
     public void UniformBufferObjectFeedsTheNativeShader()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1656,7 +1659,7 @@ public sealed class NativeWebGlPageTests
     public void TransformFeedbackCapturesVaryingAndFeedsTheNextDraw()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1704,7 +1707,7 @@ public sealed class NativeWebGlPageTests
     public void IntegerVertexAttributeFeedsUnsignedShaderInput()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1735,7 +1738,7 @@ public sealed class NativeWebGlPageTests
     public void IntegerVertexAttributePreservesSignedShaderInput()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1766,7 +1769,7 @@ public sealed class NativeWebGlPageTests
     public void SignedIntegerTextureFeedsIsamplerShader()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
         {
@@ -1801,7 +1804,7 @@ public sealed class NativeWebGlPageTests
     public void SignedIntegerVolumeFeedsIsamplerShader()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
         DomBindings.Install(engine, document);
@@ -1830,7 +1833,7 @@ public sealed class NativeWebGlPageTests
     public void NativeTextureUploadHonorsFlipY()
     {
         if (!OperatingSystem.IsWindows()) return;
-        using var engine = new JintScriptEngine();
+        using var engine = CreateEngine();
         ConfigureWarp(engine);
         using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
         DomBindings.Install(engine, document);
@@ -1855,7 +1858,7 @@ public sealed class NativeWebGlPageTests
         finally { DomBindings.Dispose(engine); }
     }
 
-    private static void ConfigureWarp(JintScriptEngine engine)
+    private static void ConfigureWarp(IScriptEngine engine)
     {
         Assert.True(DomBindings.ConfigureGpuFactory(engine, bytes => FolioGpuBackend.TryCreate(bytes, GpuRendererPreference.WarpOnly)));
     }

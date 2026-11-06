@@ -18,7 +18,7 @@ public sealed class WindowsSandboxTests
         var host = ContentHostPath();
         Assert.True(File.Exists(host), $"Content host was not built: {host}");
         var storage = new MatrixStorage();
-        await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"",
+        await using var client = ContentProcessClient.Start(host, null,
             new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
             resourceLoader: new MatrixServiceWorkerLoader(), artifactStorage: storage, artifactId: "matrix",
             documentLimits: ResourceLimits.Default with { MaxServiceWorkerCacheBytes = 64 * 1024 });
@@ -258,7 +258,7 @@ public sealed class WindowsSandboxTests
     private static string ContentHostPath()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Parent!.Name;
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        return ContentHostTestPaths.Resolve();
     }
 
     private sealed class MatrixServiceWorkerLoader : IResourceLoader

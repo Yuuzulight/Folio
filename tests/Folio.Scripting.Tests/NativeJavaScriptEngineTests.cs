@@ -729,7 +729,7 @@ public sealed class NativeJavaScriptEngineTests
         using var engine = new NativeJavaScriptEngine();
         engine.Configure(new ScriptLimits { MaxStatements = 8 });
         using var isolated = Assert.IsAssignableFrom<IScriptEngineFactory>(engine).CreateIsolated();
-        Assert.Throws<InvalidOperationException>(() => isolated.Evaluate("let value = 0; while (value < 100) value++;"));
+        Assert.Equal("Statements", Assert.Throws<ScriptLimitExceededException>(() => isolated.Evaluate("let value = 0; while (value < 100) value++;")).LimitName);
     }
 
     [Fact]

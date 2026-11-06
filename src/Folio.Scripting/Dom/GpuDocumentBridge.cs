@@ -33,6 +33,7 @@ internal sealed class GpuDocumentBridge : IDisposable
             var folioResult = FolioGpuBackend.TryCreate(maxBytes);
             if (folioResult.Device is { } folioDevice) { failure = null; return new GpuDocumentBridge(folioDevice); }
         }
+#if FOLIO_ANGLE_ORACLE
         var path = NativeLibraryPath();
         if (path is not null)
         {
@@ -41,6 +42,7 @@ internal sealed class GpuDocumentBridge : IDisposable
             failure = result.Failure;
             return null;
         }
+#endif
         failure = new(GpuFailureKind.Unavailable, "The GPU native backend is unavailable.");
         return null;
     }

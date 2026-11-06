@@ -19,15 +19,22 @@ internal static class BitmapGlyphs
         public readonly List<(int First, int Last, int Table)> Ranges = [];
     }
 
-    private sealed class Index(FontData? cblc, FontData? cbdt, Strike? strike)
+    private sealed class Index(FontData? cblc, FontData? cbdt, Strike? strike) : GlyphCacheBudget.Region
     {
         public FontData? Locations = cblc;
         public FontData? Data = cbdt;
         public Strike? Strike = strike;
-        public readonly Dictionary<ushort, Bitmap?> Cache = [];
+        public Dictionary<ushort, Bitmap?> Cache = [];
+        public long Bytes;
+        internal override void ClearCachedValues() { Cache = []; Bytes = 0; }
     }
 
     private static readonly ConditionalWeakTable<FontFace, Index?> Indexes = new();
+
+    internal static long CacheBytes(FontFace face)
+    {
+        lock (GlyphCacheBudget.Sync) return Indexes.TryGetValue(face, out var index) ? index?.Bytes ?? 0 : 0;
+    }
 
     public static bool Has(FontFace face) => face.RawTable("CBLC") is not null && face.RawTable("CBDT") is not null || face.RawTable("sbix") is not null;
 
@@ -35,25 +42,22 @@ internal static class BitmapGlyphs
     {
         try
         {
-            var index = Indexes.GetValue(face, static f =>
-                f.RawTable("CBLC") is { } cblc && f.RawTable("CBDT") is { } cbdt && ReadStrike(cblc) is { } strike
-                    ? new Index(cblc, cbdt, strike)
-                    : f.RawTable("sbix") is not null ? new Index(null, null, null) : null);
+            var index = Indexes.GetValue(face, static f => Has(f) ? new Index(null, null, null) : null);
             if (index is null)
                 return null;
-            lock (index.Cache)
+            lock (GlyphCacheBudget.Sync)
             {
-                if (index.Cache.TryGetValue(glyph, out var cached))
-                    return cached;
-            }
-            var decoded = index.Strike is not null ? Find(index, glyph) : FindSbix(face, glyph);
-            lock (index.Cache)
-            {
-                if (index.Cache.Count >= 512)
-                    index.Cache.Clear();
+                GlyphCacheBudget.Touch(index);
+                if (index.Cache.TryGetValue(glyph, out var cached)) return cached;
+                // Strike indexes are scratch data, not a per-font allocation retained outside the shared budget.
+                var decoded = face.RawTable("CBLC") is { } cblc && face.RawTable("CBDT") is { } cbdt
+                    && ReadStrike(cblc) is { } strike ? Find(new Index(cblc, cbdt, strike), glyph) : FindSbix(face, glyph);
+                if (index.Cache.Count >= 512) index.ClearCachedValues();
                 index.Cache[glyph] = decoded;
+                index.Bytes += 256L + (decoded?.Image.Pixels.LongLength ?? 0);
+                GlyphCacheBudget.Update(index, index.Bytes);
+                return decoded;
             }
-            return decoded;
         }
         catch (Exception e) when (e is InvalidDataException or IndexOutOfRangeException or ArgumentException or OverflowException)
         {
@@ -65,7 +69,7 @@ internal static class BitmapGlyphs
 
     private static Bitmap? FindSbix(FontFace face, ushort glyph, HashSet<ushort> seen)
     {
-        if (!seen.Add(glyph))
+        if (seen.Count >= 64 || !seen.Add(glyph))
             return null;
         if (face.RawTable("sbix") is not { } sbix || sbix.Length < 8)
             return null;
@@ -97,7 +101,7 @@ internal static class BitmapGlyphs
         if (graphicType != "png ")
             return null;
         var imageBytes = sbix.Bytes(data + 8, end - start - 8);
-        if (PngDecoder.Decode(imageBytes) is not { } image)
+        if (PngDecoder.Decode(imageBytes, maxPixels: 1_048_576) is not { } image)
             return null;
         // sbix origins are in design units; convert to strike pixels. BitmapGlyphs uses a top bearing,
         // while sbix's y origin names the bottom edge of the image relative to the glyph origin.
@@ -111,12 +115,15 @@ internal static class BitmapGlyphs
     private static Strike? ReadStrike(FontData cblc)
     {
         var count = (int)cblc.U32(4);
+        if (count < 0 || count > 256 || 8L + 48L * count > cblc.Length) return null;
         Strike? best = null;
         for (var i = 0; i < count; i++)
         {
             var record = 8 + 48 * i;
             var arrayOffset = (int)cblc.U32(record);
             var subTables = (int)cblc.U32(record + 8);
+            if (subTables < 0 || subTables > 65536 || arrayOffset < 0 || (long)arrayOffset + 8L * subTables > cblc.Length)
+                throw new InvalidDataException("CBLC strike index is out of bounds.");
             var ppem = cblc.U8(record + 44);
             if (best is not null && ppem <= best.PixelsPerEm)
                 continue;
@@ -204,7 +211,7 @@ internal static class BitmapGlyphs
         var pngLength = (int)data.U32(pngStart - 4);
         if (pngLength <= 0 || pngStart + pngLength > data.Length)
             return null;
-        if (PngDecoder.Decode(data.Bytes(pngStart, pngLength)) is not { } image)
+        if (PngDecoder.Decode(data.Bytes(pngStart, pngLength), maxPixels: 1_048_576) is not { } image)
             return null;
         return new Bitmap(image, strike.PixelsPerEm, bearingX, bearingY, advance);
     }

@@ -226,7 +226,8 @@ public sealed class HtmlEventLoop : IDisposable
                 continue;
             try
             {
-                entry.Callback(timestamp);
+                if (_engine is not null) _engine.RunHostTask(() => entry.Callback(timestamp));
+                else entry.Callback(timestamp);
             }
             catch (Exception ex)
             {
@@ -392,6 +393,11 @@ public sealed class HtmlEventLoop : IDisposable
                 return false;
         }
         return true;
+    }
+
+    public bool HasAnimationFrameCallbacks
+    {
+        get { lock (_animationCallbacks) return _animationCallbacks.Any(callback => !callback.Cancelled); }
     }
 
     /// <summary>

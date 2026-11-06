@@ -102,7 +102,7 @@ internal static class StructuredCloneCodec
                 ScriptValueKind.Null => "null",
                 ScriptValueKind.Boolean => value.AsBoolean() ? "true" : "false",
                 ScriptValueKind.Number => value.AsNumber().ToString(System.Globalization.CultureInfo.InvariantCulture),
-                _ => JsonSerializer.Serialize(value.AsString() ?? string.Empty),
+                _ => ScriptJson.Serialize(value.AsString() ?? string.Empty),
             };
             return new StructuredClonePreparation(source, new StructuredClonePayload(primitiveJson, [], byteCount: Encoding.UTF8.GetByteCount(primitiveJson)), []);
         }

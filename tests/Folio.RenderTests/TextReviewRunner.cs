@@ -20,7 +20,7 @@ public static class TextReviewRunner
         var outDir = Path.Combine(RenderOutput.Root, "text-review");
         Directory.CreateDirectory(outDir);
 
-        foreach (var scale in new[] { 1.0f, 1.5f })
+        foreach (var scale in new[] { 1.0f, 1.1f, 1.5f })
         {
             using var docSkia = Document.Parse(html, TestRenderer.Options);
             using var docSoft = Document.Parse(html, TestRenderer.Options);

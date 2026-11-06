@@ -369,9 +369,20 @@ internal sealed class DomContext : IFetchContext
     private readonly Func<Folio.Hosting.CanvasStyleEngine?>? _canvasStyles;
     private readonly Dictionary<ElementNode, (string Source, Folio.Imaging.IImageHandle? Image)> _images = new(ReferenceEqualityComparer.Instance);
     public DomNodeTemplates Templates { get; }
-    public ElementNode? FocusedElement { get; private set; }
-    public void Focus(ElementNode element) => FocusedElement = element;
-    public void Blur(ElementNode element) { if (ReferenceEquals(FocusedElement, element)) FocusedElement = null; }
+    private ElementNode? _focusedElement;
+    internal InputRouter? InputRouter { get; set; }
+    public ElementNode? FocusedElement => InputRouter is { } router ? router.FocusedElement?.Node : _focusedElement;
+    public void Focus(ElementNode element)
+    {
+        if (InputRouter is { } router) router.Focus(element, visible: true);
+        else _focusedElement = element;
+    }
+    public void Blur(ElementNode element)
+    {
+        if (!ReferenceEquals(FocusedElement, element)) return;
+        if (InputRouter is { } router) router.Focus((Element?)null);
+        else _focusedElement = null;
+    }
 
     public void UpdateCapabilities(FeatureCapabilities capabilities)
     {

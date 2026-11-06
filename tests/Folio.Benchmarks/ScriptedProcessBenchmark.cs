@@ -35,7 +35,7 @@ public static class ScriptedProcessBenchmark
         }
 
         var prevUnsandboxed = Environment.GetEnvironmentVariable("FOLIO_UNSANDBOXED");
-        Environment.SetEnvironmentVariable("FOLIO_UNSANDBOXED", "1");
+        Environment.SetEnvironmentVariable("FOLIO_UNSANDBOXED", null);
         try
         {
             return await RunCoreAsync(args);
@@ -48,6 +48,7 @@ public static class ScriptedProcessBenchmark
 
     private static async Task<int> RunCoreAsync(string[]? args)
     {
+        var profile = args?.Contains("--profile", StringComparer.Ordinal) == true;
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Parent!.Name;
         var configuredHost = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST");
         var host = configuredHost;
@@ -108,7 +109,7 @@ public static class ScriptedProcessBenchmark
             var coldTcs = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
             ValueTask OnMessage(ContentMessage msg, CancellationToken ct)
             {
-                if (msg.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
+                if (IsLoadResponse(msg))
                     coldTcs.TrySetResult(msg);
                 return ValueTask.CompletedTask;
             }
@@ -121,6 +122,7 @@ public static class ScriptedProcessBenchmark
                     await coldClient.SendAsync(ContentMessageKind.Load, new
                     {
                         html = "<!DOCTYPE html><title>Cold</title><p id=p>Cold test</p>",
+                        profile,
                         script = "document.getElementById('p').textContent = 'Loaded';"
                     });
                 }
@@ -133,6 +135,8 @@ public static class ScriptedProcessBenchmark
                 try
                 {
                     msg = await coldTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                    ValidateFrame(msg, coldClient);
+                    if (profile) Console.WriteLine($"PROFILE cold: {msg.Payload.GetProperty("timings")}");
                 }
                 catch (TimeoutException error)
                 {
@@ -150,6 +154,7 @@ public static class ScriptedProcessBenchmark
                     $"| [cold start] initial bootstrap | {coldElapsed.TotalMilliseconds:F1} | {ws / (1024.0 * 1024):F1} | {frameSize} | {sendElapsed.TotalMilliseconds:F1} | {(coldElapsed <= TargetColdFirstPaint && ws <= TargetWorkingSet ? "yes" : "no")} |"));
                 if (coldElapsed > TargetColdFirstPaint)
                     warnings.Add($"Cold start time ({coldElapsed.TotalMilliseconds:F1} ms) exceeded target ({TargetColdFirstPaint.TotalMilliseconds:F0} ms)");
+                if (ws > TargetWorkingSet) warnings.Add("Cold start working set exceeded target.");
             }
             finally
             {
@@ -173,7 +178,7 @@ public static class ScriptedProcessBenchmark
                 var warmupTcs = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
                 ValueTask OnWarmup(ContentMessage m, CancellationToken ct)
                 {
-                    if (m.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
+                    if (IsLoadResponse(m))
                         warmupTcs.TrySetResult(m);
                     return ValueTask.CompletedTask;
                 }
@@ -247,7 +252,7 @@ arr.filter(a => a.x > 0).sort((a, b) => a.y.localeCompare(b.y)).map(a => `<span>
 mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))).sort((a, b) => a.name.localeCompare(b.name));
 </script>"
                     });
-                    await warmupTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                    ValidateFrame(await warmupTcs.Task.WaitAsync(TimeSpan.FromSeconds(15)), warmClient);
                 }
                 finally
                 {
@@ -265,7 +270,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                 var frameTcs = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
                 ValueTask OnFrame(ContentMessage m, CancellationToken ct)
                 {
-                    if (m.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
+                    if (IsLoadResponse(m))
                         frameTcs.TrySetResult(m);
                     return ValueTask.CompletedTask;
                 }
@@ -273,17 +278,20 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                 try
                 {
                     var sw = Stopwatch.StartNew();
-                    await warmClient.SendAsync(ContentMessageKind.Load, new { html });
+                    await warmClient.SendAsync(ContentMessageKind.Load, new { html, profile });
                     var frame = await frameTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                    ValidateFrame(frame, warmClient);
                     var elapsed = sw.Elapsed;
+                    if (profile) Console.WriteLine($"PROFILE D1/{artName}: {frame.Payload.GetProperty("timings")}");
                     warmClient.Process.Refresh();
                     var ws = warmClient.Process.WorkingSet64;
                     var frameSize = frame.Payload.ToString().Length;
                     var within = elapsed <= TargetWarmFirstPaint && ws <= TargetWorkingSet;
                     table.AppendLine(string.Create(CultureInfo.InvariantCulture,
-                        $"| D1/{artName} | {elapsed.TotalMilliseconds:F1} | {ws / (1024.0 * 1024):F1} | {frameSize} | {elapsed.TotalMilliseconds * 0.15:F1} | {(within ? "yes" : "no")} |"));
+                        $"| D1/{artName} | {elapsed.TotalMilliseconds:F1} | {ws / (1024.0 * 1024):F1} | {frameSize} | not measured | {(within ? "yes" : "no")} |"));
                     if (ws > TargetWorkingSet)
                         warnings.Add($"D1/{artName} working set ({ws / (1024 * 1024)} MB) exceeded target ({TargetWorkingSet / (1024 * 1024)} MB)");
+                    if (elapsed > TargetWarmFirstPaint) warnings.Add($"D1/{artName} first frame exceeded {TargetWarmFirstPaint.TotalMilliseconds} ms.");
                 }
                 finally
                 {
@@ -309,7 +317,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
         var calibrationWarmup = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         ValueTask OnCalibrationWarmup(ContentMessage message, CancellationToken cancellationToken)
         {
-            if (message.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
+            if (IsLoadResponse(message))
                 calibrationWarmup.TrySetResult(message);
             return ValueTask.CompletedTask;
         }
@@ -321,7 +329,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                 html = "<!DOCTYPE html><title>Calibration warm-up</title><body>Warm-up</body>",
                 script = "document.body.dataset.warm = '1';"
             });
-            await calibrationWarmup.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            ValidateFrame(await calibrationWarmup.Task.WaitAsync(TimeSpan.FromSeconds(15)), sizeClient);
         }
         finally
         {
@@ -339,7 +347,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
             var frameTcs = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
             ValueTask OnFrame(ContentMessage m, CancellationToken ct)
             {
-                if (m.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
+                if (IsLoadResponse(m))
                     frameTcs.TrySetResult(m);
                 return ValueTask.CompletedTask;
             }
@@ -352,7 +360,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                     html = "<!DOCTYPE html><title>Size</title><body>Test</body>",
                     script
                 });
-                await frameTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                ValidateFrame(await frameTcs.Task.WaitAsync(TimeSpan.FromSeconds(15)), sizeClient);
                 var elapsed = sw.Elapsed;
                 var withinBudget = elapsed <= TargetWarmFirstPaint;
                 var classification = size <= ScriptSizeThreshold ? "Scripted (Runs in ContentProcess)" : "NeedsBrowser (Exceeds 50 KB threshold)";
@@ -372,6 +380,19 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
         if (Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY") is { Length: > 0 } summary)
             await File.AppendAllTextAsync(summary, "\n" + table);
 
-        return 0;
+        return warnings.Count == 0 ? 0 : 1;
+    }
+
+    private static bool IsLoadResponse(ContentMessage message) => message.Kind == ContentMessageKind.Diagnostic ||
+        (message.Kind == ContentMessageKind.Frame && message.Payload.TryGetProperty("sequence", out var sequence) && sequence.GetInt64() > 0);
+
+    private static void ValidateFrame(ContentMessage message, ContentProcessClient client)
+    {
+        if (message.Kind != ContentMessageKind.Frame) throw new InvalidDataException($"Content host failed: {message.Payload}");
+        if (message.Payload.TryGetProperty("diagnostics", out var diagnostics) && diagnostics.GetArrayLength() != 0)
+            throw new InvalidDataException($"Content diagnostics: {diagnostics}");
+        using var store = new CanvasFrameStore(client.FramePath, 1280, 720, 1280 * 4);
+        var pixels = store.ReadLatest(out var sequence);
+        if (sequence <= 0 || !pixels.Any(value => value != 0)) throw new InvalidDataException("Content host did not publish rendered pixels.");
     }
 }

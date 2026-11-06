@@ -81,6 +81,7 @@ public class FolioView : Control
     private readonly object _contentStateGate = new();
     private ContentCommandQueue _contentCommands = new();
     private long _contentGeneration;
+    private (int Width, int Height, double Scale)? _lastContentViewport;
 
     public FolioView()
     {
@@ -124,6 +125,7 @@ public class FolioView : Control
             ArgumentOutOfRangeException.ThrowIfLessThan(value, 0.1f);
             ArgumentOutOfRangeException.ThrowIfGreaterThan(value, 10f);
             _zoom = value;
+            QueueContentViewport();
             _laidOutWidth = -1;
             Invalidate();
         }
@@ -203,6 +205,7 @@ public class FolioView : Control
             _pendingScriptStopped = null;
             _pendingMediaActivity = null;
             _contentProcessPrewarmed = false;
+            _lastContentViewport = null;
         }
         _contentProcess.ScriptStopped += OnScriptStopped;
         var generation = _contentGeneration;
@@ -432,11 +435,40 @@ public class FolioView : Control
         }
     }
 
+    private void QueueContentViewport()
+    {
+        var viewport = (Width: Math.Max(1, ClientSize.Width), Height: Math.Max(1, ClientSize.Height), Scale: (double)PixelScale);
+        Task pending;
+        ContentProcessClient process;
+        long generation;
+        lock (_contentStateGate)
+        {
+            if (_contentProcess is not { } current || _lastContentViewport == viewport) return;
+            process = current;
+            generation = _contentGeneration;
+            _lastContentViewport = viewport;
+            pending = _contentCommands.Enqueue(() => IsCurrentContentProcess(process, generation)
+                ? process.UpdateViewportAsync(viewport.Width, viewport.Height, viewport.Scale)
+                : ValueTask.CompletedTask);
+        }
+        _ = ObserveViewportAsync();
+        async Task ObserveViewportAsync()
+        {
+            try { await pending.ConfigureAwait(false); }
+            catch (Exception error)
+            {
+                if (IsCurrentContentProcess(process, generation))
+                    OnScriptStopped(process, new ContentProcessStoppedEventArgs($"unable to resize content document: {error.Message}"));
+            }
+        }
+    }
+
     private void ApplyContentFrame(string path, int width, int height, int stride)
     {
         try
         {
-            if (_contentFramePath != path || _contentFrameStore is null)
+            if (_contentFramePath != path || _contentFrameStore is null
+                || _contentFrameStore.Width != width || _contentFrameStore.Height != height)
             {
                 _contentFrameStore?.Dispose();
                 _contentFrameStore = new CanvasFrameStore(path, width, height, stride);
@@ -591,6 +623,7 @@ public class FolioView : Control
                 _contentFrameStore = null;
                 _contentFramePath = null;
                 _contentFramePath = process.FramePath;
+                QueueContentViewport();
                 QueueContentLoad(process, new
                 {
                     html,
@@ -863,6 +896,14 @@ public class FolioView : Control
         _mediaCaptureIndicator.Location = new Point(
             Math.Max(0, ClientSize.Width - _mediaCaptureIndicator.Width - _scrollBar.Width - 8), 8);
         _mediaCaptureIndicator.BringToFront();
+        QueueContentViewport();
+        Invalidate();
+    }
+
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        base.OnDpiChangedAfterParent(e);
+        QueueContentViewport();
         Invalidate();
     }
 

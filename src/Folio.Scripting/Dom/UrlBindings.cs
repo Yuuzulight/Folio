@@ -33,10 +33,10 @@ internal static class UrlBindings
                 return WhatwgUrl.Parse(Text(a, 0), baseUrl) is { } url ? engine.CreateHostObject(record, url) : ScriptValue.Null;
             })
             .DefineMethod("formParse", (_, _, a) =>
-                ScriptValue.FromString(JsonSerializer.Serialize(WhatwgUrl.ParseForm(Text(a, 0)).Select(p => new[] { p.Name, p.Value }))))
+                ScriptValue.FromString(ScriptJson.Serialize(WhatwgUrl.ParseForm(Text(a, 0)).Select(p => new[] { p.Name, p.Value }))))
             .DefineMethod("formSerialize", (_, _, a) =>
             {
-                var pairs = JsonSerializer.Deserialize<string[][]>(Text(a, 0)) ?? [];
+                var pairs = ScriptJson.Deserialize<string[][]>(Text(a, 0)) ?? [];
                 return ScriptValue.FromString(WhatwgUrl.SerializeForm(pairs.Select(p => (p[0], p[1]))));
             });
         engine.SetGlobalProperty("__folio_url_host", engine.CreateHostObject(host, new object()));

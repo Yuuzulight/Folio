@@ -77,6 +77,12 @@ internal static class Rasterizer
         if (rule == FillRule.NonZero && polygons.Count == 1 && IsUprightRectangle(polygons[0]))
             return FillUprightRectangle(polygons[0], clip);
 
+        // Square border rings are two nested rectangles. Their exact coverage
+        // is the outer pixel overlap minus the inner one; no scanline sorting
+        // or sixteen-height sampling is needed for every table cell.
+        if (rule == FillRule.EvenOdd && TryRectangularRing(polygons, out var outer, out var inner, snapEdges))
+            return FillRectangularRing(outer, inner, clip);
+
         var bounds = IntRect.Intersect(clip, new IntRect((int)MathF.Floor(minX), (int)MathF.Floor(minY), (int)MathF.Ceiling(maxX), (int)MathF.Ceiling(maxY)));
         if (bounds.IsEmpty)
             return null;
@@ -121,6 +127,7 @@ internal static class Rasterizer
         var active = new List<int>();
         var crossings = new List<(float X, int Direction)>();
         var next = 0;
+        var previousRowSteady = false;
 
         try
         {
@@ -129,22 +136,48 @@ internal static class Rasterizer
                 var touched = false;
                 var minTouch = width;
                 var maxTouch = -1;
+                var lastSample = y + (Samples - 0.5f) / Samples;
+                var rowSteady = Steady(edges, active, next, lastSample);
+                if (previousRowSteady && rowSteady)
+                {
+                    // Two consecutive complete rows with the same vertical edges have identical crossings at
+                    // all sixteen sample heights. Copy the rounded bytes, preserving the original accumulation
+                    // order and avoiding both scan conversion and per-pixel conversion in long straight sides.
+                    data.AsSpan((y - bounds.Top - 1) * width, width)
+                        .CopyTo(data.AsSpan((y - bounds.Top) * width, width));
+                    continue;
+                }
+                previousRowSteady = rowSteady;
                 for (var s = 0; s < Samples; s++)
                 {
                     var ys = y + (s + 0.5f) / Samples;
+                    var changed = false;
                     while (next < edges.Count && edges[next].Y0 <= ys)
+                    {
                         active.Add(next++);
+                        changed = true;
+                    }
                     crossings.Clear();
                     for (var k = active.Count - 1; k >= 0; k--)
                     {
                         var e = edges[active[k]];
                         if (e.Y1 <= ys)
                         {
-                            active.RemoveAt(k);
+                            // Active order is immaterial: crossings are sorted below.
+                            active[k] = active[^1];
+                            active.RemoveAt(active.Count - 1);
+                            changed = true;
                             continue;
                         }
                         crossings.Add((e.X0 + (ys - e.Y0) * e.Slope - bounds.Left, e.Direction));
                     }
+                    // Between the corners of a rounded rectangle every edge is vertical. When this sample changed
+                    // nothing and no edge starts, ends or slants before the row's last sample, every remaining sample
+                    // would build this same list in this same order, so this one's walk is repeated for them: the same
+                    // spans are added in the same order, and the coverage is identical.
+                    var walks = 1;
+                    if (!changed && Steady(edges, active, next, lastSample))
+                        walks = Samples - s;
                     if (crossings.Count < 2)
                         continue;
 
@@ -162,26 +195,31 @@ internal static class Rasterizer
                         crossings.Sort(static (p, q) => p.X.CompareTo(q.X));
                     }
 
-                    var winding = 0;
-                    var spanStart = 0f;
-                    var inside = false;
-                    foreach (var (x, direction) in crossings)
+                    for (var walk = 0; walk < walks; walk++)
                     {
-                        winding += direction;
-                        var nowInside = rule == FillRule.EvenOdd ? (winding & 1) != 0 : winding != 0;
-                        if (nowInside && !inside)
-                            spanStart = x;
-                        else if (!nowInside && inside)
+                        var winding = 0;
+                        var spanStart = 0f;
+                        var inside = false;
+                        foreach (var (x, direction) in crossings)
                         {
-                            AddSpan(row, runs, width, spanStart, x, 1f / Samples);
-                            touched = true;
-                            var iFrom = Math.Max(0, (int)spanStart);
-                            var iTo = Math.Min(width, (int)MathF.Ceiling(x));
-                            if (iFrom < minTouch) minTouch = iFrom;
-                            if (iTo > maxTouch) maxTouch = iTo;
+                            winding += direction;
+                            var nowInside = rule == FillRule.EvenOdd ? (winding & 1) != 0 : winding != 0;
+                            if (nowInside && !inside)
+                                spanStart = x;
+                            else if (!nowInside && inside)
+                            {
+                                AddSpan(row, runs, width, spanStart, x, 1f / Samples);
+                                touched = true;
+                                var iFrom = Math.Max(0, (int)spanStart);
+                                var iTo = Math.Min(width, (int)MathF.Ceiling(x));
+                                if (iFrom < minTouch) minTouch = iFrom;
+                                if (iTo > maxTouch) maxTouch = iTo;
+                            }
+                            inside = nowInside;
                         }
-                        inside = nowInside;
                     }
+                    if (walks > 1)
+                        break;
                 }
 
                 if (!touched)
@@ -201,6 +239,18 @@ internal static class Rasterizer
 
                 for (var x = startX; x < endX; x++)
                 {
+                    // Most wide shape interiors have no edge deltas. Probe one
+                    // hardware vector (not a variable-length scan) and preserve
+                    // the exact scalar coverage/rounding for that whole block.
+                    if (Vector.IsHardwareAccelerated && endX - x >= Vector<float>.Count
+                        && Vector.EqualsAll(new Vector<float>(runs, x), Vector<float>.Zero)
+                        && Vector.EqualsAll(new Vector<float>(row, x), Vector<float>.Zero))
+                    {
+                        var constant = running >= 0.998f ? (byte)255 : running <= 0.002f ? (byte)0 : (byte)MathF.Round(running * 255);
+                        data.AsSpan(offset + x, Vector<float>.Count).Fill(constant);
+                        x += Vector<float>.Count - 1;
+                        continue;
+                    }
                     running += runs[x];
                     var c = row[x] + running;
                     data[offset + x] = c >= 0.998f ? (byte)255 : c <= 0.002f ? (byte)0 : (byte)MathF.Round(c * 255);
@@ -222,6 +272,56 @@ internal static class Rasterizer
             pool.Return(row);
             pool.Return(runs);
         }
+    }
+
+    internal static bool TryRectangularRing(IReadOnlyList<Vector2[]> polygons, out RectF outer, out RectF inner, bool snapEdges = false)
+    {
+        outer = inner = default;
+        if (polygons.Count != 2 || !IsUprightRectangle(polygons[0]) || !IsUprightRectangle(polygons[1])
+            || polygons.Any(points => points.Any(p => !float.IsFinite(p.X) || !float.IsFinite(p.Y)))) return false;
+        static RectF Rect(Vector2[] points, bool snap)
+        {
+            var left = points.Min(p => p.X); var top = points.Min(p => p.Y);
+            var bottom = points.Max(p => p.Y);
+            // A multi-contour path uses the path converter's quarter-row edge
+            // grid, unlike the single-rectangle primitive's analytic coverage.
+            if (snap) { top = SnapY(top); bottom = SnapY(bottom); }
+            return new RectF(left, top, points.Max(p => p.X) - left, bottom - top);
+        }
+        static bool Contains(RectF a, RectF b) => b.X >= a.X && b.Y >= a.Y && b.Right <= a.Right && b.Bottom <= a.Bottom;
+        var first = Rect(polygons[0], snapEdges); var second = Rect(polygons[1], snapEdges);
+        if (Contains(first, second)) { outer = first; inner = second; return true; }
+        if (Contains(second, first)) { outer = second; inner = first; return true; }
+        return false;
+    }
+
+    private static Coverage? FillRectangularRing(RectF outer, RectF inner, IntRect clip)
+    {
+        var bounds = IntRect.Intersect(clip, new IntRect((int)MathF.Floor(outer.X), (int)MathF.Floor(outer.Y),
+            (int)MathF.Ceiling(outer.Right), (int)MathF.Ceiling(outer.Bottom)));
+        if (bounds.IsEmpty || outer == inner) return null;
+        var data = new byte[bounds.Width * bounds.Height];
+        var holeLeft = Math.Clamp((int)MathF.Ceiling(inner.X), bounds.Left, bounds.Right);
+        var holeRight = Math.Clamp((int)MathF.Floor(inner.Right), holeLeft, bounds.Right);
+        for (var y = bounds.Top; y < bounds.Bottom; y++)
+        {
+            var outerY = Overlap(y, outer.Y, outer.Bottom);
+            var innerY = Overlap(y, inner.Y, inner.Bottom);
+            var row = (y - bounds.Top) * bounds.Width;
+            // Whole columns inside the inner rectangle have constant coverage.
+            var middle = ToCoverage(outerY - innerY);
+            if (middle != 0 && holeRight > holeLeft)
+                Array.Fill(data, middle, row + holeLeft - bounds.Left, holeRight - holeLeft);
+            for (var x = bounds.Left; x < holeLeft; x++) Write(x);
+            for (var x = holeRight; x < bounds.Right; x++) Write(x);
+
+            void Write(int x) => data[row + x - bounds.Left] = ToCoverage(
+                outerY * Overlap(x, outer.X, outer.Right) - innerY * Overlap(x, inner.X, inner.Right));
+        }
+        return new Coverage(bounds, data);
+
+        static float Overlap(int pixel, float start, float end) => Math.Max(0, Math.Min(pixel + 1, end) - Math.Max(pixel, start));
+        static byte ToCoverage(float value) => (byte)Math.Clamp((int)MathF.Round(value * 255), 0, 255);
     }
 
     private static Coverage? FillUprightRectangle(Vector2[] polygon, IntRect clip)
@@ -261,6 +361,20 @@ internal static class Rasterizer
             }
         }
         return new Coverage(bounds, data);
+    }
+
+    // No edge joins, leaves or moves across the samples up to lastSample: every active edge is vertical and spans them all.
+    private static bool Steady(List<Edge> edges, List<int> active, int next, float lastSample)
+    {
+        if (next < edges.Count && edges[next].Y0 <= lastSample)
+            return false;
+        foreach (var index in active)
+        {
+            var e = edges[index];
+            if (e.Slope != 0 || e.Y1 <= lastSample)
+                return false;
+        }
+        return true;
     }
 
     private static float SnapY(float y) => MathF.Floor(y * 4 + 0.5f) / 4;

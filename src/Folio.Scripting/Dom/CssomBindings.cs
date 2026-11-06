@@ -49,7 +49,7 @@ internal static class CssomBindings
         engine.Evaluate("delete globalThis.__folio_cssom_host; delete globalThis.__folio_cssom_styleSheets; delete globalThis.__folio_cssom_sheetOf;");
     }
 
-    private static ScriptValue Json<T>(T value) => ScriptValue.FromString(JsonSerializer.Serialize(value));
+    private static ScriptValue Json<T>(T value) => ScriptValue.FromString(ScriptJson.Serialize(value));
 
     private static string Text(ReadOnlySpan<ScriptValue> args, int at) => args.Length > at ? args[at].AsString() ?? "" : "";
 

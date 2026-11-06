@@ -1999,7 +1999,7 @@ public sealed class DomStyleDeclarationTests
     private static string ContentHostPath()
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Parent!.Name;
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        return ContentHostTestPaths.Resolve();
     }
 
     [Fact]
@@ -2007,7 +2007,7 @@ public sealed class DomStyleDeclarationTests
     {
         var host = ContentHostPath();
         Assert.True(File.Exists(host), $"Content host was not built: {host}");
-        await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"", new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(10)));
+        await using var client = ContentProcessClient.Start(host, null, new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(10)));
         var received = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>
         {
@@ -2035,7 +2035,7 @@ public sealed class DomStyleDeclarationTests
     {
         var host = ContentHostPath();
         Assert.True(File.Exists(host), $"Content host was not built: {host}");
-        await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"", new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(10)));
+        await using var client = ContentProcessClient.Start(host, null, new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(10)));
         var received = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         var diagnostic = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>
@@ -2067,7 +2067,7 @@ public sealed class DomStyleDeclarationTests
     public async Task ContentProcessStopsAnInfiniteScriptWithDiagnostic()
     {
         var host = ContentHostPath();
-        await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"");
+        await using var client = ContentProcessClient.Start(host);
         var diagnostic = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>
         {
@@ -2076,7 +2076,9 @@ public sealed class DomStyleDeclarationTests
         };
         await client.SendAsync(ContentMessageKind.Load, new { script = "while (true) {}", url = "hostile" }, TestContext.Current.CancellationToken);
         var result = await diagnostic.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-        Assert.Contains(result.Payload.GetProperty("code").GetString(), new[] { "Timeout", "Statements" });
+        // The first exhausted resource can vary with execution speed and
+        // allocation accounting; every result must be a typed limit diagnostic.
+        Assert.Contains(result.Payload.GetProperty("code").GetString(), new[] { "Timeout", "Statements", "Memory" });
     }
 
     [Fact]

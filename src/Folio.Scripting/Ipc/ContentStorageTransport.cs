@@ -46,7 +46,7 @@ public sealed partial class ContentHostSession
             if (error is InvalidDataException or OperationCanceledException) throw;
             throw new InvalidDataException("The content storage service failed.", error);
         }
-        await SendAsync(ContentMessageKind.StorageResponse, new { requestId = message.Sequence, result = reply }, cancellationToken).ConfigureAwait(false);
+        await SendAsync(ContentMessageKind.StorageResponse, new Dictionary<string, object?> { ["requestId"] = message.Sequence, ["result"] = reply }, cancellationToken).ConfigureAwait(false);
     }
     private volatile bool _storageOperationOutstanding;
 
@@ -63,7 +63,7 @@ public sealed partial class ContentHostSession
                 if (length <= 0 || length > _storageLimit || hash is null || hash.Length != 64 || !hash.All(Uri.IsHexDigit)) throw new InvalidDataException("Invalid storage transfer size or digest.");
                 _upload = new(); _uploadLength = length; _uploadHash = hash;
                 _stageStarted = Environment.TickCount64; _uploadToken = Guid.NewGuid().ToString("N");
-                return new { token = _uploadToken };
+                return new Dictionary<string, object?> { ["token"] = _uploadToken };
             case "chunk":
                 RequireToken(envelope, _uploadToken);
                 var encoded = envelope.GetProperty("data");
@@ -72,7 +72,7 @@ public sealed partial class ContentHostSession
                 var bytes = encoded.GetBytesFromBase64();
                 if (_upload is null || envelope.GetProperty("offset").GetInt32() != _upload.Length || bytes.Length == 0
                     || bytes.Length > StorageChunkBytes || _upload.Length + bytes.Length > _uploadLength) throw new InvalidDataException("Invalid storage chunk.");
-                _upload.Write(bytes); return new { };
+                _upload.Write(bytes); return new Dictionary<string, object?> {  };
             case "execute":
                 RequireToken(envelope, _uploadToken);
                 if (_upload is null || _upload.Length != _uploadLength) throw new InvalidDataException("Incomplete storage request.");
@@ -81,15 +81,15 @@ public sealed partial class ContentHostSession
                 _upload.Dispose(); _upload = null; _uploadToken = null;
                 var result = _cacheBroker!.Execute(request);
                 if (result.Length > _storageLimit) throw new InvalidDataException("Storage reply exceeds its limit.");
-                if (result.Length <= StorageChunkBytes) { _stageStarted = 0; return new { data = result }; }
+                if (result.Length <= StorageChunkBytes) { _stageStarted = 0; return new Dictionary<string, object?> { ["data"] = result }; }
                 _download = result; _downloadToken = Guid.NewGuid().ToString("N"); _stageStarted = Environment.TickCount64;
-                return new { token = _downloadToken, length = result.Length, hash = Convert.ToHexString(SHA256.HashData(result)) };
+                return new Dictionary<string, object?> { ["token"] = _downloadToken, ["length"] = result.Length, ["hash"] = Convert.ToHexString(SHA256.HashData(result)) };
             case "read":
                 RequireToken(envelope, _downloadToken);
                 var offset = envelope.GetProperty("offset").GetInt32();
                 if (_download is null || offset < 0 || offset >= _download.Length) throw new InvalidDataException("Invalid storage reply offset.");
-                return new { data = _download.AsSpan(offset, Math.Min(StorageChunkBytes, _download.Length - offset)).ToArray() };
-            case "finish": RequireToken(envelope, _downloadToken); ClearStages(); return new { };
+                return new Dictionary<string, object?> { ["data"] = _download.AsSpan(offset, Math.Min(StorageChunkBytes, _download.Length - offset)).ToArray() };
+            case "finish": RequireToken(envelope, _downloadToken); ClearStages(); return new Dictionary<string, object?> {  };
             default: throw new InvalidDataException("Invalid storage transport operation.");
         }
     }
@@ -146,24 +146,24 @@ public sealed partial class ContentHostSession
         await _storageCallGate.WaitAsync(timeout.Token).ConfigureAwait(false);
         try
         {
-            var begin = await StorageRoundTrip(new { operation = "begin", length = request.Length, hash = Convert.ToHexString(SHA256.HashData(request)) }, timeout.Token).ConfigureAwait(false);
+            var begin = await StorageRoundTrip(new Dictionary<string, object?> { ["operation"] = "begin", ["length"] = request.Length, ["hash"] = Convert.ToHexString(SHA256.HashData(request)) }, timeout.Token).ConfigureAwait(false);
             var token = begin.GetProperty("token").GetString();
             for (int offset = 0; offset < request.Length; offset += StorageChunkBytes)
-                await StorageRoundTrip(new { operation = "chunk", token, offset, data = request.AsSpan(offset, Math.Min(StorageChunkBytes, request.Length - offset)).ToArray() }, timeout.Token).ConfigureAwait(false);
-            var result = await StorageRoundTrip(new { operation = "execute", token }, timeout.Token).ConfigureAwait(false);
+                await StorageRoundTrip(new Dictionary<string, object?> { ["operation"] = "chunk", ["token"] = token, ["offset"] = offset, ["data"] = request.AsSpan(offset, Math.Min(StorageChunkBytes, request.Length - offset)).ToArray() }, timeout.Token).ConfigureAwait(false);
+            var result = await StorageRoundTrip(new Dictionary<string, object?> { ["operation"] = "execute", ["token"] = token }, timeout.Token).ConfigureAwait(false);
             if (result.TryGetProperty("data", out var inline)) return inline.GetBytesFromBase64();
             var length = result.GetProperty("length").GetInt32();
             if (length <= 0 || length > _storageLimit) throw new InvalidDataException("Invalid storage reply length.");
             var bytes = new byte[length]; token = result.GetProperty("token").GetString();
             for (int offset = 0; offset < length;)
             {
-                var chunk = await StorageRoundTrip(new { operation = "read", token, offset }, timeout.Token).ConfigureAwait(false);
+                var chunk = await StorageRoundTrip(new Dictionary<string, object?> { ["operation"] = "read", ["token"] = token, ["offset"] = offset }, timeout.Token).ConfigureAwait(false);
                 var data = chunk.GetProperty("data").GetBytesFromBase64();
                 if (data.Length != Math.Min(StorageChunkBytes, length - offset)) throw new InvalidDataException("Invalid storage reply chunk.");
                 data.CopyTo(bytes, offset); offset += data.Length;
             }
             if (Convert.ToHexString(SHA256.HashData(bytes)) != result.GetProperty("hash").GetString()) throw new InvalidDataException("Storage reply digest mismatch.");
-            await StorageRoundTrip(new { operation = "finish", token }, timeout.Token).ConfigureAwait(false);
+            await StorageRoundTrip(new Dictionary<string, object?> { ["operation"] = "finish", ["token"] = token }, timeout.Token).ConfigureAwait(false);
             return bytes;
         }
         catch { _supervisor.Stop("content storage transaction interrupted"); throw; }

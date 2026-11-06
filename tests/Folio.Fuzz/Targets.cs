@@ -7,6 +7,7 @@ using Folio.Html;
 using Folio.Imaging;
 using Folio.Layout;
 using Folio.Painting;
+using Folio.Painting.Software;
 using Folio.Resources;
 using Folio.RenderTests;
 using Folio.Scripting.Dom;
@@ -50,6 +51,7 @@ internal static class Targets
         new("bmp", data => BmpDecoder.Decode(data, MaxPixels), BmpSeeds, ["BM", "BITMAP", "\0"]),
         new("ico", data => IcoDecoder.Decode(data, MaxPixels), IcoSeeds, ["\0\0\u0001\0", "PNG", "BM"]),
         new("font", Font, FontSeeds, ["wOFF", "wOF2", "OTTO", "CFF ", "CFF2", "true", "ttcf", "glyf", "loca", "hmtx", "cmap", "head", "hhea", "maxp"]),
+        new("font-hints", FontHints, FontHintSeeds, []),
         new("svg", Svg, SvgSeeds, ["<svg xmlns=\"http://www.w3.org/2000/svg\">", "</svg>", "<?xml version=\"1.0\"?>", "<!DOCTYPE svg [", "]>",
             "<![CDATA[", "]]>", "<!--", "&#x", "&amp;", "xmlns:x=\"", "<g>", "</g>", "<path d=\"", "M0 0", "A1 1 0 1 1", "C", "Z", " viewBox=\"",
             " preserveAspectRatio=\"", " transform=\"", "rotate(", "matrix(", "<text", "<tspan", " x=\"", " dx=\"", "%", "e9", "-", ".",
@@ -114,7 +116,10 @@ internal static class Targets
             return;
         face.Kerning(face.GlyphFor('A'), face.GlyphFor('V'));
         face.Substitute(face.GlyphFor('1'), "pnum tnum");
-        if (face.RawTable("CFF ") is not null || face.RawTable("CFF2") is not null)
+        // Reach colour decoders directly as well as through the normal draw path.
+        if (ColorGlyphs.Has(face)) ColorGlyphs.Get(face, face.GlyphFor('A'));
+        if (BitmapGlyphs.Has(face)) BitmapGlyphs.Get(face, face.GlyphFor('A'));
+        if (face.RawTable("glyf") is not null || face.RawTable("CFF ") is not null || face.RawTable("CFF2") is not null)
         {
             using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96);
             if (surface is not null)
@@ -124,6 +129,41 @@ internal static class Targets
                     [new System.Numerics.Vector2(8, 76), new System.Numerics.Vector2(48, 76)],
                     new Paint(new Rgba(0, 0, 0, 1)));
             }
+        }
+    }
+
+    private static readonly Lazy<TrueTypeMachine> HintFont = new(() => FontHinting.Prepare(
+        FontFace.Parse(File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf")))!, 16));
+
+    private static void FontHints(byte[] program)
+    {
+        var machine = HintFont.Value.Fork();
+        var points = Enumerable.Range(0, 260).Select(i => new System.Numerics.Vector2(i % 16 * 64, i / 16 * 64)).ToArray();
+        var zone = new TrueTypeMachine.Zone(points, Enumerable.Range(1, 16).Select(i => i * 16 - 1).ToArray());
+        machine.StartGlyph(zone, HintFont.Value.Graphics);
+        try { machine.Execute(program); }
+        catch (InvalidDataException) { return; } // Invalid instructions must fail closed, without another exception or a hang.
+        if (zone.Current.Any(p => !float.IsFinite(p.X) || !float.IsFinite(p.Y)))
+            throw new InvalidOperationException("Hinting produced nonfinite coordinates.");
+    }
+
+    private static IEnumerable<byte[]> FontHintSeeds()
+    {
+        yield return [0x00, 0xB0, 0, 0x2F, 0x30];
+        yield return [0xB8, 0xFF, 0xFD, 0x1C]; // Infinite relative jump: must exhaust the budget.
+        var face = FontFace.Parse(File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf")))!;
+        var loca = face.RawTable("loca")!.Value; var glyf = face.RawTable("glyf")!.Value;
+        var longOffsets = face.RawTable("head")!.Value.S16(50) != 0;
+        for (var glyph = 0; glyph < Math.Min(face.GlyphCount, 512); glyph++)
+        {
+            var start = longOffsets ? (int)loca.U32(4 * glyph) : 2 * loca.U16(2 * glyph);
+            var end = longOffsets ? (int)loca.U32(4 * (glyph + 1)) : 2 * loca.U16(2 * (glyph + 1));
+            if (end <= start) continue;
+            var data = glyf.Slice(start, end - start); var contours = data.S16(0);
+            if (contours < 0) continue;
+            var lengthAt = 10 + 2 * contours;
+            var length = data.U16(lengthAt);
+            if (length != 0) yield return data.Bytes(lengthAt + 2, length).ToArray();
         }
     }
 
@@ -184,7 +224,9 @@ internal static class Targets
         var text = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
         var cff2 = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.otf"));
         var cff2Woff2 = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.woff2"));
-        return [box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box), text, cff2, cff2Woff2];
+        return new[] { box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box), text, cff2, cff2Woff2 }
+            .Concat(Directory.GetFiles(Path.Combine(RepoPaths.Tests, "Folio.Fuzz", "Seeds", "font"), "*.ttf")
+                .Order(StringComparer.Ordinal).Select(File.ReadAllBytes));
     }
 
     private static void Css(byte[] data)

@@ -50,7 +50,7 @@ internal static class CacheBindings
                 var name = engine.GetProperty(args[2], "cacheName");
                 var mode = args[3].AsString();
                 var entries = State().Match(cache, name.IsUndefined ? null : name.AsString(), request, Query(args[2]) with { RequestOnly = mode == "keys" }, mode == "first");
-                return ScriptValue.FromString(mode == "keys" ? JsonSerializer.Serialize(entries.Select(entry => entry.Request)) : JsonSerializer.Serialize(entries));
+                return ScriptValue.FromString(mode == "keys" ? ScriptJson.Serialize(entries.Select(entry => entry.Request)) : ScriptJson.Serialize(entries));
             })
             .DefineMethod("put", (_, _, args) =>
             {

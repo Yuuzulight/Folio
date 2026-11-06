@@ -11,6 +11,16 @@ internal abstract class Shader
 
     public virtual bool IsSolid => false;
 
+    /// <summary>
+    /// The colour of every pixel of row <paramref name="y"/> from <paramref name="x"/> on, when it is the same bits as
+    /// <see cref="ColorAt"/> gives for each of them; false when it varies (or might) along the row.
+    /// </summary>
+    public virtual bool TryRowColor(int x, int y, out Vector4 color)
+    {
+        color = default;
+        return false;
+    }
+
     // Colours are held as bytes, as the Skia backend holds them: 0.5 of alpha is 128 of 255, not exactly a half.
     public static float Byte(float v) => MathF.Round(Math.Clamp(float.IsFinite(v) ? v : 0, 0f, 1f) * 255) / 255;
 
@@ -70,6 +80,21 @@ internal sealed class GradientShader : Shader
         if (!Matrix33.Invert(toCanvas * transform, out var inverse))
             return new SolidShader(Vector4.Zero);
         return new GradientShader(gradient, inverse);
+    }
+
+    // A linear gradient along device y: x reaches t only through a zero (no x term in p.Y or w, and a zero x
+    // component of the axis), so ColorAt is the same bits across the row and one lookup serves it.
+    public override bool TryRowColor(int x, int y, out Vector4 color)
+    {
+        var d = _gradient.End - _gradient.Start;
+        if (_gradient.Kind == GradientKind.Linear && d.X == 0 && _inverse.M12 == 0 && _inverse.M13 == 0
+            && float.IsFinite(_inverse.M11) && float.IsFinite(_inverse.M21) && float.IsFinite(_inverse.M31) && float.IsFinite(_gradient.Start.X))
+        {
+            color = ColorAt(x, y);
+            return true;
+        }
+        color = default;
+        return false;
     }
 
     public override Vector4 ColorAt(int x, int y)

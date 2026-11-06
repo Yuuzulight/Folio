@@ -1,5 +1,30 @@
 # Test font licences
 
+The production content host also ships the Source and Noto families from this
+directory, opening a family only when needed. Its `fonts/` directory includes
+these notices and the full per-family OFL files.
+
+## Source Code Pro
+
+Unmodified static TrueType Regular, Bold, Italic and Bold Italic from Adobe's
+release `2.042R-u/1.062R-i/1.026R-vf`:
+https://github.com/adobe-fonts/source-code-pro/releases/tag/2.042R-u/1.062R-i/1.026R-vf
+
+Archive `TTF-source-code-pro-2.042R-u_1.062R-i.zip` SHA-256:
+`0c85bac90d15c040b82939aa92bc8404420fccc02e37bbcb9c93a7f21abb52c6`.
+The complete license is in `SourceCodePro-OFL.txt`, obtained from release commit
+`d3f1a5962cde503f9409c21e58527611d4a19ef1`.
+
+## Source Serif 4
+
+Unmodified static TrueType Regular, Bold, Italic and Bold Italic from Adobe's
+release `4.005R`:
+https://github.com/adobe-fonts/source-serif/releases/tag/4.005R
+
+Archive `source-serif-4.005_Desktop.zip` SHA-256:
+`549fdb8f9a682bd06944298621404969f6de77c2e422ff3b8244a1dcd6a0c425`.
+The archive's complete license is in `SourceSerif4-OFL.txt`.
+
 Fonts the tests render with. `SHA256SUMS` pins the ones that come from outside Folio, and `FontPinTests` checks them.
 
 ## FolioBox.ttf
