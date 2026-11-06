@@ -105,6 +105,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
                 _supervisor.Heartbeat();
                 if (message.Kind == ContentMessageKind.ResourceResponse) CompleteResource(message);
                 else if (message.Kind == ContentMessageKind.MediaDecodeResponse) CompleteMediaDecode(message);
+                else if (message.Kind == ContentMessageKind.MediaCapabilitiesResponse) CompleteMediaCapabilities(message);
                 else if (message.Kind == ContentMessageKind.MediaCaptureResponse) CompleteMediaCapture(message);
                 else if (message.Kind == ContentMessageKind.StorageResponse) CompleteStorage(message);
                 else
@@ -123,6 +124,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
         finally
         {
             _connectionClosed = true;
+            CloseMediaRequests();
             foreach (var request in _resourceRequests.Values)
                 request.TrySetResult(ResourceResponse.Refused("The content connection closed."));
             messages.Writer.TryComplete();
@@ -149,6 +151,12 @@ public sealed partial class ContentHostSession : IAsyncDisposable
         {
             var response = await LoadResourceAsync(message, cancellationToken).ConfigureAwait(false);
             await SendAsync(ContentMessageKind.ResourceResponse, new Dictionary<string, object?> { ["requestId"] = message.Sequence, ["status"] = response.Succeeded ? 200 : 0, ["data"] = response.Data, ["contentType"] = response.ContentType, ["error"] = response.Error }, cancellationToken).ConfigureAwait(false);
+        }
+        else if (message.Kind == ContentMessageKind.MediaCapabilitiesRequest)
+        {
+            var supported = await QueryMediaCapabilitiesAsync(message, cancellationToken).ConfigureAwait(false);
+            await SendAsync(ContentMessageKind.MediaCapabilitiesResponse,
+                new Dictionary<string, object?> { ["requestId"] = message.Sequence, ["supported"] = supported }, cancellationToken).ConfigureAwait(false);
         }
         else if (message.Kind == ContentMessageKind.MediaDecodeRequest)
         {
@@ -241,7 +249,8 @@ public sealed partial class ContentHostSession : IAsyncDisposable
         {
             var bytes = Convert.FromBase64String(dataValue.GetString() ?? string.Empty);
             if (bytes.Length > MaxResourceResponseBytes) return null;
-            var result = await Task.Run(() => _mediaDecoder.Decode(bytes, message.Payload.TryGetProperty("contentType", out var type) ? type.GetString() : null, videoValue.GetBoolean(), Math.Min(maxOutputBytes, MaxResourceResponseBytes)), cancellationToken).ConfigureAwait(false);
+            var result = await Task.Run(() => _mediaDecoder.Decode(bytes, message.Payload.TryGetProperty("contentType", out var type) ? type.GetString() : null, videoValue.GetBoolean(), Math.Min(maxOutputBytes, MaxResourceResponseBytes)), cancellationToken)
+                .WaitAsync(cancellationToken).ConfigureAwait(false);
             if (result is null) return null;
             var frameBytes = result.VideoFrame?.Pixels.Length ?? 0;
             var sequenceBytes = result.VideoFrames?.Sum(item => (long)item.Frame.Pixels.Length) ?? 0;
@@ -464,6 +473,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _connectionClosed = true;
+        CloseMediaRequests();
         StopMediaOutput();
         CloseStorageRequests();
         foreach (var request in _resourceRequests.Values)

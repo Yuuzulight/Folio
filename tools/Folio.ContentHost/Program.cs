@@ -3,6 +3,14 @@ using Folio.Scripting.Ipc;
 using Folio.Scripting.Native;
 using Folio.ContentHost;
 
+// Dispatch before creating DOM, frame stores, script engines or content-session state.
+if (args.Length != 0 && args[0] == "--gpu-worker")
+{
+    if (args.Length != 1) throw new ArgumentException("Unexpected GPU worker arguments.");
+    Folio.Scripting.Gpu.GpuWorkerServer.Run(Console.OpenStandardInput(), Console.OpenStandardOutput());
+    return;
+}
+
 var framePath = Environment.GetEnvironmentVariable("FOLIO_CONTENT_FRAME_PATH")
     ?? Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}.bin");
 using var frameStore = new CanvasFrameStore(framePath, 1280, 720, 1280 * 4);

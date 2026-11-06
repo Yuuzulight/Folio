@@ -6,7 +6,10 @@ public readonly record struct MediaCaptureRequest(bool Audio, bool Video);
 /// <summary>A video frame supplied by a host-owned capture device in RGBA byte order.</summary>
 public readonly record struct MediaCaptureVideoFrame(int Width, int Height, ReadOnlyMemory<byte> Rgba)
 {
-    public bool IsValid => Width > 0 && Height > 0 && Rgba.Length == checked(Width * Height * 4);
+    /// <summary>Optional monotonically increasing capture-frame identity within one session; zero denotes a legacy/unsequenced frame.</summary>
+    public long CaptureSequence { get; init; }
+    public bool IsValid => Width > 0 && Height > 0 && (long)Width * Height <= int.MaxValue / 4
+        && Rgba.Length == (long)Width * Height * 4;
 }
 
 /// <summary>The host-owned lifetime of an approved camera/microphone capture request.</summary>
@@ -33,6 +36,13 @@ public interface IMediaCaptureProvider
 {
     /// <summary>Open the requested devices. Return <see langword="null"/> to deny or when no device is available.</summary>
     IMediaCaptureSession? Open(MediaCaptureRequest request);
+}
+
+/// <summary>Optional independent device retirement for a session containing both microphone and camera tracks.</summary>
+public interface IMediaCaptureTrackControl
+{
+    void StopAudio();
+    void StopVideo();
 }
 
 /// <summary>The colour scheme the host reports to <c>prefers-color-scheme</c>.</summary>

@@ -134,6 +134,10 @@ jobs:
           FOLIO_CONFORMANCE_ENGINE: native
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll canvas-frames 30
 
+      - name: Native media presentation frame budget
+        if: always() && matrix.os == 'windows-latest'
+        run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll media 120
+
       # Time and memory per benchmark document, also on the run's summary page. Documents over a target only warn.
       - name: Benchmarks
         if: matrix.os == 'ubuntu-latest'

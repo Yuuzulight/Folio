@@ -26,6 +26,9 @@ public enum ContentMessageKind
     StorageRequest,
     StorageResponse,
     Viewport,
+    IframeNavigationRequested,
+    MediaCapabilitiesRequest,
+    MediaCapabilitiesResponse,
 }
 
 public sealed record ContentMessage(ContentMessageKind Kind, long Sequence, JsonElement Payload, int Version = 1)

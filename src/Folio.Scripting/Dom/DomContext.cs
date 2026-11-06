@@ -27,6 +27,7 @@ internal sealed class DomContext : IFetchContext
     private CssomRegistry? _cssom;
     private readonly HashSet<string> _capabilityDenials = new(StringComparer.Ordinal);
     internal volatile bool ScriptFeaturesDisposed;
+    internal MediaResourceBudget MediaBudget => _mediaBudget;
     internal CaptureBindingState? CaptureState { get; set; }
     internal WebRtcBindingState? WebRtcState { get; set; }
     internal ServiceWorkerCapabilityAuthority? ServiceWorkerState { get; set; }
@@ -59,6 +60,7 @@ internal sealed class DomContext : IFetchContext
         }
     }
     private int _ownerThread = Environment.CurrentManagedThreadId;
+    internal bool IsDocumentOwnerThread => Environment.CurrentManagedThreadId == Volatile.Read(ref _ownerThread);
     internal void EnterDocumentTurn(IScriptEngine engine)
     {
         // The content transport serializes document turns, but async dispatch
@@ -624,7 +626,7 @@ internal sealed class DomContext : IFetchContext
             soundEnabled: Capabilities.Sound, checkSoundPermission: () => CheckCapability("Sound", Capabilities.Sound),
             checkMediaPermission: () => CheckCapability("Media", Capabilities.Media),
             captureFrame: MediaCaptureProvider is null ? null : track => CaptureState?.CurrentVideoFrame(Engine.GetProperty(track, "_captureToken")),
-            captureAudio: MediaCaptureProvider is null ? null : track => CaptureState?.CurrentAudioFrame(Engine.GetProperty(track, "_captureToken")), deferLoad: true);
+            captureAudio: MediaCaptureProvider is null ? null : track => CaptureState?.OpenAudioReader(Engine.GetProperty(track, "_captureToken")), deferLoad: true);
         _media[element] = state;
         state.Initialize();
         if (element.GetAttribute("autoplay") is not null) state.Play(autoplay: true);

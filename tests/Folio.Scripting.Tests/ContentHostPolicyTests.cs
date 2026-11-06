@@ -1,0 +1,417 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Reflection;
+using System.Text.Json;
+using Folio.Resources;
+using Folio.Scripting.Ipc;
+
+namespace Folio.Scripting.Tests;
+
+[Collection("Content process round trips")]
+public sealed class ContentHostPolicyTests
+{
+    private static readonly FeatureCapabilities Grants = new() { Iframes = true, WebRtc = true };
+    private const string IceScript = "function probe(url){try{var p=new RTCPeerConnection({iceServers:[{urls:url}]});p.close();return 'allowed';}catch(e){return e.name;}} probe('stun:allowed.example')+'|'+probe('stun:blocked.example')";
+
+    [Fact]
+    public async Task RealChildUsesSnapshotOfHostOriginsAndIgnoresForgedLoadPolicy()
+    {
+        var origins = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "STUN:allowed.example/" };
+        await using var client = Start(new FolioOptions { WebRtcAllowedOrigins = origins });
+        origins.Clear();
+        origins.Add("stun:blocked.example");
+        var first = await Exchange(client, new
+        {
+            html = "<body></body>", capabilities = Grants, script = IceScript,
+            hostPolicy = new { generation = "forged", webRtcAllowedOrigins = new[] { "stun:blocked.example" } }
+        });
+        Assert.Equal("allowed|SecurityError", Value(first));
+        Assert.Equal("allowed|SecurityError", Value(await Exchange(client, new { script = IceScript })));
+        Assert.Equal("allowed|SecurityError", Value(await Exchange(client, new { html = "<body></body>", capabilities = Grants, script = IceScript })));
+    }
+
+    [Fact]
+    public async Task EmptyPolicyCannotBeGrantedByLoadFieldsOrPageGlobals()
+    {
+        await using var client = Start(new FolioOptions());
+        var frame = await Exchange(client, new
+        {
+            html = "<body></body>", capabilities = Grants,
+            webRtcAllowedOrigins = new[] { "stun:allowed.example" },
+            hostPolicy = new { webRtcAllowedOrigins = new[] { "stun:allowed.example" } },
+            script = "globalThis.webRtcAllowedOrigins=['stun:allowed.example'];" + IceScript
+        });
+        Assert.Equal("SecurityError|SecurityError", Value(frame));
+        Assert.Equal("loopback", Value(await Exchange(client, new { script = "var p=new RTCPeerConnection();p.close();'loopback'" })));
+    }
+
+    [Fact]
+    public async Task RealIframeNavigationIsResolvedAndMediatedByParentIncludingCustomSchemes()
+    {
+        var navigations = new ConcurrentQueue<Uri>();
+        using var delivered = new SemaphoreSlim(0);
+        var loader = new Loader();
+        var dispatches = 0;
+        await using var client = Start(new FolioOptions
+        {
+            ResourceLoader = loader, IframeNavigationRequested = uri => { navigations.Enqueue(uri); delivered.Release(); }
+        }, (deliver, token) =>
+        {
+            Assert.False(token.IsCancellationRequested);
+            dispatches++;
+            deliver();
+            deliver(); // A dispatcher cannot deliver one notification twice.
+            return ValueTask.CompletedTask;
+        });
+        await Exchange(client, new { html = "<iframe src='child.html'></iframe>", url = "https://host.example/root/", capabilities = Grants, script = "1" });
+        Assert.True(await delivered.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken));
+        Assert.Equal("https://host.example/root/child.html", Assert.Single(navigations).AbsoluteUri);
+        await Exchange(client, new { script = "document.querySelector('iframe').src='folio-resource:child';1" });
+        Assert.True(await delivered.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken));
+        Assert.Equal("folio-resource:child", navigations.ToArray()[1].AbsoluteUri);
+        Assert.Equal(2, dispatches);
+        Assert.Equal(2, loader.Uris.Count);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task NavigationCallbackCanSynchronouslyDisposeOrReloadWithoutWaitingOnItself(bool uiDispatch, bool reload)
+    {
+        using var ui = new NavigationUiThread();
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ContentProcessClient? client = null;
+        client = Start(new FolioOptions
+        {
+            ResourceLoader = new Loader(),
+            IframeNavigationRequested = _ =>
+            {
+                try
+                {
+                    if (uiDispatch) Assert.Equal(ui.ThreadId, Environment.CurrentManagedThreadId);
+                    if (reload)
+                    {
+                        var frame = Exchange(client!, new { html = "<body>replacement</body>", capabilities = Grants, script = "'replacement'" }, "replacement")
+                            .GetAwaiter().GetResult();
+                        Assert.Equal("replacement", Value(frame));
+                    }
+                    else client!.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                    completed.TrySetResult();
+                }
+                catch (Exception error) { completed.TrySetException(error); }
+            }
+        }, uiDispatch ? ui.Dispatch : null);
+        try
+        {
+            await client.SendAsync(ContentMessageKind.Load, new { html = "<iframe src='https://host.example/child'></iframe>", capabilities = Grants }, TestContext.Current.CancellationToken);
+            await completed.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+        }
+        finally { await client.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken); }
+        var worker = (Task)typeof(ContentProcessClient).GetField("_navigationWorker", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(client)!;
+        await worker.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeferredUiActionCannotCallBackAfterReloadOrDispose(bool dispose)
+    {
+        var pending = new TaskCompletionSource<(Action Deliver, CancellationToken Token)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbacks = 0;
+        // Deliberately ignore cancellation in the dispatcher. The client's wait
+        // must still end, and a UI action retained by the dispatcher must be inert.
+        var never = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = Start(new FolioOptions { ResourceLoader = new Loader(), IframeNavigationRequested = _ => callbacks++ },
+            (deliver, token) =>
+            {
+                pending.TrySetResult((deliver, token));
+                return new ValueTask(never.Task);
+            });
+        try
+        {
+            await client.SendAsync(ContentMessageKind.Load, new { html = "<iframe src='https://host.example/old'></iframe>", capabilities = Grants }, TestContext.Current.CancellationToken);
+            var queued = await pending.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            if (dispose)
+                await client.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            else
+                await Exchange(client, new { html = "<body>replacement</body>", capabilities = Grants, script = "'new-document'" }, "new-document");
+            Assert.True(queued.Token.IsCancellationRequested);
+            queued.Deliver();
+            Assert.Equal(0, callbacks);
+        }
+        finally { never.TrySetResult(); await client.DisposeAsync(); }
+    }
+
+    [Fact]
+    public async Task IncrementalAndPreCancelledLoadsKeepCurrentNavigationGeneration()
+    {
+        var callbacks = new ConcurrentQueue<Uri>();
+        using var delivered = new SemaphoreSlim(0);
+        await using var client = Start(new FolioOptions { ResourceLoader = new Loader(), IframeNavigationRequested = uri => { callbacks.Enqueue(uri); delivered.Release(); } });
+        await Exchange(client, new { html = "<iframe src='https://host.example/one'></iframe>", capabilities = Grants, script = "'first'" });
+        Assert.True(await delivered.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken));
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.SendAsync(ContentMessageKind.Load,
+            new { html = "<body>cancelled</body>" }, cancelled.Token).AsTask());
+        await Exchange(client, new { script = "document.querySelector('iframe').src='https://host.example/two';'second'" });
+        Assert.True(await delivered.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken));
+        Assert.Equal(new[] { "https://host.example/one", "https://host.example/two" }, callbacks.Select(uri => uri.AbsoluteUri));
+        await client.UpdateCapabilitiesAsync(FeatureCapabilities.Default, TestContext.Current.CancellationToken);
+        await Exchange(client, new { script = "document.querySelector('iframe').src='https://host.example/denied';'denied'" });
+        Assert.Equal(2, callbacks.Count);
+    }
+
+    [Fact]
+    public async Task ThrowingNavigationObserverDoesNotBreakResourceBrokerage()
+    {
+        var callbacks = 0;
+        var delivered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var client = Start(new FolioOptions
+        {
+            ResourceLoader = new Loader(), IframeNavigationRequested = _ => { callbacks++; delivered.TrySetResult(); throw new InvalidOperationException("observer failed"); }
+        });
+        Assert.Equal("alive", Value(await Exchange(client, new
+        {
+            html = "<iframe src='https://host.example/one'></iframe>", capabilities = Grants, script = "'alive'"
+        })));
+        await delivered.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+        Assert.Equal(1, callbacks);
+        Assert.False(client.Supervisor.IsStopped);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MissingReplacementGrantOrMalformedUpdateCannotAuthorizeChildNotification(bool malformedUpdate)
+    {
+        var callbacks = 0;
+        await using var client = Start(new FolioOptions { IframeNavigationRequested = _ => callbacks++ });
+        await Exchange(client, new { html = "<body></body>", capabilities = Grants, script = "1" });
+        if (malformedUpdate)
+        {
+            await client.SendAsync(ContentMessageKind.Capabilities, new { capabilities = new { Iframes = "invalid" } }, TestContext.Current.CancellationToken);
+            await Exchange(client, new { script = "1" });
+        }
+        else await Exchange(client, new { html = "<body>ungranted</body>", script = "1" });
+        var authority = (FeatureCapabilities)typeof(ContentProcessClient).GetField("_hostCapabilities", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(client)!;
+        Assert.False(authority.Iframes);
+        await DispatchNotification(client, JsonSerializer.Serialize(new { generation = Generation(client), uri = "https://host.example/forged" }));
+        Assert.Equal(0, callbacks);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("{}")]
+    [InlineData("{\"generation\":12,\"uri\":\"https://host.example/\"}")]
+    [InlineData("{\"generation\":\"00000000000000000000000000000000\",\"uri\":false}")]
+    [InlineData("{\"generation\":\"00000000000000000000000000000000\",\"uri\":\"javascript:alert(1)\"}")]
+    [InlineData("{\"generation\":\"00000000000000000000000000000000\",\"uri\":\"https://user:secret@host.example/\"}")]
+    [InlineData("{\"generation\":\"00000000000000000000000000000000\",\"uri\":\"https://host.example/%0a\"}")]
+    [InlineData("{\"generation\":\"00000000000000000000000000000000\",\"uri\":\"relative\"}")]
+    [InlineData("{\"generation\":\"00000000000000000000000000000000\",\"uri\":\"https://host.example/%zz\"}")]
+    [InlineData("{\"generation\":\"00000000000000000000000000000000\",\"uri\":\"https://host.example/\",\"extra\":true}")]
+    [InlineData("{\"generation\":\"00000000000000000000000000000000\",\"generation\":\"00000000000000000000000000000000\",\"uri\":\"https://host.example/\"}")]
+    [InlineData("{\"generation\":\"00000000000000000000000000000000\",\"uri\":\"https://host.example/stale\"}")]
+    public async Task InvalidOrStaleNotificationPayloadIsIgnoredWithoutBreakingLiveChild(string json)
+    {
+        var callbacks = 0;
+        var barrier = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var client = Start(new FolioOptions
+        {
+            IframeNavigationRequested = uri =>
+            {
+                if (uri.AbsolutePath == "/barrier") barrier.TrySetResult();
+                else Interlocked.Increment(ref callbacks);
+            }
+        });
+        await Exchange(client, new { html = "<body></body>", capabilities = Grants, script = "1" });
+        // Exercise the exact untrusted-message entry point, without adding a
+        // page-accessible protocol-forging backdoor to the production child.
+        if (!json.Contains("/stale", StringComparison.Ordinal)) json = json.Replace("00000000000000000000000000000000", Generation(client), StringComparison.Ordinal);
+        await DispatchNotification(client, json);
+        await DispatchNotification(client, JsonSerializer.Serialize(new { generation = Generation(client), uri = "https://host.example/barrier" }));
+        await barrier.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+        Assert.Equal(0, callbacks);
+        Assert.Equal("still-live", Value(await Exchange(client, new { script = "'still-live'" })));
+    }
+
+    [Fact]
+    public async Task SlowCallbackBoundsQueueAndDoesNotBlockTransportReloadOrDisposal()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbacks = 0;
+        var client = Start(new FolioOptions
+        {
+            ResourceLoader = new Loader(),
+            IframeNavigationRequested = _ =>
+            {
+                Interlocked.Increment(ref callbacks);
+                entered.TrySetResult();
+                release.Task.GetAwaiter().GetResult();
+            }
+        });
+        try
+        {
+            await Exchange(client, new { html = "<iframe src='https://host.example/first'></iframe>", capabilities = Grants, script = "'loaded'" });
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            var json = JsonSerializer.Serialize(new { generation = Generation(client), uri = "https://host.example/queued" });
+            for (var i = 0; i < 1024; i++) await DispatchNotification(client, json);
+            var queue = typeof(ContentProcessClient).GetField("_navigationDeliveries", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(client)!;
+            var reader = queue.GetType().GetProperty("Reader")!.GetValue(queue)!;
+            Assert.Equal(32, (int)reader.GetType().GetProperty("Count")!.GetValue(reader)!);
+            Assert.Equal("replacement", Value(await Exchange(client,
+                new { html = "<body>replacement</body>", capabilities = Grants, script = "'replacement'" }, "replacement")));
+            await client.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            Assert.False(release.Task.IsCompleted);
+            release.TrySetResult();
+            var worker = (Task)typeof(ContentProcessClient).GetField("_navigationWorker", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(client)!;
+            await worker.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            Assert.Equal(1, callbacks);
+        }
+        finally { release.TrySetResult(); await client.DisposeAsync(); }
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("{\"webRtcAllowedOrigins\":true}")]
+    [InlineData("{\"webRtcAllowedOrigins\":[\"stun:allowed.example\",false]}")]
+    [InlineData("{\"webRtcAllowedOrigins\":[\"stun:allowed.example\",\"https://not-an-ice-origin\"]}")]
+    [InlineData("{\"webRtcAllowedOrigins\":[],\"webRtcAllowedOrigins\":[\"stun:allowed.example\"]}")]
+    public async Task RealRawChildMalformedPolicyFailsClosed(string policy)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "folio-policy-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var host = ContentHostTestPaths.Resolve();
+        var start = new ProcessStartInfo(Path.GetExtension(host).Equals(".dll", StringComparison.OrdinalIgnoreCase) ? "dotnet" : host)
+        {
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        if (Path.GetExtension(host).Equals(".dll", StringComparison.OrdinalIgnoreCase)) start.ArgumentList.Add(host);
+        start.Environment["FOLIO_CONTENT_FRAME_PATH"] = Path.Combine(directory, "frame.bin");
+        using var process = Process.Start(start)!;
+        var stderr = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        try
+        {
+            using var payload = JsonDocument.Parse("{\"html\":\"<body></body>\",\"capabilities\":{\"WebRtc\":true},\"script\":"
+                + JsonSerializer.Serialize(IceScript) + ",\"hostPolicy\":" + policy + "}");
+            await ContentTransport.WriteAsync(process.StandardInput.BaseStream,
+                new(ContentMessageKind.Load, 1, payload.RootElement.Clone()), timeout.Token);
+            ContentMessage? response;
+            do { response = await ContentTransport.ReadAsync(process.StandardOutput.BaseStream, timeout.Token); }
+            while (response is not null && response.Kind is not (ContentMessageKind.Frame or ContentMessageKind.Diagnostic));
+            Assert.NotNull(response);
+            Assert.Equal(ContentMessageKind.Frame, response.Kind);
+            Assert.Equal("SecurityError|SecurityError", Value(response));
+        }
+        finally
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+            await stderr;
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PolicyBoundsRejectInvalidEntriesAndExcessiveCountsWithoutTruncatingAuthority()
+    {
+        Assert.Throws<ArgumentException>(() => ContentHostPolicy.NormalizeOrigins(Enumerable.Repeat("stun:allowed.example", 65)));
+        Assert.Throws<ArgumentException>(() => ContentHostPolicy.NormalizeOrigins(new[] { "stun:" + new string('a', 2048) }));
+        Assert.Throws<ArgumentException>(() => ContentHostPolicy.NormalizeOrigins(Enumerable.Range(0, 64).Select(i => "stun:" + new string('a', 600) + i)));
+        foreach (var invalid in new[] { "", "https://host.example", "turn://user:secret@host.example", "stun:host\n", "stun: host" })
+            Assert.Throws<ArgumentException>(() => ContentHostPolicy.NormalizeOrigins(new[] { invalid }));
+        Assert.False(ContentHostPolicy.TryNavigationUri("https://host.example/" + new string('a', 8192), out _));
+        Assert.True(ContentHostPolicy.TryNavigationUri("file:///C:/artifact/child.html", out _));
+        Assert.True(ContentHostPolicy.TryNavigationUri("folio-resource:child", out _));
+    }
+
+    private static ContentProcessClient Start(FolioOptions options, Func<Action, CancellationToken, ValueTask>? dispatcher = null) =>
+        ContentProcessClient.StartWithOptions(ContentHostTestPaths.Resolve(), options,
+            new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)), iframeNavigationDispatcher: dispatcher);
+
+    private static string? Value(ContentMessage message) => message.Payload.GetProperty("value").GetString();
+
+    private static string Generation(ContentProcessClient client)
+    {
+        var document = typeof(ContentProcessClient).GetField("_navigationDocument", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(client)!;
+        return (string)document.GetType().GetProperty("Generation", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(document)!;
+    }
+
+    private static async ValueTask DispatchNotification(ContentProcessClient client, string json)
+    {
+        var handler = typeof(ContentProcessClient).GetMethod("ValidateAndDispatchAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        using var payload = JsonDocument.Parse(json);
+        await (ValueTask)handler.Invoke(client, new object[]
+        {
+            new ContentMessage(ContentMessageKind.IframeNavigationRequested, 1, payload.RootElement.Clone()), TestContext.Current.CancellationToken
+        })!;
+    }
+
+    private static async Task<ContentMessage> Exchange(ContentProcessClient client, object payload, string? expected = null)
+    {
+        var completion = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Receive(ContentMessage message, CancellationToken _)
+        {
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0
+                && (expected is null || Value(message) == expected)) completion.TrySetResult(message);
+            else if (message.Kind == ContentMessageKind.Diagnostic) completion.TrySetException(new InvalidOperationException(message.Payload.ToString()));
+            return ValueTask.CompletedTask;
+        }
+        client.MessageReceived += Receive;
+        try
+        {
+            await client.SendAsync(ContentMessageKind.Load, payload, TestContext.Current.CancellationToken);
+            return await completion.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+        }
+        finally { client.MessageReceived -= Receive; }
+    }
+
+    private sealed class Loader : IResourceLoader
+    {
+        internal ConcurrentQueue<Uri> Uris { get; } = new();
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Uris.Enqueue(new Uri(request.Url));
+            return Task.FromResult<ResourceResponse?>(new ResourceResponse(System.Text.Encoding.UTF8.GetBytes("<body>child</body>"), "text/html", null));
+        }
+    }
+
+    private sealed class NavigationUiThread : IDisposable
+    {
+        private readonly BlockingCollection<(Action Callback, TaskCompletionSource Completion)> _queue = new();
+        private readonly Thread _thread;
+        internal int ThreadId => _thread.ManagedThreadId;
+        internal NavigationUiThread()
+        {
+            _thread = new Thread(() =>
+            {
+                foreach (var (callback, completion) in _queue.GetConsumingEnumerable())
+                {
+                    try { callback(); completion.TrySetResult(); }
+                    catch (Exception error) { completion.TrySetException(error); }
+                }
+            }) { IsBackground = true, Name = "Folio navigation test UI" };
+            _thread.Start();
+        }
+        internal ValueTask Dispatch(Action callback, CancellationToken token)
+        {
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _queue.Add((callback, completion), token);
+            return new ValueTask(completion.Task.WaitAsync(token));
+        }
+        public void Dispose()
+        {
+            _queue.CompleteAdding();
+            if (_thread.Join(TimeSpan.FromSeconds(15))) _queue.Dispose();
+        }
+    }
+}
