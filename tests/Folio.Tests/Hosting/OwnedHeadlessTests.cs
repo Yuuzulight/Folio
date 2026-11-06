@@ -12,7 +12,7 @@ public sealed class OwnedHeadlessTests
         var options = new FolioOptions { ResourceInterceptor = new OfflineStyle() };
         var png = HeadlessRenderer.RenderPng("<link rel=stylesheet href='https://offline.invalid/style.css'><body style='margin:0'><div style='height:20px'></div></body>", 30, options);
         var image = Assert.IsType<DecodedImage>(ImageDecoder.Decode(png));
-        Assert.Equal(new byte[] { 0, 128, 0, 255 }, image.Pixels.Slice((5 * image.Width + 5) * 4, 4).ToArray());
+        Assert.Equal(new byte[] { 0, 128, 0, 255 }, image.Pixels.AsSpan((5 * image.Width + 5) * 4, 4).ToArray());
         Assert.Null(options.ResourceLoader);
     }
 
@@ -30,8 +30,8 @@ public sealed class OwnedHeadlessTests
         var decoded = Assert.IsType<DecodedImage>(ImageDecoder.Decode(png));
         Assert.Equal(240, decoded.Width);
         Assert.True(decoded.Height > 0);
-        Assert.True(Enumerable.Range(0, decoded.Width * decoded.Height).Any(i =>
-            decoded.Pixels[i * 4 + 3] == 255 && decoded.Pixels[i * 4] < 100));
+        Assert.Contains(Enumerable.Range(0, decoded.Width * decoded.Height), i =>
+            decoded.Pixels[i * 4 + 3] == 255 && decoded.Pixels[i * 4] < 100);
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public sealed class OwnedHeadlessTests
         var options = new FolioOptions { ColorScheme = ColorScheme.Dark };
         var png = HeadlessRenderer.RenderPng("<body style='margin:0;color:white'>Visible text</body>", 240, options);
         var image = Assert.IsType<DecodedImage>(ImageDecoder.Decode(png));
-        Assert.True(Enumerable.Range(0, image.Width * image.Height).Any(i => image.Pixels[i * 4] > 200));
+        Assert.Contains(Enumerable.Range(0, image.Width * image.Height), i => image.Pixels[i * 4] > 200);
         Assert.Same(FontSettings.Default, options.Fonts);
     }
 

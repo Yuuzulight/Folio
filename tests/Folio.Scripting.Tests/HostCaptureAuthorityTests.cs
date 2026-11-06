@@ -89,7 +89,7 @@ public sealed class HostCaptureAuthorityTests
             });
         try
         {
-            await client.SendAsync(ContentMessageKind.Load, new { probe = "capture-request", capabilities = new FeatureCapabilities { Camera = true } });
+            await client.SendAsync(ContentMessageKind.Load, new { probe = "capture-request", capabilities = new FeatureCapabilities { Camera = true } }, TestContext.Current.CancellationToken);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
         }
         finally { await client.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken); }
