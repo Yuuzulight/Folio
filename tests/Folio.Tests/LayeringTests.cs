@@ -55,6 +55,7 @@ public class LayeringTests
         ["Painting"],
         ["Interaction"],
         ["Hosting", ""],
+        ["Rendering"],
     ];
 
     [Fact]

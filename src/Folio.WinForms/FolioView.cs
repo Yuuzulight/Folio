@@ -68,6 +68,7 @@ public class FolioView : Control
     };
     private FolioViewAccessibleObject? _accessibleObject;
     private ContentProcessClient? _contentProcess;
+    private FolioOptions? _prewarmedOptions;
     private bool _contentProcessPrewarmed;
     private Func<ContentMessage, CancellationToken, ValueTask>? _contentMessageHandler;
     private CanvasFrameStore? _contentFrameStore;
@@ -105,7 +106,7 @@ public class FolioView : Control
 
     /// <summary>The options new documents are parsed with.</summary>
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public FolioOptions Options { get; set; } = new();
+    public FolioOptions Options { get; set; } = new() { Fonts = BundledFontSource.Settings };
 
     /// <summary>The capabilities currently requested for this view's content artifact.</summary>
     [Browsable(false)]
@@ -205,6 +206,7 @@ public class FolioView : Control
             _pendingScriptStopped = null;
             _pendingMediaActivity = null;
             _contentProcessPrewarmed = false;
+            _prewarmedOptions = null;
             _lastContentViewport = null;
         }
         _contentProcess.ScriptStopped += OnScriptStopped;
@@ -227,6 +229,8 @@ public class FolioView : Control
         {
             previous = _contentProcess;
             _contentProcess = null;
+            _contentProcessPrewarmed = false;
+            _prewarmedOptions = null;
             _contentMessageHandler = null;
             _contentGeneration++;
             _contentCommands = new();
@@ -285,21 +289,43 @@ public class FolioView : Control
                 return;
         try
         {
-            var process = ContentProcessClient.Start(Options.ContentProcessPath,
-                resourceLoader: Options.ResourceLoader,
-                artifactStorage: Options.ArtifactStorage,
-                artifactId: Options.ArtifactId,
-                documentLimits: Options.Limits,
-                mediaCaptureProvider: Options.MediaCaptureProvider);
+            var options = Options;
+            var process = CreateContentProcess(options);
             AttachContentProcess(process);
             lock (_contentStateGate)
+            {
                 _contentProcessPrewarmed = true;
+                _prewarmedOptions = options;
+            }
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
             // LoadHtml reports a visible script-stop notice if the later launch
             // also fails; handle creation must remain usable for static content.
         }
+    }
+
+    private ContentProcessClient CreateContentProcess(FolioOptions? options = null) => ContentProcessClient.StartWithOptions(
+        (options ?? Options).ContentProcessPath!, options ?? Options, mediaCapturePermission: PermitCaptureOnUiThread);
+
+    private ValueTask<bool> PermitCaptureOnUiThread(MediaCaptureRequest request, CancellationToken cancellationToken)
+    {
+        if (IsDisposed || Disposing || !IsHandleCreated || cancellationToken.IsCancellationRequested) return ValueTask.FromResult(false);
+        bool Permit() => !IsDisposed && !Disposing && (Options.MediaCapturePermission?.Invoke(request) ?? true);
+        try
+        {
+            if (!InvokeRequired) return ValueTask.FromResult(Permit());
+            var answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            BeginInvoke((Action)(() =>
+            {
+                if (cancellationToken.IsCancellationRequested) { answer.TrySetResult(false); return; }
+                try { answer.TrySetResult(Permit()); }
+                catch (Exception error) when (error is not OutOfMemoryException) { answer.TrySetResult(false); }
+            }));
+            // Closing/reloading the control cancels the reader; never wait on the UI thread during its disposal.
+            return new ValueTask<bool>(answer.Task.WaitAsync(cancellationToken));
+        }
+        catch (Exception error) when (error is not OutOfMemoryException) { return ValueTask.FromResult(false); }
     }
 
     /// <summary>Changes capabilities on the live content artifact without reloading it.</summary>
@@ -548,7 +574,8 @@ public class FolioView : Control
         var options = new FolioOptions
         {
             BaseUri = baseUri ?? Options.BaseUri, ColorScheme = Options.ColorScheme, ReducedMotion = Options.ReducedMotion || SystemReducedMotion(),
-            UserStyleSheet = Options.UserStyleSheet, Limits = Options.Limits, CollectDiagnostics = Options.CollectDiagnostics, Fonts = Options.Fonts,
+            UserStyleSheet = Options.UserStyleSheet, Limits = Options.Limits, CollectDiagnostics = Options.CollectDiagnostics, Fonts = Options.WithDefaultFonts().Fonts,
+            ResourceInterceptor = Options.ResourceInterceptor,
             ResourceLoader = Options.ResourceLoader, Scripting = Options.Scripting, ContentProcessPath = Options.ContentProcessPath,
             ArtifactId = Options.ArtifactId, ArtifactStorage = Options.ArtifactStorage,
             MediaCapturePermission = Options.MediaCapturePermission,
@@ -594,8 +621,9 @@ public class FolioView : Control
             ContentProcessClient? process;
             lock (_contentStateGate)
             {
-                process = _contentProcessPrewarmed ? _contentProcess : null;
+                process = _contentProcessPrewarmed && ReferenceEquals(_prewarmedOptions, Options) ? _contentProcess : null;
                 _contentProcessPrewarmed = false;
+                _prewarmedOptions = null;
             }
             if (process is null)
             {
@@ -604,7 +632,7 @@ public class FolioView : Control
                     DisposeRetiredContentProcess(previous);
                 try
                 {
-                    process = ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader, artifactStorage: Options.ArtifactStorage, artifactId: Options.ArtifactId, documentLimits: Options.Limits, mediaCaptureProvider: Options.MediaCaptureProvider);
+                    process = CreateContentProcess();
                     AttachContentProcess(process);
                 }
                 catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)

@@ -48,6 +48,21 @@ public sealed class ContentResourceBrokerTests
     }
 
     [Fact]
+    public async Task OptionsForwardOfflineInterceptionWithoutGrantingANetworkLoader()
+    {
+        await using var client = ContentProcessClient.StartWithOptions(ContentHostPath(),
+            new FolioOptions { ResourceInterceptor = new OfflineScript() });
+        var frame = await Load(client, new { html = "<script src='https://offline.invalid/code.js'></script>", script = "offlineValue" });
+        Assert.Equal("42", frame.Payload.GetProperty("value").GetString());
+    }
+
+    private sealed class OfflineScript : IResourceInterceptor
+    {
+        public ResourceResponse? Intercept(ResourceRequest request) => request.Url == "https://offline.invalid/code.js"
+            ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("globalThis.offlineValue=42;"), "application/javascript") : null;
+    }
+
+    [Fact]
     public async Task ContentProcessLoadsRelativeExternalScriptThroughHostLoaderOnce()
     {
         const string source = "globalThis.externalValue = 42;";
@@ -107,7 +122,9 @@ public sealed class ContentResourceBrokerTests
         var loader = new RecordingLoader((request, _) => ResourceResponse.Loaded(Encoding.ASCII.GetBytes("RIFFxxxxWAVE"), "audio/test"));
         var decoder = new DebugDecoder();
         var output = new DebugAudioOutput();
-        await using var client = ContentProcessClient.Start(ContentHostPath(), null, new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)), resourceLoader: loader, resourcePolicy: AllowExampleOrigin(), mediaDecoder: decoder, mediaAudioOutput: output);
+        await using var client = ContentProcessClient.StartWithOptions(ContentHostPath(),
+            new FolioOptions { ResourceLoader = loader, MediaDecoder = decoder, MediaAudioOutput = output },
+            new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)));
         var frame = await Load(client, new { html = "<audio id='a' src='clip'></audio>", script = "const a=document.getElementById('a'); a.play(); a.readyState + ':' + a.error + ':' + a.paused", url = "https://example.test/index.html", capabilities = new FeatureCapabilities { Media = true, Sound = true } });
         Assert.Equal("4:null:false", frame.Payload.GetProperty("value").GetString());
         Assert.Equal(1, decoder.Calls);

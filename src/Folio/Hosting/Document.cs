@@ -1237,7 +1237,7 @@ public sealed class Document : IDisposable
         var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
         _fonts ??= FontCollection.For(Options.Fonts);
         _labelText = new Hosting.CanvasStyleEngine(_fonts, shaper);
-        var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+        var sources = new StyleSources(Options.ResourceLoader is not null || Options.ResourceInterceptor is not null ? new ResourceLoader(host: Options.ResourceLoader, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
         var fontFaces = StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), animationTime);
         if (!_webFontsLoaded)
         {
@@ -1402,7 +1402,7 @@ public sealed class Document : IDisposable
                 Node.StyleMutated = false;
                 var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
                 _fonts ??= FontCollection.For(Options.Fonts);
-                var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+                var sources = new StyleSources(Options.ResourceLoader is not null || Options.ResourceInterceptor is not null ? new ResourceLoader(host: Options.ResourceLoader, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
                 StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);
             }
             return RebuildBoxes(last);
@@ -1449,7 +1449,7 @@ public sealed class Document : IDisposable
             Remember(Node);
             var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
             _fonts ??= FontCollection.For(Options.Fonts);
-            var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+            var sources = new StyleSources(Options.ResourceLoader is not null || Options.ResourceInterceptor is not null ? new ResourceLoader(host: Options.ResourceLoader, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
             StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);
             RestyleCount = oldStyles.Count;
         }

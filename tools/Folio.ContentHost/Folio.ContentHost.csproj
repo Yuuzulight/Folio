@@ -22,8 +22,4 @@
     <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
     <ProjectReference Include="..\..\src\Folio.Diagrams\Folio.Diagrams.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <Content Include="../../tests/fonts/SourceSans3-*.ttf;../../tests/fonts/SourceCodePro-*.ttf;../../tests/fonts/SourceSerif4-*.ttf;../../tests/fonts/Noto*.ttf;../../tests/fonts/Noto*.otf;../../tests/fonts/*-OFL.txt;../../tests/fonts/LICENSES.md;../../tests/fonts/SHA256SUMS"
-             Link="fonts/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-  </ItemGroup>
 </Project>

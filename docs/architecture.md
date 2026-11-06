@@ -27,7 +27,7 @@ Folio turns an HTML string into pixels in a .NET window, and later runs the arti
                                          Display list (flat, backend-independent)
                                                │  replay with scroll offsets, culling
                                                ▼
-                                     ICanvas ──► SkiaSharp surface ──► WinForms control / PNG
+                                     ICanvas ──► Folio software surface ──► WinForms control / PNG
 ```
 
 One entry point drives it: `Document.Update()` runs only the stages that are dirty ([invalidation](study/14-invalidation.md)). Resource loads (images, fonts, stylesheets) complete asynchronously and mark the document dirty.
@@ -47,7 +47,7 @@ One entry point drives it: `Document.Update()` runs only the stages that are dir
 
 ## Key decisions
 
-1. **Everything that decides layout and appearance is Folio's own code**; SkiaSharp (raster), HarfBuzzSharp (complex shaping) and later a JavaScript engine are dependencies behind Folio interfaces ([dependencies](dependencies.md)).
+1. **Everything that decides layout and appearance is Folio's own code**; Folio-owned rasterization, complex shaping and scripting are the production implementations behind Folio interfaces; external engines remain explicit differential tools ([dependencies](dependencies.md)).
 2. **Separate trees with one-way flow**: DOM → styles → box tree → immutable fragment tree → stacking tree → display list. Each stage can be tested by dumping its output as text.
 3. **Layout as functions with caches**: `Layout(box, ConstraintSpace) → Fragment` and `IntrinsicSizes(box)`, cached per box. Flex, grid and tables measure children freely without exponential cost.
 4. **Spec algorithms implemented step by step**, with method names that follow spec section names, so review against the spec is mechanical.
@@ -57,7 +57,7 @@ One entry point drives it: `Document.Update()` runs only the stages that are dir
 8. **Deny-by-default resources**: all loads go through the host's `IResourceLoader`; the default allows `data:` URLs only.
 9. **Static documents render in-process; scripted documents run in a sandboxed content process** that owns DOM, style, layout and the script engine and sends display lists to the host.
 10. **Content never throws**: bad HTML/CSS is recovered per spec; limits stop work gracefully; everything is reported as diagnostics that a host (Mana) can feed back to the model that wrote the artifact.
-11. **Scripts**: a temporary Jint compatibility backend while Folio's own parser, VM, and native hot-path compiler are built behind `IScriptEngine`. JSX is compiled by the host before content reaches Folio; diagram-description languages are rendered by Folio's own diagram renderer instead of a diagram library.
+11. **Scripts**: Folio's parser, VM and native hot-path compiler are the production backend behind `IScriptEngine`; Jint is an explicit compatibility/oracle build. JSX is compiled by the host before content reaches Folio; diagram-description languages are rendered by Folio's own diagram renderer instead of a diagram library.
 12. **.NET 10 only**: `net10.0` for the engine (runs on Windows and Linux, which the tests use), `net10.0-windows` for the WinForms control and the content process.
 
 ## Solution layout

@@ -36,6 +36,7 @@ function Assert-PublishSibling([string]$Path) {
     }
 }
 
+Push-Location -LiteralPath $repoRoot
 try {
     # Build separately, validate completely, then exchange directories. An incremental publish must not retain
     # framework-dependent DLLs or replace a working artifact with a partially compiled helper.
@@ -84,6 +85,8 @@ try {
 
     $manifest = [ordered]@{
         format = 1; runtime = $Runtime; sdk = (dotnet --version).Trim()
+        sourceCommit = (git -C $repoRoot rev-parse HEAD).Trim()
+        sourceDirty = [bool](git -C $repoRoot status --porcelain --untracked-files=all)
         compilerPackages = $compilerPackages
         executableSha256 = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash.ToLowerInvariant()
         fontManifestSha256 = (Get-FileHash -LiteralPath (Join-Path $fontDirectory 'SHA256SUMS') -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -107,8 +110,10 @@ try {
     }
     Write-Host "Verified standalone native production host: $Destination"
 } finally {
-    if (Test-Path -LiteralPath $stageDirectory) {
-        Assert-PublishSibling $stageDirectory
-        Remove-Item -LiteralPath $stageDirectory -Recurse -Force
-    }
+    try {
+        if (Test-Path -LiteralPath $stageDirectory) {
+            Assert-PublishSibling $stageDirectory
+            Remove-Item -LiteralPath $stageDirectory -Recurse -Force
+        }
+    } finally { Pop-Location }
 }

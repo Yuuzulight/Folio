@@ -30,6 +30,25 @@ session.MessageReceived += async (message, cancellationToken) =>
             PublishFrame();
             await Reply(message, new { probe, ready = true }, cancellationToken);
             break;
+        case "capture-request":
+            // Exercise a compromised child's raw broker request without the DOM's capability checks.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var capture = await session.RequestMediaCaptureAsync(new Dictionary<string, object?>
+                    {
+                        ["action"] = "open", ["audio"] = false, ["video"] = true
+                    }, cancellationToken);
+                    PublishFrame();
+                    await Reply(message, new { capture }, cancellationToken);
+                }
+                catch (Exception error) when (error is not OutOfMemoryException)
+                {
+                    await session.SendAsync(ContentMessageKind.Diagnostic, new { error = error.GetType().Name }, cancellationToken);
+                }
+            }, cancellationToken);
+            break;
         case "gpu":
             var canvasId = message.Payload.TryGetProperty("canvasId", out var canvasValue)
                 ? canvasValue.GetString() ?? "gpu-canvas" : "gpu-canvas";
