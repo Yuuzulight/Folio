@@ -19,6 +19,8 @@ public sealed partial class ContentHostSession : IAsyncDisposable
     private readonly IResourceLoader? _resourceLoader;
     private readonly IMediaDecoder? _mediaDecoder;
     private readonly IMediaAudioOutput? _mediaAudioOutput;
+    // Set by the parent-side client, never from incoming child messages. Low-level sessions can own their own policy.
+    internal Func<FeatureCapabilities>? HostCapabilities { get; set; }
     private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _mediaCaptureRequests = new();
     private readonly ConcurrentDictionary<long, TaskCompletionSource<MediaDecodeResult?>> _mediaDecodeRequests = new();
     private readonly ConcurrentDictionary<long, TaskCompletionSource<ResourceResponse>> _resourceRequests = new();
@@ -155,7 +157,8 @@ public sealed partial class ContentHostSession : IAsyncDisposable
         }
         else if (message.Kind == ContentMessageKind.MediaAudioSubmit)
         {
-            if (_mediaAudioOutput is not null && TryReadAudio(message.Payload, out var frame)) _mediaAudioOutput.Submit(frame);
+            if (_mediaAudioOutput is not null && (HostCapabilities?.Invoke().Sound ?? true)
+                && TryReadAudio(message.Payload, out var frame)) _mediaAudioOutput.Submit(frame);
         }
         else if (message.Kind == ContentMessageKind.MediaAudioLifecycle)
         {
@@ -163,7 +166,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             {
                 switch (action.GetString())
                 {
-                    case "start": lifecycle.Start(); break;
+                    case "start": if (HostCapabilities?.Invoke().Sound ?? true) lifecycle.Start(); break;
                     case "pause": lifecycle.Pause(); break;
                     case "flush": lifecycle.Flush(); break;
                     case "stop": lifecycle.Stop(); break;
@@ -232,6 +235,8 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             || !message.Payload.TryGetProperty("maxOutputBytes", out var limitValue) || !limitValue.TryGetInt32(out var maxOutputBytes)
             || maxOutputBytes < 0)
             return null;
+        var authority = HostCapabilities?.Invoke();
+        if (authority is not null && !authority.Media && (videoValue.GetBoolean() || !authority.Sound)) return null;
         try
         {
             var bytes = Convert.FromBase64String(dataValue.GetString() ?? string.Empty);

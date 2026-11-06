@@ -156,7 +156,22 @@ public sealed class FolioOptions
     public string? UserStyleSheet { get; init; }
 
     /// <summary>Where text finds its fonts, and what generic family names stand for. By default there are no fonts.</summary>
-    public Typography.FontSettings Fonts { get; init; } = Typography.FontSettings.Default;
+    private Typography.FontSettings _fonts = Typography.FontSettings.Default;
+    public Typography.FontSettings Fonts
+    {
+        get => _fonts;
+        init => _fonts = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    // High-level renderers supply usable fonts when the caller leaves the low-level default untouched.
+    // Shallow-copy all host policies/providers so adding a future option cannot silently drop it here.
+    internal FolioOptions WithDefaultFonts()
+    {
+        if (!ReferenceEquals(_fonts, Typography.FontSettings.Default)) return this;
+        var copy = (FolioOptions)MemberwiseClone();
+        copy._fonts = Typography.BundledFontSource.Settings;
+        return copy;
+    }
 
     public ResourceLimits Limits { get; init; } = ResourceLimits.Default;
 

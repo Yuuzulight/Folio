@@ -4,52 +4,54 @@ A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
 
 Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher is designed to stay light on memory. Mana writes HTML "artifacts" (reports, tables, charts, small interactive pages), and Folio shows them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
 
-**Status:** Folio has dependency-backed rendering through milestone 6 while the native JavaScript engine is now the production content-host default. The compatibility D2–D7 corpus passes, including Chart.js canvas parity, and the latest native D1–D14 sweep passes 102/102 artifacts. Jint remains only as an explicitly built differential oracle; SkiaSharp, HarfBuzz, Wasmtime and ANGLE replacement gates are unfinished. Milestone 6 is in progress; the [acceptance audit](docs/milestone-6-audit.md) records the remaining native backend, media, transport, isolation and sandbox requirements. Transactional Cache API storage now works through the host in both in-process and separate-process documents; see the [storage guide](docs/cache-api-storage.md). Native raster work now bounds each font's parsed-outline cache to 8 MiB and covers bounded COLR v1 solid, linear/radial/sweep gradients, composites and non-variable transform wrappers; CFF2 variation, broader color-font corpus and raster performance gates remain open. Milestone 7 is a **mandatory, non-waivable completion gate**: Folio is not finished until the dependency-backed shaper, rasteriser, image codecs, JavaScript engine, WebAssembly runtime and ANGLE GPU backend have all been replaced, differentially verified and removed from production. See the [replacement gate](docs/replacement-gate.md).
-
-Latest hosted verification: run `41007203678` (CI 1832) passed all checks, including both build/test jobs, scripted benchmarks, native WebGL/canvas gates, fuzzing and the capability matrix. The latest local Release baseline is 4,350/4,352 with zero failures and two documented skips; the mandatory replacement gate remains open.
+**Status:** The Windows production content host uses Folio-owned rendering, shaping, scripting and WebAssembly implementations. Optional Skia, HarfBuzz, Jint and Wasmtime paths are compatibility or differential-test tools, not requirements of the production package graph. Folio is not a general-purpose browser. Repository test results do not establish that every originally planned web-platform feature is complete: see the [consumer readiness audit](docs/consumer-readiness-audit.md) for integration evidence and remaining feature blockers.
 
 ## Goal
 Render and run AI-written HTML artifacts as well as a modern browser does: pages that use modern CSS, web fonts, SVG charts and diagrams, and, in later milestones, the scripts, UI libraries and canvas graphics those artifacts rely on.
 
 ## Principles
-- **Native and light:** draws with SkiaSharp inside the host app; tens of MB, not a separate browser process.
+- **Native and light:** static content uses Folio's own renderer inside the host app; scripts run in a separately constrained content process.
 - **Interactive:** a real on-screen control with hover, clicks, scrolling, text selection and relayout on resize. A WinForms control comes first, with a headless render-to-image API alongside it.
 - **Safe by default:** no network access unless the host allows it; scripts run sandboxed with strict limits.
 - **Measured:** progress is tracked against a conformance suite of real-world-style artifacts.
 
-## Non-goals
-- Browsing the web: no address bar, tabs, logins or extensions.
-- The parts of the web platform artifacts don't use (video calls, 3D, streaming media, offline apps).
+## Scope
 
-## Milestones
+Folio provides artifact rendering and interaction rather than address bars, browser profiles, extensions or general web navigation. Static HTML/CSS, text, SVG, images and the tested scripting/canvas corpus have dedicated implementation and regression coverage. Advanced APIs have narrower support: their existence in the DOM is not a promise of browser-equivalent networking, device integration or isolation.
 
-Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/milestones). Open-issue counts include each milestone's tracking issue.
-
-| Milestone | Status | Open |
-|---|---|---|
-| 0. Study and architecture: how each part of an engine works, written up as Folio's own design in `docs/study`. | Done | 0 |
-| 1. Static rendering: parsing, cascade, block, inline, flex and grid layout, text, images and painting. Ships as a WinForms control and a render-to-image API. | Done, in use in Mana; CI fuzz job still times out after a zero-failure run | 0 |
-| 2. Static parity: gradients, shadows, transforms, transitions and animations, web fonts, and SVG. | Done | 0 |
-| 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done; performance target remains an advisory measurement | 0 |
-| 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | In progress: D1 compatibility/native conformance is 12/12 with zero mismatches; scripted startup and working-set targets remain open under #484/#677 | 2 |
-| 5. Scripted parity: canvas 2D, mutation observers, diagrams, and the UI and charting library artifacts load from a host-approved list of CDNs. | In progress: dependency-backed path and native canvas frame-time gate are verified; mandatory Folio-owned replacement remains | 1 |
-| 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress: capability slices pass, but backend, device, transport and isolation acceptance remains open | 15 |
-| 7. Folio-owned replacements: replace the dependency-backed shaper, rasteriser, image codecs, script engine, WebAssembly runtime and ANGLE GPU backend with Folio-owned implementations. **Mandatory, non-waivable completion gate after Milestone 6.** | In progress, incomplete (mandatory) | 12 |
-
-Until a milestone lands, anything Folio can't handle yet opens in the system browser.
+The [milestone-6 acceptance audit](docs/milestone-6-audit.md) and [replacement gate](docs/replacement-gate.md) document the original requirements. Closed GitHub milestones and passing feature slices should not be used to erase unmet requirements. The production classifier deliberately retains browser routing for advanced features that have not been promoted; hosts must handle that result.
 
 ## Using it
 
-Hosts use Folio as NuGet packages: `Folio`, `Folio.Skia` and `Folio.WinForms`. Render HTML to a PNG:
+Reference `Folio` for portable static rendering, or `Folio.WinForms` for the Windows control. The complete production feed contains `Folio`, `Folio.Diagrams`, `Folio.Scripting` and `Folio.WinForms`; NuGet resolves their dependencies. Render HTML to a PNG without external rendering libraries:
 
 ```csharp
-using Folio.Skia;
+using Folio.Rendering;
 
 byte[] png = HeadlessRenderer.RenderPng("<h1>Quarterly report</h1><p>Revenue rose <strong>12%</strong> on the year.</p>", width: 800);
 File.WriteAllBytes("report.png", png);
 ```
 
-On Windows, `FolioView` (in `Folio.WinForms`) shows a document in a window: call `LoadHtml(html)` on it. Scripted documents can use `Folio.ContentHost` through `ContentProcessClient`; configure `FolioOptions.Scripting` as `ContentProcess` and provide `ContentProcessPath`.
+`RenderPng` is a static renderer: it does not execute page scripts. It supplies bundled fonts when none are specified, preserves explicit host font/resource policies, and applies image size limits. For explicit layout, use `Document.Parse` with `Fonts = BundledFontSource.Settings`, then `HeadlessRenderer.Render`; dispose both the document and returned image.
+
+On Windows, add a `Folio.WinForms.FolioView` to a form and call `LoadHtml(html)`. The default control includes bundled fonts. Replacing its options does not remove those defaults unless an explicit font source is supplied. Font families load on demand; the shipped corpus is not universal Unicode coverage. Packages copy fonts and license notices into consumer output and publish directories. A host that supplies all fonts itself may set the MSBuild property `FolioBundledFonts=false`.
+
+For scripts, publish the standalone Windows host separately, deploy the **whole** output directory (including `fonts`), and configure:
+
+```csharp
+view.Options = new FolioOptions
+{
+    Scripting = ScriptingPolicy.ContentProcess,
+    ContentProcessPath = Path.Combine(AppContext.BaseDirectory, "Folio", "Folio.ContentHost.exe")
+};
+view.LoadHtml(html);
+```
+
+Dispose the control when its window closes. The production host is a separate download/build artifact, not an executable hidden inside the NuGet packages. Portable static rendering does not require it. Low-level integrations can use `ContentProcessClient.StartWithOptions` to forward host resource, storage and media services, then send the document and its capability grants through the protocol. The raw `Start` overload remains available for explicitly configured integrations.
+
+Network, media, camera and microphone permissions must be supplied deliberately by the host. Camera/microphone capture requires both the corresponding capability grant and an available provider; an optional host permission callback can deny requests. The WinForms control invokes that callback on its UI thread. Disposing, reloading or revoking a grant releases owned capture sessions. Advanced API support and denied capabilities must remain visible to the user; do not treat a loaded page as proof that all of its requested features worked.
+
+The explicitly selected `Folio.Skia` adapter remains available from source for compatibility/oracle builds; it is not part of the default production feed.
 
 ## Building
 Needs .NET SDK 10.0.403 or newer (including the patched .NET 10.0.14 runtime). The engine and its tests run on Windows and Linux; the WinForms control runs on Windows.
@@ -118,10 +120,10 @@ dotnet run --project tests/Folio.Benchmarks -c Release -- gc 9
 The pack script writes the packages to a folder that works as a local package source (by default `artifacts/packages`). It runs in PowerShell 5.1 (`powershell`) or 7 (`pwsh`):
 
 ```
-pwsh -File tools/pack.ps1 [-Output <folder>]
+pwsh -File tools/pack.ps1 [-Output <folder>] [-Version <release-version>]
 ```
 
-The version is `0.1.0-m1.N`, where N is the number of commits in the packed commit's history, so each commit on main packs as its own version. The script refuses to pack uncommitted changes or a shallow clone. A host pins a version, adds the folder as a package source, and can rebuild the same packages from the pinned commit.
+By default the version is `0.1.0-m1.N`, where N is the number of commits in the packed commit's history, so each commit on main packs as its own version. The script refuses to pack uncommitted changes or a shallow clone. An explicit `-Version` lets a clean tagged commit produce its release package version. A host pins both a commit and package version, adds the feed as a package source, and builds the standalone host from that same commit. Building packages does not publish a GitHub release. Mana automatic updates accept published stable releases only, excluding drafts and prereleases.
 
 ## Licence
 Apache-2.0, same as Mana.

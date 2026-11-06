@@ -34,7 +34,11 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private readonly ResourceLimits _documentLimits;
     private readonly bool _storageEnabled;
     private readonly IMediaCaptureProvider? _mediaCaptureProvider;
-    private readonly ConcurrentDictionary<string, IMediaCaptureSession> _mediaCaptureSessions = new();
+    private readonly ConcurrentDictionary<string, CaptureLease> _mediaCaptureSessions = new();
+    private Func<MediaCaptureRequest, CancellationToken, ValueTask<bool>>? _mediaCapturePermission;
+    private FeatureCapabilities _hostCapabilities = FeatureCapabilities.Default;
+    private long _captureGeneration;
+    private int _hasLoadedDocument;
     private readonly Stream _input;
     private readonly Stream _error;
     private ContentViewport _viewport = new(1280, 720);
@@ -53,6 +57,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
         _artifact = artifact; _documentLimits = documentLimits; _storageEnabled = storage is not null;
         _mediaCaptureProvider = mediaCaptureProvider;
         _session = new ContentHostSession(output, input, supervisor, resourcePolicy, resourceLoader, mediaDecoder, mediaAudioOutput);
+        _session.HostCapabilities = () => _shutdown.IsCancellationRequested ? FeatureCapabilities.Default : Volatile.Read(ref _hostCapabilities);
         _session.MessageReceived += ValidateAndDispatchAsync;
         if (storage is not null) _session.ConfigureStorage(storage, artifact, documentLimits.MaxServiceWorkerCacheBytes);
         _supervisor.Stopped += OnStopped;
@@ -80,6 +85,20 @@ public sealed class ContentProcessClient : IAsyncDisposable
     /// <summary>Starts a content process with the original resource-broker API.</summary>
     public static ContentProcessClient Start(string executablePath, string? arguments, ContentProcessLimits? limits, IResourceLoader? resourceLoader, ContentResourcePolicy? resourcePolicy) =>
         Start(executablePath, arguments, limits, resourceLoader, resourcePolicy, null, "default", null);
+
+    /// <summary>Starts a client with the host's resource, storage and media services. Capabilities are still supplied in each load/update message.</summary>
+    /// <remarks>Permission runs on the client's reader thread. A UI host can supply an override that marshals to its UI thread.</remarks>
+    public static ContentProcessClient StartWithOptions(string executablePath, FolioOptions options, ContentProcessLimits? limits = null,
+        Func<MediaCaptureRequest, CancellationToken, ValueTask<bool>>? mediaCapturePermission = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var client = Start(executablePath, limits: limits, resourceLoader: options.ResourceLoader,
+            artifactStorage: options.ArtifactStorage, artifactId: options.ArtifactId, documentLimits: options.Limits,
+            mediaDecoder: options.MediaDecoder, mediaAudioOutput: options.MediaAudioOutput, mediaCaptureProvider: options.MediaCaptureProvider);
+        client._mediaCapturePermission = mediaCapturePermission ?? (options.MediaCapturePermission is { } permission
+            ? (request, _) => ValueTask.FromResult(permission(request)) : null);
+        return client;
+    }
 
     /// <param name="executablePath">The content-host executable or assembly.</param>
     /// <param name="arguments">Additional launch arguments.</param>
@@ -162,6 +181,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private async ValueTask HandleMediaCaptureAsync(ContentMessage message, CancellationToken cancellationToken)
     {
         JsonObject result = new() { ["ok"] = false };
+        string? openedToken = null;
         try
         {
             var action = message.Payload.TryGetProperty("action", out var actionValue) ? actionValue.GetString() : null;
@@ -169,20 +189,32 @@ public sealed class ContentProcessClient : IAsyncDisposable
                 && message.Payload.TryGetProperty("audio", out var audio) && audio.ValueKind is JsonValueKind.True or JsonValueKind.False
                 && message.Payload.TryGetProperty("video", out var video) && video.ValueKind is JsonValueKind.True or JsonValueKind.False)
             {
-                var session = _mediaCaptureProvider.Open(new MediaCaptureRequest(audio.GetBoolean(), video.GetBoolean()));
+                var request = new MediaCaptureRequest(audio.GetBoolean(), video.GetBoolean());
+                var generation = Volatile.Read(ref _captureGeneration);
+                if (!CaptureGranted(request) || (_mediaCapturePermission is { } permit && !await permit(request, cancellationToken).ConfigureAwait(false))
+                    || generation != Volatile.Read(ref _captureGeneration) || !CaptureGranted(request))
+                    throw new InvalidOperationException("The host denied camera or microphone capture.");
+                var session = _mediaCaptureProvider.Open(request);
                 if (session is not null)
                 {
                     var token = Guid.NewGuid().ToString("N");
-                    _mediaCaptureSessions[token] = session;
-                    session.VideoFrameAvailable += frame => SendCaptureActivity(token, new JsonObject { ["video"] = new JsonObject { ["width"] = frame.Width, ["height"] = frame.Height, ["rgba"] = Convert.ToBase64String(frame.Rgba.ToArray()) } });
-                    session.AudioFrameAvailable += audio => SendCaptureActivity(token, new JsonObject { ["audio"] = new JsonObject { ["sampleRate"] = audio.SampleRate, ["channels"] = audio.Channels, ["samples"] = ScriptJson.SerializeToNode(audio.Samples.ToArray()) } });
-                    session.Revoked += () => SendCaptureActivity(token, new JsonObject { ["revoked"] = true });
-                    result = CaptureWire.Read(session, token);
+                    var lease = new CaptureLease(session, request,
+                        frame => SendCaptureActivity(token, new JsonObject { ["video"] = new JsonObject { ["width"] = frame.Width, ["height"] = frame.Height, ["rgba"] = Convert.ToBase64String(frame.Rgba.ToArray()) } }),
+                        sample => SendCaptureActivity(token, new JsonObject { ["audio"] = new JsonObject { ["sampleRate"] = sample.SampleRate, ["channels"] = sample.Channels, ["samples"] = ScriptJson.SerializeToNode(sample.Samples.ToArray()) } }),
+                        () => { SendCaptureActivity(token, new JsonObject { ["revoked"] = true }); RetireCapture(token); });
+                    _mediaCaptureSessions[token] = lease;
+                    openedToken = token;
+                    if (generation != Volatile.Read(ref _captureGeneration) || !CaptureGranted(request) || lease.Revoked || Volatile.Read(ref _disposed) != 0)
+                    {
+                        RetireCapture(token);
+                        throw new InvalidOperationException("Capture permission changed while the device was opening.");
+                    }
+                    result = CaptureWire.Read(lease.Session, token);
                 }
             }
             else if (action == "current" && message.Payload.TryGetProperty("token", out var tokenValue)
                 && _mediaCaptureSessions.TryGetValue(tokenValue.GetString() ?? "", out var current))
-                result = CaptureWire.Read(current, tokenValue.GetString()!);
+                result = CaptureGranted(current.Request) ? CaptureWire.Read(current.Session, tokenValue.GetString()!) : new JsonObject { ["ok"] = false };
             else if (action == "close" && message.Payload.TryGetProperty("token", out var closeToken)
                 && _mediaCaptureSessions.TryRemove(closeToken.GetString() ?? "", out var retired))
             {
@@ -190,9 +222,10 @@ public sealed class ContentProcessClient : IAsyncDisposable
                 result["ok"] = true;
             }
         }
-        catch (Exception error) when (error is InvalidOperationException or ObjectDisposedException or ArgumentException)
+        catch (Exception error) when (error is not OutOfMemoryException)
         {
-            result = new JsonObject { ["ok"] = false, ["error"] = error.Message };
+            if (openedToken is not null) RetireCapture(openedToken);
+            result = new JsonObject { ["ok"] = false, ["error"] = "The host refused or could not open the capture session." };
         }
         await _session.SendAsync(ContentMessageKind.MediaCaptureResponse, new { requestId = message.Sequence, result }, cancellationToken).ConfigureAwait(false);
     }
@@ -203,6 +236,82 @@ public sealed class ContentProcessClient : IAsyncDisposable
         try { await _session.SendAsync(ContentMessageKind.MediaCaptureActivity, sample).ConfigureAwait(false); }
         catch (InvalidOperationException) { }
         catch (IOException) { }
+        catch (OperationCanceledException) { }
+    }
+
+    private bool CaptureGranted(MediaCaptureRequest request)
+    {
+        var capabilities = Volatile.Read(ref _hostCapabilities);
+        return Volatile.Read(ref _disposed) == 0 && !_shutdown.IsCancellationRequested
+            && (request.Audio || request.Video) && (!request.Audio || capabilities.Microphone) && (!request.Video || capabilities.Camera);
+    }
+
+    private void RetireCapture(string token)
+    {
+        if (_mediaCaptureSessions.TryRemove(token, out var lease))
+            try { lease.Dispose(); }
+            catch (Exception error) when (error is not OutOfMemoryException)
+            {
+                lock (_standardError)
+                {
+                    _standardError.AppendLine($"Capture session cleanup threw {error.GetType().Name}.");
+                    if (_standardError.Length > 8192) _standardError.Remove(0, _standardError.Length - 8192);
+                }
+            }
+    }
+
+    private sealed class CaptureLease : IDisposable
+    {
+        internal IMediaCaptureSession Session { get; }
+        internal MediaCaptureRequest Request { get; }
+        internal bool Revoked => Volatile.Read(ref _revoked) != 0;
+        private readonly Action<MediaCaptureVideoFrame> _video;
+        private readonly Action<MediaAudioFrame> _audio;
+        private readonly Action _revokedHandler;
+        private int _revoked, _disposed;
+
+        internal CaptureLease(IMediaCaptureSession session, MediaCaptureRequest request,
+            Action<MediaCaptureVideoFrame> video, Action<MediaAudioFrame> audio, Action revoked)
+        {
+            Session = session; Request = request; _video = video; _audio = audio;
+            _revokedHandler = () => { Volatile.Write(ref _revoked, 1); revoked(); };
+            try
+            {
+                session.VideoFrameAvailable += _video;
+                session.AudioFrameAvailable += _audio;
+                session.Revoked += _revokedHandler;
+            }
+            catch { Dispose(); throw; }
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            try { Session.VideoFrameAvailable -= _video; }
+            finally
+            {
+                try { Session.AudioFrameAvailable -= _audio; }
+                finally
+                {
+                    try { Session.Revoked -= _revokedHandler; }
+                    finally { Session.Dispose(); }
+                }
+            }
+        }
+    }
+
+    private void TrackHostCapabilities(ContentMessageKind kind, JsonObject payload)
+    {
+        var authority = new JsonObject();
+        foreach (var entry in payload)
+            if (entry.Key.Equals("capabilities", StringComparison.OrdinalIgnoreCase)) authority[entry.Key] = entry.Value?.DeepClone();
+        var message = new ContentMessage(kind, 0, ScriptJson.SerializeToElement(authority));
+        if (!message.TryGetCapabilities(out var capabilities)) return;
+        var previous = Interlocked.Exchange(ref _hostCapabilities, capabilities);
+        Interlocked.Increment(ref _captureGeneration);
+        foreach (var pair in _mediaCaptureSessions)
+            if (!CaptureGranted(pair.Value.Request)) RetireCapture(pair.Key);
+        if (previous.Sound && !capabilities.Sound) _session.StopMediaOutput();
     }
 
     private static class CaptureWire
@@ -223,12 +332,23 @@ public sealed class ContentProcessClient : IAsyncDisposable
         if (kind == ContentMessageKind.Load)
         {
             var profile = ScriptJson.SerializeToNode(payload) as JsonObject ?? throw new ArgumentException("Load payload must be an object.", nameof(payload));
+            if (profile.ContainsKey("html"))
+            {
+                ReleaseMediaCaptureSessions();
+                if (Interlocked.Exchange(ref _hasLoadedDocument, 1) != 0) _session.StopMediaOutput();
+            }
+            TrackHostCapabilities(kind, profile);
             profile["artifactId"] = _artifact;
             profile["storageEnabled"] = _storageEnabled;
             profile["limits"] = JsonSerializer.SerializeToNode(_documentLimits, ContentProtocolJsonContext.Default.ResourceLimits);
             var url = profile["url"] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
             _session.SetStorageDocumentUri(Uri.TryCreate(url, UriKind.Absolute, out var baseUri) ? baseUri : null);
             payload = profile;
+        }
+        else if (kind == ContentMessageKind.Capabilities)
+        {
+            var profile = ScriptJson.SerializeToNode(payload) as JsonObject ?? throw new ArgumentException("Capabilities payload must be an object.", nameof(payload));
+            TrackHostCapabilities(kind, profile);
         }
         return _session.SendAsync(kind, payload, cancellationToken);
     }
@@ -357,17 +477,9 @@ public sealed class ContentProcessClient : IAsyncDisposable
 
     private void ReleaseMediaCaptureSessions()
     {
+        Interlocked.Increment(ref _captureGeneration);
         foreach (var pair in _mediaCaptureSessions)
-            if (_mediaCaptureSessions.TryRemove(pair.Key, out var capture))
-                try { capture.Dispose(); }
-                catch (Exception error) when (error is not OutOfMemoryException)
-                {
-                    lock (_standardError)
-                    {
-                        _standardError.AppendLine($"Capture session cleanup threw {error.GetType().Name}.");
-                        if (_standardError.Length > 8192) _standardError.Remove(0, _standardError.Length - 8192);
-                    }
-                }
+            RetireCapture(pair.Key);
     }
 
     public async ValueTask DisposeAsync()

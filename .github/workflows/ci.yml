@@ -51,6 +51,12 @@ jobs:
       # The host packages build.
       - run: pwsh -File tools/pack.ps1
 
+      - name: Verify clean external package consumers
+        shell: pwsh
+        run: |
+          $build = git rev-list --count HEAD
+          pwsh -File tools/test-package-consumers.ps1 -Feed artifacts/packages -Version "0.1.0-m1.$build"
+
       # Unicode conformance test files for the pinned version, cached per version and checksum file. Each file is
       # checked against tools/Folio.Gen/unicode-<version>.sha256 whether it came from the cache or the download.
       - name: Cache Unicode test files
@@ -159,6 +165,13 @@ jobs:
           FOLIO_CAPABILITY_MATRIX: all
         run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -parallelMode none
 
+      - name: Verify deployed package consumers
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $build = git rev-list --count HEAD
+          pwsh -File tools/test-package-consumers.ps1 -Feed artifacts/packages -Version "0.1.0-m1.$build" -ContentHostDirectory artifacts/content-host
+
       - name: Published native capability matrix
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -195,6 +208,14 @@ jobs:
         run: dotnet tests/Folio.Fuzz/bin/Release/net10.0/Folio.Fuzz.dll fuzz ${{ github.event_name == 'schedule' && 120 || 10 }} webgl-shader
 
       # Actual, expected and diff images of every failing or changed image test.
+      - name: Upload package consumer evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-consumer-${{ matrix.os }}
+          path: artifacts/consumer-smoke/
+          if-no-files-found: ignore
+
       - name: Upload image test output
         id: render-output
         if: always()

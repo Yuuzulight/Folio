@@ -1,0 +1,11 @@
+<Project>
+  <!-- Content is carried through transitive package references as well as direct Folio references. -->
+  <ItemGroup Condition="'$(FolioBundledFonts)' != 'false'">
+    <Content Include="$(MSBuildThisFileDirectory)../fonts/*">
+      <Link>fonts/%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+</Project>
