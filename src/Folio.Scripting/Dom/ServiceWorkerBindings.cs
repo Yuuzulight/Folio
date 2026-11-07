@@ -275,10 +275,28 @@ internal static class ServiceWorkerBindings
                     throw WebIdlException.DomException("SecurityError", "Invalid service worker storage namespace.");
                 return context.ArtifactId + ":" + key;
             }
+            // Host storage failures must reach script as a catchable rejection so the
+            // lifecycle can roll back, not escape the engine as a raw CLR exception.
+            static WebIdlException StorageFailed() => WebIdlException.DomException("UnknownError", "Service worker registration storage failed.");
+            string? Read(string key)
+            {
+                try { return artifactStorage.Read(key); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { throw StorageFailed(); }
+            }
+            void Write(string key, string value)
+            {
+                try { artifactStorage.Write(key, value); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { throw StorageFailed(); }
+            }
+            void Delete(string key)
+            {
+                try { artifactStorage.Delete(key); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { throw StorageFailed(); }
+            }
             var storage = new HostObjectTemplate("ArtifactStorage")
-                .DefineMethod("read", (_, _, args) => args.Length == 0 ? ScriptValue.Null : (artifactStorage.Read(StorageKey(args[0])) is { } value ? ScriptValue.FromString(value) : ScriptValue.Null))
-                .DefineMethod("write", (_, _, args) => { if (args.Length > 1) artifactStorage.Write(StorageKey(args[0]), args[1].AsString() ?? ""); return ScriptValue.Undefined; })
-                .DefineMethod("delete", (_, _, args) => { if (args.Length > 0) artifactStorage.Delete(StorageKey(args[0])); return ScriptValue.Undefined; });
+                .DefineMethod("read", (_, _, args) => args.Length == 0 ? ScriptValue.Null : (Read(StorageKey(args[0])) is { } value ? ScriptValue.FromString(value) : ScriptValue.Null))
+                .DefineMethod("write", (_, _, args) => { if (args.Length > 1) Write(StorageKey(args[0]), args[1].AsString() ?? ""); return ScriptValue.Undefined; })
+                .DefineMethod("delete", (_, _, args) => { if (args.Length > 0) Delete(StorageKey(args[0])); return ScriptValue.Undefined; });
             engine.SetGlobalProperty("__folio_artifact_storage", engine.CreateHostObject(storage, authority));
         }
         engine.SetGlobalProperty("__folio_service_worker_base", ScriptValue.FromString(baseUri?.AbsoluteUri ?? ""));

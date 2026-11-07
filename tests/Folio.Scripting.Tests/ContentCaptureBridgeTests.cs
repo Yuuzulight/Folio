@@ -36,7 +36,7 @@ public sealed class ContentCaptureBridgeTests
             var completion = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
             ValueTask Handler(ContentMessage message, CancellationToken _)
             {
-                if (message.Kind == ContentMessageKind.Frame) completion.TrySetResult(message);
+                if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) completion.TrySetResult(message);
                 else if (message.Kind == ContentMessageKind.Diagnostic) completion.TrySetException(new InvalidOperationException(message.Payload.ToString()));
                 return ValueTask.CompletedTask;
             }
@@ -58,7 +58,7 @@ public sealed class ContentCaptureBridgeTests
             var completion = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
             ValueTask Handler(ContentMessage message, CancellationToken _)
             {
-                if (message.Kind == ContentMessageKind.Frame) completion.TrySetResult(message);
+                if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) completion.TrySetResult(message);
                 return ValueTask.CompletedTask;
             }
             client.MessageReceived += Handler;

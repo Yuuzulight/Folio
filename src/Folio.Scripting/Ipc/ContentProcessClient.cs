@@ -54,6 +54,8 @@ public sealed class ContentProcessClient : IAsyncDisposable
         new BoundedChannelOptions(32) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
     private readonly Task _navigationWorker;
     private readonly SemaphoreSlim _loadGate = new(1, 1);
+    // Serialises revocation notices so a host message sent after Revoke() cannot overtake one.
+    private readonly SemaphoreSlim _captureRevocationGate = new(1, 1);
     private NavigationDocument? _navigationDocument;
     private HashSet<string> _webRtcAllowedOrigins = new(StringComparer.OrdinalIgnoreCase);
     private Action<Uri>? _iframeNavigationRequested;
@@ -419,8 +421,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
                     var lease = pair.Value;
                     if (lease.Revoked)
                     {
-                        RetireCapture(pair.Key);
-                        await SendCaptureActivityAsync(pair.Key, new JsonObject { ["revoked"] = true }, cancellationToken).ConfigureAwait(false);
+                        await SendCaptureRevocationsAsync(cancellationToken).ConfigureAwait(false);
                         continue;
                     }
                     var sample = lease.Take();
@@ -443,6 +444,23 @@ public sealed class ContentProcessClient : IAsyncDisposable
         {
             if (!cancellationToken.IsCancellationRequested) _supervisor.Stop("capture transport failed");
         }
+    }
+
+    // Retires every revoked lease and tells the child, holding the gate across the
+    // write so callers that flush before their own message observe the notice first.
+    private async ValueTask SendCaptureRevocationsAsync(CancellationToken rootShutdown)
+    {
+        await _captureRevocationGate.WaitAsync(rootShutdown).ConfigureAwait(false);
+        try
+        {
+            foreach (var pair in _mediaCaptureSessions)
+            {
+                if (!pair.Value.Revoked || !_mediaCaptureSessions.TryGetValue(pair.Key, out var current) || !ReferenceEquals(current, pair.Value)) continue;
+                RetireCapture(pair.Key);
+                await SendCaptureActivityAsync(pair.Key, new JsonObject { ["revoked"] = true }, rootShutdown).ConfigureAwait(false);
+            }
+        }
+        finally { _captureRevocationGate.Release(); }
     }
 
     private async ValueTask SendCaptureActivityAsync(string token, JsonObject sample, CancellationToken rootShutdown)
@@ -519,6 +537,8 @@ public sealed class ContentProcessClient : IAsyncDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        // A provider revocation that happened before this call must reach the child first.
+        await SendCaptureRevocationsAsync(_shutdown.Token).ConfigureAwait(false);
         if (kind == ContentMessageKind.Load)
         {
             var profile = ScriptJson.SerializeToNode(payload) as JsonObject ?? throw new ArgumentException("Load payload must be an object.", nameof(payload));

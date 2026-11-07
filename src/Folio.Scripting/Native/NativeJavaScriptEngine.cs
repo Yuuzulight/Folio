@@ -1373,7 +1373,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         value.Raw is JavaScriptEvaluator.RegexValue regex
             ? (regex.Source, regex.Flags)
             : throw new ArgumentException("The value is not a regular expression.", nameof(value));
-    public void Dispose() { _disposed = true; _bindings.Clear(); _microtasks.Clear(); }
+    // A cached wrapper references this engine; while its key (a host target such as a
+    // page DomContext) outlives the engine, the table's dependent handle would keep the
+    // engine alive, so dispose clears it explicitly.
+    public void Dispose() { _disposed = true; _bindings.Clear(); _microtasks.Clear(); _hostObjectCache.Clear(); }
 
     private void EnsureLive() { if (_disposed) throw new ObjectDisposedException(nameof(NativeJavaScriptEngine)); }
 
