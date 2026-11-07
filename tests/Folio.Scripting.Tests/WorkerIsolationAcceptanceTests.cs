@@ -254,16 +254,19 @@ public sealed class WorkerIsolationCapabilityMatrixTests
         finally { client.MessageReceived -= Handler; }
     }
 
-    private static void AssertRestricted(ContentProcessClient client)
+    private static void AssertRestricted(ContentProcessClient client) => AssertRestricted(client.Process);
+
+    /// <summary>The process runs in an AppContainer and inside a job.</summary>
+    internal static void AssertRestricted(System.Diagnostics.Process process)
     {
-        Assert.True(OpenProcessToken(client.Process.Handle, 0x0008, out var token), $"OpenProcessToken: {Marshal.GetLastWin32Error()}");
+        Assert.True(OpenProcessToken(process.Handle, 0x0008, out var token), $"OpenProcessToken: {Marshal.GetLastWin32Error()}");
         using (token)
         {
             Assert.True(GetTokenInformation(token, 29 /* TokenIsAppContainer */, out var appContainer, sizeof(int), out _),
                 $"GetTokenInformation: {Marshal.GetLastWin32Error()}");
             Assert.Equal(1, appContainer);
         }
-        Assert.True(IsProcessInJob(client.Process.Handle, IntPtr.Zero, out var inJob), $"IsProcessInJob: {Marshal.GetLastWin32Error()}");
+        Assert.True(IsProcessInJob(process.Handle, IntPtr.Zero, out var inJob), $"IsProcessInJob: {Marshal.GetLastWin32Error()}");
         Assert.True(inJob);
     }
 

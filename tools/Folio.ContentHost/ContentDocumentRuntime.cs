@@ -29,6 +29,7 @@ public sealed class ContentDocumentRuntime : IDisposable
     private Document? _document;
     private long _documentGeneration;
     private BrokerMediaCaptureProvider? _captureProvider;
+    private Folio.Scripting.Gpu.Remote.RemoteGpuChannel? _gpuChannel;
     private Folio.Painting.SoftwareRasterSurface _surface = new(1280, 720);
 
     public ContentDocumentRuntime(ContentHostSession session, CanvasFrameStore frameStore, Func<IScriptEngine>? engineFactory = null)
@@ -252,6 +253,7 @@ public sealed class ContentDocumentRuntime : IDisposable
                     new GpuFailure(GpuFailureKind.Unavailable, "The GPU native backend is unavailable.")));
 #endif
             }
+            ConfigureGpuWorker(message.Payload);
             DomBindings.Install(_engine, _document, eventLoop: _eventLoop);
             Mark("bindings");
             UpdateViewportGlobals();
@@ -277,9 +279,29 @@ public sealed class ContentDocumentRuntime : IDisposable
             _runner?.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(_taskDiagnostics).ToArray() ?? _taskDiagnostics.ToArray(), timings));
     }
 
+    // The parent hands over the GPU worker channel once (host-owned, never from page input).
+    // Every later document of this process reuses it; a lost worker loses every live context.
+    private void ConfigureGpuWorker(JsonElement payload)
+    {
+        if (!OperatingSystem.IsWindows() || _engine is null) return;
+        if (_gpuChannel is null && payload.TryGetProperty("gpuChannel", out var channel))
+        {
+            _gpuChannel = Folio.Scripting.Gpu.Remote.RemoteGpuChannel.Adopt(channel);
+            _gpuChannel.Session.Lost += () =>
+            {
+                var engine = _engine;
+                try { _eventLoop?.QueueTask(TaskSource.Generic, () => { if (engine is not null) DomBindings.NotifyGpuDeviceLost(engine); }, "gpu worker lost"); }
+                catch (ObjectDisposedException) { }
+            };
+        }
+        if (_gpuChannel is { } active)
+            DomBindings.ConfigureGpuFactory(_engine, active.DocumentDeviceFactory);
+    }
+
     public void Dispose()
     {
         DisposeDocument();
+        if (OperatingSystem.IsWindows()) _gpuChannel?.Dispose();
         _frameStore.Dispose();
         _surface.Dispose();
     }

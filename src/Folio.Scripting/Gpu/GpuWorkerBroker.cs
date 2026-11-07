@@ -28,7 +28,10 @@ internal sealed class GpuWorkerBroker : IDisposable
             throw new ArgumentException("The published Folio.ContentHost.exe is required.", nameof(publishedContentHost));
         // Existing launcher grants this empty file to the worker's fresh AppContainer.
         // It is not a GPU shared-memory channel and contains no document frame data.
-        var leasePath = Path.Combine(Path.GetTempPath(), $"folio-gpu-{Guid.NewGuid():N}.bin");
+        // A private folder: the launcher grants traverse on the lease's folder, never %TEMP% itself.
+        var leaseDirectory = Path.Combine(Path.GetTempPath(), $"folio-gpu-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(leaseDirectory);
+        var leasePath = Path.Combine(leaseDirectory, "lease.bin");
         File.WriteAllBytes(leasePath, []);
         WindowsContentLaunch? launch = null;
         try
@@ -40,7 +43,7 @@ internal sealed class GpuWorkerBroker : IDisposable
             _ = Task.Run(async () => { try { var buffer = new byte[1024]; while (await launch.Error.ReadAsync(buffer) != 0) { } } catch (IOException) { } catch (ObjectDisposedException) { } });
             return broker;
         }
-        catch { launch?.Dispose(); File.Delete(leasePath); throw; }
+        catch { launch?.Dispose(); Directory.Delete(leaseDirectory, recursive: true); throw; }
     }
 
     internal byte[] Exchange(byte[] request, CancellationToken cancellationToken = default)
@@ -92,6 +95,6 @@ internal sealed class GpuWorkerBroker : IDisposable
 
     private sealed class WorkerLease(WindowsContentLaunch launch, string path) : IDisposable
     {
-        public void Dispose() { try { launch.Dispose(); } finally { File.Delete(path); } }
+        public void Dispose() { try { launch.Dispose(); } finally { Directory.Delete(Path.GetDirectoryName(path)!, recursive: true); } }
     }
 }

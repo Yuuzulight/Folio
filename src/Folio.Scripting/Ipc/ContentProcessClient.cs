@@ -33,6 +33,13 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private int _disposed;
     private readonly string _artifact;
     private readonly ResourceLimits _documentLimits;
+    // Separate GPU worker (opt-in until its acceptance gate passes: docs/gpu-worker-remote-webgl-plan.md).
+    private Folio.Scripting.Gpu.Remote.GpuWebGlWorker? _gpuWorker;
+    private bool _gpuChannelSent;
+    private string? _contentHostPath;
+    /// <summary>Test seam; otherwise FOLIO_GPU_WORKER=1 opts in.</summary>
+    internal static bool? GpuWorkerOverride { get; set; }
+    internal int? GpuWorkerProcessId => OperatingSystem.IsWindows() ? _gpuWorker?.ProcessId : null;
     private readonly bool _storageEnabled;
     private readonly IMediaCaptureProvider? _mediaCaptureProvider;
     private const int MaxCaptureSessions = 16;
@@ -181,6 +188,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
                 isolated = new WindowsContentLaunch { Process = process, Input = process.StandardInput.BaseStream, Output = process.StandardOutput.BaseStream, Error = process.StandardError.BaseStream, Security = new NoopDisposable() };
             }
             var client = new ContentProcessClient(isolated.Process, isolated.Input, isolated.Output, isolated.Error, frameStore, framePath, new ContentProcessSupervisor(effectiveLimits), OperatingSystem.IsWindows() ? isolated.Job : null, isolated.Security, resourceLoader, resourcePolicy, artifactStorage, mediaDecoder, mediaAudioOutput, mediaCaptureProvider, string.IsNullOrWhiteSpace(artifactId) ? "default" : artifactId, documentLimits ?? ResourceLimits.Default);
+            client._contentHostPath = isolated.Job is not null ? executablePath : null;
             isolated = null;
             return client;
         }
@@ -554,6 +562,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
                     if (Interlocked.Exchange(ref _hasLoadedDocument, 1) != 0) _session.StopMediaOutput();
                 }
                 TrackHostCapabilities(kind, profile);
+                AttachGpuChannel(profile);
                 profile["artifactId"] = _artifact;
                 profile["storageEnabled"] = _storageEnabled;
                 profile["limits"] = JsonSerializer.SerializeToNode(_documentLimits, ContentProtocolJsonContext.Default.ResourceLimits);
@@ -673,9 +682,36 @@ public sealed class ContentProcessClient : IAsyncDisposable
         catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested || _process.HasExited) { }
     }
 
+    // The channel field is host-owned: a caller-supplied value is always dropped. The worker is
+    // started for the first load that grants WebGL and handed to the child exactly once.
+    private void AttachGpuChannel(JsonObject profile)
+    {
+        profile.Remove("gpuChannel");
+        if (!OperatingSystem.IsWindows() || _gpuChannelSent || _contentHostPath is null) return;
+        if (!(GpuWorkerOverride ?? Environment.GetEnvironmentVariable("FOLIO_GPU_WORKER") == "1")) return;
+        if (!Volatile.Read(ref _hostCapabilities).WebGl) return;
+        try
+        {
+            _gpuWorker ??= Folio.Scripting.Gpu.Remote.GpuWebGlWorker.Start(_contentHostPath, _documentLimits.MaxGpuBytes);
+            profile["gpuChannel"] = _gpuWorker.HandOff(_process.SafeHandle);
+            _gpuChannelSent = true;
+        }
+        catch (Exception error) when (error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            // Without a worker the document keeps its in-process WebGL path.
+            StopGpuWorker();
+        }
+    }
+
+    private void StopGpuWorker()
+    {
+        if (OperatingSystem.IsWindows()) Interlocked.Exchange(ref _gpuWorker, null)?.Dispose();
+    }
+
     private void OnStopped(string reason)
     {
         RetireNavigationDocument();
+        StopGpuWorker();
         _navigationDeliveries.Writer.TryComplete();
         // A crashed or externally terminated content process can no longer send
         // the close request for its capture streams. Release host devices at the
@@ -717,6 +753,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         RetireNavigationDocument();
         _navigationDeliveries.Writer.TryComplete();
+        StopGpuWorker();
         Exception? failure = null;
         // A failed host callback can fault the reader. Preserve that error, but
         // always retire the process and every resource owned by this connection.

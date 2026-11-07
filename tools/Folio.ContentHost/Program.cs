@@ -4,6 +4,12 @@ using Folio.Scripting.Native;
 using Folio.ContentHost;
 
 // Dispatch before creating DOM, frame stores, script engines or content-session state.
+if (args.Length == 1 && args[0] == "--gpu-webgl" && OperatingSystem.IsWindows())
+{
+    // Separate GPU worker: executes WebGL command batches for one content process.
+    Folio.Scripting.Gpu.Remote.GpuWebGlWorkerHost.Run(Console.OpenStandardInput());
+    return;
+}
 if (args.Length != 0 && args[0] == "--gpu-worker")
 {
     if (args.Length != 1) throw new ArgumentException("Unexpected GPU worker arguments.");

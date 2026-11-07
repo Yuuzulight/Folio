@@ -182,10 +182,18 @@ internal sealed class GpuWebGlSession : INativeWebGlFactory, IDisposable
 
     internal void Forget(uint contextId) => _contexts.Remove(contextId);
 
+    /// <summary>Raised once, on whichever thread first observes the loss.</summary>
+    internal event Action? Lost;
+
+    /// <summary>Marks the session lost from outside a call (the worker process exited).</summary>
+    internal void Abandon() { lock (_gate) Lose(); }
+
     private void Lose()
     {
+        if (_lost) return;
         _lost = true;
         foreach (var context in _contexts.Values) context.MarkLost();
+        Lost?.Invoke();
     }
 
     internal static GpuFailure LostFailure { get; } = new(GpuFailureKind.Unavailable, "The GPU worker session is lost.");

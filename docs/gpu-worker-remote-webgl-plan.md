@@ -88,6 +88,23 @@ Production WebGL still runs in the document process until stage 5 lands and pass
 4. **Process wiring.** Parent launches the worker lazily on the first WebGL context, duplicates
    handles, child installs the remote factory through `DomBindings.ConfigureGpuFactory`.
    Gate: real AppContainer round trip, worker kill keeps the page alive and fires contextlost.
+   *Done, opt-in (`FOLIO_GPU_WORKER=1`):* `GpuWebGlWorker` (parent) starts
+   `Folio.ContentHost.exe --gpu-webgl` in its own AppContainer and job on the first load that
+   grants WebGL, writes a validated startup record (`GpuWorkerStartup`) to its control pipe and
+   hands the document's ends to the content child once, inside a host-owned `gpuChannel` load
+   field (a caller-supplied value is always dropped). No public protocol type changed. The
+   parent then holds no channel handle. `RemoteGpuChannel` (child) runs every document's WebGL
+   over the shared session. The worker kills itself when a batch exceeds the 10 s command
+   deadline; the child's own deadline is 15 s. The child also gets a wait-only handle to the
+   worker process, so a worker exit loses the session at once even on an idle page, and
+   `DomBindings.NotifyGpuDeviceLost` runs on the document's event loop.
+   `GpuWorkerProcessTests`: WebGL draws through the worker (an AppContainer process in a job,
+   separate from the content process); killing it keeps the page running and reports the loss.
+   Notes: canvas surface clears are not routed through the worker and report unavailable;
+   Folio signals loss through `gl.oncontextlost` and does not yet dispatch the canvas
+   `webglcontextlost` event (existing gap, also in direct mode). Lease files live in a
+   private folder: the launcher grants traverse on the lease's folder, which on `%TEMP%`
+   itself took minutes (also fixed in the older `GpuWorkerBroker`).
 5. **Restore and qualification.** Restore protocol, frame-time benchmark against the 16.7 ms
    budget, memory accounting. Gate: full suites, conformance, published NativeAOT host, then a
    user-approved hardware pass. Only after that may the classifier route WebGL here.

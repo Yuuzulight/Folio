@@ -43,6 +43,11 @@ internal static class GpuSharedHandles
     internal static long DuplicatePipe(SafeFileHandle pipe, SafeHandle target) =>
         Duplicate(pipe, target, 0, DuplicateSameAccess);
 
+    /// <summary>Duplicates a process handle that can only be waited on (no terminate, read or signal rights).</summary>
+    internal static long DuplicateForWait(SafeHandle process, SafeHandle target) =>
+        Duplicate(process, target, Synchronize, 0);
+    private const uint Synchronize = 0x00100000;
+
     /// <summary>Creates one anonymous pipe; both ends are non-inheritable.</summary>
     internal static (SafeFileHandle Read, SafeFileHandle Write) CreatePipe(int bufferBytes = 64 * 1024)
     {
