@@ -9,7 +9,7 @@ public sealed class CaptureDeviceLifetimeTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task BackgroundRevocationRunsOnTheDocumentLoopAndUnsubscribes(bool native)
+    public void BackgroundRevocationRunsOnTheDocumentLoopAndUnsubscribes(bool native)
     {
         var provider = new Provider();
         var callbacks = new List<int>();
@@ -24,8 +24,12 @@ public sealed class CaptureDeviceLifetimeTests
         engine.Evaluate("var stream;var ended=0;navigator.mediaDevices.getUserMedia({video:true}).then(s=>{stream=s;s.getTracks()[0].onended=()=>ended++;});");
         loop.SpinUntilIdle();
         Assert.Single(callbacks);
-        // Block only this test thread; no script engine work is performed by the device thread.
-        await Task.Run(provider.Session.Revoke, TestContext.Current.CancellationToken);
+        // Revoke from a dedicated "device" thread, as native capture callbacks do. A pool
+        // thread could be the very thread that owns the document (xUnit runs tests on the
+        // pool), which would legitimately take the inline owner-thread path.
+        var device = new Thread(provider.Session.Revoke) { IsBackground = true };
+        device.Start();
+        device.Join();
         Assert.Single(callbacks);
         var owner = Environment.CurrentManagedThreadId;
         loop.SpinUntilIdle();

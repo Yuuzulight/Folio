@@ -20,7 +20,7 @@ public sealed class ContentCacheTests
         var completed = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>
         {
-            if (message.Kind == ContentMessageKind.Frame) completed.TrySetResult(message);
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) completed.TrySetResult(message);
             return ValueTask.CompletedTask;
         };
         await client.SendAsync(ContentMessageKind.Load, new

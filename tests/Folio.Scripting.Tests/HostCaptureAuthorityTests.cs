@@ -104,7 +104,7 @@ public sealed class HostCaptureAuthorityTests
         var response = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         ValueTask Receive(ContentMessage message, CancellationToken _)
         {
-            if (message.Kind == ContentMessageKind.Frame) response.TrySetResult(message);
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) response.TrySetResult(message);
             return ValueTask.CompletedTask;
         }
         client.MessageReceived += Receive;

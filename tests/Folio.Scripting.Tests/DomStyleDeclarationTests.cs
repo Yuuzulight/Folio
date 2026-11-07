@@ -2032,7 +2032,7 @@ public sealed class DomStyleDeclarationTests
         var received = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>
         {
-            if (message.Kind == ContentMessageKind.Frame) received.TrySetResult(message);
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) received.TrySetResult(message);
             return ValueTask.CompletedTask;
         };
         await client.SendAsync(ContentMessageKind.Load, new { script = "1 + 2", url = "test" }, TestContext.Current.CancellationToken);
@@ -2061,7 +2061,7 @@ public sealed class DomStyleDeclarationTests
         var diagnostic = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>
         {
-            if (message.Kind == ContentMessageKind.Frame) received.TrySetResult(message);
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) received.TrySetResult(message);
             if (message.Kind == ContentMessageKind.Diagnostic) diagnostic.TrySetResult(message);
             return ValueTask.CompletedTask;
         };

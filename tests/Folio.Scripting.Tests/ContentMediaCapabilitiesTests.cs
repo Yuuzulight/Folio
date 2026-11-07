@@ -13,7 +13,7 @@ public sealed class ContentMediaCapabilitiesTests
         var answer = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         ValueTask Receive(ContentMessage message, CancellationToken cancellation)
         {
-            if (message.Kind == ContentMessageKind.Frame) answer.TrySetResult(message.Payload.GetProperty("value").GetString()!);
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) answer.TrySetResult(message.Payload.GetProperty("value").GetString()!);
             return ValueTask.CompletedTask;
         }
         client.MessageReceived += Receive;
