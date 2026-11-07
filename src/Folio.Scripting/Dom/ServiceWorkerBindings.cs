@@ -614,6 +614,9 @@ internal static class ServiceWorkerBindings
                     ensureLive();
                     if (workerScript === null || workerScript === undefined) throw new TypeError('Service worker script could not be loaded.');
                     if (workerScript !== null && workerScript !== undefined) { if (!isRestoring) { var validation = validator.check(workerScript, url); if (validation === 'timeout') throw new DOMException('Service worker execution exceeded the host limit.', 'TimeoutError'); if (validation !== 'ok') throw new DOMException('Service worker script failed validation.', 'SyntaxError'); } runWorkerScript(workerScript, url); }
+                    // A page loaded while a persisted registration is active starts controlled by it, so its
+                    // first fetch is routed before the replayed lifecycle completes (no controllerchange).
+                    if (isRestoring && clientInScope() && !pageServiceWorkerContainer.controller) pageServiceWorkerContainer.controller = worker;
                     lifecycle('install').then(function() {
                         ensureLive(); registration.installing = null; registration.waiting = worker; state('installed'); ensureLive();
                         if (previousWaiting) { previousWaiting._retire(); registration._workers = registration._workers.filter(function(item) { return item !== previousWaiting; }); }

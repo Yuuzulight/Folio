@@ -238,7 +238,7 @@ public sealed class WorkerIsolationCapabilityMatrixTests
         var received = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         ValueTask Handler(ContentMessage message, CancellationToken _)
         {
-            if (message.Kind == ContentMessageKind.Frame) received.TrySetResult(message);
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) received.TrySetResult(message);
             if (message.Kind == ContentMessageKind.Diagnostic)
                 received.TrySetException(new IOException($"{row}: {message.Payload}"));
             return ValueTask.CompletedTask;

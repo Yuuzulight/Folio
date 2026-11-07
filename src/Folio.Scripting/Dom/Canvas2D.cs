@@ -92,6 +92,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     private byte[]? _framePixels;
     private ReadOnlyMemory<byte>? _capturePixels;
     private bool _captureBlack;
+    private bool _captureGradient;
     public ReadOnlyMemory<byte> Pixels
     {
         get
@@ -248,7 +249,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         if (bytes > 16 * 1024 * 1024 || _captureReservation is null || !_captureReservation.Resize(bytes))
         {
             _capturePixels = null;
-            _captureBlack = false;
+            _captureBlack = _captureGradient = false;
             _captureReservation?.Dispose();
             _captureReservation = null;
             RejectForBudget("Captured video exceeds the host media budget.");
@@ -263,6 +264,17 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             _capturePixels = frame.Value.Rgba;
             _captureBlack = false;
         }
+        else if (enabled && _captureFrame is null)
+        {
+            // No host provider: the compatibility source shows a synthetic gradient.
+            if (!_captureGradient || _capturePixels?.Length != bytes)
+            {
+                _capturePixels = CompatibilityGradient(width, height);
+                _captureGradient = true;
+            }
+            _captureBlack = false;
+            return;
+        }
         else if (!_captureBlack || _capturePixels?.Length != bytes)
         {
             var black = new byte[(int)bytes];
@@ -270,6 +282,22 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             _capturePixels = black;
             _captureBlack = true;
         }
+        _captureGradient = false;
+    }
+
+    private static byte[] CompatibilityGradient(int width, int height)
+    {
+        var pixels = new byte[width * height * 4];
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            var offset = (y * width + x) * 4;
+            pixels[offset] = (byte)(32 + (x * 160 / Math.Max(1, width - 1)));
+            pixels[offset + 1] = (byte)(96 + (y * 96 / Math.Max(1, height - 1)));
+            pixels[offset + 2] = 192;
+            pixels[offset + 3] = 255;
+        }
+        return pixels;
     }
     public int ReadyState => Enabled && Error is null && _hasSource ? 4 : 0;
     public int NetworkState => Enabled && Error is null && _hasSource ? 1 : 0;
@@ -676,7 +704,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         _captureReader?.Dispose();
         _captureReader = null;
         _capturePixels = null;
-        _captureBlack = false;
+        _captureBlack = _captureGradient = false;
         _captureAudioTrack = ScriptValue.Undefined;
         _captureTrack = ScriptValue.Undefined;
         _captureSource = _captureVideo = _captureAudioStarted = _captureWasPaused = false;
