@@ -15,10 +15,10 @@ public sealed class GpuWorkerIsolationTests
         GpuWorkerProtocol.Put(response, 4, GpuWorkerProtocol.MaxPayloadBytes + 1);
         int killedWorker = 0;
         using var broker = new GpuWorkerBroker(new MemoryStream(), new MemoryStream(response), () => killedWorker++, TimeSpan.FromSeconds(1));
-        Assert.Throws<InvalidDataException>(() => broker.Exchange(GpuWorkerProtocol.Request(GpuWorkerCommand.Open)));
+        Assert.Throws<InvalidDataException>(() => broker.Exchange(GpuWorkerProtocol.Request(GpuWorkerCommand.Open), TestContext.Current.CancellationToken));
         Assert.True(broker.IsLost);
         Assert.Equal(1, killedWorker);
-        Assert.Throws<IOException>(() => broker.Exchange(GpuWorkerProtocol.Request(GpuWorkerCommand.Open)));
+        Assert.Throws<IOException>(() => broker.Exchange(GpuWorkerProtocol.Request(GpuWorkerCommand.Open), TestContext.Current.CancellationToken));
         Assert.Equal(1, killedWorker);
     }
 
