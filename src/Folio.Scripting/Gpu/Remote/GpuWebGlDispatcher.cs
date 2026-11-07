@@ -21,6 +21,7 @@ internal sealed class GpuWebGlDispatcher : IDisposable
     private readonly List<(uint Context, GpuFailure Failure)> _failures = [];
     private readonly HashSet<uint> _touched = [];
     private bool _lost;
+    private Context? _current;
 
     internal GpuWebGlDispatcher(INativeWebGlFactory factory, GpuArena upload, GpuArena readback)
     {
@@ -47,7 +48,8 @@ internal sealed class GpuWebGlDispatcher : IDisposable
                 _result.Reset();
                 if (op == Op.CreateContext) CreateContext(contextId, ref payload);
                 else if (!_contexts.TryGetValue(contextId, out var context)) { SkipArguments(ref payload); Failed(Unknown("context")); }
-                else { _touched.Add(contextId); Run(context, op, ref payload, header); }
+                else if (context.LostToBudget && op != Op.DestroyContext) { SkipArguments(ref payload); Failed(ContextLost); }
+                else { _touched.Add(contextId); _current = context; Run(context, op, ref payload, header); _current = null; }
                 if (!payload.AtEnd) throw new InvalidDataException("Trailing GPU command data.");
                 if (!sync && _result.Length > 0 && !IsDeferredOk(_result.Written)) MoveResultFailureToDeferred(contextId);
                 if (!sync) _result.Reset();
@@ -266,7 +268,15 @@ internal sealed class GpuWebGlDispatcher : IDisposable
     // Every command writes [bool ok][failure | outputs] into _result. Deferred commands that fail
     // have their failure moved to the batch's deferred list; the sync command's result is returned.
     private GpuPayloadWriter Ok() => _result.Reset().Bool(true);
-    private void Failed(GpuFailure? failure) { _result.Reset().Bool(false); GpuWebGlWire.Failure(_result, failure); }
+    private void Failed(GpuFailure? failure)
+    {
+        // A budget failure loses the context in the bindings. Calls already queued behind it must
+        // then fail as calls on a lost context, exactly as the bindings reject them when direct.
+        if (failure?.Kind == GpuFailureKind.BudgetExceeded && _current is not null) _current.LostToBudget = true;
+        _result.Reset().Bool(false);
+        GpuWebGlWire.Failure(_result, failure);
+    }
+    private static readonly GpuFailure ContextLost = new(GpuFailureKind.Unavailable, "The WebGL context was lost to the GPU budget.");
     private void Missing() => Failed(Unknown("object"));
     private void Done(bool succeeded, object? resolved, GpuFailure? failure)
     {
@@ -366,6 +376,7 @@ internal sealed class GpuWebGlDispatcher : IDisposable
         private readonly Dictionary<uint, (Kind Kind, uint Native)> _handles = [];
         private readonly Dictionary<(Kind, uint), uint> _reverse = [];
         internal uint Id { get; } = id;
+        internal bool LostToBudget { get; set; }
         internal INativeWebGlContext Native { get; } = native;
 
         internal bool Map(uint id, Kind kind, uint native)

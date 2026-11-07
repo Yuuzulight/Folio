@@ -76,6 +76,15 @@ Production WebGL still runs in the document process until stage 5 lands and pass
      handle report INVALID_OPERATION instead of losing the session.
 3. **Deferred errors and sync points.** Error ordering and flush-before-query rules.
    Gate: dedicated ordering tests, plus the WebGL conformance subset Folio already runs.
+   *Done:* the bindings drain deferred failures before recording any newer error, so
+   `getError` order equals call order (one round trip, only on calls that already failed).
+   After a budget failure the worker answers the context's later queued calls as calls on a
+   lost context, and a lost or disposed remote context fails calls at once, as a native one
+   does. `RemoteWebGlOrderingTests` compares exact `getError` sequences, `isContextLost` and
+   post-loss calls between direct and remote execution; D8 conformance passes 6/6 through the
+   remote path and runs in CI that way. Most native WebGL errors live in the native context's
+   single pending-error slot (first error wins) and are read by `getError` itself, so they
+   are reproduced exactly without the deferred path.
 4. **Process wiring.** Parent launches the worker lazily on the first WebGL context, duplicates
    handles, child installs the remote factory through `DomBindings.ConfigureGpuFactory`.
    Gate: real AppContainer round trip, worker kill keeps the page alive and fires contextlost.

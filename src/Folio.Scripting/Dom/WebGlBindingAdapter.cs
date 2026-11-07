@@ -796,13 +796,21 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
     }
     private bool _losingContext;
     private void EnqueueFailure(WebGlValidationException failure) => EnqueueError(failure.Failure == WebGlValidationFailure.ContextLost ? 0x9242u : failure.Failure == WebGlValidationFailure.InvalidValue ? 0x0501u : 0x0502u);
-    // A remote context reports failures of queued calls at its next synchronization point.
+    // A remote context reports failures of queued calls at its next synchronization point. They
+    // are drained before any newer error is recorded, so getError order matches call order.
+    private bool _drainingDeferred;
     private void DrainDeferredFailures()
     {
-        if (Native is not IDeferredGpuFailures deferred) return;
-        foreach (var failure in deferred.TakeDeferredFailures()) EnqueueFailure(failure);
+        if (_drainingDeferred || Native is not IDeferredGpuFailures deferred) return;
+        _drainingDeferred = true;
+        try { foreach (var failure in deferred.TakeDeferredFailures()) EnqueueFailure(failure); }
+        finally { _drainingDeferred = false; }
     }
-    private void EnqueueError(uint error) { lock (_errors) if (_errors.Count < 64) _errors.Enqueue(error); }
+    private void EnqueueError(uint error)
+    {
+        DrainDeferredFailures();
+        lock (_errors) if (_errors.Count < 64) _errors.Enqueue(error);
+    }
     protected void RecordNativeFailure(GpuFailure? failure) => EnqueueFailure(failure);
 
     private T Require<T>(object value) where T : WebGlObject

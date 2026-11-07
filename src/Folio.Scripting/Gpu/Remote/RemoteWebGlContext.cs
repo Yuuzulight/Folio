@@ -53,7 +53,13 @@ internal sealed class RemoteWebGlContext : INativeWebGlContext, IDeferredGpuFail
 
     // ---- encoding helpers -------------------------------------------------------------------
     private GpuPayloadWriter W(Op op) => _session.Begin(_id, op);
-    private bool Defer(out GpuFailure? failure) => _session.Defer(out failure);
+    // Like a direct native context, a lost or disposed context fails every call at once.
+    private static readonly GpuFailure Unavailable = new(GpuFailureKind.Unavailable, "The WebGL context is lost or disposed.");
+    private bool Defer(out GpuFailure? failure)
+    {
+        if (_lost || _disposed) { failure = Unavailable; return false; }
+        return _session.Defer(out failure);
+    }
     private bool Blob(ReadOnlySpan<byte> data, out GpuFailure? failure) => _session.TryBlob(data, out failure);
     private static uint H(uint? value) => value ?? 0;
     private uint NewHandle() => _session.NextId();
@@ -62,6 +68,7 @@ internal sealed class RemoteWebGlContext : INativeWebGlContext, IDeferredGpuFail
 
     private bool Sync(out GpuPayloadResult result, out GpuFailure? failure)
     {
+        if (_lost || _disposed) { result = new([]); failure = Unavailable; return false; }
         var outputs = _session.Sync(out failure);
         result = new(outputs ?? []);
         return outputs is not null;
@@ -537,7 +544,7 @@ internal sealed class RemoteWebGlContext : INativeWebGlContext, IDeferredGpuFail
         {
             if (_disposed) return;
             _disposed = true;
-            if (!_session.IsLost) { W(Op.DestroyContext); Defer(out _); }
+            if (!_session.IsLost) { W(Op.DestroyContext); _session.Defer(out _); }
             _session.Forget(_id);
         }
     }
