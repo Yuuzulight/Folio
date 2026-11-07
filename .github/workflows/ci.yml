@@ -112,6 +112,15 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      # Remote WebGL gate: the same WebGL tests through the command-buffer encoder, batch framing
+      # and worker dispatcher in one process (docs/gpu-worker-remote-webgl-plan.md, stage 2).
+      - name: WebGL through the remote command-buffer path
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          FOLIO_WEBGL_REMOTE: loopback
+        run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class '*NativeWebGlPageTests' -class '*GpuSurfaceTests' -class '*WebGlCapabilityTests' -class '*RemoteWebGlTests' -class '*CanvasTests' -parallelMode none
+
       - name: Differential shaping corpus
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll shaping-differential
 

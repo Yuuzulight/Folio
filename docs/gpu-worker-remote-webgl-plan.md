@@ -63,6 +63,17 @@ Production WebGL still runs in the document process until stage 5 lands and pass
 2. **Encoder/decoder.** `RemoteWebGlContext : INativeWebGlContext` (DOM side) and a worker
    dispatcher that drives the existing `FolioNativeWebGlContext`. Gate: the existing WebGL
    binding tests run unchanged against an in-process loopback pair and match direct results.
+   *Done:* `GpuWebGlSession`, `RemoteWebGlContext`, `GpuWebGlDispatcher`, `LoopbackGpuDevice`.
+   `FOLIO_WEBGL_REMOTE=loopback` routes every test's WebGL through the remote path; the full
+   scripting suite passes in that mode and CI runs the WebGL classes in it. Notes:
+   - Deferred failures reach the WebGL error queue when the page calls `getError` or
+     `isContextLost`; a budget failure therefore loses the context at that point, not at the
+     call that caused it.
+   - GPU metrics are a synchronization point (queued calls run before the device is measured).
+   - Parameter values carry every field, because native contexts fill more than the field their
+     kind names; binding queries are translated back to client handles in both fields.
+   - A creation that fails in the worker leaves its client handle unmapped; later uses of that
+     handle report INVALID_OPERATION instead of losing the session.
 3. **Deferred errors and sync points.** Error ordering and flush-before-query rules.
    Gate: dedicated ordering tests, plus the WebGL conformance subset Folio already runs.
 4. **Process wiring.** Parent launches the worker lazily on the first WebGL context, duplicates

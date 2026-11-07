@@ -11,7 +11,10 @@ internal sealed class GpuDocumentBridge : IDisposable
     private readonly object _gate = new();
     private int _disposed;
 
-    private GpuDocumentBridge(IGpuDevice device) => _device = device;
+    private GpuDocumentBridge(IGpuDevice device) => _device = DeviceDecorator?.Invoke(device) ?? device;
+
+    /// <summary>Test seam: wraps every document device (the remote-WebGL loopback uses it).</summary>
+    internal static Func<IGpuDevice, IGpuDevice>? DeviceDecorator { get; set; }
 
     internal IGpuDevice Device => _device;
     internal long ReservedBytes => _device.ReservedBytes;

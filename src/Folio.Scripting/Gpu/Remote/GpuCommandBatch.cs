@@ -102,6 +102,10 @@ internal sealed class GpuCommandBatchWriter
     internal int CommandCount => _count;
     internal bool IsEmpty => _count == 0;
 
+    /// <summary>True when one more command with up to <paramref name="payloadBytes"/> bytes fits.</summary>
+    internal bool HasRoom(int payloadBytes) =>
+        _count < GpuCommandBatch.MaxCommands && _length + GpuCommandBatch.CommandHeaderBytes + GpuCommandBatch.Align(payloadBytes) <= _buffer.Length;
+
     internal bool TryAppend(ushort opcode, ReadOnlySpan<byte> payload)
     {
         if (opcode == 0) throw new ArgumentOutOfRangeException(nameof(opcode));

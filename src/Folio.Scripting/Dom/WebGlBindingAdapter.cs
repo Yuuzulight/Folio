@@ -1,5 +1,6 @@
 using Folio.Scripting.Bindings;
 using Folio.Scripting.Gpu;
+using Folio.Scripting.Gpu.Remote;
 using Folio.Scripting;
 using System.Text;
 
@@ -302,6 +303,7 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
 
     public uint GetError()
     {
+        DrainDeferredFailures();
         lock (_errors)
         {
             if (_errors.Count > 0)
@@ -611,7 +613,7 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
         }
         return ToScriptValue(value);
     }
-    public bool IsContextLost() => Native.IsLost;
+    public bool IsContextLost() { DrainDeferredFailures(); return Native.IsLost; }
     public IReadOnlyList<string> GetSupportedExtensions()
     {
         var result = new List<string> { "WEBGL_lose_context" };
@@ -794,6 +796,12 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
     }
     private bool _losingContext;
     private void EnqueueFailure(WebGlValidationException failure) => EnqueueError(failure.Failure == WebGlValidationFailure.ContextLost ? 0x9242u : failure.Failure == WebGlValidationFailure.InvalidValue ? 0x0501u : 0x0502u);
+    // A remote context reports failures of queued calls at its next synchronization point.
+    private void DrainDeferredFailures()
+    {
+        if (Native is not IDeferredGpuFailures deferred) return;
+        foreach (var failure in deferred.TakeDeferredFailures()) EnqueueFailure(failure);
+    }
     private void EnqueueError(uint error) { lock (_errors) if (_errors.Count < 64) _errors.Enqueue(error); }
     protected void RecordNativeFailure(GpuFailure? failure) => EnqueueFailure(failure);
 
