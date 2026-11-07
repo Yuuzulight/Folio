@@ -146,7 +146,7 @@ public sealed class DomStyleDeclarationTests
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
-                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('fetch', function(e) { if (e.request.url.endsWith('/offline')) e.respondWith(new Response('from worker', { status: 200 })); });"), "application/javascript")
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('activate', function(e) { e.waitUntil(self.clients.claim()); }); self.addEventListener('fetch', function(e) { if (e.request.url.endsWith('/offline')) e.respondWith(new Response('from worker', { status: 200 })); });"), "application/javascript")
                 : ResourceResponse.Loaded(Encoding.UTF8.GetBytes("from host"), "text/plain"));
     }
 
@@ -154,7 +154,7 @@ public sealed class DomStyleDeclarationTests
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
-                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('fetch', function(e) { if (new URL(e.request.url).pathname.endsWith('/clip.wav')) e.respondWith(new Response('media', { status: 200, headers: { 'content-type': 'audio/wav' } })); });"), "application/javascript")
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('activate', function(e) { e.waitUntil(self.clients.claim()); }); self.addEventListener('fetch', function(e) { if (new URL(e.request.url).pathname.endsWith('/clip.wav')) e.respondWith(new Response('media', { status: 200, headers: { 'content-type': 'audio/wav' } })); });"), "application/javascript")
                 : ResourceResponse.Refused("The host must not serve media directly in this regression."));
     }
 
@@ -221,6 +221,16 @@ public sealed class DomStyleDeclarationTests
         public void Pause() => Lifecycle.Add("pause");
         public void Flush() => Lifecycle.Add("flush");
         public void Stop() => Lifecycle.Add("stop");
+    }
+
+    // Each fetch returns a new revision that activates at once and claims the page,
+    // so every register/update installs a worker (identical bytes would not).
+    private sealed class ClaimingServiceWorkerLoader : IResourceLoader
+    {
+        private int _revision;
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes(
+                "/* revision " + Interlocked.Increment(ref _revision) + " */ self.skipWaiting(); self.onactivate = e => e.waitUntil(self.clients.claim());"), "application/javascript"));
     }
 
     private sealed class DecoderResourceLoader : IResourceLoader
@@ -932,18 +942,21 @@ public sealed class DomStyleDeclarationTests
         using var allowed = new JintScriptEngine();
         DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
         {
+            // Registration fetches the script and rejects when it cannot load, so supply one.
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new ClaimingServiceWorkerLoader(),
             Capabilities = new FeatureCapabilities { ServiceWorkers = true }
         }));
-        Assert.True(allowed.Evaluate("navigator.serviceWorker.register('/sw.js').then(r => r.scriptURL === '/sw.js')").IsObject);
+        Assert.True(allowed.Evaluate("navigator.serviceWorker.register('/sw.js').then(r => r.scriptURL === 'https://worker.example/sw.js')").IsObject);
         allowed.Evaluate("let firstRegistration; navigator.serviceWorker.register('/sw.js').then(r => firstRegistration = r);");
         allowed.PerformMicrotaskCheckpoint();
-        Assert.True(allowed.Evaluate("let sameScopeResult = false; navigator.serviceWorker.register('/other.js').then(r => { const same = r === firstRegistration; return navigator.serviceWorker.getRegistration('/').then(found => sameScopeResult = same && found === r && r.scriptURL === '/other.js'); }); true").AsBoolean());
+        Assert.True(allowed.Evaluate("let sameScopeResult = false; navigator.serviceWorker.register('/other.js').then(r => { const same = r === firstRegistration; return navigator.serviceWorker.getRegistration('/').then(found => sameScopeResult = same && found === r && r.scriptURL === 'https://worker.example/other.js'); }); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("sameScopeResult").AsBoolean());
         allowed.Evaluate("let registrationCount = 0; let registration; navigator.serviceWorker.register('/sw.js').then(r => { registration = r; return navigator.serviceWorker.getRegistrations(); }).then(rs => registrationCount = rs.length);");
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal(1, allowed.Evaluate("registrationCount").AsNumber());
-        Assert.True(allowed.Evaluate("registration.active.scriptURL === '/sw.js' && registration.active.state === 'activated'; registration.active.postMessage('ping'); true").AsBoolean());
+        Assert.True(allowed.Evaluate("registration.active.scriptURL === 'https://worker.example/sw.js' && registration.active.state === 'activated'; registration.active.postMessage('ping'); true").AsBoolean());
         Assert.True(allowed.Evaluate("let workerMessage = ''; const workerListener = e => workerMessage = e.data; registration.active.addEventListener('message', workerListener); registration.active.postMessage('pong'); registration.active.removeEventListener('message', workerListener); workerMessage === 'pong'").AsBoolean());
         Assert.True(allowed.Evaluate("navigator.serviceWorker.controller === registration.active").AsBoolean());
         Assert.True(allowed.Evaluate("let updateFound = false; registration.onupdatefound = e => updateFound = e.type === 'updatefound' && e.target === registration; registration.update(); updateFound").AsBoolean());
@@ -997,21 +1010,29 @@ public sealed class DomStyleDeclarationTests
         Assert.True(intercepted.Evaluate("let interceptedText = ''; navigator.serviceWorker.register('sw.js').then(() => fetch('/offline')).then(r => r.text()).then(text => interceptedText = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("from worker", intercepted.Evaluate("interceptedText").AsString());
-        Assert.True(intercepted.Evaluate("let scopedText = ''; navigator.serviceWorker.register('sw.js', { scope: '/app/' }).then(() => fetch('/offline')).then(r => r.text()).then(text => scopedText = text).catch(error => scopedText = error.name); true").AsBoolean());
+        Assert.True(intercepted.Evaluate("let scopedText = ''; navigator.serviceWorker.getRegistration('/').then(root => root.unregister()).then(() => navigator.serviceWorker.register('sw.js', { scope: '/app/' })).then(() => fetch('/offline')).then(r => r.text()).then(text => scopedText = text).catch(error => scopedText = error.name); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("from host", intercepted.Evaluate("scopedText").AsString());
-        Assert.True(intercepted.Evaluate("let inScopeText = ''; navigator.serviceWorker.register('sw.js', { scope: '/app/' }).then(() => fetch('/app/offline')).then(r => r.text()).then(text => inScopeText = text); true").AsBoolean());
-        intercepted.PerformMicrotaskCheckpoint();
-        Assert.Equal("from worker", intercepted.Evaluate("inScopeText").AsString());
+        // Only a page inside the scope can be claimed and routed through the scoped worker.
+        using var scopedPage = new JintScriptEngine();
+        DomBindings.Install(scopedPage, Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/app/page"),
+            ResourceLoader = new ServiceWorkerFetchLoader(),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        }));
+        Assert.True(scopedPage.Evaluate("let inScopeText = ''; navigator.serviceWorker.register('/sw.js', { scope: '/app/' }).then(() => fetch('/app/offline')).then(r => r.text()).then(text => inScopeText = text); true").AsBoolean());
+        scopedPage.PerformMicrotaskCheckpoint();
+        Assert.Equal("from worker", scopedPage.Evaluate("inScopeText").AsString());
+        Assert.True(scopedPage.Evaluate("let boundaryText = ''; fetch('/apple/offline').then(r => r.text()).then(text => boundaryText = text); true").AsBoolean());
+        scopedPage.PerformMicrotaskCheckpoint();
+        Assert.Equal("from host", scopedPage.Evaluate("boundaryText").AsString());
         Assert.True(intercepted.Evaluate("let defaultScope = ''; navigator.serviceWorker.register('/scripts/sw.js').then(r => defaultScope = r.scope); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("/scripts/", intercepted.Evaluate("defaultScope").AsString());
         Assert.True(intercepted.Evaluate("let broadScopeError = ''; navigator.serviceWorker.register('/scripts/sw.js', { scope: '/' }).catch(error => broadScopeError = error.name); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("SecurityError", intercepted.Evaluate("broadScopeError").AsString());
-        Assert.True(intercepted.Evaluate("let boundaryText = ''; navigator.serviceWorker.register('sw.js', { scope: '/app/' }).then(() => fetch('/apple/offline')).then(r => r.text()).then(text => boundaryText = text); true").AsBoolean());
-        intercepted.PerformMicrotaskCheckpoint();
-        Assert.Equal("from host", intercepted.Evaluate("boundaryText").AsString());
         Assert.True(intercepted.Evaluate("let relativeScope = ''; navigator.serviceWorker.register('sw.js', { scope: 'app' }).then(r => navigator.serviceWorker.getRegistration('app').then(found => relativeScope = r.scope + ':' + (found === r))); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("/app/:true", intercepted.Evaluate("relativeScope").AsString());
@@ -2011,7 +2032,7 @@ public sealed class DomStyleDeclarationTests
         var received = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>
         {
-            if (message.Kind == ContentMessageKind.Frame) received.TrySetResult(message);
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) received.TrySetResult(message);
             return ValueTask.CompletedTask;
         };
         await client.SendAsync(ContentMessageKind.Load, new { script = "1 + 2", url = "test" }, TestContext.Current.CancellationToken);
@@ -2040,7 +2061,7 @@ public sealed class DomStyleDeclarationTests
         var diagnostic = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>
         {
-            if (message.Kind == ContentMessageKind.Frame) received.TrySetResult(message);
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) received.TrySetResult(message);
             if (message.Kind == ContentMessageKind.Diagnostic) diagnostic.TrySetResult(message);
             return ValueTask.CompletedTask;
         };

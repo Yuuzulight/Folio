@@ -24,7 +24,7 @@ public sealed class WindowsSandboxTests
             documentLimits: ResourceLimits.Default with { MaxServiceWorkerCacheBytes = 64 * 1024 });
         var frame = await Exchange(client, new
         {
-            html = "<script>var result='unfinished';(async()=>{await navigator.serviceWorker.register('/sw.js');result=await (await fetch('/offline')).text();})().catch(e=>result=e.name+':'+e.message);</script>",
+            html = "<script>var result='unfinished';(async()=>{await navigator.serviceWorker.register('/sw.js');await navigator.serviceWorker.ready;result=await (await fetch('/offline')).text();})().catch(e=>result=e.name+':'+e.message);</script>",
             script = "result",
             url = "https://matrix.example/",
             artifactId = "matrix",
@@ -223,7 +223,7 @@ public sealed class WindowsSandboxTests
         void Stopped(object? sender, ContentProcessStoppedEventArgs args) => stopReason = args.Reason;
         ValueTask Handler(ContentMessage message, CancellationToken _)
         {
-            if (message.Kind == ContentMessageKind.Frame) completion.TrySetResult(message);
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) completion.TrySetResult(message);
             else if (message.Kind == ContentMessageKind.Hello) stage = message.Payload.ToString();
             else if (message.Kind == ContentMessageKind.Diagnostic)
                 completion.TrySetException(new IOException($"Native probe failed: {message.Payload}"));
@@ -265,7 +265,7 @@ public sealed class WindowsSandboxTests
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script && request.Url == "https://matrix.example/sw.js"
-                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('fetch', e => e.respondWith(new Response('offline')));"), "application/javascript")
+                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('activate', e => e.waitUntil(self.clients.claim())); self.addEventListener('fetch', e => e.respondWith(new Response('offline')));"), "application/javascript")
                 : ResourceResponse.Refused("matrix host refusal"));
     }
 

@@ -11,7 +11,7 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMediaFrameSource, IFeatureFallbackSource
 {
-    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null, IMediaDecoder? decoder = null, int maxMediaBytes = 128 * 1024 * 1024, MediaResourceBudget? mediaBudget = null, bool soundEnabled = false, Func<bool>? checkSoundPermission = null, Func<bool>? checkMediaPermission = null, Func<ScriptValue, MediaCaptureVideoFrame?>? captureFrame = null, Func<ScriptValue, MediaAudioFrame?>? captureAudio = null, bool deferLoad = false)
+    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null, IMediaDecoder? decoder = null, int maxMediaBytes = 128 * 1024 * 1024, MediaResourceBudget? mediaBudget = null, bool soundEnabled = false, Func<bool>? checkSoundPermission = null, Func<bool>? checkMediaPermission = null, Func<ScriptValue, MediaCaptureVideoFrame?>? captureFrame = null, Func<ScriptValue, CaptureAudioReader?>? captureAudio = null, bool deferLoad = false)
     {
         Engine = engine;
         EventTemplate = eventTemplate;
@@ -50,10 +50,21 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     public bool Enabled { get; private set; }
     public bool AllowSoundAutoplay { get; }
     private bool _captureVideo;
+    private bool _captureSource;
+    private ScriptValue _captureAudioTrack = ScriptValue.Undefined;
+    private CaptureAudioReader? _captureReader;
+    private bool _captureAudioStarted;
+    private bool _captureWasPaused;
     private int _captureWidth = 640;
     private int _captureHeight = 360;
-    public int Width => _captureVideo ? _captureWidth : int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : _frameImage?.Width ?? 300;
-    public int Height => _captureVideo ? _captureHeight : int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : _frameImage?.Height ?? 150;
+    public int Width
+    {
+        get { if (_captureVideo) RefreshCaptureFrame(); return _captureVideo ? _captureWidth : int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : _frameImage?.Width ?? 300; }
+    }
+    public int Height
+    {
+        get { if (_captureVideo) RefreshCaptureFrame(); return _captureVideo ? _captureHeight : int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : _frameImage?.Height ?? 150; }
+    }
     private IImageHandle? _frameImage;
     private MediaVideoFrame[]? _videoFrames;
     private readonly IMediaAudioOutput? _audioOutput;
@@ -64,7 +75,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     private readonly Func<bool>? _checkSoundPermission;
     private readonly Func<bool>? _checkMediaPermission;
     private readonly Func<ScriptValue, MediaCaptureVideoFrame?>? _captureFrame;
-    private readonly Func<ScriptValue, MediaAudioFrame?>? _captureAudio;
+    private readonly Func<ScriptValue, CaptureAudioReader?>? _captureAudio;
     private ScriptValue _captureTrack = ScriptValue.Undefined;
     private bool _soundPlaybackAuthorized;
     private MediaResourceBudget.Lease? _reservation;
@@ -79,11 +90,15 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     private MediaAudioFrame? _audioFrame;
     private int _audioCursor;
     private byte[]? _framePixels;
+    private ReadOnlyMemory<byte>? _capturePixels;
+    private bool _captureBlack;
+    private bool _captureGradient;
     public ReadOnlyMemory<byte> Pixels
     {
         get
         {
             RefreshCaptureFrame();
+            if (_captureVideo) return _capturePixels ?? ReadOnlyMemory<byte>.Empty;
             return _frameImage?.Pixels ?? (_framePixels ??= new byte[Math.Min((long)Width * Height * 4, 16 * 1024 * 1024)]);
         }
     }
@@ -101,8 +116,15 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         {
             RefreshCaptureFrame();
             return !Paused && _frameImage is { } image ? new FrameImage(image)
-                : _captureVideo && _framePixels is { } pixels ? new MediaPosterImage(Width, Height, pixels) : null;
+                : _captureVideo && _capturePixels is { } pixels ? new CapturePoster(_captureWidth, _captureHeight, pixels) : null;
         }
+    }
+
+    private sealed class CapturePoster(int width, int height, ReadOnlyMemory<byte> pixels) : IMediaPoster
+    {
+        public int Width => width;
+        public int Height => height;
+        public ReadOnlyMemory<byte> Pixels => pixels;
     }
 
     private sealed class FrameImage(IImageHandle image) : IMediaPoster
@@ -187,53 +209,85 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             if (!LoadStillCurrent(generation)) return;
             video |= live && kind == "video";
             audio |= live && kind == "audio";
-            if (live && kind == "audio") _audioFrame ??= _captureAudio?.Invoke(track);
+            if (live && kind == "audio" && !_captureAudioTrack.IsObject)
+            {
+                _captureAudioTrack = track;
+                _captureReader = _captureAudio?.Invoke(track);
+            }
         }
         _captureVideo = video;
-        _hasSource = video || audio;
+        _captureSource = video || audio;
+        _hasSource = _captureSource;
         if (_captureVideo)
         {
-            _framePixels = CreateCaptureFrame(tracks);
-            _captureReservation = _budget.AcquireBytes();
-            var captureBytes = (long)_framePixels.LongLength;
-            if (_captureReservation is null || !_captureReservation.Resize(captureBytes))
-            {
-                _captureReservation?.Dispose();
-                _captureReservation = null;
-                _captureVideo = false;
-                _hasSource = audio;
-                Error = "Captured video exceeds the host media budget.";
-                _fallback = new(FallbackFeature.Video, FallbackReason.ResourceLimit);
-                return;
-            }
             foreach (var track in tracks)
                 if (Engine.GetProperty(track, "kind").AsString() == "video" && Engine.GetProperty(track, "readyState").AsString() == "live")
                 { _captureTrack = track; break; }
+            RefreshCaptureFrame();
         }
         if (video || audio)
-            _fallback = Element.LocalName == "audio" && !_soundEnabled ? new(FallbackFeature.Sound, FallbackReason.HostDenied) : null;
+            _fallback ??= Element.LocalName == "audio" && !_soundEnabled ? new(FallbackFeature.Sound, FallbackReason.HostDenied) : null;
     }
 
-    private byte[] CreateCaptureFrame(IReadOnlyList<ScriptValue> tracks)
+    private bool CaptureTrackEnabled(ScriptValue track) => track.IsObject &&
+        Engine.GetProperty(track, "readyState").AsString() == "live" &&
+        Engine.GetProperty(track, "enabled").AsBoolean() && !Engine.GetProperty(track, "muted").AsBoolean();
+
+    private void RefreshCaptureFrame()
     {
-        if (_captureFrame is not null)
+        if (!_captureVideo || !_captureTrack.IsObject) return;
+        var generation = _loadGeneration;
+        var enabled = CaptureTrackEnabled(_captureTrack);
+        var frame = enabled ? _captureFrame?.Invoke(_captureTrack) : null;
+        if (!LoadStillCurrent(generation)) return;
+        // A real provider with no frame presents black, never the compatibility gradient.
+        // Ended/disabled tracks also replace the last image immediately with opaque black.
+        var width = frame is { IsValid: true } ? frame.Value.Width : _captureWidth;
+        var height = frame is { IsValid: true } ? frame.Value.Height : _captureHeight;
+        var bytes = (long)width * height * 4;
+        _captureReservation ??= _budget.AcquireBytes();
+        if (bytes > 16 * 1024 * 1024 || _captureReservation is null || !_captureReservation.Resize(bytes))
         {
-            foreach (var track in tracks)
-            {
-                var kind = Engine.GetProperty(track, "kind").AsString();
-                if (kind != "video") continue;
-                var frame = _captureFrame(track);
-                if (frame is { IsValid: true } && frame.Value.Rgba.Length <= 16 * 1024 * 1024)
-                {
-                    _captureWidth = frame.Value.Width;
-                    _captureHeight = frame.Value.Height;
-                    return frame.Value.Rgba.ToArray();
-                }
-            }
+            _capturePixels = null;
+            _captureBlack = _captureGradient = false;
+            _captureReservation?.Dispose();
+            _captureReservation = null;
+            RejectForBudget("Captured video exceeds the host media budget.");
+            return;
         }
-        var width = Width;
-        var height = Height;
-        var pixels = new byte[Math.Min((long)width * height * 4, 16 * 1024 * 1024)];
+        _captureWidth = width;
+        _captureHeight = height;
+        if (frame is { IsValid: true })
+        {
+            // The provider owns immutable snapshots. Keep a budgeted reference;
+            // repeated paint/size reads do not allocate another full video frame.
+            _capturePixels = frame.Value.Rgba;
+            _captureBlack = false;
+        }
+        else if (enabled && _captureFrame is null)
+        {
+            // No host provider: the compatibility source shows a synthetic gradient.
+            if (!_captureGradient || _capturePixels?.Length != bytes)
+            {
+                _capturePixels = CompatibilityGradient(width, height);
+                _captureGradient = true;
+            }
+            _captureBlack = false;
+            return;
+        }
+        else if (!_captureBlack || _capturePixels?.Length != bytes)
+        {
+            var black = new byte[(int)bytes];
+            for (var offset = 3; offset < black.Length; offset += 4) black[offset] = 255;
+            _capturePixels = black;
+            _captureBlack = true;
+        }
+        _captureGradient = false;
+    }
+
+    private static byte[] CompatibilityGradient(int width, int height)
+    {
+        var pixels = new byte[width * height * 4];
         for (var y = 0; y < height; y++)
         for (var x = 0; x < width; x++)
         {
@@ -244,16 +298,6 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             pixels[offset + 3] = 255;
         }
         return pixels;
-    }
-
-    private void RefreshCaptureFrame()
-    {
-        if (!_captureVideo || !_captureTrack.IsObject || _captureFrame is null) return;
-        var frame = _captureFrame(_captureTrack);
-        if (frame is not { IsValid: true } || frame.Value.Rgba.Length > 16 * 1024 * 1024) return;
-        _captureWidth = frame.Value.Width;
-        _captureHeight = frame.Value.Height;
-        _framePixels = frame.Value.Rgba.ToArray();
     }
     public int ReadyState => Enabled && Error is null && _hasSource ? 4 : 0;
     public int NetworkState => Enabled && Error is null && _hasSource ? 1 : 0;
@@ -274,6 +318,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     {
         if (Muted == muted) return;
         Muted = muted;
+        _captureReader?.Skip();
+        _captureAudioStarted = false;
         // A blocked audible autoplay is a policy failure, not a permanent media
         // error. Once the element is muted, the caller may retry play().
         if (muted && Error?.Contains("autoplay", StringComparison.OrdinalIgnoreCase) == true)
@@ -290,6 +336,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         volume = Math.Clamp(volume, 0, 1);
         if (Volume == volume) return;
         Volume = volume;
+        _captureReader?.Skip();
+        _captureAudioStarted = false;
         AudioFlush();
         Dispatch(OnVolumeChange, "volumechange");
     }
@@ -298,6 +346,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         if (!double.IsFinite(value)) throw WebIdlException.TypeError("The media position must be finite.");
         value = Duration > 0 ? Math.Clamp(value, 0, Duration) : Math.Max(0, value);
         AudioFlush();
+        _captureReader?.Skip();
         if (_audioFrame is { } frame) _audioCursor = AudioPosition(frame, value);
         Dispatch(OnSeeking, "seeking");
         var wasEnded = Ended;
@@ -403,6 +452,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         if (wasEnabled && !enabled)
         {
             _soundPlaybackAuthorized = false;
+            _captureReader?.Skip();
+            _captureAudioStarted = false;
             AudioPause();
             AudioFlush();
             AudioStop();
@@ -454,7 +505,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             // A sound-capability revocation may leave media playback running silently. A
             // subsequent play() after re-grant must re-arm the output without duplicating
             // the play/playing lifecycle events for an already-running element.
-            if (_audioFrame is not null && !_soundPlaybackAuthorized)
+            if ((_audioFrame is not null || _captureReader is not null) && !_soundPlaybackAuthorized)
             {
                 _soundPlaybackAuthorized = !Muted && Volume > 0 && SoundPermissionGranted();
                 if (_soundPlaybackAuthorized)
@@ -463,17 +514,20 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
                     SubmitAudioThrough(CurrentTime);
                 }
             }
+            if (_captureSource && _soundPlaybackAuthorized) SubmitCaptureAudio(.02, _loadGeneration);
             return true;
         }
         if (Ended) Seek(0);
+        if (_captureWasPaused) { _captureReader?.Skip(); _captureWasPaused = false; }
         Paused = false;
-        _soundPlaybackAuthorized = _audioFrame is not null && !Muted && Volume > 0 ? SoundPermissionGranted() : _soundEnabled;
+        _soundPlaybackAuthorized = (_audioFrame is not null || _captureReader is not null) && !Muted && Volume > 0 ? SoundPermissionGranted() : _soundEnabled;
         Ended = false;
         if (_audioFrame is not null)
         {
             AudioStart();
             SubmitAudioThrough(CurrentTime);
         }
+        if (_captureSource && _soundPlaybackAuthorized) SubmitCaptureAudio(.02, _loadGeneration);
         Dispatch(OnPlay, "play");
         Dispatch(OnPlaying, "playing");
         return true;
@@ -483,6 +537,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     {
         if (Paused) return;
         Paused = true;
+        if (_captureSource) { _captureReader?.Skip(); AudioFlush(); _captureAudioStarted = false; _captureWasPaused = true; }
         AudioPause();
         Dispatch(OnPause, "pause");
     }
@@ -491,6 +546,29 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
 
     internal void AdvancePlayback(double seconds)
     {
+        if (_captureSource)
+        {
+            if (!double.IsFinite(seconds) || seconds <= 0) return;
+            RefreshCaptureFrame();
+            if (Paused || !Enabled || Error is not null || PlaybackRate <= 0)
+            {
+                _captureReader?.Skip();
+                if (_captureAudioStarted) { AudioFlush(); _captureAudioStarted = false; }
+                return;
+            }
+            var generation = _loadGeneration;
+            var audible = CaptureTrackEnabled(_captureAudioTrack) && !Muted && Volume > 0 &&
+                _audioOutput is not null && _soundPlaybackAuthorized && SoundPermissionGranted();
+            if (!LoadStillCurrent(generation)) return;
+            if (!audible)
+            {
+                _captureReader?.Skip();
+                if (_captureAudioStarted) { AudioFlush(); _captureAudioStarted = false; }
+            }
+            else SubmitCaptureAudio(Math.Min(seconds, .1), generation);
+            if (LoadStillCurrent(generation)) SetCurrentTime(CurrentTime + seconds);
+            return;
+        }
         if (Paused || Ended || Duration <= 0 || seconds <= 0 || PlaybackRate <= 0) return;
         var next = CurrentTime + seconds * PlaybackRate;
         if (next >= Duration)
@@ -521,6 +599,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
 
     public void Load()
     {
+        if (SrcObject.IsObject) { SetSrcObject(SrcObject); _captureReader?.Skip(); return; }
         var previousDuration = Duration;
         var beforeGeneration = _loadGeneration;
         LoadResource();
@@ -622,6 +701,13 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
 
     private void ReleaseResource()
     {
+        _captureReader?.Dispose();
+        _captureReader = null;
+        _capturePixels = null;
+        _captureBlack = _captureGradient = false;
+        _captureAudioTrack = ScriptValue.Undefined;
+        _captureTrack = ScriptValue.Undefined;
+        _captureSource = _captureVideo = _captureAudioStarted = _captureWasPaused = false;
         _reservation?.Dispose();
         _reservation = null;
         _captureReservation?.Dispose();
@@ -891,6 +977,41 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         }
     }
 
+    private void SubmitCaptureAudio(double seconds, long generation)
+    {
+        var reader = _captureReader;
+        if (reader is null || _audioOutput is null) return;
+        // Bound work even if an ingress callback floods tiny PCM blocks. Consumption
+        // is paced by document time, in <=20 ms chunks; never drain an unbounded queue.
+        for (var blocks = 0; blocks < 32 && seconds > 0; blocks++)
+        {
+            if (!CaptureTrackEnabled(_captureAudioTrack) || Muted || Volume <= 0 ||
+                !_soundPlaybackAuthorized || !SoundPermissionGranted() || !LoadStillCurrent(generation))
+            { reader.Skip(); return; }
+            if (!reader.Read(Math.Min(seconds, .02), out var frame)) return;
+            // Provider revocation may race a successful read. Recheck immediately
+            // before output; a retired reader cannot emit retained stale samples.
+            if (!reader.IsLive || !LoadStillCurrent(generation)) { reader.Skip(); return; }
+            if (!_captureAudioStarted)
+            {
+                AudioStart();
+                if (!LoadStillCurrent(generation)) return;
+                _captureAudioStarted = true;
+            }
+            if (Volume < 1)
+            {
+                using var scratch = _budget.AcquireBytes();
+                if (scratch is null || !scratch.Resize((long)frame.Samples.Length * sizeof(float))) { reader.Skip(); return; }
+                var samples = frame.Samples.ToArray();
+                for (var i = 0; i < samples.Length; i++) samples[i] *= (float)Volume;
+                _audioOutput.Submit(frame with { Samples = samples });
+            }
+            else _audioOutput.Submit(frame);
+            if (!LoadStillCurrent(generation)) return;
+            seconds -= (double)frame.Samples.Length / frame.Channels / frame.SampleRate;
+        }
+    }
+
     private void AudioStart()
     {
         if (Muted || Volume <= 0) return;
@@ -925,6 +1046,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         if (_soundPlaybackAuthorized)
         {
             _soundPlaybackAuthorized = false;
+            _captureReader?.Skip();
+            _captureAudioStarted = false;
             AudioPause();
             AudioFlush();
             AudioStop();

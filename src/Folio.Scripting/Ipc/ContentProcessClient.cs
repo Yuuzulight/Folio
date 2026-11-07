@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading.Channels;
 using Folio.Resources;
 using Folio.Hosting;
 
@@ -32,9 +33,19 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private int _disposed;
     private readonly string _artifact;
     private readonly ResourceLimits _documentLimits;
+    // Separate GPU worker (opt-in until its acceptance gate passes: docs/gpu-worker-remote-webgl-plan.md).
+    private Folio.Scripting.Gpu.Remote.GpuWebGlWorker? _gpuWorker;
+    private bool _gpuChannelSent;
+    private string? _contentHostPath;
+    /// <summary>Test seam; otherwise FOLIO_GPU_WORKER=1 opts in.</summary>
+    internal static bool? GpuWorkerOverride { get; set; }
+    internal int? GpuWorkerProcessId => OperatingSystem.IsWindows() ? _gpuWorker?.ProcessId : null;
     private readonly bool _storageEnabled;
     private readonly IMediaCaptureProvider? _mediaCaptureProvider;
-    private readonly ConcurrentDictionary<string, CaptureLease> _mediaCaptureSessions = new();
+    private const int MaxCaptureSessions = 16;
+    private readonly ConcurrentDictionary<string, ContentCaptureLease> _mediaCaptureSessions = new();
+    private readonly Channel<bool> _captureWake = Channel.CreateBounded<bool>(1);
+    private readonly Task _capturePump;
     private Func<MediaCaptureRequest, CancellationToken, ValueTask<bool>>? _mediaCapturePermission;
     private FeatureCapabilities _hostCapabilities = FeatureCapabilities.Default;
     private long _captureGeneration;
@@ -45,6 +56,17 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private readonly SemaphoreSlim _viewportGate = new(1, 1);
     private readonly ConcurrentDictionary<string, long> _framePaths = new();
     private readonly IDisposable _security;
+    private readonly object _navigationGate = new();
+    private readonly Channel<NavigationDelivery> _navigationDeliveries = Channel.CreateBounded<NavigationDelivery>(
+        new BoundedChannelOptions(32) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+    private readonly Task _navigationWorker;
+    private readonly SemaphoreSlim _loadGate = new(1, 1);
+    // Serialises revocation notices so a host message sent after Revoke() cannot overtake one.
+    private readonly SemaphoreSlim _captureRevocationGate = new(1, 1);
+    private NavigationDocument? _navigationDocument;
+    private HashSet<string> _webRtcAllowedOrigins = new(StringComparer.OrdinalIgnoreCase);
+    private Action<Uri>? _iframeNavigationRequested;
+    private Func<Action, CancellationToken, ValueTask>? _iframeNavigationDispatcher;
     private event Func<ContentMessage, CancellationToken, ValueTask>? _messageReceived;
 
     private ContentProcessClient(Process process, Stream input, Stream output, Stream error, CanvasFrameStore frameStore, string framePath, ContentProcessSupervisor supervisor, WindowsJobObject? job, IDisposable security, IResourceLoader? resourceLoader, ContentResourcePolicy? resourcePolicy, IArtifactStorage? storage, IMediaDecoder? mediaDecoder, IMediaAudioOutput? mediaAudioOutput, IMediaCaptureProvider? mediaCaptureProvider, string artifact, ResourceLimits documentLimits)
@@ -69,6 +91,11 @@ public sealed class ContentProcessClient : IAsyncDisposable
         _stderrReader = DrainErrorAsync(_shutdown.Token);
         _reader = ReadMessagesAsync();
         _watchdog = WatchdogAsync(_shutdown.Token);
+        // One owned consumer, never one task per child notification. User code
+        // must not hold the transport dispatcher needed by reentrant disposal.
+        var navigationToken = _shutdown.Token;
+        _navigationWorker = Task.Run(() => RunNavigationDeliveriesAsync(navigationToken));
+        _capturePump = Task.Run(() => PumpCaptureAsync(navigationToken));
     }
 
     public Process Process => _process;
@@ -87,11 +114,22 @@ public sealed class ContentProcessClient : IAsyncDisposable
         Start(executablePath, arguments, limits, resourceLoader, resourcePolicy, null, "default", null);
 
     /// <summary>Starts a client with the host's resource, storage and media services. Capabilities are still supplied in each load/update message.</summary>
-    /// <remarks>Permission runs on the client's reader thread. A UI host can supply an override that marshals to its UI thread.</remarks>
+    /// <remarks>Permission runs on the client's reader thread. A UI host can supply an override that marshals to its UI thread.
+    /// The navigation dispatcher must post the supplied action, rather than invoking the options callback directly.
+    /// That action revalidates document lifetime and grants on the destination thread and delivers at most once.
+    /// The dispatcher should complete after attempting delivery. Its pending token is cancelled on HTML replacement or shutdown;
+    /// incremental script loads retain the document lifetime. Cancellation ends the client's wait even if the dispatcher ignores it.
+    /// Navigation observer failures are contained, matching in-process iframe notification semantics.
+    /// Navigation uses one delivery worker with at most 32 queued notifications; excess notifications are discarded.
+    /// Retirement cancels queued or unclaimed deliveries. An invocation becomes in flight when its guarded action claims
+    /// the current generation, immediately before calling user code outside the lifetime lock. Retirement does not abort
+    /// or wait for in-flight user code, so callbacks may synchronously reload or dispose the client, including from a UI dispatcher.</remarks>
     public static ContentProcessClient StartWithOptions(string executablePath, FolioOptions options, ContentProcessLimits? limits = null,
-        Func<MediaCaptureRequest, CancellationToken, ValueTask<bool>>? mediaCapturePermission = null)
+        Func<MediaCaptureRequest, CancellationToken, ValueTask<bool>>? mediaCapturePermission = null,
+        Func<Action, CancellationToken, ValueTask>? iframeNavigationDispatcher = null)
     {
         ArgumentNullException.ThrowIfNull(options);
+        var origins = ContentHostPolicy.NormalizeOrigins(options.WebRtcAllowedOrigins);
         IResourceLoader? loader = options.ResourceInterceptor is { } interceptor
             ? new InterceptedHostLoader(interceptor, options.ResourceLoader) : options.ResourceLoader;
         var client = Start(executablePath, limits: limits, resourceLoader: loader,
@@ -99,6 +137,9 @@ public sealed class ContentProcessClient : IAsyncDisposable
             mediaDecoder: options.MediaDecoder, mediaAudioOutput: options.MediaAudioOutput, mediaCaptureProvider: options.MediaCaptureProvider);
         client._mediaCapturePermission = mediaCapturePermission ?? (options.MediaCapturePermission is { } permission
             ? (request, _) => ValueTask.FromResult(permission(request)) : null);
+        client._webRtcAllowedOrigins = origins;
+        client._iframeNavigationRequested = options.IframeNavigationRequested;
+        client._iframeNavigationDispatcher = iframeNavigationDispatcher;
         return client;
     }
 
@@ -147,6 +188,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
                 isolated = new WindowsContentLaunch { Process = process, Input = process.StandardInput.BaseStream, Output = process.StandardOutput.BaseStream, Error = process.StandardError.BaseStream, Security = new NoopDisposable() };
             }
             var client = new ContentProcessClient(isolated.Process, isolated.Input, isolated.Output, isolated.Error, frameStore, framePath, new ContentProcessSupervisor(effectiveLimits), OperatingSystem.IsWindows() ? isolated.Job : null, isolated.Security, resourceLoader, resourcePolicy, artifactStorage, mediaDecoder, mediaAudioOutput, mediaCaptureProvider, string.IsNullOrWhiteSpace(artifactId) ? "default" : artifactId, documentLimits ?? ResourceLimits.Default);
+            client._contentHostPath = isolated.Job is not null ? executablePath : null;
             isolated = null;
             return client;
         }
@@ -157,6 +199,11 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private void OnProcessExited(object? sender, EventArgs args) => _supervisor.Stop("content process exited");
     private async ValueTask ValidateAndDispatchAsync(ContentMessage message, CancellationToken cancellationToken)
     {
+        if (message.Kind == ContentMessageKind.IframeNavigationRequested)
+        {
+            QueueIframeNavigation(message, cancellationToken);
+            return;
+        }
         if (message.Kind == ContentMessageKind.MediaCaptureRequest)
         {
             await HandleMediaCaptureAsync(message, cancellationToken).ConfigureAwait(false);
@@ -190,65 +237,246 @@ public sealed class ContentProcessClient : IAsyncDisposable
         if (_messageReceived is { } handler) await handler(message, cancellationToken).ConfigureAwait(false);
     }
 
+    private sealed class NavigationDocument
+    {
+        internal string Generation { get; } = Guid.NewGuid().ToString("N");
+        internal CancellationTokenSource Cancellation { get; } = new();
+    }
+
+    private void RetireNavigationDocument()
+    {
+        NavigationDocument? retired;
+        lock (_navigationGate) { retired = _navigationDocument; _navigationDocument = null; }
+        if (retired is null) return;
+        try { retired.Cancellation.Cancel(); }
+        catch (AggregateException) { /* Dispatcher cancellation observers cannot prevent containment. */ }
+        finally { retired.Cancellation.Dispose(); }
+    }
+
+    private sealed record NavigationDelivery(NavigationDocument Document, Uri Uri);
+
+    private void QueueIframeNavigation(ContentMessage message, CancellationToken cancellationToken)
+    {
+        var payload = message.Payload;
+        if (payload.ValueKind != JsonValueKind.Object
+            || payload.EnumerateObject().Take(3).Count() != 2
+            || !payload.TryGetProperty("generation", out var generation) || generation.ValueKind != JsonValueKind.String
+            || generation.GetString() is not { Length: 32 } id
+            || !payload.TryGetProperty("uri", out var value) || value.ValueKind != JsonValueKind.String
+            || !ContentHostPolicy.TryNavigationUri(value.GetString(), out var uri)) return;
+        lock (_navigationGate)
+        {
+            if (_navigationDocument is not { } current || current.Generation != id
+                || cancellationToken.IsCancellationRequested || Volatile.Read(ref _disposed) != 0 || _shutdown.IsCancellationRequested
+                || !Volatile.Read(ref _hostCapabilities).Iframes || _iframeNavigationRequested is null) return;
+            _navigationDeliveries.Writer.TryWrite(new NavigationDelivery(current, uri!));
+        }
+    }
+
+    private async Task RunNavigationDeliveriesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var notification in _navigationDeliveries.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+                await DeliverIframeNavigationAsync(notification, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        finally
+        {
+            while (_navigationDeliveries.Reader.TryRead(out _)) { }
+        }
+    }
+
+    private async ValueTask DeliverIframeNavigationAsync(NavigationDelivery notification, CancellationToken cancellationToken)
+    {
+        var document = notification.Document;
+        CancellationTokenSource delivery;
+        lock (_navigationGate)
+        {
+            if (_navigationDocument != document || cancellationToken.IsCancellationRequested
+                || Volatile.Read(ref _disposed) != 0 || !Volatile.Read(ref _hostCapabilities).Iframes) return;
+            delivery = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, document.Cancellation.Token);
+        }
+        using (delivery)
+        {
+            var delivered = false;
+            void Deliver()
+            {
+                Action<Uri>? callback;
+                // This action is also the UI-dispatch boundary: even a dispatcher
+                // that retains its action after cancellation cannot deliver stale work.
+                lock (_navigationGate)
+                {
+                    if (delivered || delivery.IsCancellationRequested || _navigationDocument != document
+                        || Volatile.Read(ref _disposed) != 0 || _shutdown.IsCancellationRequested
+                        || !Volatile.Read(ref _hostCapabilities).Iframes) return;
+                    delivered = true;
+                    callback = _iframeNavigationRequested;
+                }
+                // Claiming the generation above starts an in-flight invocation.
+                // No arbitrary user code runs under the retirement lock.
+                try { callback?.Invoke(notification.Uri); }
+                catch (Exception error) when (error is not OutOfMemoryException) { RecordNavigationFailure(error); }
+            }
+            try
+            {
+                delivery.Token.ThrowIfCancellationRequested();
+                if (_iframeNavigationDispatcher is { } dispatch)
+                    await dispatch(Deliver, delivery.Token).AsTask().WaitAsync(delivery.Token).ConfigureAwait(false);
+                else Deliver();
+            }
+            catch (OperationCanceledException) when (delivery.IsCancellationRequested) { }
+            catch (Exception error) when (error is not OutOfMemoryException)
+            {
+                // Match in-process iframe notification semantics: observer failures
+                // must not break resource brokerage or terminate the document.
+                RecordNavigationFailure(error);
+            }
+        }
+    }
+
+    private void RecordNavigationFailure(Exception error)
+    {
+        lock (_standardError)
+        {
+            _standardError.AppendLine($"Iframe navigation callback threw {error.GetType().Name}.");
+            if (_standardError.Length > 8192) _standardError.Remove(0, _standardError.Length - 8192);
+        }
+    }
+
     private async ValueTask HandleMediaCaptureAsync(ContentMessage message, CancellationToken cancellationToken)
     {
         JsonObject result = new() { ["ok"] = false };
         string? openedToken = null;
+        ContentCaptureLease? openedLease = null;
+        ContentCaptureSample? initial = null;
         try
         {
-            var action = message.Payload.TryGetProperty("action", out var actionValue) ? actionValue.GetString() : null;
+            if (message.Payload.ValueKind != JsonValueKind.Object) throw new InvalidDataException();
+            var action = message.Payload.TryGetProperty("action", out var actionValue) && actionValue.ValueKind == JsonValueKind.String ? actionValue.GetString() : null;
             if (action == "open" && _mediaCaptureProvider is not null
                 && message.Payload.TryGetProperty("audio", out var audio) && audio.ValueKind is JsonValueKind.True or JsonValueKind.False
                 && message.Payload.TryGetProperty("video", out var video) && video.ValueKind is JsonValueKind.True or JsonValueKind.False)
             {
                 var request = new MediaCaptureRequest(audio.GetBoolean(), video.GetBoolean());
                 var generation = Volatile.Read(ref _captureGeneration);
-                if (!CaptureGranted(request) || (_mediaCapturePermission is { } permit && !await permit(request, cancellationToken).ConfigureAwait(false))
+                if (_mediaCaptureSessions.Count >= MaxCaptureSessions || !CaptureGranted(request)
+                    || (_mediaCapturePermission is { } permit && !await permit(request, cancellationToken).ConfigureAwait(false))
                     || generation != Volatile.Read(ref _captureGeneration) || !CaptureGranted(request))
                     throw new InvalidOperationException("The host denied camera or microphone capture.");
                 var session = _mediaCaptureProvider.Open(request);
                 if (session is not null)
                 {
-                    var token = Guid.NewGuid().ToString("N");
-                    var lease = new CaptureLease(session, request,
-                        frame => SendCaptureActivity(token, new JsonObject { ["video"] = new JsonObject { ["width"] = frame.Width, ["height"] = frame.Height, ["rgba"] = Convert.ToBase64String(frame.Rgba.ToArray()) } }),
-                        sample => SendCaptureActivity(token, new JsonObject { ["audio"] = new JsonObject { ["sampleRate"] = sample.SampleRate, ["channels"] = sample.Channels, ["samples"] = ScriptJson.SerializeToNode(sample.Samples.ToArray()) } }),
-                        () => { SendCaptureActivity(token, new JsonObject { ["revoked"] = true }); RetireCapture(token); });
-                    _mediaCaptureSessions[token] = lease;
-                    openedToken = token;
-                    if (generation != Volatile.Read(ref _captureGeneration) || !CaptureGranted(request) || lease.Revoked || Volatile.Read(ref _disposed) != 0)
-                    {
-                        RetireCapture(token);
+                    var newToken = Guid.NewGuid().ToString("N");
+                    var newLease = new ContentCaptureLease(session, request, CaptureGranted, SignalCapture);
+                    _mediaCaptureSessions[newToken] = newLease;
+                    openedToken = newToken; openedLease = newLease;
+                    initial = newLease.Initial();
+                    if (generation != Volatile.Read(ref _captureGeneration) || !CaptureGranted(request) || newLease.Revoked || Volatile.Read(ref _disposed) != 0
+                        || !_mediaCaptureSessions.TryGetValue(newToken, out var current) || !ReferenceEquals(current, newLease))
                         throw new InvalidOperationException("Capture permission changed while the device was opening.");
-                    }
-                    result = CaptureWire.Read(lease.Session, token);
+                    result = CaptureWire.Read(initial, newToken);
                 }
             }
-            else if (action == "current" && message.Payload.TryGetProperty("token", out var tokenValue)
-                && _mediaCaptureSessions.TryGetValue(tokenValue.GetString() ?? "", out var current))
-                result = CaptureGranted(current.Request) ? CaptureWire.Read(current.Session, tokenValue.GetString()!) : new JsonObject { ["ok"] = false };
-            else if (action == "close" && message.Payload.TryGetProperty("token", out var closeToken)
-                && _mediaCaptureSessions.TryRemove(closeToken.GetString() ?? "", out var retired))
+            else if (message.Payload.TryGetProperty("token", out var tokenValue) && tokenValue.ValueKind == JsonValueKind.String
+                && tokenValue.GetString() is { Length: 32 } token && _mediaCaptureSessions.TryGetValue(token, out var lease))
             {
-                retired.Dispose();
-                result["ok"] = true;
+                var generation = Volatile.Read(ref _captureGeneration);
+                if (action == "current")
+                {
+                    var sample = lease.Published();
+                    if (generation == Volatile.Read(ref _captureGeneration) && !lease.Revoked && CaptureGranted(lease.ActiveRequest)
+                        && _mediaCaptureSessions.TryGetValue(token, out var current) && ReferenceEquals(current, lease))
+                        result = CaptureWire.Read(sample, token);
+                }
+                else if (action is "stopAudio" or "stopVideo")
+                {
+                    var stopAudio = action == "stopAudio";
+                    if (CaptureGranted(new(stopAudio, !stopAudio)) && lease.Stop(stopAudio)
+                        && generation == Volatile.Read(ref _captureGeneration)
+                        && _mediaCaptureSessions.TryGetValue(token, out var current) && ReferenceEquals(current, lease))
+                        result["ok"] = true;
+                    if (lease.ActiveRequest is { Audio: false, Video: false }) RetireCapture(token);
+                }
+                else if (action == "close") { RetireCapture(token); result["ok"] = true; }
             }
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             if (openedToken is not null) RetireCapture(openedToken);
+            openedLease = null;
             result = new JsonObject { ["ok"] = false, ["error"] = "The host refused or could not open the capture session." };
         }
-        await _session.SendAsync(ContentMessageKind.MediaCaptureResponse, new { requestId = message.Sequence, result }, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _session.SendAsync(ContentMessageKind.MediaCaptureResponse, new { requestId = message.Sequence, result }, cancellationToken).ConfigureAwait(false);
+            if (openedLease is not null && initial is not null) openedLease.Activate(initial);
+        }
+        catch { if (openedToken is not null) RetireCapture(openedToken); throw; }
     }
 
-    private async void SendCaptureActivity(string token, JsonObject sample)
+    private void SignalCapture() => _captureWake.Writer.TryWrite(true);
+
+    private async Task PumpCaptureAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (await _captureWake.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                _captureWake.Reader.TryRead(out _);
+                foreach (var pair in _mediaCaptureSessions)
+                {
+                    var lease = pair.Value;
+                    if (lease.Revoked)
+                    {
+                        await SendCaptureRevocationsAsync(cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+                    var sample = lease.Take();
+                    if (sample.Audio is null && sample.Video is null) continue;
+                    if (!_mediaCaptureSessions.TryGetValue(pair.Key, out var current) || !ReferenceEquals(current, lease)) continue;
+                    var active = lease.ActiveRequest;
+                    sample = sample with
+                    {
+                        Audio = active.Audio && CaptureGranted(new(true, false)) ? sample.Audio : null,
+                        Video = active.Video && CaptureGranted(new(false, true)) ? sample.Video : null
+                    };
+                    if (sample.Audio is null && sample.Video is null) continue;
+                    await SendCaptureActivityAsync(pair.Key, CaptureWire.Read(sample, pair.Key), cancellationToken).ConfigureAwait(false);
+                    lease.Publish(sample);
+                    SignalCapture();
+                }
+            }
+        }
+        catch (Exception error) when (error is IOException or InvalidOperationException or OperationCanceledException or ObjectDisposedException)
+        {
+            if (!cancellationToken.IsCancellationRequested) _supervisor.Stop("capture transport failed");
+        }
+    }
+
+    // Retires every revoked lease and tells the child, holding the gate across the
+    // write so callers that flush before their own message observe the notice first.
+    private async ValueTask SendCaptureRevocationsAsync(CancellationToken rootShutdown)
+    {
+        await _captureRevocationGate.WaitAsync(rootShutdown).ConfigureAwait(false);
+        try
+        {
+            foreach (var pair in _mediaCaptureSessions)
+            {
+                if (!pair.Value.Revoked || !_mediaCaptureSessions.TryGetValue(pair.Key, out var current) || !ReferenceEquals(current, pair.Value)) continue;
+                RetireCapture(pair.Key);
+                await SendCaptureActivityAsync(pair.Key, new JsonObject { ["revoked"] = true }, rootShutdown).ConfigureAwait(false);
+            }
+        }
+        finally { _captureRevocationGate.Release(); }
+    }
+
+    private async ValueTask SendCaptureActivityAsync(string token, JsonObject sample, CancellationToken rootShutdown)
     {
         sample["captureToken"] = token;
-        try { await _session.SendAsync(ContentMessageKind.MediaCaptureActivity, sample).ConfigureAwait(false); }
-        catch (InvalidOperationException) { }
-        catch (IOException) { }
-        catch (OperationCanceledException) { }
+        // Only root shutdown can cancel an in-flight protocol frame. Track stop
+        // clears queued work; it never cancels the shared stream's write token.
+        await _session.SendAsync(ContentMessageKind.MediaCaptureActivity, sample, rootShutdown).ConfigureAwait(false);
     }
 
     private bool CaptureGranted(MediaCaptureRequest request)
@@ -272,97 +500,94 @@ public sealed class ContentProcessClient : IAsyncDisposable
             }
     }
 
-    private sealed class CaptureLease : IDisposable
-    {
-        internal IMediaCaptureSession Session { get; }
-        internal MediaCaptureRequest Request { get; }
-        internal bool Revoked => Volatile.Read(ref _revoked) != 0;
-        private readonly Action<MediaCaptureVideoFrame> _video;
-        private readonly Action<MediaAudioFrame> _audio;
-        private readonly Action _revokedHandler;
-        private int _revoked, _disposed;
-
-        internal CaptureLease(IMediaCaptureSession session, MediaCaptureRequest request,
-            Action<MediaCaptureVideoFrame> video, Action<MediaAudioFrame> audio, Action revoked)
-        {
-            Session = session; Request = request; _video = video; _audio = audio;
-            _revokedHandler = () => { Volatile.Write(ref _revoked, 1); revoked(); };
-            try
-            {
-                session.VideoFrameAvailable += _video;
-                session.AudioFrameAvailable += _audio;
-                session.Revoked += _revokedHandler;
-            }
-            catch { Dispose(); throw; }
-        }
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-            try { Session.VideoFrameAvailable -= _video; }
-            finally
-            {
-                try { Session.AudioFrameAvailable -= _audio; }
-                finally
-                {
-                    try { Session.Revoked -= _revokedHandler; }
-                    finally { Session.Dispose(); }
-                }
-            }
-        }
-    }
-
     private void TrackHostCapabilities(ContentMessageKind kind, JsonObject payload)
     {
         var authority = new JsonObject();
         foreach (var entry in payload)
             if (entry.Key.Equals("capabilities", StringComparison.OrdinalIgnoreCase)) authority[entry.Key] = entry.Value?.DeepClone();
         var message = new ContentMessage(kind, 0, ScriptJson.SerializeToElement(authority));
-        if (!message.TryGetCapabilities(out var capabilities)) return;
+        if (!message.TryGetCapabilities(out var capabilities) && kind == ContentMessageKind.Load
+            && !payload.ContainsKey("html")
+            && !payload.Any(entry => entry.Key.Equals("capabilities", StringComparison.OrdinalIgnoreCase))) return;
         var previous = Interlocked.Exchange(ref _hostCapabilities, capabilities);
         Interlocked.Increment(ref _captureGeneration);
         foreach (var pair in _mediaCaptureSessions)
-            if (!CaptureGranted(pair.Value.Request)) RetireCapture(pair.Key);
+        {
+            try
+            {
+                if (!capabilities.Microphone && pair.Value.Request.Audio) pair.Value.Stop(true);
+                if (!capabilities.Camera && pair.Value.Request.Video) pair.Value.Stop(false);
+                if (!CaptureGranted(pair.Value.ActiveRequest)) RetireCapture(pair.Key);
+            }
+            catch (Exception error) when (error is not OutOfMemoryException) { RetireCapture(pair.Key); }
+        }
         if (previous.Sound && !capabilities.Sound) _session.StopMediaOutput();
     }
 
     private static class CaptureWire
     {
-        public static JsonObject Read(IMediaCaptureSession session, string token)
+        public static JsonObject Read(ContentCaptureSample sample, string token)
         {
             var result = new JsonObject { ["ok"] = true, ["token"] = token };
-            if (session.CurrentVideoFrame is { } video && video.IsValid)
-                result["video"] = new JsonObject { ["width"] = video.Width, ["height"] = video.Height, ["rgba"] = Convert.ToBase64String(video.Rgba.ToArray()) };
-            if (session.CurrentAudioFrame is { } audio)
-                result["audio"] = new JsonObject { ["sampleRate"] = audio.SampleRate, ["channels"] = audio.Channels, ["samples"] = ScriptJson.SerializeToNode(audio.Samples.ToArray()) };
+            if (sample.Video is { } video)
+                result["video"] = new JsonObject { ["width"] = video.Width, ["height"] = video.Height,
+                    ["rgba"] = Convert.ToBase64String(video.Rgba.Span), ["captureSequence"] = video.CaptureSequence,
+                    ["sourceSequence"] = sample.VideoSource, ["timestamp"] = sample.VideoTimestamp, ["timestampFrequency"] = Stopwatch.Frequency };
+            if (sample.Audio is { } audio)
+                result["audio"] = new JsonObject { ["sampleRate"] = audio.SampleRate, ["channels"] = audio.Channels,
+                    ["samples"] = ScriptJson.SerializeToNode(audio.Samples.ToArray()), ["captureSequence"] = audio.CaptureSequence,
+                    ["sourceSequence"] = sample.AudioSource, ["timestamp"] = sample.AudioTimestamp, ["timestampFrequency"] = Stopwatch.Frequency };
             return result;
         }
     }
 
-    public ValueTask SendAsync(ContentMessageKind kind, object payload, CancellationToken cancellationToken = default)
+    public async ValueTask SendAsync(ContentMessageKind kind, object payload, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        // A provider revocation that happened before this call must reach the child first.
+        await SendCaptureRevocationsAsync(_shutdown.Token).ConfigureAwait(false);
         if (kind == ContentMessageKind.Load)
         {
             var profile = ScriptJson.SerializeToNode(payload) as JsonObject ?? throw new ArgumentException("Load payload must be an object.", nameof(payload));
-            if (profile.ContainsKey("html"))
+            await _loadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                ReleaseMediaCaptureSessions();
-                if (Interlocked.Exchange(ref _hasLoadedDocument, 1) != 0) _session.StopMediaOutput();
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+                if (profile.ContainsKey("html"))
+                {
+                    RetireNavigationDocument();
+                    lock (_navigationGate) _navigationDocument = new NavigationDocument();
+                    ReleaseMediaCaptureSessions();
+                    if (Interlocked.Exchange(ref _hasLoadedDocument, 1) != 0) _session.StopMediaOutput();
+                }
+                TrackHostCapabilities(kind, profile);
+                AttachGpuChannel(profile);
+                profile["artifactId"] = _artifact;
+                profile["storageEnabled"] = _storageEnabled;
+                profile["limits"] = JsonSerializer.SerializeToNode(_documentLimits, ContentProtocolJsonContext.Default.ResourceLimits);
+                // Caller-supplied policy is never authority, including on incremental loads.
+                lock (_navigationGate)
+                    profile["hostPolicy"] = new JsonObject
+                    {
+                        ["generation"] = _navigationDocument?.Generation,
+                        ["iframeNavigationEnabled"] = _iframeNavigationRequested is not null,
+                        ["webRtcAllowedOrigins"] = new JsonArray(_webRtcAllowedOrigins.Select(origin => (JsonNode?)JsonValue.Create(origin)).ToArray())
+                    };
+                var url = profile["url"] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+                _session.SetStorageDocumentUri(Uri.TryCreate(url, UriKind.Absolute, out var baseUri) ? baseUri : null);
+                try { await _session.SendAsync(kind, profile, cancellationToken).ConfigureAwait(false); }
+                catch { RetireNavigationDocument(); throw; }
+                return;
             }
-            TrackHostCapabilities(kind, profile);
-            profile["artifactId"] = _artifact;
-            profile["storageEnabled"] = _storageEnabled;
-            profile["limits"] = JsonSerializer.SerializeToNode(_documentLimits, ContentProtocolJsonContext.Default.ResourceLimits);
-            var url = profile["url"] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
-            _session.SetStorageDocumentUri(Uri.TryCreate(url, UriKind.Absolute, out var baseUri) ? baseUri : null);
-            payload = profile;
+            finally { _loadGate.Release(); }
         }
         else if (kind == ContentMessageKind.Capabilities)
         {
             var profile = ScriptJson.SerializeToNode(payload) as JsonObject ?? throw new ArgumentException("Capabilities payload must be an object.", nameof(payload));
             TrackHostCapabilities(kind, profile);
         }
-        return _session.SendAsync(kind, payload, cancellationToken);
+        await _session.SendAsync(kind, payload, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Requests a capability update for the already loaded artifact without sending another load.</summary>
@@ -457,8 +682,37 @@ public sealed class ContentProcessClient : IAsyncDisposable
         catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested || _process.HasExited) { }
     }
 
+    // The channel field is host-owned: a caller-supplied value is always dropped. The worker is
+    // started for the first load that grants WebGL and handed to the child exactly once.
+    private void AttachGpuChannel(JsonObject profile)
+    {
+        profile.Remove("gpuChannel");
+        if (!OperatingSystem.IsWindows() || _gpuChannelSent || _contentHostPath is null) return;
+        if (!(GpuWorkerOverride ?? Environment.GetEnvironmentVariable("FOLIO_GPU_WORKER") == "1")) return;
+        if (!Volatile.Read(ref _hostCapabilities).WebGl) return;
+        try
+        {
+            _gpuWorker ??= Folio.Scripting.Gpu.Remote.GpuWebGlWorker.Start(_contentHostPath, _documentLimits.MaxGpuBytes);
+            profile["gpuChannel"] = _gpuWorker.HandOff(_process.SafeHandle);
+            _gpuChannelSent = true;
+        }
+        catch (Exception error) when (error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            // Without a worker the document keeps its in-process WebGL path.
+            StopGpuWorker();
+        }
+    }
+
+    private void StopGpuWorker()
+    {
+        if (OperatingSystem.IsWindows()) Interlocked.Exchange(ref _gpuWorker, null)?.Dispose();
+    }
+
     private void OnStopped(string reason)
     {
+        RetireNavigationDocument();
+        StopGpuWorker();
+        _navigationDeliveries.Writer.TryComplete();
         // A crashed or externally terminated content process can no longer send
         // the close request for its capture streams. Release host devices at the
         // containment boundary, before notifying observers, so a process death
@@ -497,6 +751,9 @@ public sealed class ContentProcessClient : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        RetireNavigationDocument();
+        _navigationDeliveries.Writer.TryComplete();
+        StopGpuWorker();
         Exception? failure = null;
         // A failed host callback can fault the reader. Preserve that error, but
         // always retire the process and every resource owned by this connection.
@@ -513,7 +770,11 @@ public sealed class ContentProcessClient : IAsyncDisposable
         catch (Exception error) { failure ??= error; }
         await DrainAsync(_reader).ConfigureAwait(false);
         await DrainAsync(_watchdog).ConfigureAwait(false);
+        await DrainAsync(_capturePump).ConfigureAwait(false);
         await DrainAsync(_stderrReader).ConfigureAwait(false);
+        // Do not join _navigationWorker here: disposal may be running inside
+        // its user callback (directly or on a dispatched UI thread). Shutdown
+        // and queue completion retire it when that in-flight callback returns.
         try { await _session.DisposeAsync().ConfigureAwait(false); }
         catch (Exception error) { failure ??= error; }
         ReleaseMediaCaptureSessions();

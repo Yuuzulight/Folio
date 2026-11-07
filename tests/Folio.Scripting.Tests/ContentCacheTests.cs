@@ -20,7 +20,7 @@ public sealed class ContentCacheTests
         var completed = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>
         {
-            if (message.Kind == ContentMessageKind.Frame) completed.TrySetResult(message);
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0) completed.TrySetResult(message);
             return ValueTask.CompletedTask;
         };
         await client.SendAsync(ContentMessageKind.Load, new
@@ -38,7 +38,7 @@ public sealed class ContentCacheTests
     {
         var storage = new Storage();
         await using (var first = Client(storage, loader: new WorkerLoader()))
-            Assert.Equal("worker-body", await Load(first, "await navigator.serviceWorker.register('/sw.js'); result = await (await caches.match('/from-worker')).text();", true));
+            Assert.Equal("worker-body", await Load(first, "await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready; result = await (await caches.match('/from-worker')).text();", true));
         await using var reopened = Client(storage);
         Assert.Equal("worker-body", await Load(reopened, "result = await (await caches.match('/from-worker')).text();"));
         Assert.Contains("artifact:service-worker-registration/%2F", storage.Values.Keys);
@@ -49,7 +49,7 @@ public sealed class ContentCacheTests
     {
         var storage = new Storage();
         await using (var first = Client(storage, loader: new WorkerLoader()))
-            Assert.Equal("registered", await Load(first, "await navigator.serviceWorker.register('/sw.js'); result = 'registered';", true, true));
+            Assert.Equal("registered", await Load(first, "await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready; result = 'registered';", true, true));
         Assert.Contains(storage.Values.Keys, key => key.Contains("service-worker-registration", StringComparison.Ordinal));
         Assert.Contains("artifact:service-worker-registration/__index__", storage.Values.Keys);
         Assert.Equal("[\"/\"]", storage.Values["artifact:service-worker-registration/__index__"]);
@@ -64,7 +64,7 @@ public sealed class ContentCacheTests
     {
         var storage = new Storage();
         await using (var owner = Client(storage, artifact: "owner", loader: new WorkerLoader()))
-            Assert.Equal("registered", await Load(owner, "await navigator.serviceWorker.register('/sw.js'); result = 'registered';", true, true));
+            Assert.Equal("registered", await Load(owner, "await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready; result = 'registered';", true, true));
 
         await using var foreign = Client(storage, artifact: "foreign", loader: new WorkerLoader());
         Assert.Equal("TypeError:Failed to fetch: unexpected resource", await Load(foreign, "result = await (await fetch('/offline')).text();", true, true));
@@ -75,7 +75,7 @@ public sealed class ContentCacheTests
     {
         var storage = new Storage();
         await using (var first = Client(storage, loader: new WorkerLoader()))
-            Assert.Equal("registered", await Load(first, "await navigator.serviceWorker.register('/sw.js'); result = 'registered';", true, true));
+            Assert.Equal("registered", await Load(first, "await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready; result = 'registered';", true, true));
 
         await using var reopened = Client(storage, loader: new WorkerLoader());
         Assert.Equal("undefined", await Load(reopened, "result = typeof navigator.serviceWorker;", false, true));
@@ -86,7 +86,7 @@ public sealed class ContentCacheTests
     {
         await using var client = Client(new Storage(), loader: new IsolationWorkerLoader());
         Assert.Equal("undefined:undefined", await Load(client,
-            "globalThis.pageSecret = 'page-only'; await navigator.serviceWorker.register('/isolation.js'); result = await (await fetch('/offline')).text();",
+            "globalThis.pageSecret = 'page-only'; await navigator.serviceWorker.register('/isolation.js'); await navigator.serviceWorker.ready; result = await (await fetch('/offline')).text();",
             true, true));
     }
 
@@ -380,14 +380,14 @@ public sealed class ContentCacheTests
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) => Task.FromResult<ResourceResponse?>(
             request.Kind == ResourceKind.Script && request.Url == "https://cache.example/sw.js"
-                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('install', event => event.waitUntil(caches.open('sw').then(c => c.put('/from-worker', new Response('worker-body'))))); self.addEventListener('fetch', event => { if (event.request.url.endsWith('/offline')) event.respondWith(new Response('offline-body')); });"), "text/javascript")
+                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('activate', event => event.waitUntil(self.clients.claim())); self.addEventListener('install', event => event.waitUntil(caches.open('sw').then(c => c.put('/from-worker', new Response('worker-body'))))); self.addEventListener('fetch', event => { if (event.request.url.endsWith('/offline')) event.respondWith(new Response('offline-body')); });"), "text/javascript")
                 : ResourceResponse.Refused("unexpected resource"));
     }
     private sealed class IsolationWorkerLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) => Task.FromResult<ResourceResponse?>(
             request.Kind == ResourceKind.Script && request.Url == "https://cache.example/isolation.js"
-                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('fetch', event => event.respondWith(new Response(typeof pageSecret + ':' + typeof document)));"), "text/javascript")
+                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('activate', event => event.waitUntil(self.clients.claim())); self.addEventListener('fetch', event => event.respondWith(new Response(typeof pageSecret + ':' + typeof document)));"), "text/javascript")
                 : request.Url == "https://cache.example/offline"
                     ? ResourceResponse.Refused("the page loader must not receive the intercepted request")
                     : ResourceResponse.Refused("unexpected resource"));

@@ -34,6 +34,7 @@ public sealed partial class JintScriptEngine : IScriptEngine, IScriptEngineFacto
     private readonly ScriptEngineOptions _options;
     private bool _disposed;
     private int _evaluationDepth;
+    private int _scriptEntryDepth;
     private int _evaluationThreadId;
     private Func<bool>? _eventLoopPump;
 
@@ -122,6 +123,7 @@ public sealed partial class JintScriptEngine : IScriptEngine, IScriptEngineFacto
         try
         {
             Interlocked.Increment(ref _evaluationDepth);
+            _scriptEntryDepth++;
             Lazy<Prepared<Script>>? prepared = null;
             // Only bounded, explicitly supplied host bootstrap scripts share parsed code.
             // Artifact scripts retain the normal parsing and execution limits.
@@ -147,6 +149,7 @@ public sealed partial class JintScriptEngine : IScriptEngine, IScriptEngineFacto
         finally
         {
             Interlocked.Decrement(ref _evaluationDepth);
+            _scriptEntryDepth--;
             if (previousThread == 0)
                 Volatile.Write(ref _evaluationThreadId, 0);
         }
@@ -179,6 +182,7 @@ public sealed partial class JintScriptEngine : IScriptEngine, IScriptEngineFacto
         if (function.Raw is not JsValue jsCallable)
             throw new ArgumentException("Provided ScriptValue is not a callable function.", nameof(function));
 
+        _scriptEntryDepth++;
         try
         {
             var jsThis = ToJsValue(_engine!, thisValue);
@@ -193,6 +197,19 @@ public sealed partial class JintScriptEngine : IScriptEngine, IScriptEngineFacto
         {
             throw TranslateException(ex);
         }
+        finally
+        {
+            _scriptEntryDepth--;
+        }
+    }
+
+    // Jint's memory constraint charges every allocation on this thread since its last
+    // reset. Evaluate/Call reset it, but a direct Get/Set (which can run script
+    // accessors) does not, so a host-initiated access would be billed for host
+    // allocations made since the last script run. Nested accesses keep the budget.
+    private void ResetConstraintsIfHostInitiated()
+    {
+        if (_scriptEntryDepth == 0) _engine!.Constraints.Reset();
     }
 
     public ScriptValue CreateHostObject(IHostObjectTemplate template, object target)
@@ -225,12 +242,17 @@ public sealed partial class JintScriptEngine : IScriptEngine, IScriptEngineFacto
         return ToScriptValue(jsArray);
     }
 
-    public ScriptValue GetProperty(ScriptValue target, string name) =>
-        target.Raw is ObjectInstance obj ? ToScriptValue(obj.Get(name)) : ScriptValue.Undefined;
+    public ScriptValue GetProperty(ScriptValue target, string name)
+    {
+        if (target.Raw is not ObjectInstance obj) return ScriptValue.Undefined;
+        ResetConstraintsIfHostInitiated();
+        return ToScriptValue(obj.Get(name));
+    }
 
     public bool TrySetProperty(ScriptValue target, string name, ScriptValue value)
     {
         if (target.Raw is not ObjectInstance obj) return false;
+        ResetConstraintsIfHostInitiated();
         obj.Set(name, ToJsValue(_engine!, value));
         return true;
     }

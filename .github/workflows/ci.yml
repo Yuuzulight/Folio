@@ -112,6 +112,22 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      # Remote WebGL gate: the same WebGL tests through the command-buffer encoder, batch framing
+      # and worker dispatcher in one process (docs/gpu-worker-remote-webgl-plan.md, stage 2).
+      - name: WebGL through the remote command-buffer path
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          FOLIO_WEBGL_REMOTE: loopback
+        run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class '*NativeWebGlPageTests' -class '*GpuSurfaceTests' -class '*WebGlCapabilityTests' -class '*RemoteWebGlTests' -class '*RemoteWebGlOrderingTests' -class '*CanvasTests' -parallelMode none
+
+      - name: Native WebGL conformance through the remote command-buffer path
+        if: always() && matrix.os == 'windows-latest'
+        env:
+          FOLIO_CONFORMANCE_ENGINE: native
+          FOLIO_WEBGL_REMOTE: loopback
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance --strict D8
+
       - name: Differential shaping corpus
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll shaping-differential
 
@@ -133,6 +149,10 @@ jobs:
         env:
           FOLIO_CONFORMANCE_ENGINE: native
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll canvas-frames 30
+
+      - name: Native media presentation frame budget
+        if: always() && matrix.os == 'windows-latest'
+        run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll media 120
 
       # Time and memory per benchmark document, also on the run's summary page. Documents over a target only warn.
       - name: Benchmarks

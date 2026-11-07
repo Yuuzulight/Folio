@@ -524,6 +524,7 @@ public sealed class CacheApiTests
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken = default) =>
             Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("""
+                self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
                 self.addEventListener('fetch', event => event.respondWith(new Response('body', {
                     status: event.request.url.endsWith('/unavailable') ? 503 : 200
                 })));
