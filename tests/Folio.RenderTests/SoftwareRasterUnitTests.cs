@@ -299,4 +299,28 @@ public class SoftwareRasterUnitTests
         }
         Assert.True(failures.Count == 0, $"{failures.Count} blends differ from the specification:\n" + string.Join("\n", failures.Take(15)));
     }
+
+    // The box blur runs whole rows at once when every channel is blurred; one channel at a time it runs line by
+    // line. Both must give the same bytes, for odd and even box sizes, unequal deviations and one-direction blurs.
+    [Theory]
+    [InlineData(37, 91, 2, 2f, 2f)]
+    [InlineData(96, 260, 2, 4f, 4f)]
+    [InlineData(200, 150, 4, 2.5f, 2.5f)]
+    [InlineData(120, 80, 4, 7.3f, 12f)]
+    [InlineData(64, 64, 3, 4f, 0f)]
+    [InlineData(64, 64, 2, 0f, 5f)]
+    [InlineData(300, 40, 2, 1.5f, 6f)]
+    public void RowWiseBoxBlurMatchesTheLinePass(int width, int height, int channels, float sigmaX, float sigmaY)
+    {
+        var random = new Random(width * 31 + height);
+        var source = new byte[width * height * channels];
+        for (var i = 0; i < source.Length; i++) source[i] = (byte)(random.Next(4) == 0 ? 0 : random.Next(256));
+        var all = Folio.Painting.Software.GaussianBlur.Apply(source, width, height, channels, sigmaX, sigmaY);
+        for (var c = 0; c < channels; c++)
+        {
+            var one = Folio.Painting.Software.GaussianBlur.Apply(source, width, height, channels, sigmaX, sigmaY, activeChannelMask: 1 << c);
+            for (var i = c; i < all.Length; i += channels)
+                Assert.True(all[i] == one[i], $"channel {c}, sample {i / channels}: {all[i]} != {one[i]}");
+        }
+    }
 }
