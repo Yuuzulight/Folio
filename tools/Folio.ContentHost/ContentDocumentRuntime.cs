@@ -253,7 +253,10 @@ public sealed class ContentDocumentRuntime : IDisposable
                     new GpuFailure(GpuFailureKind.Unavailable, "The GPU native backend is unavailable.")));
 #endif
             }
-            ConfigureGpuWorker(message.Payload);
+            else
+            {
+                ConfigureGpuWorker(message.Payload);
+            }
             DomBindings.Install(_engine, _document, eventLoop: _eventLoop);
             Mark("bindings");
             UpdateViewportGlobals();
