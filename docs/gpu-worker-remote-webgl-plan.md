@@ -166,9 +166,13 @@ Production WebGL still runs in the document process until stage 5 lands and pass
      stayed up throughout.
    Notes: the page's script is blocked for the whole draw (7.4 s here), as with any synchronous GPU
    result. Windows' timeout (2 s by default) acts long before the worker's 10 s deadline on hardware;
-   the deadline still bounds devices the OS does not reset, such as WARP. Direct mode now reports
-   `isContextLost()` after a removal too, but does not fire `webglcontextlost` for it (not tested
-   there).
+   the deadline still bounds devices the OS does not reset, such as WARP. Direct mode (the fallback
+   when no worker runs) also handles a removal now: the page's next WebGL call (through the remote path,
+   its next synchronization point) runs the normal loss, so `oncontextlost` fires once, `getError()`
+   reports `CONTEXT_LOST_WEBGL` once and later calls add no errors; a budget loss is not reported twice.
+   `FolioGpuDeviceTests.ARemovedDeviceLosesTheContextWithItsLifecycleEvent` simulates the removal
+   (`FolioGpuDevice.MarkRemoved`). Direct mode has no automatic restore after a removal: the page
+   stays lost, while the worker path restores it.
    *Pre-default checks (2026-11-08):*
    - Start cost: the worker itself starts in about 90 ms (process, sandbox, channel). A fresh content
      process loading a WebGL page to its first frame took 538 ms through the worker and 554 ms with

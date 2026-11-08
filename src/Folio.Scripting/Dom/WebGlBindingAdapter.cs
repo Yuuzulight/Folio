@@ -304,6 +304,7 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
     public uint GetError()
     {
         DrainDeferredFailures();
+        ObserveNativeLoss();
         lock (_errors)
         {
             if (_errors.Count > 0)
@@ -613,7 +614,7 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
         }
         return ToScriptValue(value);
     }
-    public bool IsContextLost() { DrainDeferredFailures(); return Native.IsLost; }
+    public bool IsContextLost() { DrainDeferredFailures(); ObserveNativeLoss(); return Native.IsLost; }
     public IReadOnlyList<string> GetSupportedExtensions()
     {
         var result = new List<string> { "WEBGL_lose_context" };
@@ -721,7 +722,24 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
         };
         NativeCall(Native.TrySetVertexAttribConstant(new WebGlAttribLocation(index), next, out var failure), failure);
     }
-    private void NativeCall(bool succeeded, GpuFailure? failure) { if (!succeeded) EnqueueFailure(failure); }
+    private void NativeCall(bool succeeded, GpuFailure? failure) { if (!ObserveNativeLoss() && !succeeded) EnqueueFailure(failure); }
+
+    // A native context can be lost on its own: the OS removed its device (a GPU reset). The first time the
+    // page touches the context afterwards, run the normal loss (contextlost, objects invalidated) and report
+    // CONTEXT_LOST_WEBGL once; calls on the lost context add no other errors.
+    private bool _reportedNativeLoss;
+    private bool ObserveNativeLoss()
+    {
+        DrainDeferredFailures(); // a queued budget failure already reports its own loss
+        if (!Native.IsLost) { _reportedNativeLoss = false; return false; }
+        if (_reportedNativeLoss || _losingContext) return true;
+        _reportedNativeLoss = true;
+        _losingContext = true;
+        try { _loseContext?.Invoke(); }
+        finally { _losingContext = false; }
+        lock (_errors) if (_errors.Count < 64) _errors.Enqueue(0x9242u);
+        return true;
+    }
     private ScriptValue FailureValue(GpuFailure? failure) { EnqueueFailure(failure); return ScriptValue.Undefined; }
 
     private ScriptValue ToScriptValue(WebGlParameterValue value) => value.Kind switch
@@ -781,6 +799,7 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
             _losingContext = true;
             try { _loseContext?.Invoke(); }
             finally { _losingContext = false; }
+            _reportedNativeLoss = true; // this loss is reported here, not again on the next call
         }
         if (failure?.ApiError is { } apiError)
         {

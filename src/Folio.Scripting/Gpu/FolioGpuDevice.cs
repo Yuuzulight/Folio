@@ -109,6 +109,9 @@ internal sealed class FolioGpuDevice : IGpuDevice, INativeWebGlFactory
     /// True once the OS removed or reset the device (for example after a GPU timeout); a removed device
     /// never works again, so every context on it is lost. Sticky, and cheap enough to ask per call.
     /// </summary>
+    /// <summary>Test seam: behave as if the OS removed the device.</summary>
+    internal void MarkRemoved() => _removed = true;
+
     internal bool IsRemoved
     {
         get
