@@ -40,7 +40,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
     /// <summary>Replacement workers per content process; after these a lost WebGL context stays lost.</summary>
     internal const int MaxGpuRestores = 3;
     private string? _contentHostPath;
-    /// <summary>Test seam; otherwise FOLIO_GPU_WORKER=1 opts in.</summary>
+    /// <summary>Test seam; otherwise on by default whenever WebGL is granted (FOLIO_GPU_WORKER=0 acts as kill switch).</summary>
     internal static bool? GpuWorkerOverride { get; set; }
     internal long? JobMemoryLimit => OperatingSystem.IsWindows() ? _job?.MemoryLimit : null;
     internal int? GpuWorkerProcessId => OperatingSystem.IsWindows() ? _gpuWorker?.ProcessId : null;
@@ -699,7 +699,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
     {
         profile.Remove("gpuChannel");
         if (!OperatingSystem.IsWindows() || _gpuChannelSent || _contentHostPath is null) return;
-        if (!(GpuWorkerOverride ?? Environment.GetEnvironmentVariable("FOLIO_GPU_WORKER") == "1")) return;
+        if (!(GpuWorkerOverride ?? (Environment.GetEnvironmentVariable("FOLIO_GPU_WORKER") != "0"))) return;
         if (!Volatile.Read(ref _hostCapabilities).WebGl) return;
         try
         {

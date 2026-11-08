@@ -73,9 +73,9 @@ public sealed class GpuWorkerProcessTests
     }
 
     [Fact(Skip = "Only supported on Windows.", SkipUnless = nameof(IsWindows), Timeout = 60_000)]
-    public async Task WithoutTheOptInTheWorkerIsNotStarted()
+    public async Task WhenKillSwitchIsSetTheWorkerIsNotStarted()
     {
-        ContentProcessClient.GpuWorkerOverride = false; // also when FOLIO_GPU_WORKER=1 is set for the run
+        ContentProcessClient.GpuWorkerOverride = false;
         try
         {
             await using var client = Start();
@@ -84,6 +84,21 @@ public sealed class GpuWorkerProcessTests
             Assert.Equal(new ContentProcessLimits().MemoryBytes, client.JobMemoryLimit);
         }
         finally { ContentProcessClient.GpuWorkerOverride = null; }
+    }
+
+    [Fact(Skip = "Only supported on Windows.", SkipUnless = nameof(IsWindows), Timeout = 60_000)]
+    public async Task EnvironmentKillSwitchDisablesGpuWorker()
+    {
+        var prior = Environment.GetEnvironmentVariable("FOLIO_GPU_WORKER");
+        Environment.SetEnvironmentVariable("FOLIO_GPU_WORKER", "0");
+        try
+        {
+            await using var client = Start();
+            Assert.Equal("255,0,0,255", await Value(client, new { html = Page, capabilities = Capabilities, script = "drawn" }, TestContext.Current.CancellationToken));
+            Assert.Null(client.GpuWorkerProcessId);
+            Assert.Equal(new ContentProcessLimits().MemoryBytes, client.JobMemoryLimit);
+        }
+        finally { Environment.SetEnvironmentVariable("FOLIO_GPU_WORKER", prior); }
     }
 
     private const string State = "gl.isContextLost() + '|' + lostEvents + '|' + restoredEvents";
