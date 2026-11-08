@@ -77,7 +77,13 @@ internal static class WebGlFrameBenchmark
         using var channelJson = JsonDocument.Parse(worker.HandOff(Process.GetCurrentProcess().SafeHandle).ToJsonString());
         using var channel = RemoteGpuChannel.Adopt(channelJson.RootElement);
         report.AppendLine(Row("GPU worker process", Measure(channel.DocumentDeviceFactory, frameCount), ref failed, gate: true));
-        report.AppendLine().AppendLine($"GPU worker host: {host}");
+        // The sandboxed worker must get the same renderer an unsandboxed process gets (hardware where there is one).
+        GpuRendererKind direct;
+        using (var probe = FolioGpuBackend.TryCreate(budget).Device) direct = probe?.RendererKind ?? GpuRendererKind.Unavailable;
+        var workerRenderer = channel.Session.RendererKind ?? GpuRendererKind.Unavailable;
+        failed |= workerRenderer != direct || workerRenderer == GpuRendererKind.Unavailable;
+        report.AppendLine().AppendLine($"Renderer: direct {direct}, GPU worker {workerRenderer}.");
+        report.AppendLine($"GPU worker host: {host}");
         using (var process = Process.GetProcessById(worker.ProcessId))
             report.AppendLine(string.Create(CultureInfo.InvariantCulture,
                 $"GPU worker memory: peak working set {Mb(process.PeakWorkingSet64)} MB, private {Mb(process.PrivateMemorySize64)} MB of its {Mb(GpuWebGlWorker.WorkerMemoryBytes - GpuWebGlWorker.SectionBytes)} MB job limit; shared sections {Mb(GpuWebGlWorker.SectionBytes)} MB, charged to both jobs."));

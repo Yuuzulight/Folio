@@ -137,5 +137,23 @@ Production WebGL still runs in the document process until stage 5 lands and pass
    report names the worker host. Local run (Windows, hardware GPU): the worker process was the published
    `Folio.ContentHost.exe --gpu-webgl`; GPU worker tests 34/34 with the sandbox classes; benchmark worker
    6.4-7.4 / 8.7-9.5 ms median / p95, peak working set 96 MB, private 133 MB.
-   *Still open:* the user-approved hardware pass. Until it passes, the worker stays opt-in
-   (`FOLIO_GPU_WORKER=1`) and the classifier does not route WebGL to it.
+   *Hardware pass (approved 2026-11-08), non-destructive part done* on Windows 11 with an RTX 5080
+   (driver 621.14), published NativeAOT host, every run at below-normal priority with a game open:
+   - The worker now reports its device's renderer in every reply (`GpuWebGlSession.RendererKind`;
+     `RemoteGpuDevice` no longer claims Hardware before it knows). The benchmark fails unless the
+     sandboxed worker gets the same renderer as an unsandboxed process: here both were Hardware, so
+     D3D11 hardware access works inside the worker's AppContainer and job.
+   - WebGL benchmark through the worker: 7.2 / 9.8 ms median / p95 (direct 6.6 / 9.1), no errors or
+     loss; worker peak working set 96 MB, private 133 MB.
+   - `GpuWorkerProcessTests`, `RemoteWebGl*`, `WindowsSandboxTests`, `GpuWorkerIsolationTests`: 32/32.
+   - D8 conformance 6/6 directly and 6/6 through the remote path.
+   - Sandboxed content-process GPU memory: `Hardware:Direct3D11-FL0xB000`, 1.2 MB reserved, DXGI
+     reports 10.2 MB local / 2.1 MB non-local for the process.
+   *Not run: the deliberate runaway shader.* Windows' GPU timeout here is the default (2 s, recover),
+   shorter than the worker's 10 s command deadline, so on real hardware a runaway shader is ended by a
+   driver reset that every GPU application on the machine sees, before the worker's own deadline. It
+   needs its own explicit approval and a machine with nothing else on the GPU. Bringing the worker's
+   deadline under the OS timeout would not avoid the reset (a single draw can run past it); bounding
+   that needs shader-side limits.
+   Until the runaway-shader case is settled, the worker stays opt-in (`FOLIO_GPU_WORKER=1`) and the
+   classifier does not route WebGL to it.

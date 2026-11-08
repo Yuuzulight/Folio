@@ -40,6 +40,8 @@ internal sealed class GpuWebGlSession : INativeWebGlFactory, IDisposable
 
     public long ReservedBytes { get; private set; }
     public long PeakReservedBytes { get; private set; }
+    /// <summary>The worker device's renderer, as its first reply reported it; null before any reply.</summary>
+    internal GpuRendererKind? RendererKind { get; private set; }
     internal bool IsLost => _lost;
     internal object Gate => _gate;
     internal GpuArena Readback => _readback;
@@ -157,6 +159,9 @@ internal sealed class GpuWebGlSession : INativeWebGlFactory, IDisposable
         if (status != GpuWebGlWire.StatusOk) throw new InvalidDataException("Invalid GPU reply status.");
         ReservedBytes = reader.I64();
         PeakReservedBytes = reader.I64();
+        var renderer = (GpuRendererKind)reader.I32();
+        if (!Enum.IsDefined(renderer)) throw new InvalidDataException("Invalid GPU renderer kind.");
+        RendererKind = renderer;
         var failures = reader.I32();
         if (failures < 0 || failures > GpuWebGlWire.MaxDeferredFailures) throw new InvalidDataException("Invalid failure count.");
         for (var i = 0; i < failures; i++)

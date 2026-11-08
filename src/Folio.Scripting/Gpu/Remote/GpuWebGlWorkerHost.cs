@@ -54,7 +54,7 @@ internal static class GpuWebGlWorkerHost
         var created = FolioGpuBackend.TryCreate(startup.DeviceBudget);
         using var device = created.Device;
         INativeWebGlFactory factory = device as INativeWebGlFactory ?? new UnavailableFactory(created.Failure);
-        using var dispatcher = new GpuWebGlDispatcher(factory, upload, readback);
+        using var dispatcher = new GpuWebGlDispatcher(factory, device?.RendererKind ?? GpuRendererKind.Unavailable, upload, readback);
         var deadline = TimeSpan.FromMilliseconds(startup.CommandDeadlineMilliseconds);
         while (GpuChannelFraming.Read(commands, GpuCommandBatch.MaxBatchBytes) is { } batch)
         {

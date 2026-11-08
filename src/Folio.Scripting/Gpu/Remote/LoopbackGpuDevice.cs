@@ -18,7 +18,7 @@ internal sealed class LoopbackGpuDevice : IGpuDevice, INativeWebGlFactory
         _device = device;
         var upload = new ArrayGpuArena(UploadBytes);
         var readback = new ArrayGpuArena(ReadbackBytes);
-        _dispatcher = new GpuWebGlDispatcher(factory, upload, readback);
+        _dispatcher = new GpuWebGlDispatcher(factory, device.RendererKind, upload, readback);
         _session = new GpuWebGlSession(new Transport(_dispatcher), upload, readback);
     }
 

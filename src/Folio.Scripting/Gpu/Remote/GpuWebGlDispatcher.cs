@@ -15,6 +15,7 @@ internal sealed class GpuWebGlDispatcher : IDisposable
     private const int MaxContexts = 64, MaxHandlesPerContext = 1 << 20, MaxShaderSource = 1_000_000;
     private const uint InvalidOperation = 0x0502;
     private readonly INativeWebGlFactory _factory;
+    private readonly GpuRendererKind _renderer;
     private readonly GpuArena _upload, _readback;
     private readonly Dictionary<uint, Context> _contexts = [];
     private readonly GpuPayloadWriter _reply = new(), _result = new();
@@ -23,9 +24,9 @@ internal sealed class GpuWebGlDispatcher : IDisposable
     private bool _lost;
     private Context? _current;
 
-    internal GpuWebGlDispatcher(INativeWebGlFactory factory, GpuArena upload, GpuArena readback)
+    internal GpuWebGlDispatcher(INativeWebGlFactory factory, GpuRendererKind renderer, GpuArena upload, GpuArena readback)
     {
-        _factory = factory; _upload = upload; _readback = readback;
+        _factory = factory; _renderer = renderer; _upload = upload; _readback = readback;
     }
 
     internal bool IsLost => _lost;
@@ -301,7 +302,7 @@ internal sealed class GpuWebGlDispatcher : IDisposable
     private byte[] Reply(int sequence)
     {
         var result = _result.Written.ToArray();
-        _reply.Reset().I32(GpuWebGlWire.ReplyMagic).I32(sequence).I32(GpuWebGlWire.StatusOk).I64(_factory.ReservedBytes).I64(_factory.PeakReservedBytes);
+        _reply.Reset().I32(GpuWebGlWire.ReplyMagic).I32(sequence).I32(GpuWebGlWire.StatusOk).I64(_factory.ReservedBytes).I64(_factory.PeakReservedBytes).I32((int)_renderer);
         _reply.I32(_failures.Count);
         foreach (var (context, failure) in _failures) { _reply.U32(context); GpuWebGlWire.Failure(_reply, failure); }
         var stats = _touched.Where(_contexts.ContainsKey).ToArray();

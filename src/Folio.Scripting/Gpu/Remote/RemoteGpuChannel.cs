@@ -81,8 +81,9 @@ internal sealed class RemoteGpuChannel : IDisposable
     private sealed class RemoteGpuDevice(GpuWebGlSession session) : IGpuDevice, INativeWebGlFactory
     {
         private int _disposed;
-        public GpuRendererKind RendererKind => session.IsLost ? GpuRendererKind.Unavailable : GpuRendererKind.Hardware;
-        public string RendererIdentity => "Folio GPU worker";
+        // What the worker's device reported; unknown (Unavailable) until the worker has answered once.
+        public GpuRendererKind RendererKind => session.IsLost ? GpuRendererKind.Unavailable : session.RendererKind ?? GpuRendererKind.Unavailable;
+        public string RendererIdentity => $"Folio GPU worker ({RendererKind})";
         public long ReservedBytes { get { session.Synchronize(); return session.ReservedBytes; } }
         public long PeakReservedBytes { get { session.Synchronize(); return session.PeakReservedBytes; } }
         public bool IsDisposed => Volatile.Read(ref _disposed) != 0;

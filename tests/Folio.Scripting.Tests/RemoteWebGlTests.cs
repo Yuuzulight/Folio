@@ -112,7 +112,7 @@ public sealed class RemoteWebGlTests
             _device = device;
             var upload = new ArrayGpuArena(1024 * 1024);
             var readback = new ArrayGpuArena(1024 * 1024);
-            Dispatcher = new GpuWebGlDispatcher((INativeWebGlFactory)device, upload, readback);
+            Dispatcher = new GpuWebGlDispatcher((INativeWebGlFactory)device, device.RendererKind, upload, readback);
             Session = new GpuWebGlSession(this, upload, readback);
         }
 
