@@ -102,4 +102,39 @@ public sealed class FolioGpuDeviceTests
         Assert.Equal(64, reserved); // 4 * 4 * 4 = 64 bytes
         Folio.Scripting.Dom.DomBindings.Dispose(engine);
     }
+
+    // A GPU reset under a direct (in-process) context: the page's next call (through the remote path, its next
+    // synchronization point) loses the context with its lifecycle event, getError reports CONTEXT_LOST_WEBGL once, and later calls add no errors.
+    [Fact]
+    public void ARemovedDeviceLosesTheContextWithItsLifecycleEvent()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var engine = new Folio.Scripting.Native.NativeJavaScriptEngine();
+        FolioGpuDevice? device = null;
+        Assert.True(Folio.Scripting.Dom.DomBindings.ConfigureGpuFactory(engine, maxBytes =>
+        {
+            var result = FolioGpuBackend.TryCreate(maxBytes, GpuRendererPreference.WarpOnly);
+            device = result.Device as FolioGpuDevice;
+            return result;
+        }));
+        using var document = Folio.Document.Parse("<canvas id='c' width='4' height='4'></canvas>", new Folio.FolioOptions
+        {
+            Capabilities = new Folio.FeatureCapabilities { WebGl = true },
+        });
+        Folio.Scripting.Dom.DomBindings.Install(engine, document);
+        try
+        {
+            Assert.Equal("false|0|0", engine.Evaluate("""
+                var lost = 0;
+                var gl = document.getElementById('c').getContext('webgl');
+                gl.oncontextlost = function() { lost++; };
+                gl.clear(gl.COLOR_BUFFER_BIT);
+                gl.isContextLost() + '|' + gl.getError() + '|' + lost
+                """).AsString());
+            device!.MarkRemoved();
+            Assert.Equal("1|true|37442|0|1", engine.Evaluate(
+                "gl.clear(gl.COLOR_BUFFER_BIT); var lostNow = gl.isContextLost(); lost + '|' + lostNow + '|' + gl.getError() + '|' + gl.getError() + '|' + lost").AsString());
+        }
+        finally { Folio.Scripting.Dom.DomBindings.Dispose(engine); }
+    }
 }

@@ -26,6 +26,14 @@ public enum ContentMessageKind
     StorageRequest,
     StorageResponse,
     Viewport,
+    IframeNavigationRequested,
+    MediaCapabilitiesRequest,
+    MediaCapabilitiesResponse,
+    /// <summary>
+    /// Content process to host: its GPU worker channel was lost. Host to content process: a replacement
+    /// channel. Host-owned; the host replaces the worker a bounded number of times per content process.
+    /// </summary>
+    GpuRestore,
 }
 
 public sealed record ContentMessage(ContentMessageKind Kind, long Sequence, JsonElement Payload, int Version = 1)

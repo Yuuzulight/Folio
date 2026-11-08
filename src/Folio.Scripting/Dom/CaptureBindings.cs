@@ -8,8 +8,8 @@ namespace Folio.Scripting.Dom;
 internal sealed class CaptureBindingState(IScriptEngine engine, DomContext context) : IDisposable
 {
     private readonly Dictionary<long, TrackLease> _tracks = [];
+    private readonly HashSet<RequestLease> _requests = [];
     private readonly Dictionary<RequestLease, MediaCaptureVideoFrame> _latestVideo = [];
-    private readonly Dictionary<RequestLease, MediaAudioFrame> _latestAudio = [];
     private readonly object _sampleGate = new();
     private long _nextTrack;
     private long _cameraGeneration;
@@ -18,13 +18,29 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
     private bool _microphone = context.Capabilities.Microphone;
     private bool _cameraLabels;
     private bool _microphoneLabels;
-    private bool _disposed;
+    private volatile bool _disposed;
     private ScriptValue _deviceChange;
     private bool _reportedActive;
     private static readonly HostObjectTemplate RequestTemplate = new("CaptureRequestLease");
     private static readonly HostObjectTemplate TrackTemplate = new("CaptureTrackLease");
 
-    private sealed record RequestLease(CaptureBindingState Owner, bool Audio, bool Video, long CameraGeneration, long MicrophoneGeneration, IMediaCaptureSession? Session);
+    private sealed class RequestLease(CaptureBindingState owner, bool audio, bool video, long cameraGeneration, long microphoneGeneration, IMediaCaptureSession? session)
+    {
+        internal CaptureBindingState Owner { get; } = owner;
+        internal bool Audio { get; } = audio;
+        internal bool Video { get; } = video;
+        internal long CameraGeneration { get; } = cameraGeneration;
+        internal long MicrophoneGeneration { get; } = microphoneGeneration;
+        internal IMediaCaptureSession? Session { get; } = session;
+        internal Action<MediaCaptureVideoFrame>? VideoHandler;
+        internal Action<MediaAudioFrame>? AudioHandler;
+        internal Action? RevokedHandler;
+        internal int Closed, Revoked;
+        internal volatile bool AudioStopped, VideoStopped;
+        internal bool AudioSuppressed;
+        internal CaptureAudioBuffer? AudioBuffer;
+        internal MediaResourceBudget.Lease? VideoReservation;
+    }
     private sealed class TrackLease(CaptureBindingState owner, long id, string kind, RequestLease request, ScriptValue ended)
     {
         internal CaptureBindingState Owner { get; } = owner;
@@ -32,6 +48,7 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
         internal string Kind { get; } = kind;
         internal RequestLease Request { get; } = request;
         internal ScriptValue Ended = ended;
+        internal bool Enabled = true, Muted;
     }
 
     private bool HasGrant(bool audio, bool video, bool report)
@@ -78,23 +95,61 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
                 throw WebIdlException.DomException("NotAllowedError", "The host has no permitted capture device.");
         }
         var approval = new RequestLease(this, audio, video, _cameraGeneration, _microphoneGeneration, session);
+        approval.AudioBuffer = audio ? new CaptureAudioBuffer(context.MediaBudget) : null;
+        approval.VideoReservation = video ? context.MediaBudget.AcquireBytes() : null;
+        _requests.Add(approval);
         if (session is not null)
         {
             try
             {
-                session.VideoFrameAvailable += frame => { if (frame.IsValid) lock (_sampleGate) _latestVideo[approval] = frame; };
-                session.AudioFrameAvailable += frame => { if (frame.SampleRate > 0 && frame.Channels > 0) lock (_sampleGate) _latestAudio[approval] = frame; };
-                session.Revoked += () => RetireRequest(approval);
+                approval.VideoHandler = frame =>
+                {
+                    if (!frame.IsValid || frame.Rgba.Length > 16 * 1024 * 1024) return;
+                    lock (_sampleGate)
+                    {
+                        if (_disposed || Volatile.Read(ref approval.Closed) != 0 || Volatile.Read(ref approval.Revoked) != 0 || approval.VideoStopped) return;
+                        _latestVideo.Remove(approval);
+                        if (approval.VideoReservation?.Resize(frame.Rgba.Length) == true) _latestVideo[approval] = frame;
+                        else approval.VideoReservation?.Resize(0);
+                    }
+                };
+                approval.AudioHandler = frame =>
+                {
+                    lock (_sampleGate)
+                    {
+                        if (!_disposed && Volatile.Read(ref approval.Closed) == 0 && Volatile.Read(ref approval.Revoked) == 0 && !approval.AudioStopped)
+                            approval.AudioBuffer?.Push(frame, retain: !approval.AudioSuppressed);
+                    }
+                };
+                approval.RevokedHandler = () =>
+                {
+                    if (Interlocked.Exchange(ref approval.Revoked, 1) != 0 || Volatile.Read(ref approval.Closed) != 0 || _disposed) return;
+                    lock (_sampleGate) { approval.AudioBuffer?.Dispose(); _latestVideo.Remove(approval); approval.VideoReservation?.Dispose(); }
+                    if (context.IsDocumentOwnerThread) RetireRequest(approval);
+                    else if (context.OwnerEventLoop is { } loop)
+                    {
+                        try { loop.QueueTask(TaskSource.Generic, () => { context.EnterDocumentTurn(engine); if (!_disposed) RetireRequest(approval); }, "capture device revoked"); }
+                        catch (ObjectDisposedException) { }
+                    }
+                };
+                session.VideoFrameAvailable += approval.VideoHandler;
+                session.AudioFrameAvailable += approval.AudioHandler;
+                session.Revoked += approval.RevokedHandler;
+                // Seed once after subscription. Callback history is authoritative thereafter;
+                // polling CurrentAudioFrame on every turn would replay the same snapshot.
+                var initial = audio ? session.CurrentAudioFrame : null;
+                lock (_sampleGate)
+                    if (initial is { } snapshot) approval.AudioBuffer?.Seed(snapshot);
             }
-            catch { session.Dispose(); throw WebIdlException.DomException("NotAllowedError", "The host capture device could not be monitored."); }
+            catch { CloseRequest(approval); throw WebIdlException.DomException("NotAllowedError", "The host capture device could not be monitored."); }
         }
         var labelsChanged = audio && !_microphoneLabels || video && !_cameraLabels;
         if (audio) _microphoneLabels = true;
         if (video) _cameraLabels = true;
         if (labelsChanged) NotifyDeviceChange();
-        if (video && approval.CameraGeneration != _cameraGeneration || audio && approval.MicrophoneGeneration != _microphoneGeneration || !HasGrant(audio, video, true))
+        if (Volatile.Read(ref approval.Closed) != 0 || Volatile.Read(ref approval.Revoked) != 0 || video && approval.CameraGeneration != _cameraGeneration || audio && approval.MicrophoneGeneration != _microphoneGeneration || !HasGrant(audio, video, true))
         {
-            session?.Dispose();
+            CloseRequest(approval);
             throw WebIdlException.DomException("NotAllowedError", "The capture permission has been retired.");
         }
         return engine.CreateHostObject(RequestTemplate, approval);
@@ -105,7 +160,7 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
         if (!engine.TryGetHostTarget(approval, out var value) || value is not RequestLease request || !ReferenceEquals(request.Owner, this) || !ended.IsFunction)
             throw WebIdlException.TypeError("Invalid capture approval.");
         var audio = kind == "audio";
-        if (kind is not ("audio" or "video") || audio && !request.Audio || !audio && !request.Video ||
+        if (Volatile.Read(ref request.Closed) != 0 || Volatile.Read(ref request.Revoked) != 0 || kind is not ("audio" or "video") || audio && !request.Audio || !audio && !request.Video ||
             request.Video && request.CameraGeneration != _cameraGeneration || request.Audio && request.MicrophoneGeneration != _microphoneGeneration || !HasGrant(audio, !audio, report: true))
             throw WebIdlException.DomException("NotAllowedError", "The capture permission has been retired.");
         var lease = new TrackLease(this, checked(++_nextTrack), kind, request, ended);
@@ -122,9 +177,10 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
     private bool IsLive(ScriptValue token, bool poll)
     {
         var lease = Find(token);
-        if (lease is null || !_tracks.ContainsKey(lease.Id)) return false;
+        if (lease is null || !_tracks.ContainsKey(lease.Id) || Volatile.Read(ref lease.Request.Revoked) != 0 || Volatile.Read(ref lease.Request.Closed) != 0) return false;
+        if (!poll) return HasGrant(lease.Kind == "audio", lease.Kind == "video", report: false);
         var group = _tracks.Values.Where(track => ReferenceEquals(track.Request, lease.Request)).ToArray();
-        if (poll && !HostPermits(group.Any(track => track.Kind == "audio"), group.Any(track => track.Kind == "video")))
+        if (!HostPermits(group.Any(track => track.Kind == "audio"), group.Any(track => track.Kind == "video")))
         {
             foreach (var track in group) Retire(track, notify: true);
             return false;
@@ -142,21 +198,51 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
             catch (Exception error) { context.OwnerEventLoop?.ReportException(error); }
         }
         UpdateActivity();
-        if (!_tracks.Values.Any(track => ReferenceEquals(track.Request, lease.Request)))
+        var siblings = _tracks.Values.Where(track => ReferenceEquals(track.Request, lease.Request)).ToArray();
+        var stopKind = !siblings.Any(track => track.Kind == lease.Kind) &&
+            !(lease.Kind == "audio" ? lease.Request.AudioStopped : lease.Request.VideoStopped);
+        if (stopKind)
         {
-            try { lease.Request.Session?.Dispose(); } catch { }
             lock (_sampleGate)
             {
-                _latestVideo.Remove(lease.Request);
-                _latestAudio.Remove(lease.Request);
+                if (lease.Kind == "audio") { lease.Request.AudioStopped = true; lease.Request.AudioBuffer?.Dispose(); }
+                else { lease.Request.VideoStopped = true; _latestVideo.Remove(lease.Request); lease.Request.VideoReservation?.Dispose(); }
             }
         }
+        if (stopKind && lease.Request.Session is IMediaCaptureTrackControl control)
+        {
+            try
+            {
+                if (lease.Kind == "audio") control.StopAudio();
+                if (lease.Kind == "video") control.StopVideo();
+            }
+            catch (Exception error) { context.OwnerEventLoop?.ReportException(error); }
+        }
+        if (siblings.Length == 0)
+        {
+            CloseRequest(lease.Request);
+        }
+    }
+
+    private void CloseRequest(RequestLease request)
+    {
+        if (Interlocked.Exchange(ref request.Closed, 1) != 0) return;
+        _requests.Remove(request);
+        if (request.Session is { } session)
+        {
+            try { session.VideoFrameAvailable -= request.VideoHandler; } catch { }
+            try { session.AudioFrameAvailable -= request.AudioHandler; } catch { }
+            try { session.Revoked -= request.RevokedHandler; } catch { }
+            try { session.Dispose(); } catch { }
+        }
+        lock (_sampleGate) { _latestVideo.Remove(request); request.AudioBuffer?.Dispose(); request.VideoReservation?.Dispose(); }
     }
 
     private void RetireRequest(RequestLease request)
     {
         foreach (var track in _tracks.Values.Where(track => ReferenceEquals(track.Request, request)).ToArray())
             Retire(track, notify: true);
+        CloseRequest(request);
     }
 
     internal MediaCaptureVideoFrame? CurrentVideoFrame(ScriptValue track)
@@ -165,17 +251,29 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
         if (lease is null || lease.Kind != "video" || !IsLive(track, poll: false)) return null;
         MediaCaptureVideoFrame? pushed = null;
         lock (_sampleGate) if (_latestVideo.TryGetValue(lease.Request, out var retained)) pushed = retained;
-        var frame = lease.Request.Session?.CurrentVideoFrame ?? pushed;
+        var frame = pushed ?? lease.Request.Session?.CurrentVideoFrame;
         return frame is { IsValid: true } ? frame : null;
     }
 
-    internal MediaAudioFrame? CurrentAudioFrame(ScriptValue track)
+    internal CaptureAudioReader? OpenAudioReader(ScriptValue track)
     {
         var lease = Find(track);
-        if (lease is null || lease.Kind != "audio" || !IsLive(track, poll: false)) return null;
-        MediaAudioFrame? pushed = null;
-        lock (_sampleGate) if (_latestAudio.TryGetValue(lease.Request, out var retained)) pushed = retained;
-        return lease.Request.Session?.CurrentAudioFrame ?? pushed;
+        if (lease is null || lease.Kind != "audio" || !IsLive(track, poll: false) || lease.Request.AudioBuffer is not { } buffer) return null;
+        return new CaptureAudioReader(buffer, () => IsLive(track, poll: false) && lease.Enabled && !lease.Muted);
+    }
+
+    private void SetTrackState(ScriptValue token, bool enabled, bool muted)
+    {
+        var lease = Find(token);
+        if (lease is null) return;
+        lock (_sampleGate)
+        {
+            lease.Enabled = enabled;
+            lease.Muted = muted;
+            // Each capture track has a request identity. Disabling it discards history
+            // immediately, including disable/enable transitions between document ticks.
+            if (lease.Kind == "audio") { lease.Request.AudioSuppressed = !enabled || muted; lease.Request.AudioBuffer?.Clear(); }
+        }
     }
     private void UpdateActivity()
     {
@@ -211,6 +309,7 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
         _disposed = true;
         UpdateCapabilities();
         foreach (var track in _tracks.Values.ToArray()) Retire(track, notify: true);
+        foreach (var request in _requests.ToArray()) CloseRequest(request);
         _deviceChange = ScriptValue.Undefined;
     }
 
@@ -221,6 +320,7 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
             .DefineMethod("request", (_, _, a) => state.Request(a.Length > 0 && a[0].AsBoolean(), a.Length > 1 && a[1].AsBoolean()))
             .DefineMethod("register", (_, _, a) => state.Register(a[0], a[1].AsString() ?? "", a[2]))
             .DefineMethod("live", (_, _, a) => ScriptValue.FromBoolean(a.Length > 0 && state.IsLive(a[0], a.Length > 1 && a[1].AsBoolean())))
+            .DefineMethod("state", (_, _, a) => { state.SetTrackState(a[0], a[1].AsBoolean(), a[2].AsBoolean()); return ScriptValue.Undefined; })
             .DefineMethod("stop", (_, _, a) => { if (a.Length > 0 && state.Find(a[0]) is { } track) state.Retire(track, notify: false); return ScriptValue.Undefined; })
             .DefineMethod("devices", (_, _, _) => ScriptValue.FromString(ScriptJson.Serialize(new[]
             {
@@ -258,7 +358,7 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
             if(!new.target)throw new TypeError('MediaStreamTrack requires new.');
             kind=S(kind||'');const value={kind,id:'track-'+(++next),enabled:true,muted:false,ended:false,token:null,constraints:{},listeners:Object.create(null)};
             apply(set,records,[this,value]);this.onended=null;this.onmute=null;this.onunmute=null;this.contentHint='';this._captureToken=null;
-            define(this,{id:{get:()=>value.id},kind:{get:()=>value.kind},readyState:{get:()=>value.ended?'ended':'live'},enabled:{get:()=>value.enabled,set:v=>value.enabled=!!v},muted:{get:()=>value.muted,set:v=>{v=!!v;if(v!==value.muted){value.muted=v;dispatch(this,v?'mute':'unmute');}}}});
+            define(this,{id:{get:()=>value.id},kind:{get:()=>value.kind},readyState:{get:()=>value.ended?'ended':'live'},enabled:{get:()=>value.enabled,set:v=>{v=!!v;if(v!==value.enabled){value.enabled=v;if(value.token)host.state(value.token,v,value.muted);}}},muted:{get:()=>value.muted,set:v=>{v=!!v;if(v!==value.muted){value.muted=v;if(value.token)host.state(value.token,value.enabled,v);dispatch(this,v?'mute':'unmute');}}}});
           }
           Track.prototype.addEventListener=function(type,fn){if(typeof fn!=='function')return;const listeners=state(this).listeners,key=S(type),list=listeners[key]||(listeners[key]=[]);if(apply(indexOf,list,[fn])<0)apply(push,list,[fn]);};
           Track.prototype.removeEventListener=function(type,fn){const list=state(this).listeners[S(type)]||[],i=apply(indexOf,list,[fn]);if(i>=0)apply(splice,list,[i,1]);};

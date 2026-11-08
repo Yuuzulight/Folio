@@ -11,6 +11,9 @@ namespace Folio.Scripting.Tests;
 
 public sealed class ServiceWorkerCapabilityTests
 {
+    // Interception fixtures intentionally take control of this already-open page.
+    // Registration/activation alone does not claim the registering client.
+    private const string ClaimClientOnActivation = "self.addEventListener('activate', event => event.waitUntil(self.clients.claim())); ";
     [Fact]
     public void NativeAuthorityChecksDocumentRetirementEvenBeforeItsOwnDisposal()
     {
@@ -183,17 +186,20 @@ public sealed class ServiceWorkerCapabilityTests
         });
         using var engine = new NativeJavaScriptEngine();
         DomBindings.Install(engine, document);
-        Assert.Equal("object", engine.Evaluate("typeof __folio_service_worker_isolated").AsString());
-        Assert.Equal("object", engine.Evaluate("let probe = function() { return typeof __folio_service_worker_isolated; }; probe()").AsString());
-        Assert.Equal("object", engine.Evaluate("let captured = __folio_service_worker_isolated; let probe2 = function() { return typeof captured; }; probe2()").AsString());
-        Assert.Equal("object", engine.Evaluate("let outer = function(x) { return { f: function() { return typeof x; } }; }; let nested = outer(__folio_service_worker_isolated); nested.f()").AsString());
-        Assert.Equal("function", engine.Evaluate("typeof __folio_service_worker_isolated.dispatchMessage").AsString());
+        Assert.True(engine.Evaluate("navigator.serviceWorker.register('old.js'); true").AsBoolean());
+        engine.PerformMicrotaskCheckpoint();
+        // Keep the object/function and closure-capture checks on the public
+        // controller; the native factory is private and cleared after bootstrap.
+        Assert.Equal("undefined", engine.Evaluate("typeof __folio_service_worker_isolated").AsString());
+        Assert.Equal("object", engine.Evaluate("typeof navigator.serviceWorker.controller").AsString());
+        Assert.Equal("object", engine.Evaluate("let probe = function() { return typeof navigator.serviceWorker.controller; }; probe()").AsString());
+        Assert.Equal("object", engine.Evaluate("let captured = navigator.serviceWorker.controller; let probe2 = function() { return typeof captured; }; probe2()").AsString());
+        Assert.Equal("object", engine.Evaluate("let outer = function(x) { return { f: function() { return typeof x; } }; }; let nested = outer(navigator.serviceWorker.controller); nested.f()").AsString());
+        Assert.Equal("function", engine.Evaluate("typeof navigator.serviceWorker.controller.postMessage").AsString());
 
         Assert.Equal("function", engine.Evaluate("typeof Response").AsString());
         Assert.Equal("object", engine.Evaluate("return typeof new Response('old');").AsString());
         Assert.Equal("object", engine.Evaluate("return typeof new Response('old').bytes();").AsString());
-        Assert.True(engine.Evaluate("navigator.serviceWorker.register('old.js'); true").AsBoolean());
-        engine.PerformMicrotaskCheckpoint();
         var interceptor = document.Options.ResourceInterceptor;
         Assert.NotNull(interceptor);
         var response = interceptor!.Intercept(new ResourceRequest("https://worker.example/offline.txt", ResourceKind.Document));
@@ -539,7 +545,7 @@ public sealed class ServiceWorkerCapabilityTests
         public TestServiceWorkerLoader(string? script = null) => _script = script;
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
-                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes(_script ?? (request.Url.EndsWith("new.js", StringComparison.Ordinal) ? "self.addEventListener('fetch', e => e.respondWith(new Response('new')));" : "self.addEventListener('fetch', e => e.respondWith(new Response('old')));")), "application/javascript")
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes(ClaimClientOnActivation + (_script ?? (request.Url.EndsWith("new.js", StringComparison.Ordinal) ? "self.addEventListener('fetch', e => e.respondWith(new Response('new')));" : "self.addEventListener('fetch', e => e.respondWith(new Response('old')));"))), "application/javascript")
                 : ResourceResponse.Refused("unsupported"));
     }
 
@@ -551,7 +557,7 @@ public sealed class ServiceWorkerCapabilityTests
         {
             if (request.Kind == ResourceKind.Script)
             {
-                var script = "self.addEventListener('fetch', e => e.respondWith(e.request.url.endsWith('.ttf') ? new Response(new Uint8Array([1,2,3]), { headers: { 'content-type': 'font/ttf' } }) : new Response('<p id=\\\"offline\\\">offline</p>', { headers: { 'content-type': 'text/html' } })));";
+                var script = ClaimClientOnActivation + "self.addEventListener('fetch', e => e.respondWith(e.request.url.endsWith('.ttf') ? new Response(new Uint8Array([1,2,3]), { headers: { 'content-type': 'font/ttf' } }) : new Response('<p id=\\\"offline\\\">offline</p>', { headers: { 'content-type': 'text/html' } })));";
                 return Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes(script), "application/javascript"));
             }
             if (request.Kind == ResourceKind.Document) DocumentRequests.Add(request.Url);
@@ -567,7 +573,7 @@ public sealed class ServiceWorkerCapabilityTests
         {
             if (request.Kind == ResourceKind.Script)
             {
-                const string script = "self.addEventListener('fetch', e => { const data = new Uint8Array(4097); data[0] = 17; data[4096] = 231; e.respondWith(new Response(data, { headers: { 'content-type': 'application/octet-stream' } })); });";
+                const string script = ClaimClientOnActivation + "self.addEventListener('fetch', e => { const data = new Uint8Array(4097); data[0] = 17; data[4096] = 231; e.respondWith(new Response(data, { headers: { 'content-type': 'application/octet-stream' } })); });";
                 return Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes(script), "application/javascript"));
             }
             if (request.Kind == ResourceKind.Media) MediaRequests.Add(request.Url);
@@ -587,7 +593,7 @@ public sealed class ServiceWorkerCapabilityTests
                 directory = directory.Parent;
             var fontPath = directory is null ? throw new FileNotFoundException("FolioBox.ttf") : Path.Combine(directory.FullName, "tests", "fonts", "FolioBox.ttf");
             var font = Convert.ToBase64String(File.ReadAllBytes(fontPath));
-            _script = "self.addEventListener('fetch', e => { if (e.request.url.endsWith('.ttf')) { const raw = atob('" + font + "'); const bytes = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i); e.respondWith(new Response(bytes, { headers: { 'content-type': 'font/ttf' } })); } });";
+            _script = ClaimClientOnActivation + "self.addEventListener('fetch', e => { if (e.request.url.endsWith('.ttf')) { const raw = atob('" + font + "'); const bytes = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i); e.respondWith(new Response(bytes, { headers: { 'content-type': 'font/ttf' } })); } });";
         }
 
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)

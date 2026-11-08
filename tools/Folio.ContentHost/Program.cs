@@ -3,6 +3,20 @@ using Folio.Scripting.Ipc;
 using Folio.Scripting.Native;
 using Folio.ContentHost;
 
+// Dispatch before creating DOM, frame stores, script engines or content-session state.
+if (args.Length == 1 && args[0] == "--gpu-webgl" && OperatingSystem.IsWindows())
+{
+    // Separate GPU worker: executes WebGL command batches for one content process.
+    Folio.Scripting.Gpu.Remote.GpuWebGlWorkerHost.Run(Console.OpenStandardInput());
+    return;
+}
+if (args.Length != 0 && args[0] == "--gpu-worker")
+{
+    if (args.Length != 1) throw new ArgumentException("Unexpected GPU worker arguments.");
+    Folio.Scripting.Gpu.GpuWorkerServer.Run(Console.OpenStandardInput(), Console.OpenStandardOutput());
+    return;
+}
+
 var framePath = Environment.GetEnvironmentVariable("FOLIO_CONTENT_FRAME_PATH")
     ?? Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}.bin");
 using var frameStore = new CanvasFrameStore(framePath, 1280, 720, 1280 * 4);
@@ -72,6 +86,11 @@ session.MessageReceived += async (message, cancellationToken) =>
         {
             var accepted = runtime.ApplyCapabilities(message);
             await session.SendAsync(ContentMessageKind.Capabilities, new Dictionary<string, object?> { ["sequence"] = message.Sequence, ["capabilities"] = runtime.Capabilities, ["accepted"] = accepted }, cancellationToken);
+            return;
+        }
+        if (message.Kind == ContentMessageKind.GpuRestore)
+        {
+            runtime.RestoreGpuChannel(message);
             return;
         }
         if (message.Kind == ContentMessageKind.MediaCaptureActivity)

@@ -123,6 +123,26 @@ internal sealed class ServiceWorkerCapabilityAuthority : IDisposable
 /// <summary>Native service-worker adapters used by the compatibility JavaScript bridge.</summary>
 internal static class ServiceWorkerBindings
 {
+    // A loader is allowed to ignore cancellation. Bound the host wait independently,
+    // cancel its owned request on timeout, and never attach a script-evaluation continuation.
+    internal static ResourceResponse? LoadScript(IResourceLoader loader, string url, CancellationToken cancellation, TimeSpan timeout)
+    {
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        request.CancelAfter(timeout);
+        try
+        {
+            request.Token.ThrowIfCancellationRequested();
+            var pending = loader.LoadAsync(new ResourceRequest(url, ResourceKind.Script), request.Token);
+            var response = pending.WaitAsync(request.Token).GetAwaiter().GetResult();
+            request.Token.ThrowIfCancellationRequested();
+            return response;
+        }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
+        {
+            throw WebIdlException.DomException("TimeoutError", "Service worker script loading exceeded the host limit.");
+        }
+    }
+
     /// <summary>Installs the loader and bounded validator while returning the host-owned capability authority.</summary>
     internal static ServiceWorkerCapabilityAuthority Install(IScriptEngine engine, DomContext context,
         IResourceLoader? resourceLoader, Uri? baseUri, IArtifactStorage? artifactStorage = null)
@@ -139,7 +159,7 @@ internal static class ServiceWorkerBindings
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return ScriptValue.Null;
             var cancellation = authority.LoadCancellation;
             cancellation.ThrowIfCancellationRequested();
-            var response = resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Script), cancellation).GetAwaiter().GetResult();
+            var response = LoadScript(resourceLoader, uri.AbsoluteUri, cancellation, context.MaxWorkerExecutionTime);
             cancellation.ThrowIfCancellationRequested();
             return response?.Data is { } data ? ScriptValue.FromString(Encoding.UTF8.GetString(data)) : ScriptValue.Null;
         });
@@ -168,9 +188,18 @@ internal static class ServiceWorkerBindings
         // implements IScriptEngineFactory, but it must stay on the compatibility
         // worker scope below; routing it through the native bridge loses the
         // compatibility worker's `self`/controller bindings and response path.
-        IsolatedServiceWorkerRuntime? nativeRuntime = engine is NativeJavaScriptEngine && engine is IScriptEngineFactory factory
-            ? new IsolatedServiceWorkerRuntime(engine, context, factory, resourceLoader, baseUri)
-            : null;
+        var nativeRuntimes = new HashSet<IsolatedServiceWorkerRuntime>();
+        void RetireRuntimes()
+        {
+            var retired = nativeRuntimes.ToArray();
+            nativeRuntimes.Clear();
+            foreach (var runtime in retired)
+            {
+                try { runtime.Dispose(); }
+                catch (Exception error) { context.OwnerEventLoop?.ReportException(error); }
+            }
+        }
+        context.DisposeServiceWorker = RetireRuntimes;
         var authorityTemplate = new HostObjectTemplate("ServiceWorkerCapabilityAuthority")
             .DefineMethod("enabled", (_, _, _) => ScriptValue.FromBoolean(context.CheckCapability("ServiceWorkers", authority.Enabled)))
             .DefineMethod("exposed", (_, _, _) => ScriptValue.FromBoolean(authority.Exposed || context.CheckCapability("ServiceWorkers", false)))
@@ -181,7 +210,7 @@ internal static class ServiceWorkerBindings
                     var callback = args[0];
                     authority.Changed = () =>
                     {
-                        nativeRuntime?.Retire();
+                        RetireRuntimes();
                         try { engine.Call(callback, ScriptValue.Undefined, []); }
                         catch (Exception error) { context.OwnerEventLoop?.ReportException(error); }
                     };
@@ -195,31 +224,45 @@ internal static class ServiceWorkerBindings
                 catch { lease.Dispose(); throw; }
             });
         engine.SetGlobalProperty("__folio_service_worker_authority", engine.CreateHostObject(authorityTemplate, authority));
-        if (nativeRuntime is not null)
+        if (engine is NativeJavaScriptEngine && engine is IScriptEngineFactory nativeFactory)
         {
-            context.DisposeServiceWorker = nativeRuntime.Dispose;
             var nativeTemplate = new HostObjectTemplate("IsolatedServiceWorkerRuntime")
-                .DefineMethod("run", (_, _, args) =>
+                .DefineMethod("run", (target, _, args) =>
                 {
                     if (args.Length < 2) return ScriptValue.FromString("error");
-                    var error = nativeRuntime.Load(args[0].AsString() ?? string.Empty, args[1].AsString() ?? "service-worker");
+                    var error = ((IsolatedServiceWorkerRuntime)target).Load(args[0].AsString() ?? string.Empty, args[1].AsString() ?? "service-worker");
                     return error is null ? ScriptValue.Null : ScriptValue.FromString(error);
                 })
-                .DefineMethod("dispatch", (_, _, args) =>
+                .DefineMethod("dispatch", (target, _, args) => args.Length == 0 ? ScriptValue.Null : ((IsolatedServiceWorkerRuntime)target).DispatchValue(args[0].AsString() ?? string.Empty))
+                .DefineMethod("dispatchMessage", (target, _, args) => ((IsolatedServiceWorkerRuntime)target).DispatchMessageValue(args.Length > 0 ? args[0] : ScriptValue.Undefined))
+                .DefineMethod("dispatchLifecycle", (target, _, args) => ((IsolatedServiceWorkerRuntime)target).DispatchLifecycleValue(args.Length > 0 ? args[0].AsString() ?? string.Empty : string.Empty))
+                .DefineMethod("skipWaiting", (target, _, _) => ScriptValue.FromBoolean(((IsolatedServiceWorkerRuntime)target).SkipWaitingRequested))
+                .DefineMethod("claim", (target, _, _) => ScriptValue.FromBoolean(((IsolatedServiceWorkerRuntime)target).ClaimRequested))
+                .DefineMethod("retire", (target, _, _) =>
                 {
-                    if (args.Length == 0) return ScriptValue.Null;
-                    return nativeRuntime.DispatchValue(args[0].AsString() ?? string.Empty);
-                })
-                .DefineMethod("dispatchMessage", (_, _, args) =>
-                {
-                    return nativeRuntime.DispatchMessageValue(args.Length > 0 ? args[0] : ScriptValue.Undefined);
-                })
-                .DefineMethod("dispatchLifecycle", (_, _, args) =>
-                {
-                    nativeRuntime.DispatchLifecycleValue(args.Length > 0 ? args[0].AsString() ?? string.Empty : string.Empty);
+                    var runtime = (IsolatedServiceWorkerRuntime)target;
+                    nativeRuntimes.Remove(runtime);
+                    try { runtime.Dispose(); }
+                    catch (Exception error) { context.OwnerEventLoop?.ReportException(error); }
                     return ScriptValue.Undefined;
                 });
-            engine.SetGlobalProperty("__folio_service_worker_isolated", engine.CreateHostObject(nativeTemplate, nativeRuntime));
+            var factoryTemplate = new HostObjectTemplate("ServiceWorkerRuntimeFactory")
+                .DefineMethod("create", (_, _, _) =>
+                {
+                    // Capture one generation. Never reacquire a fresh grant after a
+                    // revoke/regrant while constructing or waiting for this worker.
+                    var generationCancellation = authority.LoadCancellation;
+                    generationCancellation.ThrowIfCancellationRequested();
+                    var runtime = new IsolatedServiceWorkerRuntime(engine, context, nativeFactory, resourceLoader, baseUri, generationCancellation);
+                    try
+                    {
+                        var wrapper = engine.CreateHostObject(nativeTemplate, runtime);
+                        nativeRuntimes.Add(runtime);
+                        return wrapper;
+                    }
+                    catch { runtime.Dispose(); throw; }
+                });
+            engine.SetGlobalProperty("__folio_service_worker_isolated", engine.CreateHostObject(factoryTemplate, authority));
         }
         if (artifactStorage is not null && context.Capabilities.ServiceWorkers)
         {
@@ -232,15 +275,33 @@ internal static class ServiceWorkerBindings
                     throw WebIdlException.DomException("SecurityError", "Invalid service worker storage namespace.");
                 return context.ArtifactId + ":" + key;
             }
+            // Host storage failures must reach script as a catchable rejection so the
+            // lifecycle can roll back, not escape the engine as a raw CLR exception.
+            static WebIdlException StorageFailed() => WebIdlException.DomException("UnknownError", "Service worker registration storage failed.");
+            string? Read(string key)
+            {
+                try { return artifactStorage.Read(key); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { throw StorageFailed(); }
+            }
+            void Write(string key, string value)
+            {
+                try { artifactStorage.Write(key, value); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { throw StorageFailed(); }
+            }
+            void Delete(string key)
+            {
+                try { artifactStorage.Delete(key); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { throw StorageFailed(); }
+            }
             var storage = new HostObjectTemplate("ArtifactStorage")
-                .DefineMethod("read", (_, _, args) => args.Length == 0 ? ScriptValue.Null : (artifactStorage.Read(StorageKey(args[0])) is { } value ? ScriptValue.FromString(value) : ScriptValue.Null))
-                .DefineMethod("write", (_, _, args) => { if (args.Length > 1) artifactStorage.Write(StorageKey(args[0]), args[1].AsString() ?? ""); return ScriptValue.Undefined; })
-                .DefineMethod("delete", (_, _, args) => { if (args.Length > 0) artifactStorage.Delete(StorageKey(args[0])); return ScriptValue.Undefined; });
+                .DefineMethod("read", (_, _, args) => args.Length == 0 ? ScriptValue.Null : (Read(StorageKey(args[0])) is { } value ? ScriptValue.FromString(value) : ScriptValue.Null))
+                .DefineMethod("write", (_, _, args) => { if (args.Length > 1) Write(StorageKey(args[0]), args[1].AsString() ?? ""); return ScriptValue.Undefined; })
+                .DefineMethod("delete", (_, _, args) => { if (args.Length > 0) Delete(StorageKey(args[0])); return ScriptValue.Undefined; });
             engine.SetGlobalProperty("__folio_artifact_storage", engine.CreateHostObject(storage, authority));
         }
         engine.SetGlobalProperty("__folio_service_worker_base", ScriptValue.FromString(baseUri?.AbsoluteUri ?? ""));
         try { InstallCompatibilityApi(engine, authority, artifactStorage is not null && context.Capabilities.ServiceWorkers, artifactStorage is ICacheStorageBackendProvider); }
-        catch { authority.Dispose(); throw; }
+        catch { authority.Dispose(); RetireRuntimes(); throw; }
         finally
         {
             engine.SetGlobalProperty("__folio_service_worker_authority", ScriptValue.Undefined);
@@ -266,6 +327,8 @@ internal static class ServiceWorkerBindings
             globalThis.navigator = globalThis.navigator || {};
             var __folio_service_worker_registrations = [];
             globalThis.navigator.serviceWorker = (function(registrationStorage, isolatedRuntime) {
+                var resolveReady;
+                var readyPromise = new Promise(function(resolve) { resolveReady = resolve; });
                 var registrationIndexKey = 'service-worker-registration/__index__';
                 function persistedScopes() {
                     if (!registrationStorage) return [];
@@ -301,7 +364,7 @@ internal static class ServiceWorkerBindings
                 addEventListener: function(type, handler) { if (type === 'controllerchange' && typeof handler === 'function' && this._listeners.indexOf(handler) < 0) this._listeners.push(handler); },
                 removeEventListener: function(type, handler) { if (type === 'controllerchange') { var i = this._listeners.indexOf(handler); if (i >= 0) this._listeners.splice(i, 1); } },
                 dispatchEvent: function(event) { if (event.type === 'controllerchange') { if (this.oncontrollerchange) this.oncontrollerchange(event); this._listeners.slice().forEach(function(handler) { handler(event); }); } return true; },
-                ready: Promise.resolve({ scope: '/', active: null }),
+                ready: readyPromise,
                 register: function(scriptURL, options) {
                     if (!authority.enabled()) return Promise.reject(new DOMException('Service workers are disabled by the host.', 'SecurityError'));
                     var url = String(scriptURL); try { if (base) url = new URL(url, base).href; } catch (_) { }
@@ -358,27 +421,45 @@ internal static class ServiceWorkerBindings
                     var registrationKey = 'service-worker-registration/' + encodeURIComponent(String(scope));
                     if (registrationStorage) { var persisted = registrationStorage.read(registrationKey); if (persisted) { try { var metadata = JSON.parse(persisted); if (metadata && metadata.scriptURL === url) url = String(metadata.scriptURL); } catch (_) { } } }
                     var existing = __folio_service_worker_registrations.find(function(r) { return r.scope === scope; });
-                    if (existing) { if (existing.scriptURL !== url && typeof existing._setScriptUrl === 'function') existing._setScriptUrl(url); return Promise.resolve(existing); }
+                    if (existing && !(options && options.updating)) { if (existing.scriptURL !== url) return existing._updateTo(url); return Promise.resolve(existing); }
                     var lease=authority.acquire(); if(!lease) return Promise.reject(new DOMException('Service workers are disabled by the host.','SecurityError'));
                     function ensureLive(){if(!lease.active())throw new DOMException('The service worker is no longer active.','InvalidStateError');}
-                    try { var workerListeners = [];
+                    try { var workerListeners = [], workerStateListeners = [];
                     // The worker global deliberately hides navigator, but clients.claim()
                     // still updates the page's controller through this closed-over handle.
                     var pageServiceWorkerContainer = globalThis.navigator.serviceWorker;
                     var workerScript = loader.load(url); ensureLive();
+                    if (existing && workerScript === existing._source && url === existing.scriptURL) { lease.release(); return Promise.resolve(existing); }
                     var workerSelfListeners = [], workerFetchListeners = [], workerLifecycleListeners = { install: [], activate: [] };
+                    var nativeRuntime = null;
+                    var skipRequested = false, claimRequested = false;
                     var runWorkerScript;
+                    function claimClient() {
+                        ensureLive();
+                        if (!worker || (worker.state !== 'activating' && worker.state !== 'activated')) return Promise.reject(new DOMException('The worker is not active.', 'InvalidStateError'));
+                        claimRequested = true;
+                        if (clientInScope() && pageServiceWorkerContainer.controller !== worker) {
+                            pageServiceWorkerContainer.controller = worker;
+                            try { pageServiceWorkerContainer.dispatchEvent({ type: 'controllerchange', target: pageServiceWorkerContainer }); } catch (_) { }
+                        }
+                        return Promise.resolve();
+                    }
+                    function syncNativeRequests() {
+                        if (!nativeRuntime) return;
+                        if (nativeRuntime.skipWaiting()) { skipRequested = true; if (registration && registration.waiting === worker) activate(); }
+                        if (nativeRuntime.claim() && (worker.state === 'activating' || worker.state === 'activated')) claimClient();
+                    }
                     var nativeDispatchMessage = null;
                     var nativeDispatchFetch = null;
                     var nativeDispatchFetchSync = null;
-                    var workerSelf = { onmessage: null, onfetch: null, oninstall: null, onactivate: null, document: undefined, window: undefined, navigator: undefined, skipWaiting: function() { ensureLive(); return Promise.resolve(); }, clients: { claim: function() { ensureLive(); navigator.serviceWorker.controller = worker; navigator.serviceWorker.dispatchEvent({ type: 'controllerchange', target: navigator.serviceWorker }); return Promise.resolve(); } }, importScripts: function() { ensureLive(); for (var i = 0; i < arguments.length; i++) { var reference = String(arguments[i]); var resolved = reference; try { resolved = new URL(reference, url).href; } catch (_) { } var imported = loader.load(resolved); ensureLive(); if (imported === null || imported === undefined) throw new Error('Service worker script could not load ' + reference); runWorkerScript(imported, resolved); } }, addEventListener: function(type, handler) { if (typeof handler !== 'function') return; if (type === 'message') workerSelfListeners.push(handler); else if (type === 'fetch') workerFetchListeners.push(handler); else if (workerLifecycleListeners[type]) workerLifecycleListeners[type].push(handler); }, removeEventListener: function(type, handler) { if (type === 'message') workerSelfListeners = workerSelfListeners.filter(function(item) { return item !== handler; }); else if (type === 'fetch') workerFetchListeners = workerFetchListeners.filter(function(item) { return item !== handler; }); else if (workerLifecycleListeners[type]) workerLifecycleListeners[type] = workerLifecycleListeners[type].filter(function(item) { return item !== handler; }); }, postMessage: function(data) { ensureLive(); var event = { type: 'message', data: data, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(event); workerListeners.slice().forEach(function(handler) { ensureLive(); handler(event); }); } };
+                    var workerSelf = { onmessage: null, onfetch: null, oninstall: null, onactivate: null, document: undefined, window: undefined, navigator: undefined, skipWaiting: function() { ensureLive(); skipRequested = true; if (registration && registration.waiting === worker) activate(); return Promise.resolve(); }, clients: { claim: claimClient }, importScripts: function() { ensureLive(); for (var i = 0; i < arguments.length; i++) { var reference = String(arguments[i]); var resolved = reference; try { resolved = new URL(reference, url).href; } catch (_) { } var imported = loader.load(resolved); ensureLive(); if (imported === null || imported === undefined) throw new Error('Service worker script could not load ' + reference); runWorkerScript(imported, resolved); } }, addEventListener: function(type, handler) { if (typeof handler !== 'function') return; if (type === 'message') workerSelfListeners.push(handler); else if (type === 'fetch') workerFetchListeners.push(handler); else if (workerLifecycleListeners[type]) workerLifecycleListeners[type].push(handler); }, removeEventListener: function(type, handler) { if (type === 'message') workerSelfListeners = workerSelfListeners.filter(function(item) { return item !== handler; }); else if (type === 'fetch') workerFetchListeners = workerFetchListeners.filter(function(item) { return item !== handler; }); else if (workerLifecycleListeners[type]) workerLifecycleListeners[type] = workerLifecycleListeners[type].filter(function(item) { return item !== handler; }); }, postMessage: function(data) { ensureLive(); var event = { type: 'message', data: data, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(event); workerListeners.slice().forEach(function(handler) { ensureLive(); handler(event); }); } };
                     workerSelf.self = workerSelf;
-                    workerSelf.clients.claim = function() { ensureLive(); pageServiceWorkerContainer.controller = worker; pageServiceWorkerContainer.dispatchEvent({ type: 'controllerchange', target: pageServiceWorkerContainer }); return Promise.resolve(); };
+                    workerSelf.clients.claim = claimClient;
                     workerSelf.globalThis = workerSelf;
-                    ['Promise','URL','Request','Response','Headers','Blob','TextEncoder','TextDecoder','ArrayBuffer','Uint8Array','Map','Set','WeakMap','WeakSet','Object','Array','String','Number','Boolean','Error','TypeError','RangeError','SyntaxError','RegExp','Reflect','Function','Date','Math','JSON','console','crypto','atob','btoa','fetch','Cache','CacheStorage','caches'].forEach(function(name) { if (globalThis[name] !== undefined) workerSelf[name] = globalThis[name]; });
+                    ['DOMException','Promise','URL','Request','Response','Headers','Blob','TextEncoder','TextDecoder','ArrayBuffer','Uint8Array','Map','Set','WeakMap','WeakSet','Object','Array','String','Number','Boolean','Error','TypeError','RangeError','SyntaxError','RegExp','Reflect','Function','Date','Math','JSON','console','crypto','atob','btoa','fetch','Cache','CacheStorage','caches'].forEach(function(name) { if (globalThis[name] !== undefined) workerSelf[name] = globalThis[name]; });
                     runWorkerScript = function(source, filename) {
                         if (isolatedRuntime !== null && isolatedRuntime !== undefined) {
-                            var nativeRuntime = isolatedRuntime;
+                            nativeRuntime = isolatedRuntime.create();
                             var nativeError = nativeRuntime.run(source, filename);
                             if (nativeError) throw new Error(nativeError);
                             nativeDispatchMessage = function(data) { return nativeRuntime.dispatchMessage(data); };
@@ -396,8 +477,6 @@ internal static class ServiceWorkerBindings
                                 if (!raw.ok) { if (raw.error === 'no-response') return null; throw new Error(raw.error || 'service-worker-fetch-failed'); }
                                 return new Response(raw.body, { status: raw.status || 200, headers: { 'content-type': raw.contentType || '' } });
                             };
-                            nativeRuntime.dispatchLifecycle('install');
-                            nativeRuntime.dispatchLifecycle('activate');
                             workerSelf._nativeDispatch = function(request) {
                                 var raw;
                                 try { raw = nativeRuntime.dispatch(request.url); }
@@ -426,39 +505,139 @@ internal static class ServiceWorkerBindings
                     // /apple/... requests, which violates the scope restriction.
                     var scopeMatches = function(path, candidate) { if (candidate === '/') return path.charAt(0) === '/'; var prefix = candidate.slice(0, -1); return path === prefix || path.indexOf(candidate) === 0; };
                     var originOf = function(value) { var text = String(value), scheme = text.indexOf('://'); if (scheme < 1) return ''; var end = text.indexOf('/', scheme + 3); return text.slice(0, end < 0 ? text.length : end).toLowerCase(); };
-                    var worker = { scriptURL: url, state: 'installing', onstatechange: null, onmessage: null, _self: workerSelf,
-                        addEventListener: function(type, handler) { if (type === 'message' && typeof handler === 'function' && workerListeners.indexOf(handler) < 0) workerListeners.push(handler); },
-                        removeEventListener: function(type, handler) { if (type === 'message') { var index = workerListeners.indexOf(handler); if (index >= 0) workerListeners.splice(index, 1); } },
-                        postMessage: function(data) { ensureLive(); if (nativeDispatchMessage) { var outgoing = nativeDispatchMessage(data); if (outgoing !== undefined && outgoing !== null) { var responseEvent = { type: 'message', data: outgoing, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(responseEvent); workerListeners.slice().forEach(function(handler) { ensureLive(); handler(responseEvent); }); } return; } if (typeof workerSelf._nativePostMessage === 'function') { var outgoing = workerSelf._nativePostMessage(data); if (outgoing !== undefined && outgoing !== null) { var responseEvent = { type: 'message', data: outgoing, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(responseEvent); workerListeners.slice().forEach(function(handler) { ensureLive(); handler(responseEvent); }); } return; } var event = { type: 'message', data: data, target: workerSelf, source: null, origin: '' }; var handled = !!workerSelf.onmessage || workerSelfListeners.length > 0; if (workerSelf.onmessage) workerSelf.onmessage(event); workerSelfListeners.slice().forEach(function(handler) { ensureLive(); handler(event); }); if (!handled) { if (worker.onmessage) worker.onmessage({ type: 'message', data: data, target: worker, source: null, origin: '' }); workerListeners.slice().forEach(function(handler) { ensureLive(); handler({ type: 'message', data: data, target: worker, source: null, origin: '' }); }); } },
-                        _retire: function() { workerSelf.onmessage = null; workerSelf.onfetch = null; workerSelf.oninstall = null; workerSelf.onactivate = null; workerSelf._nativeDispatch = null; workerSelf._nativePostMessage = null; workerSelfListeners = []; workerFetchListeners = []; workerLifecycleListeners = { install: [], activate: [] }; workerListeners = []; worker.onmessage = null; worker.state = 'redundant'; },
+                    var worker = { scriptURL: url, _source: workerScript, _ensureLive: ensureLive, state: 'installing', onstatechange: null, onmessage: null, _self: workerSelf,
+                        addEventListener: function(type, handler) { var list = type === 'message' ? workerListeners : type === 'statechange' ? workerStateListeners : null; if (list && typeof handler === 'function' && list.indexOf(handler) < 0) list.push(handler); },
+                        removeEventListener: function(type, handler) { var list = type === 'message' ? workerListeners : type === 'statechange' ? workerStateListeners : null; if (list) { var index = list.indexOf(handler); if (index >= 0) list.splice(index, 1); } },
+                        postMessage: function(data) { ensureLive(); if (nativeDispatchMessage) { var outgoing = nativeDispatchMessage(data); syncNativeRequests(); if (outgoing !== undefined && outgoing !== null) { var responseEvent = { type: 'message', data: outgoing, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(responseEvent); workerListeners.slice().forEach(function(handler) { ensureLive(); handler(responseEvent); }); } return; } if (typeof workerSelf._nativePostMessage === 'function') { var outgoing = workerSelf._nativePostMessage(data); if (outgoing !== undefined && outgoing !== null) { var responseEvent = { type: 'message', data: outgoing, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(responseEvent); workerListeners.slice().forEach(function(handler) { ensureLive(); handler(responseEvent); }); } return; } var event = { type: 'message', data: data, target: workerSelf, source: null, origin: '' }; var handled = !!workerSelf.onmessage || workerSelfListeners.length > 0; if (workerSelf.onmessage) workerSelf.onmessage(event); workerSelfListeners.slice().forEach(function(handler) { ensureLive(); handler(event); }); if (!handled) { if (worker.onmessage) worker.onmessage({ type: 'message', data: data, target: worker, source: null, origin: '' }); workerListeners.slice().forEach(function(handler) { ensureLive(); handler({ type: 'message', data: data, target: worker, source: null, origin: '' }); }); } },
+                        _retire: function() { if (nativeRuntime) { nativeRuntime.retire(); nativeRuntime = null; } lease.release(); nativeDispatchMessage = nativeDispatchFetch = nativeDispatchFetchSync = null; workerSelf.onmessage = null; workerSelf.onfetch = null; workerSelf.oninstall = null; workerSelf.onactivate = null; workerSelf._nativeDispatch = null; workerSelf._nativePostMessage = null; workerSelfListeners = []; workerFetchListeners = []; workerLifecycleListeners = { install: [], activate: [] }; workerListeners = []; worker.onmessage = null; if (worker.state !== 'redundant') { worker.state = 'redundant'; var event = { type: 'statechange', target: worker }; try { if (worker.onstatechange) worker.onstatechange(event); } catch (_) { } workerStateListeners.slice().forEach(function(handler) { try { handler(event); } catch (_) { } }); } worker.onstatechange = null; workerStateListeners = []; },
                         _dispatchFetchSync: function(request) { ensureLive(); var requestPath = ''; var requestOrigin = originOf(request.url); var workerOrigin = originOf(url); try { var requestUrl = new URL(request.url); requestPath = requestUrl.pathname; } catch (_) { var requestText = String(request.url); var authorityEnd = requestText.indexOf('://'); var pathStart = authorityEnd < 0 ? requestText.indexOf('/') : requestText.indexOf('/', authorityEnd + 3); requestPath = pathStart < 0 ? '/' : requestText.slice(pathStart); } if ((requestOrigin && workerOrigin && requestOrigin !== workerOrigin) || !scopeMatches(requestPath, scopePath)) return null; if (nativeDispatchFetchSync) return nativeDispatchFetchSync(request); return undefined; },
                         _dispatchFetch: function(request) { return new Promise(function(resolve, reject) { ensureLive(); var sync = typeof worker._dispatchFetchSync === 'function' ? worker._dispatchFetchSync(request) : undefined; if (sync !== undefined) { resolve(sync); return; } var requestPath = ''; var requestOrigin = originOf(request.url); var workerOrigin = originOf(url); try { var requestUrl = new URL(request.url); requestPath = requestUrl.pathname; } catch (_) { var requestText = String(request.url); var authorityEnd = requestText.indexOf('://'); var pathStart = authorityEnd < 0 ? requestText.indexOf('/') : requestText.indexOf('/', authorityEnd + 3); requestPath = pathStart < 0 ? '/' : requestText.slice(pathStart); } if ((requestOrigin && workerOrigin && requestOrigin !== workerOrigin) || !scopeMatches(requestPath, scopePath)) { resolve(null); return; } if (nativeDispatchFetch) { nativeDispatchFetch(request).then(resolve, reject); return; } if (typeof workerSelf._nativeDispatch === 'function') { workerSelf._nativeDispatch(request).then(resolve, reject); return; } var settled = false; var event = { type: 'fetch', request: request, target: workerSelf, respondWith: function(value) { if (settled) return; settled = true; Promise.resolve(value).then(function(response){try{ensureLive();resolve(response);}catch(error){reject(error);}}, reject); } }; try { if (typeof workerSelf.onfetch === 'function') workerSelf.onfetch(event); workerFetchListeners.slice().forEach(function(handler) { ensureLive(); handler(event); }); if (!settled) resolve(null); } catch (error) { reject(error); } }); }
                     };
                     var isRestoring = !!(options && options.restoring);
+                    var previousActive = existing ? existing.active : null;
+                    var previousWaiting = existing ? existing.waiting : null;
+                    var registration = existing || { scope: scope, scriptURL: url, active: null, installing: null, waiting: null, onupdatefound: null, _listeners: [], _workers: [],
+                        addEventListener: function(type, handler) { if (type === 'updatefound' && typeof handler === 'function' && this._listeners.indexOf(handler) < 0) this._listeners.push(handler); },
+                        removeEventListener: function(type, handler) { if (type === 'updatefound') this._listeners = this._listeners.filter(function(item) { return item !== handler; }); },
+                        unregister: function() {
+                            var controlled = this._workers.indexOf(pageServiceWorkerContainer.controller) >= 0;
+                            this._workers.slice().forEach(function(item) { item._retire(); }); this._workers = [];
+                            this.installing = this.waiting = this.active = null;
+                            var i = __folio_service_worker_registrations.indexOf(this); if (i >= 0) __folio_service_worker_registrations.splice(i, 1);
+                            if (registrationStorage) registrationStorage.delete(registrationKey); forgetScope(scope);
+                            if (controlled) { pageServiceWorkerContainer.controller = null; pageServiceWorkerContainer.dispatchEvent({ type: 'controllerchange', target: pageServiceWorkerContainer }); }
+                            return Promise.resolve(true);
+                        }
+                    };
+                    function state(value) { worker.state = value; var event = { type: 'statechange', target: worker }; try { if (worker.onstatechange) worker.onstatechange(event); } catch (_) { } workerStateListeners.slice().forEach(function(handler) { try { handler(event); } catch (_) { } }); }
+                    function clientInScope() {
+                        try { var client = new URL(base); return client.origin === new URL(url).origin && scopeMatches(client.pathname, scopePath); } catch (_) { return false; }
+                    }
+                    function lifecycle(type) {
+                        ensureLive();
+                        if (nativeRuntime) {
+                            var pending = nativeRuntime.dispatchLifecycle(type);
+                            syncNativeRequests();
+                            return pending;
+                        }
+                        return new Promise(function(resolve, reject) {
+                            var count = 0, open = true, failed = false;
+                            function complete() { if (!open && count === 0 && !failed) resolve(); }
+                            var event = { type: type, target: workerSelf, waitUntil: function(value) {
+                                if (!open && count === 0) throw new DOMException('The event lifetime has ended.', 'InvalidStateError');
+                                count++;
+                                Promise.resolve(value).then(function() { count--; complete(); }, function(error) { count--; failed = true; reject(error); });
+                            } };
+                            try {
+                                var handler = workerSelf['on' + type]; if (handler) handler(event);
+                                workerLifecycleListeners[type].slice().forEach(function(listener) { ensureLive(); listener(event); });
+                            } catch (error) { failed = true; reject(error); }
+                            open = false; complete();
+                        });
+                    }
+                    var failed = false;
+                    function fail() {
+                        if (failed) return;
+                        failed = true;
+                        var live = lease.active();
+                        var rollbackActive = live && previousActive && previousActive.state !== 'redundant' ? previousActive : null;
+                        var rollbackWaiting = live && previousWaiting && previousWaiting.state !== 'redundant' ? previousWaiting : null;
+                        if (registration.installing === worker) registration.installing = null;
+                        if (registration.waiting === worker) registration.waiting = rollbackWaiting;
+                        if (registration.active === worker) registration.active = rollbackActive;
+                        var changedController = pageServiceWorkerContainer.controller === worker;
+                        if (changedController) pageServiceWorkerContainer.controller = rollbackActive;
+                        registration._workers = registration._workers.filter(function(item) { return item !== worker; });
+                        if (live && (rollbackWaiting || rollbackActive)) { var retained = rollbackWaiting || rollbackActive; registration._source = retained._source; registration.scriptURL = retained.scriptURL; }
+                        else { var index = __folio_service_worker_registrations.indexOf(registration); if (index >= 0) __folio_service_worker_registrations.splice(index, 1); }
+                        // Publish a consistent rollback before notifying any page callbacks.
+                        worker._retire();
+                        if (changedController) { try { pageServiceWorkerContainer.dispatchEvent({ type: 'controllerchange', target: pageServiceWorkerContainer }); } catch (_) { } }
+                    }
+                    var activationStarted = false;
+                    function activate() {
+                        if (activationStarted) return;
+                        ensureLive(); activationStarted = true;
+                        registration.waiting = null; registration.active = worker; state('activating');
+                        lifecycle('activate').then(function() {
+                            ensureLive();
+                            if (registrationStorage) { registrationStorage.write(registrationKey, JSON.stringify({ scope: scope, scriptURL: url })); rememberScope(scope); }
+                            ensureLive(); state('activated'); ensureLive();
+                            if (previousActive) {
+                                if (pageServiceWorkerContainer.controller === previousActive) { pageServiceWorkerContainer.controller = worker; try { pageServiceWorkerContainer.dispatchEvent({ type: 'controllerchange', target: pageServiceWorkerContainer }); } catch (_) { } }
+                                previousActive._retire();
+                                registration._workers = registration._workers.filter(function(item) { return item !== previousActive; });
+                            }
+                            if ((claimRequested || isRestoring) && clientInScope()) claimClient();
+                            resolveReady(registration);
+                        }).catch(fail);
+                    }
+                    registration.scriptURL = url;
+                    registration._source = workerScript;
+                    registration.installing = worker;
+                    registration._workers.push(worker);
+                    registration._updateTo = function(next) {
+                        try {
+                            var current = registration.waiting || registration.active;
+                            if (!current) return Promise.reject(new DOMException('The registration has no live worker.', 'InvalidStateError'));
+                            current._ensureLive();
+                            if (registration.installing) return Promise.reject(new DOMException('A worker update is already pending.', 'InvalidStateError'));
+                            // The new registration call owns its candidate runtime and lease.
+                            return pageServiceWorkerContainer.register(next, { scope: scope, updating: true });
+                        } catch (error) { return Promise.reject(error); }
+                    };
+                    registration.update = function() { return registration._updateTo(registration.scriptURL); };
+                    if (!existing) __folio_service_worker_registrations.push(registration);
+                    var updateEvent = { type: 'updatefound', target: registration };
+                    if (registration.onupdatefound) registration.onupdatefound(updateEvent);
+                    registration._listeners.slice().forEach(function(handler) { ensureLive(); handler(updateEvent); });
+                    ensureLive();
+                    if (workerScript === null || workerScript === undefined) throw new TypeError('Service worker script could not be loaded.');
                     if (workerScript !== null && workerScript !== undefined) { if (!isRestoring) { var validation = validator.check(workerScript, url); if (validation === 'timeout') throw new DOMException('Service worker execution exceeded the host limit.', 'TimeoutError'); if (validation !== 'ok') throw new DOMException('Service worker script failed validation.', 'SyntaxError'); } runWorkerScript(workerScript, url); }
-                    var installEvent = { type: 'install', target: workerSelf, waitUntil: function(promise) { return Promise.resolve(promise); } }; if (workerSelf.oninstall) workerSelf.oninstall(installEvent); workerLifecycleListeners.install.slice().forEach(function(handler) { ensureLive(); handler(installEvent); });
-                    var activateEvent = { type: 'activate', target: workerSelf, waitUntil: function(promise) { return Promise.resolve(promise); } }; if (workerSelf.onactivate) workerSelf.onactivate(activateEvent); workerLifecycleListeners.activate.slice().forEach(function(handler) { ensureLive(); handler(activateEvent); });
-                    ensureLive(); worker.state = 'activated'; if (worker.onstatechange) worker.onstatechange({ type: 'statechange', target: worker });
-                    var registrationListeners = [];
-                    var registration = { scope: scope, scriptURL: url, _setScriptUrl: function(next) { ensureLive(); url = String(next); registration.scriptURL = url; if (registrationStorage) { registrationStorage.write(registrationKey, JSON.stringify({ scope: scope, scriptURL: url })); rememberScope(scope); } }, active: worker, installing: null, waiting: null, onupdatefound: null,
-                        addEventListener: function(type, handler) { if (type === 'updatefound' && typeof handler === 'function' && registrationListeners.indexOf(handler) < 0) registrationListeners.push(handler); },
-                        removeEventListener: function(type, handler) { if (type === 'updatefound') { var index = registrationListeners.indexOf(handler); if (index >= 0) registrationListeners.splice(index, 1); } },
-                        update: function() { try{ensureLive();}catch(error){return Promise.reject(error);} var latest = loader.load(url); try{ensureLive();}catch(error){return Promise.reject(error);} var event = { type: 'updatefound', target: registration }; if (registration.onupdatefound) registration.onupdatefound(event); registrationListeners.slice().forEach(function(handler) { ensureLive(); handler(event); }); try{ensureLive();}catch(error){return Promise.reject(error);} if (latest === workerScript) return Promise.resolve(registration); if (latest === null || latest === undefined) return Promise.reject(new TypeError('Service worker script could not be loaded.')); workerScript = latest; worker.state = 'installing'; registration.installing = worker; if (worker.onstatechange) worker.onstatechange({ type: 'statechange', target: worker }); workerSelfListeners = []; workerFetchListeners = []; workerLifecycleListeners = { install: [], activate: [] }; workerSelf.onmessage = null; workerSelf.onfetch = null; workerSelf.oninstall = null; workerSelf.onactivate = null; var updateValidation = validator.check(workerScript, url); if (updateValidation === 'timeout') throw new DOMException('Service worker execution exceeded the host limit.', 'TimeoutError'); if (updateValidation !== 'ok') throw new DOMException('Service worker script failed validation.', 'SyntaxError'); runWorkerScript(workerScript, url); var installEvent = { type: 'install', target: workerSelf, waitUntil: function(promise) { return Promise.resolve(promise); } }; if (workerSelf.oninstall) workerSelf.oninstall(installEvent); workerLifecycleListeners.install.slice().forEach(function(handler) { ensureLive(); handler(installEvent); }); var activateEvent = { type: 'activate', target: workerSelf, waitUntil: function(promise) { return Promise.resolve(promise); } }; if (workerSelf.onactivate) workerSelf.onactivate(activateEvent); workerLifecycleListeners.activate.slice().forEach(function(handler) { ensureLive(); handler(activateEvent); }); ensureLive(); worker.state = 'activated'; registration.installing = null; registration.active = worker; if (worker.onstatechange) worker.onstatechange({ type: 'statechange', target: worker }); navigator.serviceWorker.controller = worker; return Promise.resolve(registration); },
-                    unregister: function() { try{ensureLive();}catch(error){return Promise.reject(error);} worker._retire(); lease.release(); var i = __folio_service_worker_registrations.indexOf(registration); if (i >= 0) __folio_service_worker_registrations.splice(i, 1); if (registrationStorage) registrationStorage.delete(registrationKey); forgetScope(scope); if (navigator.serviceWorker.controller === worker) { navigator.serviceWorker.controller = null; navigator.serviceWorker.dispatchEvent({ type: 'controllerchange', target: navigator.serviceWorker }); } return Promise.resolve(true); } };
-                    ensureLive(); if (registrationStorage && !isRestoring) { registrationStorage.write(registrationKey, JSON.stringify({ scope: scope, scriptURL: url })); rememberScope(scope); }
-                    __folio_service_worker_registrations.push(registration); navigator.serviceWorker.controller = worker; navigator.serviceWorker.dispatchEvent({ type: 'controllerchange', target: navigator.serviceWorker }); navigator.serviceWorker.ready = Promise.resolve(registration); return Promise.resolve(registration); } catch(error) {lease.release();return Promise.reject(error);}
+                    // A page loaded while a persisted registration is active starts controlled by it, so its
+                    // first fetch is routed before the replayed lifecycle completes (no controllerchange).
+                    if (isRestoring && clientInScope() && !pageServiceWorkerContainer.controller) pageServiceWorkerContainer.controller = worker;
+                    lifecycle('install').then(function() {
+                        ensureLive(); registration.installing = null; registration.waiting = worker; state('installed'); ensureLive();
+                        if (previousWaiting) { previousWaiting._retire(); registration._workers = registration._workers.filter(function(item) { return item !== previousWaiting; }); }
+                        syncNativeRequests();
+                        if (!previousActive || !clientInScope() || pageServiceWorkerContainer.controller !== previousActive || skipRequested) activate();
+                    }).catch(fail);
+                    return Promise.resolve(registration);
+                    } catch(error) { if (registration && typeof fail === 'function') fail(); else { if (nativeRuntime) nativeRuntime.retire(); lease.release(); } return Promise.reject(error); }
                 },
                 getRegistration: function(scope) { var value = String(scope || '/'); try { if (base) { var resolved = new URL(value, base); if (resolved.origin !== new URL(base).origin) return Promise.resolve(undefined); value = resolved.pathname; } } catch (_) { } if (value.length === 0 || value.charAt(0) !== '/') value = '/' + value; if (value.charAt(value.length - 1) !== '/') value += '/'; return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
                 getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
             }; })(registrationStorage, isolatedRuntime);
             var container=globalThis.navigator.serviceWorker;
             Object.defineProperty(globalThis.navigator,'serviceWorker',{configurable:true,get:function(){return authority.exposed()?container:undefined;}});
-            authority.onchange(function(){var previous=__folio_service_worker_registrations;__folio_service_worker_registrations=[];for(var i=0;i<previous.length;i++){try{if(previous[i].active){if(typeof previous[i].active._retire==='function')previous[i].active._retire();else previous[i].active.state='redundant';}}catch(_){}}try{container.controller=null;container.ready=Promise.resolve(undefined);}catch(_){}});
+            authority.onchange(function(){var previous=__folio_service_worker_registrations;__folio_service_worker_registrations=[];for(var i=0;i<previous.length;i++){try{var workers=previous[i]._workers||[];for(var j=0;j<workers.length;j++)workers[j]._retire();previous[i]._workers=[];previous[i].installing=previous[i].waiting=null;}catch(_){}}try{container.controller=null;container.ready=new Promise(function(resolve){resolveReady=resolve;});}catch(_){}});
             })(__folio_service_worker_authority, globalThis.__folio_artifact_storage, __folio_service_worker_loader, __folio_service_worker_validator, __folio_service_worker_base, typeof __folio_service_worker_isolated === 'undefined' ? null : __folio_service_worker_isolated, %BROKERED%);
             delete globalThis.__folio_service_worker_authority;
             delete globalThis.__folio_artifact_storage;
             delete globalThis.__folio_service_worker_loader;
             delete globalThis.__folio_service_worker_validator;
+            delete globalThis.__folio_service_worker_isolated;
             """.Replace("%BROKERED%", brokeredStorage ? "true" : "false", StringComparison.Ordinal);
         engine.EvaluateHostScript(source, "folio:service-worker-compatibility");
     }

@@ -11,7 +11,8 @@ internal sealed class WindowsJobObject : IDisposable
     private SafeFileHandle? _completionPort;
     private CancellationTokenSource? _monitorCancellation;
     private Task? _monitor;
-    private WindowsJobObject(SafeFileHandle handle) => _handle = handle;
+    private long _memoryLimit;
+    private WindowsJobObject(SafeFileHandle handle, long memoryLimit) { _handle = handle; _memoryLimit = memoryLimit; }
 
     internal static WindowsJobObject Attach(Process process, ContentProcessLimits limits)
     {
@@ -20,20 +21,49 @@ internal sealed class WindowsJobObject : IDisposable
         if (handle.IsInvalid) throw Error("CreateJobObject failed.");
         try
         {
-            var extended = new ExtendedLimitInformation
-            {
-                BasicLimitInformation = new BasicLimitInformation { LimitFlags = KillOnClose | JobMemory | ActiveProcess, ActiveProcessLimit = 1 },
-                JobMemoryLimit = (UIntPtr)Math.Max(1, limits.MemoryBytes),
-            };
-            Set(handle, JobObjectExtendedLimitInformation, extended);
+            var memoryLimit = Math.Max(1, limits.MemoryBytes);
+            Set(handle, JobObjectExtendedLimitInformation, Extended(memoryLimit));
             var cpu = new CpuRateControlInformation { ControlFlags = CpuEnable | CpuHardCap, CpuRate = (uint)Math.Clamp(limits.CpuRatePercent, 1, 100) * 100 };
             Set(handle, JobObjectCpuRateControlInformation, cpu);
             var ui = new UiRestrictions { UiRestrictionsClass = UiHandles | UiNoClipboard | UiGlobalAtoms | UiDesktop | UiDisplaySettings | UiExitWindows | UiSystemParameters };
             Set(handle, JobObjectBasicUiRestrictions, ui);
             if (!AssignProcessToJobObject(handle, process.Handle)) throw Error("AssignProcessToJobObject failed.");
-            return new WindowsJobObject(handle);
+            return new WindowsJobObject(handle, memoryLimit);
         }
         catch { handle.Dispose(); throw; }
+    }
+
+    private static ExtendedLimitInformation Extended(long memoryLimit) => new()
+    {
+        BasicLimitInformation = new BasicLimitInformation { LimitFlags = KillOnClose | JobMemory | ActiveProcess, ActiveProcessLimit = 1 },
+        JobMemoryLimit = (UIntPtr)memoryLimit,
+    };
+
+    /// <summary>
+    /// Lowers the job's commit limit by memory the process maps but did not commit itself (shared sections
+    /// another process created), so the process's private memory plus those mappings stay within the limit.
+    /// </summary>
+    internal void ReserveMemory(long bytes)
+    {
+        var limit = Math.Max(1, _memoryLimit - bytes);
+        Set(_handle, JobObjectExtendedLimitInformation, Extended(limit));
+        _memoryLimit = limit;
+    }
+
+    /// <summary>The job's commit limit as the OS reports it.</summary>
+    internal long MemoryLimit
+    {
+        get
+        {
+            var memory = Marshal.AllocHGlobal(Marshal.SizeOf<ExtendedLimitInformation>());
+            try
+            {
+                if (!QueryInformationJobObject(_handle, JobObjectExtendedLimitInformation, memory, Marshal.SizeOf<ExtendedLimitInformation>(), IntPtr.Zero))
+                    throw Error("QueryInformationJobObject failed.");
+                return (long)Marshal.PtrToStructure<ExtendedLimitInformation>(memory).JobMemoryLimit;
+            }
+            finally { Marshal.FreeHGlobal(memory); }
+        }
     }
 
     internal void Terminate(uint exitCode = 0xC0000409) => TerminateJobObject(_handle, exitCode);
@@ -85,6 +115,7 @@ internal sealed class WindowsJobObject : IDisposable
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern SafeFileHandle CreateJobObject(IntPtr attributes, string? name);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool SetInformationJobObject(SafeFileHandle job, int infoClass, IntPtr info, int length);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool QueryInformationJobObject(SafeFileHandle job, int infoClass, IntPtr info, int length, IntPtr returned);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool AssignProcessToJobObject(SafeFileHandle job, IntPtr process);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool TerminateJobObject(SafeFileHandle job, uint exitCode);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern SafeFileHandle CreateIoCompletionPort(IntPtr file, IntPtr existing, IntPtr key, uint threads);

@@ -306,7 +306,26 @@ public class FolioView : Control
     }
 
     private ContentProcessClient CreateContentProcess(FolioOptions? options = null) => ContentProcessClient.StartWithOptions(
-        (options ?? Options).ContentProcessPath!, options ?? Options, mediaCapturePermission: PermitCaptureOnUiThread);
+        (options ?? Options).ContentProcessPath!, options ?? Options, mediaCapturePermission: PermitCaptureOnUiThread,
+        iframeNavigationDispatcher: DispatchNavigationOnUiThread);
+
+    private ValueTask DispatchNavigationOnUiThread(Action callback, CancellationToken cancellationToken)
+    {
+        if (IsDisposed || Disposing || !IsHandleCreated || cancellationToken.IsCancellationRequested) return ValueTask.CompletedTask;
+        if (!InvokeRequired) { callback(); return ValueTask.CompletedTask; }
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            BeginInvoke((Action)(() =>
+            {
+                if (IsDisposed || Disposing || cancellationToken.IsCancellationRequested) { completed.TrySetResult(); return; }
+                try { callback(); completed.TrySetResult(); }
+                catch (Exception error) when (error is not OutOfMemoryException) { completed.TrySetException(error); }
+            }));
+            return new ValueTask(completed.Task.WaitAsync(cancellationToken));
+        }
+        catch (InvalidOperationException) { return ValueTask.CompletedTask; }
+    }
 
     private ValueTask<bool> PermitCaptureOnUiThread(MediaCaptureRequest request, CancellationToken cancellationToken)
     {

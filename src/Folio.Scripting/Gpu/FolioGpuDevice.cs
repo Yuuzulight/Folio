@@ -62,6 +62,8 @@ internal sealed class FolioGpuDevice : IGpuDevice, INativeWebGlFactory
     private readonly FolioD3D11Interop.MapDelegate _map;
     private readonly FolioD3D11Interop.UnmapDelegate _unmap;
     private readonly FolioD3D11Interop.FlushDelegate _flush;
+    private readonly FolioD3D11Interop.GetDeviceRemovedReasonDelegate _getDeviceRemovedReason;
+    private volatile bool _removed;
 
     public GpuRendererKind RendererKind { get; }
     public string RendererIdentity { get; }
@@ -70,6 +72,7 @@ internal sealed class FolioGpuDevice : IGpuDevice, INativeWebGlFactory
     public bool IsDisposed { get { lock (_gate) return _disposed; } }
     internal object Gate => _gate;
     internal IntPtr DevicePtr => _device;
+    internal long MaxBytes => _maxBytes;
     internal IntPtr ContextPtr => _context;
 
     private FolioGpuDevice(IntPtr device, IntPtr context, GpuRendererKind kind, long maxBytes, int featureLevel)
@@ -98,6 +101,28 @@ internal sealed class FolioGpuDevice : IGpuDevice, INativeWebGlFactory
             context, FolioD3D11Interop.ContextSlotUnmap);
         _flush = FolioD3D11Interop.Method<FolioD3D11Interop.FlushDelegate>(
             context, FolioD3D11Interop.ContextSlotFlush);
+        _getDeviceRemovedReason = FolioD3D11Interop.Method<FolioD3D11Interop.GetDeviceRemovedReasonDelegate>(
+            device, FolioD3D11Interop.DeviceSlotGetDeviceRemovedReason);
+    }
+
+    /// <summary>
+    /// True once the OS removed or reset the device (for example after a GPU timeout); a removed device
+    /// never works again, so every context on it is lost. Sticky, and cheap enough to ask per call.
+    /// </summary>
+    /// <summary>Test seam: behave as if the OS removed the device.</summary>
+    internal void MarkRemoved() => _removed = true;
+
+    internal bool IsRemoved
+    {
+        get
+        {
+            if (_removed) return true;
+            lock (_gate) // never ask a released device
+            {
+                if (!_disposed && _getDeviceRemovedReason(_device) != 0) _removed = true;
+                return _removed;
+            }
+        }
     }
 
     public static FolioGpuDevice Create(GpuRendererKind kind, long maxBytes)

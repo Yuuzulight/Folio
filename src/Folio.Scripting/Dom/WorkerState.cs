@@ -73,11 +73,7 @@ internal sealed class WorkerState
         if (WorkerEngine is not null)
         {
             _workerEventLoop = new HtmlEventLoop(WorkerEngine);
-            _workerEventLoop.UncaughtException += error =>
-            {
-                lock (_workerGate) _pendingErrors.Enqueue(error);
-                QueueParentTask(DrainErrors, "worker error");
-            };
+            _workerEventLoop.UncaughtException += QueueWorkerError;
             _workerCommands = new BlockingCollection<WorkerCommand>();
             _workerThread = new Thread(RunWorkerLoop)
             {
@@ -188,7 +184,7 @@ internal sealed class WorkerState
                     RunOnWorker(() =>
                     {
                         try { WorkerEngine!.Evaluate(source, scriptUrl); }
-                        catch (Exception error) { if (!_closedByWorker) { _scriptError = error; lock (_workerGate) _pendingErrors.Enqueue(error); } }
+                        catch (Exception error) { if (!_closedByWorker) { _scriptError = error; QueueWorkerError(error); } }
                     });
                     if (_parentEventLoop is null)
                     {
@@ -276,6 +272,7 @@ internal sealed class WorkerState
     public ScriptValue Source { get; set; } = ScriptValue.Null;
     private readonly Dictionary<string, List<ScriptValue>> _listeners = new(StringComparer.Ordinal);
     private volatile Exception? _scriptError;
+    private Exception? _terminalError;
     public void AddEventListener(string type, ScriptValue listener)
     {
         if (!listener.IsFunction) return;
@@ -577,6 +574,11 @@ internal sealed class WorkerState
         catch (Exception error)
         {
             foreach (var port in ports) MessagePortEndpoint.TryGetPort(WorkerEngine!, port)?.Close();
+            if (error is ScriptLimitExceededException { LimitName: "Memory" })
+            {
+                QueueWorkerError(error);
+                return;
+            }
             if (type == "message") DispatchWorkerMessage("messageerror", ScriptValue.Undefined, []);
             else QueueWorkerError(error);
             return;
@@ -611,13 +613,27 @@ internal sealed class WorkerState
 
     private void QueueWorkerError(Exception error)
     {
-        if (_closedByWorker) return;
+        // Interrupting a failed worker may make the containing timer checkpoint
+        // throw too. That is shutdown fallout, not a second page-visible fault.
+        if (_closedByWorker || Volatile.Read(ref _terminalError) is not null) return;
+        // Exceeding the engine's memory ceiling is fatal to this worker. Merely
+        // reporting the error leaves an idle engine holding its worker slot and
+        // aggregate memory reservation indefinitely. Keep ordinary script errors
+        // recoverable, and let the owning loop release resources in its finally.
+        if (error is ScriptLimitExceededException { LimitName: "Memory" })
+        {
+            FailWorkerCommand(error);
+            return;
+        }
         lock (_workerGate) _pendingErrors.Enqueue(error);
         QueueParentTask(DrainErrors, "worker error");
     }
 
     private void FailWorkerCommand(Exception error)
     {
+        // The worker thread, its watchdog and a waiting parent can all observe
+        // the same failure. Preserve the first terminal cause and retire once.
+        if (Interlocked.CompareExchange(ref _terminalError, error, null) is not null) return;
         _scriptError = error;
         _terminated = true;
         WorkerEngine?.Interrupt();

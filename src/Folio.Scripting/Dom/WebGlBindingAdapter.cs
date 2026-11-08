@@ -1,5 +1,6 @@
 using Folio.Scripting.Bindings;
 using Folio.Scripting.Gpu;
+using Folio.Scripting.Gpu.Remote;
 using Folio.Scripting;
 using System.Text;
 
@@ -302,6 +303,8 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
 
     public uint GetError()
     {
+        DrainDeferredFailures();
+        ObserveNativeLoss();
         lock (_errors)
         {
             if (_errors.Count > 0)
@@ -611,7 +614,7 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
         }
         return ToScriptValue(value);
     }
-    public bool IsContextLost() => Native.IsLost;
+    public bool IsContextLost() { DrainDeferredFailures(); ObserveNativeLoss(); return Native.IsLost; }
     public IReadOnlyList<string> GetSupportedExtensions()
     {
         var result = new List<string> { "WEBGL_lose_context" };
@@ -719,7 +722,26 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
         };
         NativeCall(Native.TrySetVertexAttribConstant(new WebGlAttribLocation(index), next, out var failure), failure);
     }
-    private void NativeCall(bool succeeded, GpuFailure? failure) { if (!succeeded) EnqueueFailure(failure); }
+    private void NativeCall(bool succeeded, GpuFailure? failure) { if (!ObserveNativeLoss() && !succeeded) EnqueueFailure(failure); }
+
+    // A native context can be lost on its own: the OS removed its device (a GPU reset). The first time the
+    // page touches the context afterwards, run the normal loss (contextlost, objects invalidated) and report
+    // CONTEXT_LOST_WEBGL once; calls on the lost context add no other errors.
+    private bool _reportedNativeLoss;
+    private bool ObserveNativeLoss()
+    {
+        if (!Native.IsLost) { _reportedNativeLoss = false; _contextLostErrorQueued = false; return false; }
+        // Only now: draining a remote context waits for the worker, so it must not run on every call.
+        // A queued budget failure reports its own loss.
+        DrainDeferredFailures();
+        if (_reportedNativeLoss || _losingContext) return true;
+        _reportedNativeLoss = true;
+        _losingContext = true;
+        try { _loseContext?.Invoke(); }
+        finally { _losingContext = false; }
+        EnqueueError(0x9242u);
+        return true;
+    }
     private ScriptValue FailureValue(GpuFailure? failure) { EnqueueFailure(failure); return ScriptValue.Undefined; }
 
     private ScriptValue ToScriptValue(WebGlParameterValue value) => value.Kind switch
@@ -779,6 +801,7 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
             _losingContext = true;
             try { _loseContext?.Invoke(); }
             finally { _losingContext = false; }
+            _reportedNativeLoss = true; // this loss is reported here, not again on the next call
         }
         if (failure?.ApiError is { } apiError)
         {
@@ -794,7 +817,32 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
     }
     private bool _losingContext;
     private void EnqueueFailure(WebGlValidationException failure) => EnqueueError(failure.Failure == WebGlValidationFailure.ContextLost ? 0x9242u : failure.Failure == WebGlValidationFailure.InvalidValue ? 0x0501u : 0x0502u);
-    private void EnqueueError(uint error) { lock (_errors) if (_errors.Count < 64) _errors.Enqueue(error); }
+    // A remote context reports failures of queued calls at its next synchronization point. They
+    // are drained before any newer error is recorded, so getError order matches call order.
+    private bool _drainingDeferred;
+    private void DrainDeferredFailures()
+    {
+        if (_drainingDeferred || Native is not IDeferredGpuFailures deferred) return;
+        _drainingDeferred = true;
+        try { foreach (var failure in deferred.TakeDeferredFailures()) EnqueueFailure(failure); }
+        finally { _drainingDeferred = false; }
+    }
+    // CONTEXT_LOST_WEBGL is reported once per loss, however many calls fail on the lost context
+    // (a remote worker reports each queued call it refused after the loss).
+    private bool _contextLostErrorQueued;
+    private void EnqueueError(uint error)
+    {
+        DrainDeferredFailures();
+        lock (_errors)
+        {
+            if (error == 0x9242u)
+            {
+                if (_contextLostErrorQueued) return;
+                _contextLostErrorQueued = true;
+            }
+            if (_errors.Count < 64) _errors.Enqueue(error);
+        }
+    }
     protected void RecordNativeFailure(GpuFailure? failure) => EnqueueFailure(failure);
 
     private T Require<T>(object value) where T : WebGlObject

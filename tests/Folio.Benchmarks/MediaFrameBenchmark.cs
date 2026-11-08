@@ -2,9 +2,10 @@ using System.Diagnostics;
 using Folio.Dom;
 using Folio.Imaging;
 using Folio.Scripting.Dom;
-using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 using Folio.Scripting;
-using Folio.Skia;
+using Folio.Rendering;
+using Folio.Painting;
 
 namespace Folio.Benchmarks;
 
@@ -14,7 +15,7 @@ internal static class MediaFrameBenchmark
     public static int Run(int frameCount)
     {
         frameCount = Math.Clamp(frameCount, 30, 240);
-        using var engine = new JintScriptEngine();
+        using var engine = new NativeJavaScriptEngine();
         var clock = new VirtualEventLoopClock();
         using var loop = new HtmlEventLoop(engine, clock);
         using var document = Document.Parse("<video id='clip' style='width:320px;height:180px' src='data:video/test;base64,AQID'></video>",
@@ -22,7 +23,7 @@ internal static class MediaFrameBenchmark
             {
                 Capabilities = new FeatureCapabilities { Media = true },
                 MediaDecoder = new Decoder(frameCount),
-                Raster = new SkiaRasterBackend()
+                Raster = SoftwareRasterBackend.Instance
             });
         DomBindings.Install(engine, document, eventLoop: loop);
         clock.SetNow(0);
@@ -30,21 +31,30 @@ internal static class MediaFrameBenchmark
         engine.Evaluate("document.getElementById('clip').play()");
 
         var samples = new List<double>(frameCount);
+        var presented = new HashSet<uint>();
         for (var i = -10; i < frameCount; i++)
         {
             clock.SetNow(Math.Max(0, i) * (1000d / 60));
             var start = Stopwatch.GetTimestamp();
             loop.UpdateTheRendering();
             using var rendered = HeadlessRenderer.Render(document, new RenderRequest(320, 180));
-            if (i >= 0) samples.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            if (i >= 0)
+            {
+                samples.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+                var pixel = rendered.Pixels.Slice((20 * rendered.Width + 20) * 4, 4);
+                presented.Add(System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(pixel));
+            }
         }
 
         samples.Sort();
         var median = samples[samples.Count / 2];
         var p95 = samples[Math.Min(samples.Count - 1, (int)Math.Ceiling(samples.Count * .95) - 1)];
         Console.WriteLine("Media frame playback benchmark (clock + display list + raster)");
+        Console.WriteLine("Native Folio engine/renderer; synthetic decoded frames isolate presentation cost, not codec/device latency.");
         Console.WriteLine("| Frames | Median ms | p95 ms | Target |");
         Console.WriteLine($"| {frameCount} | {median:F2} | {p95:F2} | 16.67 |");
+        if (presented.Count < 2) { Console.Error.WriteLine("Playback did not present changing video frames."); return 1; }
+        if (p95 > 16.67) { Console.Error.WriteLine("Media presentation exceeds the 16.67 ms p95 frame budget."); return 1; }
         return 0;
     }
 

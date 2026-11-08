@@ -84,6 +84,169 @@ public sealed class NativeMediaTests
         Assert.NotNull(decoder.Decode(Wav(), "audio/wav", false, 1024 * 1024));
     }
 
+    [Fact(Skip = "Windows system codecs required", SkipUnless = nameof(IsWindows))]
+    public void AVideoThatExceedsItsFrameBudgetIsNotReportedAsACompleteDecode()
+    {
+        var decoder = new MediaFoundationAudioDecoder();
+        var input = File.ReadAllBytes(Fixture("red.mp4"));
+        var complete = decoder.Decode(input, "video/mp4", true, 1024 * 1024);
+        Assert.NotNull(complete?.VideoFrames);
+        Assert.True(complete.VideoFrames.Count > 1);
+        var retainedBytes = complete.VideoFrames.Sum(frame => frame.Frame.Pixels.Length);
+        Assert.Null(decoder.Decode(input, "video/mp4", true, retainedBytes - complete.VideoFrames[^1].Frame.Pixels.Length));
+        var exact = decoder.Decode(input, "video/mp4", true, retainedBytes);
+        Assert.NotNull(exact?.VideoFrames);
+        Assert.Equal(complete.VideoFrames.Count, exact.VideoFrames.Count);
+    }
+
+    [Theory(Skip = "Windows system codecs required", SkipUnless = nameof(IsWindows))]
+    [InlineData("av-offset-stereo.mp4", 2, 10)]
+    [InlineData("av-long-mono.mp4", 1, 3)]
+    public void CombinedStreamsReachBothEndsAndShareOneOutputBudget(string fixture, int channels, int frameCount)
+    {
+        var decoder = new MediaFoundationAudioDecoder();
+        var input = File.ReadAllBytes(Fixture(fixture));
+        var complete = decoder.Decode(input, "video/mp4", true, 1024 * 1024);
+        Assert.NotNull(complete?.VideoFrames);
+        Assert.Equal(frameCount, complete.VideoFrames.Count);
+        Assert.Equal(0, complete.VideoFrames[0].Time, 5);
+        Assert.NotNull(complete.Audio);
+        var audio = complete.Audio.Value;
+        Assert.Equal(48000, audio.SampleRate);
+        Assert.Equal(channels, audio.Channels);
+        Assert.Contains(audio.Samples.ToArray(), value => Math.Abs(value) > 0.01f);
+        if (channels == 2)
+        {
+            // AAC priming puts the first packet at 0.228s for the requested 0.25s offset.
+            var values = audio.Samples.ToArray();
+            var prefixLength = audio.SampleRate / 5 * channels;
+            Assert.True(values.Length >= prefixLength, $"Audio ended before the required 0.2s silence prefix: {values.Length} samples.");
+            var prefixPeak = values.Take(prefixLength).Max(value => Math.Abs(value));
+            var firstSignal = Array.FindIndex(values, value => Math.Abs(value) > 0.01f);
+            Assert.True(prefixPeak == 0f, $"Expected exact silence through 0.2s; peak={prefixPeak:G9}, first signal sample={firstSignal}.");
+            Assert.InRange(firstSignal / ((double)audio.SampleRate * channels), 0.24, 0.28);
+            Assert.InRange(audio.Samples.Length / (48000d * channels), 0.72, 0.80);
+            Assert.Equal(1, complete.Duration, 2);
+        }
+        else
+        {
+            // Video EOS occurs first: successful decode must still drain the remaining mono audio.
+            Assert.InRange(audio.Samples.Length / 48000d, 0.79, 0.85);
+            Assert.InRange(complete.Duration, 0.79, 0.85);
+        }
+        var videoBytes = complete.VideoFrames.Sum(frame => frame.Frame.Pixels.Length);
+        var audioBytes = audio.Samples.Length * sizeof(float);
+        Assert.Null(decoder.Decode(input, "video/mp4", true, videoBytes));
+        Assert.Null(decoder.Decode(input, "video/mp4", true, videoBytes + audioBytes - 1));
+        if (channels == 2)
+        {
+            // Positive offset leaves enough room for raw packets and the exact edited presentation.
+            var exact = decoder.Decode(input, "video/mp4", true, videoBytes + audioBytes);
+            Assert.NotNull(exact?.VideoFrames);
+            Assert.Equal(frameCount, exact.VideoFrames.Count);
+            Assert.NotNull(exact.Audio);
+            Assert.Equal(audio.Samples.Length, exact.Audio.Value.Samples.Length);
+        }
+        // Cleanup remains balanced after repeated aggregate-budget failures.
+        Assert.NotNull(decoder.Decode(Wav(), "audio/wav", false, 1024 * 1024));
+    }
+
+    [Fact(Skip = "Windows system codecs required", SkipUnless = nameof(IsWindows))]
+    public void SurroundSourceNegotiatesStereoInsteadOfReturningAnUnplayableChannelCount()
+    {
+        var input = File.ReadAllBytes(Fixture("av-surround.mp4"));
+        var result = new MediaFoundationAudioDecoder().Decode(input, "video/mp4", true, 1024 * 1024);
+        Assert.NotNull(result?.VideoFrames);
+        Assert.Equal(2, result.VideoFrames.Count);
+        Assert.NotNull(result.Audio);
+        Assert.Equal(2, result.Audio.Value.Channels);
+        Assert.Contains(result.Audio.Value.Samples.ToArray(), value => Math.Abs(value) > 0.01f);
+    }
+
+    [Fact]
+    public void AudioTimelinePreservesOffsetGapsAndTrimsPrerollAndOverlaps()
+    {
+        MediaFoundationAudioDecoder.AudioChunk[] chunks =
+        [
+            new(9_980_000, [-1, -2, 1, 2]), // two frames before the common 1s origin
+            new(10_040_000, [3, 4]),        // preserve a two-frame hole
+            new(10_050_000, [99, 5]),       // trim overlap with the previous packet
+        ];
+        var values = MediaFoundationAudioDecoder.BuildAudioTimeline(chunks, 10_000_000, 1000, 1, 7 * sizeof(float));
+        Assert.Equal(new float[] { 1, 2, 0, 0, 3, 4, 5 }, values);
+        Assert.Null(MediaFoundationAudioDecoder.BuildAudioTimeline(chunks, 10_000_000, 1000, 1, 7 * sizeof(float) - 1));
+    }
+
+    [Fact]
+    public void StereoTimelineChargesSilenceAndRejectsMalformedOrUnboundedTimestamps()
+    {
+        MediaFoundationAudioDecoder.AudioChunk[] chunks = [new(10_000, [1, 2, 3, 4])];
+        Assert.Equal(new float[] { 0, 0, 1, 2, 3, 4 },
+            MediaFoundationAudioDecoder.BuildAudioTimeline(chunks, 0, 1000, 2, 24));
+        Assert.Null(MediaFoundationAudioDecoder.BuildAudioTimeline(chunks, 0, 1000, 2, 23));
+        Assert.Null(MediaFoundationAudioDecoder.BuildAudioTimeline([new(0, [1])], 0, 1000, 2, 1024));
+        Assert.Null(MediaFoundationAudioDecoder.BuildAudioTimeline([new(10_000, [1]), new(0, [2])], 0, 1000, 1, 1024));
+        Assert.Null(MediaFoundationAudioDecoder.BuildAudioTimeline([new(long.MaxValue, [1])], 0, 48000, 1, 1024));
+    }
+
+    [Fact]
+    public void Mp4EmptyEditUsesMovieTimeWhileAacPrerollUsesMediaTime()
+    {
+        var input = File.ReadAllBytes(Fixture("av-offset-stereo.mp4"));
+        var original = input.ToArray();
+        var timeline = MediaFoundationAudioDecoder.ReadMp4Presentation(input, true);
+        Assert.NotNull(timeline?.Audio);
+        Assert.Equal(2_280_000, timeline.Audio.Offset);
+        Assert.Equal(2_280_000, timeline.Audio.Start);
+        Assert.Equal(7_500_000, timeline.Audio.End);
+        Assert.Equal(10_000_000, timeline.Duration);
+        Assert.Equal(0, timeline.Video!.Offset);
+        Assert.False(input.SequenceEqual(original)); // edits are hidden only in the private MF input copy
+        Assert.True(original.AsSpan().IndexOf("elst"u8) >= 0); // source edit metadata exists independently of MF
+
+        var mono = MediaFoundationAudioDecoder.ReadMp4Presentation(File.ReadAllBytes(Fixture("av-long-mono.mp4")), true);
+        Assert.NotNull(mono?.Audio);
+        Assert.Equal(-213_333, mono.Audio.Offset);
+        Assert.Equal(0, mono.Audio.Start);
+        Assert.Equal(8_000_000, mono.Audio.End);
+    }
+
+    [Fact]
+    public void MalformedAndUnsupportedMp4EditsFailClosed()
+    {
+        var input = File.ReadAllBytes(Fixture("av-offset-stereo.mp4"));
+        var editType = input.AsSpan().IndexOf("elst"u8);
+        Assert.True(editType >= 4);
+        var badRate = input.ToArray();
+        // First (video) edit is version 0: flags/count/duration/media-time/rate.
+        badRate.AsSpan(editType + 20, 4).Clear();
+        Assert.Throws<InvalidDataException>(() => MediaFoundationAudioDecoder.ReadMp4Presentation(badRate, true));
+        var badCount = input.ToArray();
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(badCount.AsSpan(editType + 8, 4), 3);
+        Assert.Throws<InvalidDataException>(() => MediaFoundationAudioDecoder.ReadMp4Presentation(badCount, true));
+        Assert.Throws<InvalidDataException>(() => MediaFoundationAudioDecoder.ReadMp4Presentation(input[..32], true));
+    }
+
+    [Fact]
+    public void AudioTimelineAppliesEditWindowsWithoutFabricatingAudioFromEmptyPackets()
+    {
+        MediaFoundationAudioDecoder.AudioChunk[] chunks =
+        [new(0, [99, 99, 1, 2, 3, 99]), new(10_000_000, [])];
+        Assert.Equal(new float[] { 0, 0, 1, 2, 3 },
+            MediaFoundationAudioDecoder.BuildAudioTimeline(chunks, 0, 1000, 1, 20, 20_000, 50_000));
+        Assert.Null(MediaFoundationAudioDecoder.BuildAudioTimeline(chunks, 0, 1000, 1, 19, 20_000, 50_000));
+        Assert.Empty(MediaFoundationAudioDecoder.BuildAudioTimeline([new(10_000_000, [])], 0, 1000, 1, 4096)!);
+    }
+
+    [Fact]
+    public void CapabilityClaimsDoNotAssumeOptionalWindowsContainerExtensions()
+    {
+        var decoder = new MediaFoundationAudioDecoder();
+        Assert.False(decoder.CanDecode("video/webm", true));
+        Assert.False(decoder.CanDecode("video/ogg", true));
+        Assert.False(decoder.CanDecode("audio/ogg", false));
+    }
+
     [Fact]
     public void WaveHeaderMatchesWindowsPointerSizeAndOffsets()
     {

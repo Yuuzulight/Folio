@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text;
 using Folio.Resources;
@@ -23,15 +24,31 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
     private ScriptValue _lastOutgoing;
     private ScriptValue _clients;
     private ScriptValue _waitUntil;
+    private ScriptValue _beginLifecycle;
+    private ScriptValue _endLifecycle;
+    private ScriptValue _lifecycleStatus;
     private bool _disposed;
+    private CancellationTokenSource? _loads;
+    private readonly CancellationToken _authorityCancellation;
+    private Uri? _scriptUri;
+    internal bool SkipWaitingRequested { get; private set; }
+    internal bool ClaimRequested { get; private set; }
+    private ScriptValue _lifecycleResolve;
+    private ScriptValue _lifecycleReject;
+    private ScriptValue _promiseFactory;
+    private bool _lifecyclePending;
+    private string _phase = "installing";
+    private long _operationStarted;
 
-    internal IsolatedServiceWorkerRuntime(IScriptEngine pageEngine, DomContext context, IScriptEngineFactory factory, IResourceLoader? loader, Uri? baseUri)
+    internal IsolatedServiceWorkerRuntime(IScriptEngine pageEngine, DomContext context, IScriptEngineFactory factory, IResourceLoader? loader, Uri? baseUri, CancellationToken authorityCancellation = default)
     {
         _pageEngine = pageEngine;
         _context = context;
         _factory = factory;
         _loader = loader;
         _baseUri = baseUri;
+        _authorityCancellation = authorityCancellation;
+        _promiseFactory = _pageEngine.EvaluateHostScript("(function(start) { return new Promise(function(resolve, reject) { start(resolve, reject); }); })", "folio:worker-lifecycle-promise");
         _onFetch = ScriptValue.Null;
         _onMessage = ScriptValue.Null;
         _onInstall = ScriptValue.Null;
@@ -39,7 +56,6 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         _lastOutgoing = ScriptValue.Undefined;
         _clients = ScriptValue.Undefined;
         _waitUntil = ScriptValue.Undefined;
-        CreateEngine();
     }
 
     internal ScriptValue DispatchValue(string url)
@@ -72,19 +88,50 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         return DispatchMessage(data);
     }
 
-    internal void DispatchLifecycleValue(string type)
+    internal ScriptValue DispatchLifecycleValue(string type)
     {
-        if (_disposed || _engine is null) return;
-        DispatchLifecycle(type);
+        if (_disposed || _engine is null) throw new ObjectDisposedException(nameof(IsolatedServiceWorkerRuntime));
+        _phase = type == "activate" ? "activating" : "installing";
+        var start = new HostObjectTemplate("LifecycleStart").DefineMethod("start", (_, _, args) =>
+        {
+            _lifecycleResolve = args[0];
+            _lifecycleReject = args[1];
+            _lifecyclePending = true;
+            try { DispatchLifecycle(type); PumpLifecycle(); }
+            catch { CompleteLifecycle(false); }
+            return ScriptValue.Undefined;
+        });
+        return _pageEngine.Call(_promiseFactory, ScriptValue.Undefined,
+            [_pageEngine.GetProperty(_pageEngine.CreateHostObject(start, this), "start")]);
+    }
+
+    private void PumpLifecycle()
+    {
+        if (!_lifecyclePending || _engine is null) return;
+        var status = _engine.Call(_lifecycleStatus, ScriptValue.Undefined, []);
+        if (status.IsNumber && status.AsNumber() != 0) CompleteLifecycle(status.AsNumber() > 0);
+    }
+
+    private void CompleteLifecycle(bool success)
+    {
+        if (!_lifecyclePending) return;
+        _lifecyclePending = false;
+        if (success && _phase == "activating") _phase = "activated";
+        var callback = success ? _lifecycleResolve : _lifecycleReject;
+        _lifecycleResolve = _lifecycleReject = ScriptValue.Undefined;
+        _pageEngine.Call(callback, ScriptValue.Undefined, success ? [] : [ScriptValue.FromString("Service worker lifecycle failed.")]);
     }
 
     internal string? Load(string source, string url)
     {
         if (_disposed) return "InvalidStateError";
         Retire();
-        CreateEngine();
         try
         {
+            CreateEngine();
+            _phase = "installing";
+            _scriptUri = Uri.TryCreate(url, UriKind.Absolute, out var scriptUri) ? scriptUri : _baseUri;
+            _operationStarted = Stopwatch.GetTimestamp();
             _engine!.Evaluate(source, url);
             var globalMessage = _engine.GetGlobalProperty("onmessage");
             if (globalMessage.IsFunction) _onMessage = globalMessage;
@@ -98,15 +145,20 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         }
         catch (Exception error)
         {
+            Retire();
             return error.Message;
         }
     }
 
     internal void Retire()
     {
-        if (_disposed) return;
-        _engine?.Dispose();
+        var engine = _engine;
         _engine = null;
+        var loads = _loads;
+        _loads = null;
+        try { loads?.Cancel(); } catch (AggregateException) { }
+        finally { loads?.Dispose(); }
+        // Drop every engine-owned handle even when engine disposal throws.
         _fetchListeners.Clear();
         _messageListeners.Clear();
         _installListeners.Clear();
@@ -117,6 +169,12 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         _onActivate = ScriptValue.Null;
         _lastOutgoing = ScriptValue.Undefined;
         _waitUntil = ScriptValue.Undefined;
+        _clients = ScriptValue.Undefined;
+        _beginLifecycle = _endLifecycle = _lifecycleStatus = ScriptValue.Undefined;
+        _lifecyclePending = false;
+        _lifecycleResolve = _lifecycleReject = ScriptValue.Undefined;
+        _scriptUri = null;
+        engine?.Dispose();
     }
 
     internal string? Dispatch(string url)
@@ -124,6 +182,7 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         if (_disposed || _engine is null) return null;
         try
         {
+            _operationStarted = Stopwatch.GetTimestamp();
             _engine.SetGlobalProperty("__folio_service_worker_result", ScriptValue.False);
             _engine.SetGlobalProperty("__folio_service_worker_type", ScriptValue.Null);
             _engine.SetGlobalProperty("__folio_service_worker_status", ScriptValue.FromNumber(200));
@@ -150,6 +209,8 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
 
     private void CreateEngine()
     {
+        _loads = CancellationTokenSource.CreateLinkedTokenSource(_authorityCancellation);
+        SkipWaitingRequested = ClaimRequested = false;
         _engine = _factory.CreateIsolated();
         DomBindings.InstallDomException(_engine);
         var isolatedFetchApi = FetchBindings.Install(_engine, _context);
@@ -218,7 +279,13 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
             }
             """, "folio:service-worker-base64");
         var clientsTemplate = new HostObjectTemplate("NativeServiceWorkerClients")
-            .DefineMethod("claim", (_, _, _) => ScriptValue.Undefined);
+            .DefineMethod("claim", (_, _, _) =>
+            {
+                if (_phase != "activating" && _phase != "activated")
+                    return _engine!.Call(_engine.GetGlobalProperty("__folio_worker_rejected"), ScriptValue.Undefined, []);
+                ClaimRequested = true;
+                return _engine!.Call(_engine.GetGlobalProperty("__folio_worker_resolved"), ScriptValue.Undefined, []);
+            });
         _clients = _engine.CreateHostObject(clientsTemplate, this);
         var worker = new HostObjectTemplate("NativeServiceWorkerGlobal")
             .DefineProperty("clients", (_, _) => _clients)
@@ -240,15 +307,23 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
                 return ScriptValue.Undefined;
             })
             .DefineMethod("dispatchMessage", (_, _, args) => DispatchMessage(args.Length > 0 ? args[0] : ScriptValue.Undefined))
-            .DefineMethod("skipWaiting", (_, _, _) => ScriptValue.Undefined)
+            .DefineMethod("skipWaiting", (_, _, _) =>
+            {
+                SkipWaitingRequested = true;
+                return _engine!.Call(_engine.GetGlobalProperty("__folio_worker_resolved"), ScriptValue.Undefined, []);
+            })
             .DefineMethod("importScripts", (_, _, args) =>
             {
                 if (_loader is null) return ScriptValue.Undefined;
                 foreach (var argument in args)
                 {
                     var reference = argument.AsString() ?? string.Empty;
-                    var resolved = _baseUri is not null && Uri.TryCreate(_baseUri, reference, out var absolute) ? absolute.AbsoluteUri : reference;
-                    var response = _loader.LoadAsync(new ResourceRequest(resolved, ResourceKind.Script), CancellationToken.None).GetAwaiter().GetResult();
+                    var resolved = _scriptUri is not null && Uri.TryCreate(_scriptUri, reference, out var absolute) ? absolute.AbsoluteUri : reference;
+                    var cancellation = _loads?.Token ?? new CancellationToken(true);
+                    var remaining = _context.MaxWorkerExecutionTime - Stopwatch.GetElapsedTime(_operationStarted);
+                    if (remaining <= TimeSpan.Zero) throw WebIdlException.DomException("TimeoutError", "Service worker execution exceeded the host limit.");
+                    var response = ServiceWorkerBindings.LoadScript(_loader, resolved, cancellation, remaining);
+                    cancellation.ThrowIfCancellationRequested();
                     if (response?.Data is null) throw new InvalidOperationException($"Service worker script could not load '{resolved}'.");
                     _engine.Evaluate(System.Text.Encoding.UTF8.GetString(response.Data), resolved);
                 }
@@ -289,11 +364,6 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
                 if (_onFetch.IsFunction) _engine.Call(_onFetch, ScriptValue.Undefined, [eventValue]);
                 foreach (var listener in _fetchListeners.ToArray()) _engine.Call(listener, ScriptValue.Undefined, [eventValue]);
                 return ScriptValue.Undefined;
-            })
-            .DefineMethod("dispatchLifecycle", (_, _, args) =>
-            {
-                DispatchLifecycle(args.Length > 0 ? args[0].AsString() ?? string.Empty : string.Empty);
-                return ScriptValue.Undefined;
             });
         var self = _engine.CreateHostObject(worker, this);
         _engine.SetGlobalProperty("self", self);
@@ -324,11 +394,39 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
                 };
             })(self);
             """, "folio:native-service-worker-dispatch");
-        // Cache the lifecycle waitUntil identity while trusted bootstrap is
-        // still outside the worker deadline. Dispatch must not spend the
-        // worker's short budget reparsing this helper under load.
-        _engine.EvaluateHostScript("globalThis.__folio_wait_until = function(value) { return value; };", "folio:native-service-worker-wait-until");
-        _waitUntil = _engine.GetGlobalProperty("__folio_wait_until");
+        // Keep lifetime state in trusted closures, rather than worker-writable globals.
+        var lifecycle = _engine.EvaluateHostScript("""
+            (function() {
+                var current;
+                var resolvePromise = Promise.resolve.bind(Promise);
+                return {
+                    begin: function() {
+                        var event = { pending: 0, status: 0, open: true };
+                        current = event;
+                        return function(value) {
+                            if (!event.open && event.pending === 0) throw new DOMException('The event lifetime has ended.', 'InvalidStateError');
+                            event.pending++;
+                            resolvePromise(value).then(function() {
+                                event.pending--;
+                                if (!event.open && event.pending === 0 && event.status === 0) event.status = 1;
+                            }, function() { event.pending--; event.status = -1; });
+                        };
+                    },
+                    end: function() {
+                        current.open = false;
+                        if (current.pending === 0 && current.status === 0) current.status = 1;
+                    },
+                    status: function() { return current.status; }
+                };
+            })();
+            """, "folio:native-service-worker-wait-until");
+        _beginLifecycle = _engine.GetProperty(lifecycle, "begin");
+        _endLifecycle = _engine.GetProperty(lifecycle, "end");
+        _lifecycleStatus = _engine.GetProperty(lifecycle, "status");
+        _engine.EvaluateHostScript("""
+            globalThis.__folio_worker_rejected = function() { return Promise.reject(new DOMException('The worker is not active.', 'InvalidStateError')); };
+            globalThis.__folio_worker_resolved = function() { return Promise.resolve(); };
+            """, "folio:native-service-worker-promises");
 
         // Trusted runtime/bootstrap code is installed before the worker's execution
         // budget is armed. The limit must bound artifact handlers and dispatch, not
@@ -345,6 +443,7 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
 
     private ScriptValue DispatchMessage(ScriptValue data)
     {
+        _operationStarted = Stopwatch.GetTimestamp();
         _lastOutgoing = ScriptValue.Undefined;
         var eventValue = _engine!.CreatePlainObject(new Dictionary<string, ScriptValue>(StringComparer.Ordinal)
         {
@@ -355,12 +454,15 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         if (_onMessage.IsFunction) _engine.Call(_onMessage, ScriptValue.Undefined, [eventValue]);
         foreach (var listener in _messageListeners.ToArray()) _engine.Call(listener, ScriptValue.Undefined, [eventValue]);
         for (var i = 0; i < 32; i++) _engine.PerformMicrotaskCheckpoint();
+        PumpLifecycle();
         return CopyToPage(_lastOutgoing);
     }
 
     private void DispatchLifecycle(string type)
     {
         if (_engine is null) return;
+        _operationStarted = Stopwatch.GetTimestamp();
+        _waitUntil = _engine.Call(_beginLifecycle, ScriptValue.Undefined, []);
         var listeners = string.Equals(type, "install", StringComparison.Ordinal) ? _installListeners : _activateListeners;
         var handler = string.Equals(type, "install", StringComparison.Ordinal) ? _onInstall : _onActivate;
         var eventValue = _engine.CreatePlainObject(new Dictionary<string, ScriptValue>(StringComparer.Ordinal)
@@ -371,6 +473,7 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         });
         if (handler.IsFunction) _engine.Call(handler, ScriptValue.Undefined, [eventValue]);
         foreach (var listener in listeners.ToArray()) _engine.Call(listener, ScriptValue.Undefined, [eventValue]);
+        _engine.Call(_endLifecycle, ScriptValue.Undefined, []);
         for (var i = 0; i < 32; i++) _engine.PerformMicrotaskCheckpoint();
     }
 
@@ -388,6 +491,7 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        Retire();
+        try { Retire(); }
+        finally { _promiseFactory = ScriptValue.Undefined; }
     }
 }

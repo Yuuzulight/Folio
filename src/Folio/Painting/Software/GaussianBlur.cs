@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace Folio.Painting.Software;
 
@@ -41,6 +42,32 @@ internal static class GaussianBlur
 
     private static void Pass(byte[] source, byte[] output, int width, int height, int channels, float sigma, bool horizontal, int activeChannelMask)
     {
+        var allChannels = (1 << channels) - 1;
+        if (sigma >= BoxThreshold && (activeChannelMask & allChannels) == allChannels)
+        {
+            if (!horizontal)
+            {
+                VerticalBoxes(source, output, width, height, channels, sigma);
+                return;
+            }
+            // A horizontal pass is the vertical one on the transposed image. Per line the running sum is one long
+            // dependency chain; across many lines at once it vectorizes. Same operations per line, same result.
+            var pixels = width * height;
+            var transposed = ArrayPool<byte>.Shared.Rent(pixels * channels);
+            var blurred = ArrayPool<byte>.Shared.Rent(pixels * channels);
+            try
+            {
+                Transpose(source, transposed, width, height, channels);
+                VerticalBoxes(transposed, blurred, height, width, channels, sigma);
+                Transpose(blurred, output, height, width, channels);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(transposed);
+                ArrayPool<byte>.Shared.Return(blurred);
+            }
+            return;
+        }
         var length = horizontal ? width : height;
         var lines = horizontal ? height : width;
         var stride = horizontal ? channels : width * channels; // distance between samples along a line
@@ -169,9 +196,118 @@ internal static class GaussianBlur
         }
     }
 
+    // The three boxes for a deviation, as (size, pixels before the one computed); the same in both directions.
+    private static (int Size, int Before)[] BoxPlan(float sigma)
+    {
+        var d = BoxSize(sigma);
+        return d % 2 == 1 ? [(d, d / 2), (d, d / 2), (d, d / 2)] : [(d, d / 2), (d, d / 2 - 1), (d + 1, d / 2)];
+    }
+
+    private static int BoxSize(float sigma) => (int)MathF.Floor(sigma * 3 * MathF.Sqrt(2 * MathF.PI) / 4 + 0.5f);
+
+    /// <summary>
+    /// The vertical box pass done a row at a time: every column's running sum advances together, so the rows are
+    /// read in order and the sums are vector operations, instead of gathering each column with a stride. Each column
+    /// sees exactly the additions and subtractions, in the same order, as the per-line pass, so the result is
+    /// bit-identical to it (all-zero columns, which that pass skips, stay zero here too).
+    /// </summary>
+    private static void VerticalBoxes(byte[] source, byte[] output, int width, int height, int channels, float sigma)
+    {
+        var rowLength = width * channels;
+        var count = rowLength * height;
+        var pool = ArrayPool<float>.Shared;
+        var a = pool.Rent(count);
+        var b = pool.Rent(count);
+        try
+        {
+            for (var i = 0; i < count; i++) a[i] = source[i];
+            var plan = BoxPlan(sigma);
+            void ProcessColumns(int first, int last)
+            {
+                var window = pool.Rent(last - first);
+                try
+                {
+                    VerticalBox(a, b, rowLength, height, plan[0].Size, plan[0].Before, first, last, window);
+                    VerticalBox(b, a, rowLength, height, plan[1].Size, plan[1].Before, first, last, window);
+                    VerticalBox(a, b, rowLength, height, plan[2].Size, plan[2].Before, first, last, window);
+                }
+                finally { pool.Return(window); }
+            }
+            if (rowLength < 64 || (long)count < ParallelMinimumSamples)
+                ProcessColumns(0, rowLength);
+            else
+                Parallel.ForEach(Partitioner.Create(0, rowLength, Math.Max(64, rowLength / Environment.ProcessorCount)), range => ProcessColumns(range.Item1, range.Item2));
+            for (var i = 0; i < count; i++)
+                output[i] = (byte)Math.Clamp((int)(b[i] + 0.5f), 0, 255);
+        }
+        finally
+        {
+            pool.Return(a);
+            pool.Return(b);
+        }
+    }
+
+    // Pixel (x, y) of a width x height image to (y, x) of a height x width one, channels kept together.
+    private static void Transpose(byte[] source, byte[] destination, int width, int height, int channels)
+    {
+        for (var y = 0; y < height; y++)
+            for (var x = 0; x < width; x++)
+            {
+                var from = (y * width + x) * channels;
+                var to = (x * height + y) * channels;
+                for (var c = 0; c < channels; c++)
+                    destination[to + c] = source[from + c];
+            }
+    }
+
+    private static void VerticalBox(float[] input, float[] output, int rowLength, int rows, int size, int before, int first, int last, float[] windowBuffer)
+    {
+        var columns = last - first;
+        var window = windowBuffer.AsSpan(0, columns);
+        window.Clear();
+        var scale = 1f / size;
+        for (var i = -before; i < size - before; i++)
+            if (i >= 0 && i < rows)
+                Add(window, input.AsSpan(i * rowLength + first, columns));
+        for (var y = 0; y < rows; y++)
+        {
+            Scaled(window, scale, output.AsSpan(y * rowLength + first, columns));
+            var leaving = y - before;
+            var entering = y - before + size;
+            if (leaving >= 0 && leaving < rows)
+                Subtract(window, input.AsSpan(leaving * rowLength + first, columns));
+            if (entering >= 0 && entering < rows)
+                Add(window, input.AsSpan(entering * rowLength + first, columns));
+        }
+    }
+
+    private static void Add(Span<float> sum, ReadOnlySpan<float> values)
+    {
+        var vectors = MemoryMarshal.Cast<float, Vector<float>>(sum);
+        var others = MemoryMarshal.Cast<float, Vector<float>>(values);
+        for (var i = 0; i < vectors.Length; i++) vectors[i] += others[i];
+        for (var i = vectors.Length * Vector<float>.Count; i < sum.Length; i++) sum[i] += values[i];
+    }
+
+    private static void Subtract(Span<float> sum, ReadOnlySpan<float> values)
+    {
+        var vectors = MemoryMarshal.Cast<float, Vector<float>>(sum);
+        var others = MemoryMarshal.Cast<float, Vector<float>>(values);
+        for (var i = 0; i < vectors.Length; i++) vectors[i] -= others[i];
+        for (var i = vectors.Length * Vector<float>.Count; i < sum.Length; i++) sum[i] -= values[i];
+    }
+
+    private static void Scaled(ReadOnlySpan<float> sum, float scale, Span<float> output)
+    {
+        var vectors = MemoryMarshal.Cast<float, Vector<float>>(sum);
+        var outputs = MemoryMarshal.Cast<float, Vector<float>>(output);
+        for (var i = 0; i < vectors.Length; i++) outputs[i] = vectors[i] * scale;
+        for (var i = vectors.Length * Vector<float>.Count; i < sum.Length; i++) output[i] = sum[i] * scale;
+    }
+
     private static void Boxes(float[] input, float[] output, float[] scratchA, float[] scratchB, int length, float sigma)
     {
-        var d = (int)MathF.Floor(sigma * 3 * MathF.Sqrt(2 * MathF.PI) / 4 + 0.5f);
+        var d = BoxSize(sigma);
         var a = scratchA;
         var b = scratchB;
         input.CopyTo(a, 0);
@@ -200,7 +336,22 @@ internal static class GaussianBlur
             if (i >= 0 && i < length)
                 window += input[i];
         }
-        for (var x = 0; x < length; x++)
+        // Where both the leaving and the entering pixel lie inside the line no edge checks are needed; the
+        // operations, and their order, are the same as at the edges.
+        var interiorStart = Math.Clamp(before, 0, length);
+        var interiorEnd = Math.Clamp(length + before - size, interiorStart, length);
+        for (var x = 0; x < interiorStart; x++)
+            Step(x);
+        for (var x = interiorStart; x < interiorEnd; x++)
+        {
+            output[x] = window * scale;
+            window -= input[x - before];
+            window += input[x - before + size];
+        }
+        for (var x = interiorEnd; x < length; x++)
+            Step(x);
+
+        void Step(int x)
         {
             output[x] = window * scale;
             var leaving = x - before;

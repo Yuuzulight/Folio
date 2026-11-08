@@ -27,7 +27,9 @@ public sealed class ContentDocumentRuntime : IDisposable
     private HtmlEventLoop? _eventLoop;
     private ScriptRunner? _runner;
     private Document? _document;
+    private long _documentGeneration;
     private BrokerMediaCaptureProvider? _captureProvider;
+    private Folio.Scripting.Gpu.Remote.RemoteGpuChannel? _gpuChannel;
     private Folio.Painting.SoftwareRasterSurface _surface = new(1280, 720);
 
     public ContentDocumentRuntime(ContentHostSession session, CanvasFrameStore frameStore, Func<IScriptEngine>? engineFactory = null)
@@ -191,6 +193,13 @@ public sealed class ContentDocumentRuntime : IDisposable
         if (replacesDocument)
         {
             DisposeDocument();
+            var documentGeneration = _documentGeneration;
+            var policy = message.Payload.TryGetProperty("hostPolicy", out var hostPolicy) ? hostPolicy : default;
+            var origins = ContentHostPolicy.ReadOrigins(policy);
+            var generation = policy.ValueKind == JsonValueKind.Object && policy.TryGetProperty("generation", out var generationValue)
+                && generationValue.ValueKind == JsonValueKind.String ? generationValue.GetString() : null;
+            var notifyNavigation = generation is { Length: 32 } && Guid.TryParseExact(generation, "N", out _)
+                && policy.TryGetProperty("iframeNavigationEnabled", out var enabled) && enabled.ValueKind == JsonValueKind.True;
             Mark("retire");
             _captureProvider = new BrokerMediaCaptureProvider(_session);
             var options = new FolioOptions
@@ -203,6 +212,17 @@ public sealed class ContentDocumentRuntime : IDisposable
                 MediaDecoder = new BrokerMediaDecoder(_session),
                 MediaAudioOutput = new BrokerMediaAudioOutput(_session),
                 MediaCaptureProvider = _captureProvider,
+                WebRtcAllowedOrigins = origins,
+                IframeNavigationRequested = notifyNavigation ? uri =>
+                {
+                    if (documentGeneration != _documentGeneration || cancellationToken.IsCancellationRequested
+                        || !Capabilities.Iframes || !ContentHostPolicy.TryNavigationUri(uri.AbsoluteUri, out _)) return;
+                    _session.SendAsync(ContentMessageKind.IframeNavigationRequested, new Dictionary<string, object?>
+                    {
+                        ["generation"] = generation,
+                        ["uri"] = uri.AbsoluteUri
+                    }, cancellationToken).AsTask().GetAwaiter().GetResult();
+                } : null,
                 ArtifactId = message.Payload.TryGetProperty("artifactId", out var artifact) ? artifact.GetString() ?? "default" : "default",
                 ArtifactStorage = message.Payload.TryGetProperty("storageEnabled", out var storageEnabled) && storageEnabled.GetBoolean() ? new BrokerArtifactStorage(_session) : null,
                 Limits = message.Payload.TryGetProperty("limits", out var limits) ? limits.Deserialize(ContentProtocolJsonContext.Default.ResourceLimits) ?? ResourceLimits.Default : ResourceLimits.Default,
@@ -233,6 +253,7 @@ public sealed class ContentDocumentRuntime : IDisposable
                     new GpuFailure(GpuFailureKind.Unavailable, "The GPU native backend is unavailable.")));
 #endif
             }
+            ConfigureGpuWorker(message.Payload);
             DomBindings.Install(_engine, _document, eventLoop: _eventLoop);
             Mark("bindings");
             UpdateViewportGlobals();
@@ -258,9 +279,67 @@ public sealed class ContentDocumentRuntime : IDisposable
             _runner?.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(_taskDiagnostics).ToArray() ?? _taskDiagnostics.ToArray(), timings));
     }
 
+    // The parent hands over the GPU worker channel once (host-owned, never from page input).
+    // Every later document of this process reuses it; a lost worker loses every live context,
+    // and the parent may answer the loss with a replacement channel (GpuRestore).
+    private void ConfigureGpuWorker(JsonElement payload)
+    {
+        if (!OperatingSystem.IsWindows() || _engine is null) return;
+        if (_gpuChannel is null && payload.TryGetProperty("gpuChannel", out var channel)) AdoptGpuChannel(channel);
+        if (_gpuChannel is not null) DomBindings.ConfigureGpuFactory(_engine, CurrentGpuDevice);
+    }
+
+    // Documents keep this factory across a restore: it always uses the channel adopted last.
+    private GpuDeviceResult CurrentGpuDevice(long maxBytes) => OperatingSystem.IsWindows() && _gpuChannel is { } channel
+        ? channel.DocumentDeviceFactory(maxBytes)
+        : new(null, new GpuFailure(GpuFailureKind.Unavailable, "The GPU worker is unavailable."));
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private void AdoptGpuChannel(JsonElement channel)
+    {
+        var adopted = Folio.Scripting.Gpu.Remote.RemoteGpuChannel.Adopt(channel);
+        adopted.Session.Lost += () =>
+        {
+            var engine = _engine;
+            try { _eventLoop?.QueueTask(TaskSource.Generic, () => { if (engine is not null) DomBindings.NotifyGpuDeviceLost(engine); }, "gpu worker lost"); }
+            catch (ObjectDisposedException) { }
+            // Lost can fire inside a GPU call on the document thread; ask for a replacement off it.
+            _ = Task.Run(async () =>
+            {
+                try { await _session.SendAsync(ContentMessageKind.GpuRestore, new Dictionary<string, object?>(), CancellationToken.None); }
+                catch (Exception error) when (error is IOException or ObjectDisposedException or OperationCanceledException) { }
+            });
+        };
+        _gpuChannel = adopted;
+    }
+
+    /// <summary>Replaces a lost GPU channel with the parent's new one and restores the document's WebGL contexts.</summary>
+    internal void RestoreGpuChannel(ContentMessage message)
+    {
+        if (!OperatingSystem.IsWindows() || _gpuChannel is not { Session.IsLost: true } lost
+            || !message.Payload.TryGetProperty("gpuChannel", out var channel)) return;
+        _gpuChannel = null;
+        lost.Dispose();
+        AdoptGpuChannel(channel);
+        var engine = _engine;
+        if (engine is null) return;
+        try
+        {
+            _eventLoop?.QueueTask(TaskSource.Generic, () =>
+            {
+                // Losing first is a no-op for contexts that already saw the loss; it also drops the
+                // document's cached device so the restore creates contexts on the new channel.
+                DomBindings.NotifyGpuDeviceLost(engine);
+                DomBindings.NotifyGpuDeviceRestored(engine);
+            }, "gpu worker restored");
+        }
+        catch (ObjectDisposedException) { }
+    }
+
     public void Dispose()
     {
         DisposeDocument();
+        if (OperatingSystem.IsWindows()) _gpuChannel?.Dispose();
         _frameStore.Dispose();
         _surface.Dispose();
     }
@@ -277,6 +356,7 @@ public sealed class ContentDocumentRuntime : IDisposable
 
     private void DisposeDocument()
     {
+        ++_documentGeneration;
         if (_captureProvider is null && _engine is null && _runner is null && _eventLoop is null && _document is null)
             return;
         _captureProvider?.Dispose(); _captureProvider = null;
@@ -301,6 +381,7 @@ public sealed class ContentDocumentRuntime : IDisposable
 
     private sealed class BrokerMediaDecoder(ContentHostSession session) : IMediaDecoder
     {
+        public bool CanDecode(string? contentType, bool video) => session.RequestMediaCanDecode(contentType, video);
         public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes)
         {
             return session.RequestMediaDecode(data, contentType, video, maxOutputBytes);
@@ -315,6 +396,7 @@ public sealed class ContentDocumentRuntime : IDisposable
             var result = session.RequestMediaCaptureAsync(new Dictionary<string, object?> { ["action"] = "open", ["audio"] = request.Audio, ["video"] = request.Video }).GetAwaiter().GetResult();
             if (!result.TryGetProperty("ok", out var ok) || !ok.GetBoolean() || !result.TryGetProperty("token", out var token)) return null;
             var capture = new BrokerMediaCaptureSession(session, token.GetString()!, () => _sessions.TryRemove(token.GetString()!, out _));
+            capture.Decode(result, notify: false);
             _sessions[capture.Token] = capture;
             return capture;
         }
@@ -329,9 +411,12 @@ public sealed class ContentDocumentRuntime : IDisposable
         }
     }
 
-    private sealed class BrokerMediaCaptureSession(ContentHostSession session, string token, Action removed) : IMediaCaptureSession
+    private sealed class BrokerMediaCaptureSession(ContentHostSession session, string token, Action removed) : IMediaCaptureSession, IMediaCaptureTrackControl
     {
-        private int _disposed;
+        private int _disposed, _revokedState, _audioStopped, _videoStopped;
+        private long _videoSequence, _audioSequence;
+        private MediaCaptureVideoFrame? _video;
+        private MediaAudioFrame? _audio;
         private event Action<MediaCaptureVideoFrame>? _videoFrameAvailable;
         private event Action<MediaAudioFrame>? _audioFrameAvailable;
         private event Action? _revoked;
@@ -339,46 +424,90 @@ public sealed class ContentDocumentRuntime : IDisposable
         public event Action<MediaCaptureVideoFrame>? VideoFrameAvailable { add => _videoFrameAvailable += value; remove => _videoFrameAvailable -= value; }
         public event Action<MediaAudioFrame>? AudioFrameAvailable { add => _audioFrameAvailable += value; remove => _audioFrameAvailable -= value; }
         public event Action? Revoked { add => _revoked += value; remove => _revoked -= value; }
-        public MediaCaptureVideoFrame? CurrentVideoFrame => Read().video;
-        public MediaAudioFrame? CurrentAudioFrame => Read().audio;
-        private (MediaCaptureVideoFrame? video, MediaAudioFrame? audio) Read()
+        // Cache the open snapshot and ordered pushes. Polling the newest root
+        // audio snapshot here could overtake queued FIFO events and lose blocks.
+        // Equal/older sequences never replace these arrays or raise an event.
+        public MediaCaptureVideoFrame? CurrentVideoFrame => _disposed == 0 && _videoStopped == 0 && _revokedState == 0 ? _video : null;
+        public MediaAudioFrame? CurrentAudioFrame => _disposed == 0 && _audioStopped == 0 && _revokedState == 0 ? _audio : null;
+        internal void Decode(JsonElement payload, bool notify)
         {
-            if (Volatile.Read(ref _disposed) != 0) return (null, null);
-            var result = session.RequestMediaCaptureAsync(new Dictionary<string, object?> { ["action"] = "current", ["token"] = token }).GetAwaiter().GetResult();
-            MediaCaptureVideoFrame? video = null;
-            if (result.TryGetProperty("video", out var v) && v.TryGetProperty("width", out var w) && v.TryGetProperty("height", out var h) && v.TryGetProperty("rgba", out var rgba)
-                && w.TryGetInt32(out var width) && h.TryGetInt32(out var height))
+            if (Volatile.Read(ref _disposed) != 0 || _revokedState != 0 || payload.ValueKind != JsonValueKind.Object) return;
+            if (_videoStopped == 0 && payload.TryGetProperty("video", out var v) && v.ValueKind == JsonValueKind.Object
+                && Sequence(v, _videoSequence, out var videoSequence)
+                && v.TryGetProperty("width", out var w) && w.TryGetInt32(out var width)
+                && v.TryGetProperty("height", out var h) && h.TryGetInt32(out var height)
+                && width > 0 && height > 0 && (long)width * height * 4 <= ContentCaptureLease.MaxVideoBytes
+                && v.TryGetProperty("rgba", out var rgba) && rgba.ValueKind == JsonValueKind.String
+                && rgba.GetString()!.Length <= (ContentCaptureLease.MaxVideoBytes + 2) / 3 * 4)
             {
-                var bytes = rgba.GetBytesFromBase64();
-                var candidate = new MediaCaptureVideoFrame(width, height, bytes);
-                if (candidate.IsValid) video = candidate;
+                try
+                {
+                    var frame = new MediaCaptureVideoFrame(width, height, rgba.GetBytesFromBase64()) { CaptureSequence = videoSequence };
+                    if (frame.IsValid)
+                    {
+                        _videoSequence = videoSequence; _video = frame;
+                        if (notify) _videoFrameAvailable?.Invoke(frame);
+                    }
+                }
+                catch (FormatException) { }
             }
-            MediaAudioFrame? audio = null;
-            if (result.TryGetProperty("audio", out var a) && a.TryGetProperty("sampleRate", out var rate) && a.TryGetProperty("channels", out var channels) && a.TryGetProperty("samples", out var samples)
-                && rate.TryGetInt32(out var sampleRate) && channels.TryGetInt32(out var channelCount) && samples.ValueKind == JsonValueKind.Array)
-                audio = new MediaAudioFrame(sampleRate, channelCount, samples.EnumerateArray().Select(x => x.GetSingle()).ToArray());
-            return (video, audio);
+            if (_audioStopped == 0 && payload.TryGetProperty("audio", out var a) && a.ValueKind == JsonValueKind.Object
+                && Sequence(a, _audioSequence, out var audioSequence)
+                && a.TryGetProperty("sampleRate", out var rate) && rate.TryGetInt32(out var sampleRate) && sampleRate is > 0 and <= 192000
+                && a.TryGetProperty("channels", out var channels) && channels.TryGetInt32(out var channelCount) && channelCount is > 0 and <= 8
+                && a.TryGetProperty("samples", out var samples) && samples.ValueKind == JsonValueKind.Array
+                && samples.GetArrayLength() is > 0 and <= ContentCaptureLease.MaxAudioSamples && samples.GetArrayLength() % channelCount == 0)
+            {
+                var values = new float[samples.GetArrayLength()];
+                var index = 0;
+                foreach (var value in samples.EnumerateArray())
+                {
+                    if (value.ValueKind != JsonValueKind.Number || !value.TryGetSingle(out var sample) || !float.IsFinite(sample)) return;
+                    values[index++] = sample;
+                }
+                var frame = new MediaAudioFrame(sampleRate, channelCount, values) { CaptureSequence = audioSequence };
+                _audioSequence = audioSequence; _audio = frame;
+                if (notify) _audioFrameAvailable?.Invoke(frame);
+            }
+        }
+        private static bool Sequence(JsonElement payload, long previous, out long sequence)
+        {
+            sequence = 0;
+            return payload.TryGetProperty("captureSequence", out var value) && value.ValueKind == JsonValueKind.Number
+                && value.TryGetInt64(out sequence) && sequence > previous;
+        }
+        public void StopAudio()
+        {
+            if (Interlocked.Exchange(ref _audioStopped, 1) != 0) return;
+            _audio = null; Stop("stopAudio");
+        }
+        public void StopVideo()
+        {
+            if (Interlocked.Exchange(ref _videoStopped, 1) != 0) return;
+            _video = null; Stop("stopVideo");
+        }
+        private void Stop(string action)
+        {
+            if (Volatile.Read(ref _disposed) != 0 || _revokedState != 0) return;
+            session.RequestMediaCaptureAsync(new Dictionary<string, object?> { ["action"] = action, ["token"] = token }).GetAwaiter().GetResult();
+        }
+        private void Revoke()
+        {
+            if (Interlocked.Exchange(ref _revokedState, 1) != 0) return;
+            _audio = null; _video = null; _revoked?.Invoke();
         }
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
             try { session.RequestMediaCaptureAsync(new Dictionary<string, object?> { ["action"] = "close", ["token"] = token }).GetAwaiter().GetResult(); } catch { }
             removed();
+            _audio = null; _video = null;
             _videoFrameAvailable = null; _audioFrameAvailable = null; _revoked = null;
         }
         public void Apply(JsonElement payload)
         {
-            if (Volatile.Read(ref _disposed) != 0) return;
-            if (payload.TryGetProperty("video", out var v) && v.TryGetProperty("width", out var w) && v.TryGetProperty("height", out var h) && v.TryGetProperty("rgba", out var rgba)
-                && w.TryGetInt32(out var width) && h.TryGetInt32(out var height))
-            {
-                var frame = new MediaCaptureVideoFrame(width, height, rgba.GetBytesFromBase64());
-                if (frame.IsValid) _videoFrameAvailable?.Invoke(frame);
-            }
-            if (payload.TryGetProperty("audio", out var a) && a.TryGetProperty("sampleRate", out var rate) && a.TryGetProperty("channels", out var channels) && a.TryGetProperty("samples", out var samples)
-                && rate.TryGetInt32(out var sampleRate) && channels.TryGetInt32(out var channelCount) && samples.ValueKind == JsonValueKind.Array)
-                _audioFrameAvailable?.Invoke(new MediaAudioFrame(sampleRate, channelCount, samples.EnumerateArray().Select(x => x.GetSingle()).ToArray()));
-            if (payload.TryGetProperty("revoked", out var revoked) && revoked.ValueKind == JsonValueKind.True) _revoked?.Invoke();
+            Decode(payload, notify: true);
+            if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("revoked", out var revoked) && revoked.ValueKind == JsonValueKind.True) Revoke();
         }
     }
 
