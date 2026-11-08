@@ -88,6 +88,11 @@ session.MessageReceived += async (message, cancellationToken) =>
             await session.SendAsync(ContentMessageKind.Capabilities, new Dictionary<string, object?> { ["sequence"] = message.Sequence, ["capabilities"] = runtime.Capabilities, ["accepted"] = accepted }, cancellationToken);
             return;
         }
+        if (message.Kind == ContentMessageKind.GpuRestore)
+        {
+            runtime.RestoreGpuChannel(message);
+            return;
+        }
         if (message.Kind == ContentMessageKind.MediaCaptureActivity)
         {
             runtime.ApplyMediaCaptureActivity(message);

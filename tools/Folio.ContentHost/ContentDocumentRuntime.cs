@@ -280,22 +280,60 @@ public sealed class ContentDocumentRuntime : IDisposable
     }
 
     // The parent hands over the GPU worker channel once (host-owned, never from page input).
-    // Every later document of this process reuses it; a lost worker loses every live context.
+    // Every later document of this process reuses it; a lost worker loses every live context,
+    // and the parent may answer the loss with a replacement channel (GpuRestore).
     private void ConfigureGpuWorker(JsonElement payload)
     {
         if (!OperatingSystem.IsWindows() || _engine is null) return;
-        if (_gpuChannel is null && payload.TryGetProperty("gpuChannel", out var channel))
+        if (_gpuChannel is null && payload.TryGetProperty("gpuChannel", out var channel)) AdoptGpuChannel(channel);
+        if (_gpuChannel is not null) DomBindings.ConfigureGpuFactory(_engine, CurrentGpuDevice);
+    }
+
+    // Documents keep this factory across a restore: it always uses the channel adopted last.
+    private GpuDeviceResult CurrentGpuDevice(long maxBytes) => OperatingSystem.IsWindows() && _gpuChannel is { } channel
+        ? channel.DocumentDeviceFactory(maxBytes)
+        : new(null, new GpuFailure(GpuFailureKind.Unavailable, "The GPU worker is unavailable."));
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private void AdoptGpuChannel(JsonElement channel)
+    {
+        var adopted = Folio.Scripting.Gpu.Remote.RemoteGpuChannel.Adopt(channel);
+        adopted.Session.Lost += () =>
         {
-            _gpuChannel = Folio.Scripting.Gpu.Remote.RemoteGpuChannel.Adopt(channel);
-            _gpuChannel.Session.Lost += () =>
+            var engine = _engine;
+            try { _eventLoop?.QueueTask(TaskSource.Generic, () => { if (engine is not null) DomBindings.NotifyGpuDeviceLost(engine); }, "gpu worker lost"); }
+            catch (ObjectDisposedException) { }
+            // Lost can fire inside a GPU call on the document thread; ask for a replacement off it.
+            _ = Task.Run(async () =>
             {
-                var engine = _engine;
-                try { _eventLoop?.QueueTask(TaskSource.Generic, () => { if (engine is not null) DomBindings.NotifyGpuDeviceLost(engine); }, "gpu worker lost"); }
-                catch (ObjectDisposedException) { }
-            };
+                try { await _session.SendAsync(ContentMessageKind.GpuRestore, new Dictionary<string, object?>(), CancellationToken.None); }
+                catch (Exception error) when (error is IOException or ObjectDisposedException or OperationCanceledException) { }
+            });
+        };
+        _gpuChannel = adopted;
+    }
+
+    /// <summary>Replaces a lost GPU channel with the parent's new one and restores the document's WebGL contexts.</summary>
+    internal void RestoreGpuChannel(ContentMessage message)
+    {
+        if (!OperatingSystem.IsWindows() || _gpuChannel is not { Session.IsLost: true } lost
+            || !message.Payload.TryGetProperty("gpuChannel", out var channel)) return;
+        _gpuChannel = null;
+        lost.Dispose();
+        AdoptGpuChannel(channel);
+        var engine = _engine;
+        if (engine is null) return;
+        try
+        {
+            _eventLoop?.QueueTask(TaskSource.Generic, () =>
+            {
+                // Losing first is a no-op for contexts that already saw the loss; it also drops the
+                // document's cached device so the restore creates contexts on the new channel.
+                DomBindings.NotifyGpuDeviceLost(engine);
+                DomBindings.NotifyGpuDeviceRestored(engine);
+            }, "gpu worker restored");
         }
-        if (_gpuChannel is { } active)
-            DomBindings.ConfigureGpuFactory(_engine, active.DocumentDeviceFactory);
+        catch (ObjectDisposedException) { }
     }
 
     public void Dispose()

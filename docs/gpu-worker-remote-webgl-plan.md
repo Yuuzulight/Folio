@@ -119,5 +119,16 @@ Production WebGL still runs in the document process until stage 5 lands and pass
    them. The content job's limit is lowered by their 32 MiB when the channel is handed over, and the
    worker job starts at 512 MiB minus 32 MiB; `GpuWorkerProcessTests` checks the content job's limit as
    the OS reports it. The benchmark prints the worker's peak working set and private bytes.
-   *Still open:* the restore protocol (a new public `ContentMessageKind`, which needs approval), the
-   published NativeAOT host run, and the hardware pass.
+   *Restore done (`ContentMessageKind.GpuRestore`, approved 2026-11-08):* when the child's session is
+   lost it sends `GpuRestore`; the parent retires the old worker whatever its state, starts a new one and
+   answers with `GpuRestore { gpuChannel }`. The child replaces its channel and, on the event loop, loses
+   any context that has not seen the loss yet, drops the document's device and recreates every context
+   on the new channel, firing `webglcontextrestored`; the page recreates its resources. The kind is
+   host-owned: `ContentProcessClient.SendAsync` refuses it. The parent replaces a worker at most 3 times
+   per content process (`MaxGpuRestores`); after that the dead worker is retired and WebGL stays lost,
+   so a page that keeps crashing its worker cannot make the parent start processes without bound.
+   The shared sections' memory is reserved from the content job only once. As in direct mode, Folio
+   restores without requiring the page to call `preventDefault()` on the loss event.
+   `GpuWorkerProcessTests` kills the worker and checks one loss, one restore, a different worker process
+   and a new draw, and that the fourth loss stays lost.
+   *Still open:* the published NativeAOT host run and the hardware pass.

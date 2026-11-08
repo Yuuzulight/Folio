@@ -35,7 +35,10 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private readonly ResourceLimits _documentLimits;
     // Separate GPU worker (opt-in until its acceptance gate passes: docs/gpu-worker-remote-webgl-plan.md).
     private Folio.Scripting.Gpu.Remote.GpuWebGlWorker? _gpuWorker;
-    private bool _gpuChannelSent;
+    private bool _gpuChannelSent, _gpuMemoryReserved;
+    private int _gpuRestores;
+    /// <summary>Replacement workers per content process; after these a lost WebGL context stays lost.</summary>
+    internal const int MaxGpuRestores = 3;
     private string? _contentHostPath;
     /// <summary>Test seam; otherwise FOLIO_GPU_WORKER=1 opts in.</summary>
     internal static bool? GpuWorkerOverride { get; set; }
@@ -200,6 +203,12 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private void OnProcessExited(object? sender, EventArgs args) => _supervisor.Stop("content process exited");
     private async ValueTask ValidateAndDispatchAsync(ContentMessage message, CancellationToken cancellationToken)
     {
+        if (message.Kind == ContentMessageKind.GpuRestore)
+        {
+            // Starting a worker takes a while; keep the inbound message path free meanwhile.
+            _ = Task.Run(() => RestoreGpuChannelAsync(_shutdown.Token), CancellationToken.None);
+            return;
+        }
         if (message.Kind == ContentMessageKind.IframeNavigationRequested)
         {
             QueueIframeNavigation(message, cancellationToken);
@@ -546,6 +555,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        if (kind == ContentMessageKind.GpuRestore) throw new ArgumentException("GPU worker channels are host-owned.", nameof(kind));
         // A provider revocation that happened before this call must reach the child first.
         await SendCaptureRevocationsAsync(_shutdown.Token).ConfigureAwait(false);
         if (kind == ContentMessageKind.Load)
@@ -695,7 +705,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
         {
             _gpuWorker ??= Folio.Scripting.Gpu.Remote.GpuWebGlWorker.Start(_contentHostPath, _documentLimits.MaxGpuBytes);
             // The child maps both shared sections; they come out of its memory budget before it can use them.
-            _job?.ReserveMemory(Folio.Scripting.Gpu.Remote.GpuWebGlWorker.SectionBytes);
+            if (!_gpuMemoryReserved) { _job?.ReserveMemory(Folio.Scripting.Gpu.Remote.GpuWebGlWorker.SectionBytes); _gpuMemoryReserved = true; }
             profile["gpuChannel"] = _gpuWorker.HandOff(_process.SafeHandle);
             _gpuChannelSent = true;
         }
@@ -704,6 +714,39 @@ public sealed class ContentProcessClient : IAsyncDisposable
             // Without a worker the document keeps its in-process WebGL path.
             StopGpuWorker();
         }
+    }
+
+    // The child lost its channel and asks for a new one. The old worker is retired whatever its state,
+    // so a child can only ever trade its worker for a fresh one, at most MaxGpuRestores times.
+    private async Task RestoreGpuChannelAsync(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            await _loadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (Volatile.Read(ref _disposed) != 0 || !_gpuChannelSent || _contentHostPath is null) return;
+                StopGpuWorker();
+                if (_gpuRestores >= MaxGpuRestores || !Volatile.Read(ref _hostCapabilities).WebGl) return;
+                _gpuRestores++;
+                JsonObject channel;
+                try
+                {
+                    _gpuWorker = Folio.Scripting.Gpu.Remote.GpuWebGlWorker.Start(_contentHostPath, _documentLimits.MaxGpuBytes);
+                    channel = _gpuWorker.HandOff(_process.SafeHandle);
+                }
+                catch (Exception error) when (error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+                {
+                    StopGpuWorker(); // The page's WebGL stays lost.
+                    return;
+                }
+                if (Volatile.Read(ref _disposed) != 0) { StopGpuWorker(); return; } // Disposed while the worker started.
+                await _session.SendAsync(ContentMessageKind.GpuRestore, new JsonObject { ["gpuChannel"] = channel }, cancellationToken).ConfigureAwait(false);
+            }
+            finally { _loadGate.Release(); }
+        }
+        catch (Exception error) when (error is OperationCanceledException or ObjectDisposedException or IOException) { }
     }
 
     private void StopGpuWorker()
