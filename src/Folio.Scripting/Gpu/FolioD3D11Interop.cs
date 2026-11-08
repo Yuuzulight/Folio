@@ -74,6 +74,7 @@ internal static class FolioD3D11Interop
     internal const int DeviceSlotCreateDepthStencilState = 21;
     internal const int DeviceSlotCreateRasterizerState = 22;
     internal const int DeviceSlotCreateSamplerState = 23;
+    internal const int DeviceSlotGetDeviceRemovedReason = 39;
 
     // ID3D11DeviceContext Vtable Slots
     internal const int ContextSlotVSSetConstantBuffers = 7;
@@ -526,4 +527,6 @@ internal static class FolioD3D11Interop
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     internal delegate void FlushDelegate(IntPtr context);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    internal delegate int GetDeviceRemovedReasonDelegate(IntPtr device);
 }

@@ -29,6 +29,9 @@ public static class Program
             return Wasm(wasmRest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 5);
         if (args is ["webgl", .. var webGlRest] && OperatingSystem.IsWindows())
             return WebGlFrameBenchmark.Run(webGlRest is [var n] ? Math.Max(30, int.Parse(n, CultureInfo.InvariantCulture)) : 120);
+        // Manual only (never CI): can reset the GPU driver for every application on real hardware.
+        if (args is ["runaway-shader", .. var runawayRest] && OperatingSystem.IsWindows())
+            return RunawayShaderProbe.RunAsync(runawayRest is ["check"]).GetAwaiter().GetResult();
         if (args is ["media", .. var mediaRest])
             return MediaFrameBenchmark.Run(mediaRest is [var n] ? Math.Max(30, int.Parse(n, CultureInfo.InvariantCulture)) : 120);
         if (args is ["scripted", .. var scriptedRest])

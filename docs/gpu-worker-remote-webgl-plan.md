@@ -149,11 +149,24 @@ Production WebGL still runs in the document process until stage 5 lands and pass
    - D8 conformance 6/6 directly and 6/6 through the remote path.
    - Sandboxed content-process GPU memory: `Hardware:Direct3D11-FL0xB000`, 1.2 MB reserved, DXGI
      reports 10.2 MB local / 2.1 MB non-local for the process.
-   *Not run: the deliberate runaway shader.* Windows' GPU timeout here is the default (2 s, recover),
-   shorter than the worker's 10 s command deadline, so on real hardware a runaway shader is ended by a
-   driver reset that every GPU application on the machine sees, before the worker's own deadline. It
-   needs its own explicit approval and a machine with nothing else on the GPU. Bringing the worker's
-   deadline under the OS timeout would not avoid the reset (a single draw can run past it); bounding
-   that needs shader-side limits.
-   Until the runaway-shader case is settled, the worker stays opt-in (`FOLIO_GPU_WORKER=1`) and the
-   classifier does not route WebGL to it.
+   *Runaway shader (approved 2026-11-08, run by hand with the GPU otherwise idle):*
+   `Folio.Benchmarks runaway-shader` draws one fragment shader with 2e9 dependent iterations per pixel
+   through the worker of a real content process (`runaway-shader check` only compiles it). It is never
+   part of CI or any test run. Folio's shader translator accepts the loop, so nothing bounds it before
+   the GPU.
+   - First run: the driver reset the hung work about 2 s in (NVIDIA event 153 only; no Windows
+     "display driver stopped responding" event, so only the worker's work was reset), but Folio never
+     noticed. Nothing in Folio checked for device removal: the worker kept a dead device and the page saw
+     no loss or error.
+   - Fix: `FolioGpuDevice.IsRemoved` (`GetDeviceRemovedReason`, sticky). A native context on a removed
+     device reports lost, and the worker ends itself after any batch that left its device removed.
+   - Second run (two runs in all, minutes apart): driver reset at about 2 s again; the draw returned
+     after 7.4 s with `isContextLost()` true and `getError()` `CONTEXT_LOST_WEBGL`; the worker had
+     exited; 0.25 s later the page was restored on a fresh worker and drew again; the content process
+     stayed up throughout.
+   Notes: the page's script is blocked for the whole draw (7.4 s here), as with any synchronous GPU
+   result. Windows' timeout (2 s by default) acts long before the worker's 10 s deadline on hardware;
+   the deadline still bounds devices the OS does not reset, such as WARP. Direct mode now reports
+   `isContextLost()` after a removal too, but does not fire `webglcontextlost` for it (not tested
+   there).
+   The worker stays opt-in (`FOLIO_GPU_WORKER=1`) until Yuuzulight decides to route WebGL to it.

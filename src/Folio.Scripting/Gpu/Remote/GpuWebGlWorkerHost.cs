@@ -60,6 +60,9 @@ internal static class GpuWebGlWorkerHost
         {
             var execution = Task.Run(() => dispatcher.Execute(batch));
             if (!execution.Wait(deadline)) Process.GetCurrentProcess().Kill(); // runaway work: end the worker, never the page
+            // The OS reset the GPU under this batch (its own timeout is usually far shorter than ours). The
+            // device never recovers: end the worker so the page sees the loss and gets a fresh one.
+            if (device is FolioGpuDevice { IsRemoved: true }) Process.GetCurrentProcess().Kill();
             GpuChannelFraming.Write(replies, execution.Result);
         }
     }

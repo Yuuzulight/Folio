@@ -509,7 +509,7 @@ internal sealed partial class FolioNativeWebGlContext : INativeWebGlContext
     public int DrawingBufferHeight => _height;
     public int Width => _width;
     public int Height => _height;
-    public bool IsLost => _isLost || _disposed || _device.IsDisposed;
+    public bool IsLost => _isLost || _disposed || _device.IsDisposed || _device.IsRemoved;
     public long ReservedBytes { get { lock (_device.Gate) return _disposed ? 0 : _surfaceBytes + _resourceReservedBytes; } }
     public long PeakReservedBytes { get { lock (_device.Gate) return _peakReservedBytes; } }
 
