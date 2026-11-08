@@ -223,6 +223,25 @@ jobs:
           FOLIO_CONTENT_HOST: ${{ github.workspace }}\artifacts\content-host\Folio.ContentHost.exe
         run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll scripted
 
+      # Every WebGL device of these classes runs in its own real (published, sandboxed) GPU worker process,
+      # and content processes hand WebGL to theirs. GPU surface clears (a host probe) stay in-process only.
+      - name: WebGL through real GPU worker processes
+        if: matrix.os == 'windows-latest'
+        env:
+          FOLIO_CONTENT_HOST: ${{ github.workspace }}\artifacts\content-host\Folio.ContentHost.exe
+          FOLIO_SCRIPT_ENGINE: native
+          FOLIO_WEBGL_REMOTE: worker
+          FOLIO_GPU_WORKER: '1'
+        run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class '*NativeWebGlPageTests' -class '*WebGlCapabilityTests' -class '*RemoteWebGl*' -class '*CanvasTests' -class '*GpuWorkerProcessTests' -class '*FeatureFallback*' -parallelMode none
+
+      - name: Native WebGL conformance through real GPU worker processes
+        if: matrix.os == 'windows-latest'
+        env:
+          FOLIO_CONTENT_HOST: ${{ github.workspace }}\artifacts\content-host\Folio.ContentHost.exe
+          FOLIO_CONFORMANCE_ENGINE: native
+          FOLIO_WEBGL_REMOTE: worker
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance --strict D8
+
       - name: WebGL frame budget through the published GPU worker
         if: matrix.os == 'windows-latest'
         env:

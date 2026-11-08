@@ -72,6 +72,7 @@ internal sealed class FolioGpuDevice : IGpuDevice, INativeWebGlFactory
     public bool IsDisposed { get { lock (_gate) return _disposed; } }
     internal object Gate => _gate;
     internal IntPtr DevicePtr => _device;
+    internal long MaxBytes => _maxBytes;
     internal IntPtr ContextPtr => _context;
 
     private FolioGpuDevice(IntPtr device, IntPtr context, GpuRendererKind kind, long maxBytes, int featureLevel)

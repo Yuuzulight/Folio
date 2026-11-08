@@ -169,4 +169,16 @@ Production WebGL still runs in the document process until stage 5 lands and pass
    the deadline still bounds devices the OS does not reset, such as WARP. Direct mode now reports
    `isContextLost()` after a removal too, but does not fire `webglcontextlost` for it (not tested
    there).
+   *Pre-default checks (2026-11-08):*
+   - Start cost: the worker itself starts in about 90 ms (process, sandbox, channel). A fresh content
+     process loading a WebGL page to its first frame took 538 ms through the worker and 554 ms with
+     in-process WebGL (median of 5 each, alternated): no measurable delay. The benchmark reports both.
+   - `FOLIO_WEBGL_REMOTE=worker` (both test assemblies) runs every in-process WebGL device in its own
+     real worker process (`WorkerGpuDevice`), with that device's budget; `FOLIO_GPU_WORKER=1` makes
+     content processes use theirs. Full scripting suite in that mode, published host: 1766/1772. The
+     six: one test that assumed the opt-in was off (now pins it off itself), and five tests of GPU
+     surface clears, a trusted host validation probe (`ClearNativeCanvas`) no page can reach, which
+     reports unavailable when the worker is on. D8 6/6 through real workers; WinForms view tests 39/39
+     and render canvas/fallback tests 122/122 with the worker on. CI now runs the WebGL classes (394
+     tests) and D8 through real workers.
    The worker stays opt-in (`FOLIO_GPU_WORKER=1`) until Yuuzulight decides to route WebGL to it.

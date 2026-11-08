@@ -8,6 +8,7 @@ using Folio.Scripting;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Gpu;
 using Folio.Scripting.Gpu.Remote;
+using Folio.Scripting.Ipc;
 using Folio.Scripting.Native;
 
 namespace Folio.Benchmarks;
@@ -73,9 +74,11 @@ internal static class WebGlFrameBenchmark
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
         var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST") is { Length: > 0 } configured ? Path.GetFullPath(configured)
             : Path.Combine(RepoPaths.Root, "tools", "Folio.ContentHost", "bin", configuration, "net10.0", "Folio.ContentHost.dll");
+        var startWatch = Stopwatch.StartNew();
         using var worker = GpuWebGlWorker.Start(host, budget);
         using var channelJson = JsonDocument.Parse(worker.HandOff(Process.GetCurrentProcess().SafeHandle).ToJsonString());
         using var channel = RemoteGpuChannel.Adopt(channelJson.RootElement);
+        var workerStart = startWatch.Elapsed;
         report.AppendLine(Row("GPU worker process", Measure(channel.DocumentDeviceFactory, frameCount), ref failed, gate: true));
         // The sandboxed worker must get the same renderer an unsandboxed process gets (hardware where there is one).
         GpuRendererKind direct;
@@ -88,10 +91,62 @@ internal static class WebGlFrameBenchmark
             report.AppendLine(string.Create(CultureInfo.InvariantCulture,
                 $"GPU worker memory: peak working set {Mb(process.PeakWorkingSet64)} MB, private {Mb(process.PrivateMemorySize64)} MB of its {Mb(GpuWebGlWorker.WorkerMemoryBytes - GpuWebGlWorker.SectionBytes)} MB job limit; shared sections {Mb(GpuWebGlWorker.SectionBytes)} MB, charged to both jobs."));
 
+        report.AppendLine(string.Create(CultureInfo.InvariantCulture, $"GPU worker start (process, sandbox, channel): {workerStart.TotalMilliseconds:F0} ms."));
+        var (without, with) = FirstPage(host);
+        report.AppendLine(string.Create(CultureInfo.InvariantCulture,
+            $"First WebGL page in a new content process, median of {FirstPageRuns} (start, load, first frame): {without:F0} ms in-process WebGL, {with:F0} ms through the GPU worker ({with - without:+0;-0;0} ms)."));
+
         Console.WriteLine(report);
         if (Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY") is { Length: > 0 } summary)
             File.AppendAllText(summary, "### WebGL frames\n\n" + report);
         return failed ? 1 : 0;
+    }
+
+    private const int FirstPageRuns = 5;
+
+    // What a viewer waits for: a fresh content process loading a WebGL page until its first frame, with the
+    // worker started on that load or without one. Alternated so machine noise hits both alike.
+    private static (double Without, double With) FirstPage(string host)
+    {
+        var samples = new[] { new List<double>(), new List<double>() };
+        for (var run = 0; run < FirstPageRuns * 2; run++)
+        {
+            var worker = run % 2 == 1;
+            ContentProcessClient.GpuWorkerOverride = worker;
+            try
+            {
+                var watch = Stopwatch.StartNew();
+                LoadFirstPage(host).GetAwaiter().GetResult();
+                samples[worker ? 1 : 0].Add(watch.Elapsed.TotalMilliseconds);
+            }
+            finally { ContentProcessClient.GpuWorkerOverride = null; }
+        }
+        foreach (var list in samples) list.Sort();
+        return (samples[0][FirstPageRuns / 2], samples[1][FirstPageRuns / 2]);
+    }
+
+    private static async Task LoadFirstPage(string host)
+    {
+        await using var client = ContentProcessClient.Start(host);
+        var frame = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask Handler(ContentMessage message, CancellationToken _)
+        {
+            if (message.Kind == ContentMessageKind.Frame && message.Payload.GetProperty("sequence").GetInt64() > 0)
+            {
+                if (message.Payload.GetProperty("value").GetString() == "255,0,0,255") frame.TrySetResult();
+                else frame.TrySetException(new InvalidOperationException("Unexpected first-page pixel: " + message.Payload.GetProperty("value")));
+            }
+            else if (message.Kind == ContentMessageKind.Diagnostic) frame.TrySetException(new InvalidOperationException(message.Payload.ToString()));
+            return ValueTask.CompletedTask;
+        }
+        client.MessageReceived += Handler;
+        await client.SendAsync(ContentMessageKind.Load, new
+        {
+            html = "<canvas id='c' width='300' height='150'></canvas>",
+            capabilities = new FeatureCapabilities { WebGl = true },
+            script = "var gl = document.getElementById('c').getContext('webgl'); gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); var p = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, p); Array.from(p).join(',')",
+        });
+        await frame.Task.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     private static string Row(string name, Result result, ref bool failed, bool gate)
