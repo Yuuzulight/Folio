@@ -223,6 +223,12 @@ jobs:
           FOLIO_CONTENT_HOST: ${{ github.workspace }}\artifacts\content-host\Folio.ContentHost.exe
         run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll scripted
 
+      - name: WebGL frame budget through the published GPU worker
+        if: matrix.os == 'windows-latest'
+        env:
+          FOLIO_CONTENT_HOST: ${{ github.workspace }}\artifacts\content-host\Folio.ContentHost.exe
+        run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll webgl 120
+
       - name: Sandboxed GPU memory
         if: matrix.os == 'windows-latest'
         run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll gpu

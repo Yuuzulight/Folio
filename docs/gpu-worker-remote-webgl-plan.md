@@ -131,4 +131,11 @@ Production WebGL still runs in the document process until stage 5 lands and pass
    restores without requiring the page to call `preventDefault()` on the loss event.
    `GpuWorkerProcessTests` kills the worker and checks one loss, one restore, a different worker process
    and a new draw, and that the fourth loss stays lost.
-   *Still open:* the published NativeAOT host run and the hardware pass.
+   *Published NativeAOT host done:* CI's published production-host step already runs the whole scripting
+   suite, `GpuWorkerProcessTests` included, against `artifacts/content-host/Folio.ContentHost.exe`, so
+   the worker there is the NativeAOT executable. CI also runs the WebGL benchmark against that host; the
+   report names the worker host. Local run (Windows, hardware GPU): the worker process was the published
+   `Folio.ContentHost.exe --gpu-webgl`; GPU worker tests 34/34 with the sandbox classes; benchmark worker
+   6.4-7.4 / 8.7-9.5 ms median / p95, peak working set 96 MB, private 133 MB.
+   *Still open:* the user-approved hardware pass. Until it passes, the worker stays opt-in
+   (`FOLIO_GPU_WORKER=1`) and the classifier does not route WebGL to it.

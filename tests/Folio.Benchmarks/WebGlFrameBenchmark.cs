@@ -77,8 +77,9 @@ internal static class WebGlFrameBenchmark
         using var channelJson = JsonDocument.Parse(worker.HandOff(Process.GetCurrentProcess().SafeHandle).ToJsonString());
         using var channel = RemoteGpuChannel.Adopt(channelJson.RootElement);
         report.AppendLine(Row("GPU worker process", Measure(channel.DocumentDeviceFactory, frameCount), ref failed, gate: true));
+        report.AppendLine().AppendLine($"GPU worker host: {host}");
         using (var process = Process.GetProcessById(worker.ProcessId))
-            report.AppendLine().AppendLine(string.Create(CultureInfo.InvariantCulture,
+            report.AppendLine(string.Create(CultureInfo.InvariantCulture,
                 $"GPU worker memory: peak working set {Mb(process.PeakWorkingSet64)} MB, private {Mb(process.PrivateMemorySize64)} MB of its {Mb(GpuWebGlWorker.WorkerMemoryBytes - GpuWebGlWorker.SectionBytes)} MB job limit; shared sections {Mb(GpuWebGlWorker.SectionBytes)} MB, charged to both jobs."));
 
         Console.WriteLine(report);
