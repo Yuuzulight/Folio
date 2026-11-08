@@ -730,14 +730,16 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
     private bool _reportedNativeLoss;
     private bool ObserveNativeLoss()
     {
-        DrainDeferredFailures(); // a queued budget failure already reports its own loss
-        if (!Native.IsLost) { _reportedNativeLoss = false; return false; }
+        if (!Native.IsLost) { _reportedNativeLoss = false; _contextLostErrorQueued = false; return false; }
+        // Only now: draining a remote context waits for the worker, so it must not run on every call.
+        // A queued budget failure reports its own loss.
+        DrainDeferredFailures();
         if (_reportedNativeLoss || _losingContext) return true;
         _reportedNativeLoss = true;
         _losingContext = true;
         try { _loseContext?.Invoke(); }
         finally { _losingContext = false; }
-        lock (_errors) if (_errors.Count < 64) _errors.Enqueue(0x9242u);
+        EnqueueError(0x9242u);
         return true;
     }
     private ScriptValue FailureValue(GpuFailure? failure) { EnqueueFailure(failure); return ScriptValue.Undefined; }
@@ -825,10 +827,21 @@ internal class WebGlBindingAdapter : IWebGLRenderingContextTarget
         try { foreach (var failure in deferred.TakeDeferredFailures()) EnqueueFailure(failure); }
         finally { _drainingDeferred = false; }
     }
+    // CONTEXT_LOST_WEBGL is reported once per loss, however many calls fail on the lost context
+    // (a remote worker reports each queued call it refused after the loss).
+    private bool _contextLostErrorQueued;
     private void EnqueueError(uint error)
     {
         DrainDeferredFailures();
-        lock (_errors) if (_errors.Count < 64) _errors.Enqueue(error);
+        lock (_errors)
+        {
+            if (error == 0x9242u)
+            {
+                if (_contextLostErrorQueued) return;
+                _contextLostErrorQueued = true;
+            }
+            if (_errors.Count < 64) _errors.Enqueue(error);
+        }
     }
     protected void RecordNativeFailure(GpuFailure? failure) => EnqueueFailure(failure);
 
