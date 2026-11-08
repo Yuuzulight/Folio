@@ -1200,6 +1200,39 @@ public sealed class NativeWebGlPageTests
         finally { DomBindings.Dispose(engine); }
     }
 
+    // Pages listen for loss and restore on the canvas; the events are trusted, target the canvas, do not
+    // bubble and are cancelable. Covers both a device reset and WEBGL_lose_context.
+    [Fact]
+    public void ContextLossAndRestoreFireTrustedEventsAtTheCanvas()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var engine = CreateEngine();
+        ConfigureWarp(engine);
+        using var document = Document.Parse("<div id='d'><canvas id='c' width='1' height='1'></canvas></div>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend(),
+        });
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("""
+                var canvas = document.getElementById('c'), log = [], bubbled = 0;
+                document.getElementById('d').addEventListener('webglcontextlost', function() { bubbled++; });
+                function record(e) { log.push(e.type + ':' + (e.target === canvas) + ':' + e.isTrusted + ':' + e.bubbles + ':' + e.cancelable); }
+                canvas.addEventListener('webglcontextlost', function(e) { record(e); e.preventDefault(); });
+                canvas.addEventListener('webglcontextrestored', record);
+                var gl = canvas.getContext('webgl', { antialias: false });
+                """);
+            Assert.True(DomBindings.NotifyGpuDeviceLost(engine));
+            Assert.True(DomBindings.NotifyGpuDeviceRestored(engine));
+            engine.Evaluate("var ext = gl.getExtension('WEBGL_lose_context'); ext.loseContext(); ext.restoreContext();");
+            Assert.Equal(
+                "webglcontextlost:true:true:false:true,webglcontextrestored:true:true:false:true,webglcontextlost:true:true:false:true,webglcontextrestored:true:true:false:true|0|false",
+                engine.Evaluate("log.join(',') + '|' + bubbled + '|' + gl.isContextLost()").AsString());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
     [Fact]
     public void NativeReadPixelsSupportsFloatOutput()
     {

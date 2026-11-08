@@ -133,9 +133,16 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
 
     private void DispatchNativeWebGlEvent(ScriptValue? handler, string type)
     {
-        if (_webGlEngine is null || handler is not { IsFunction: true }) return;
-        var evt = _webGlEngine.Evaluate($"({{ type: '{type}' }})");
-        _webGlEngine.Call(handler.Value, ScriptValue.Undefined, [evt]);
+        if (_webGlEngine is null) return;
+        if (handler is { IsFunction: true })
+        {
+            var evt = _webGlEngine.Evaluate($"({{ type: '{type}' }})");
+            _webGlEngine.Call(handler.Value, ScriptValue.Undefined, [evt]);
+        }
+        // WebGL fires its context events at the canvas, where pages listen with addEventListener. As in the
+        // reference browser they do not bubble and are cancelable; Folio restores whether or not the page
+        // cancels webglcontextlost.
+        Element.OwnerDocument.EventDispatcher?.Invoke(Element, type, new Folio.Dom.EventDispatchArgs { Bubbles = false, Cancelable = true });
     }
 
     private void PresentNativeFrame(INativeWebGlContext? native)

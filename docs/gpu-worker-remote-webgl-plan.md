@@ -101,8 +101,10 @@ Production WebGL still runs in the document process until stage 5 lands and pass
    `GpuWorkerProcessTests`: WebGL draws through the worker (an AppContainer process in a job,
    separate from the content process); killing it keeps the page running and reports the loss.
    Notes: canvas surface clears are not routed through the worker and report unavailable;
-   Folio signals loss through `gl.oncontextlost` and does not yet dispatch the canvas
-   `webglcontextlost` event (existing gap, also in direct mode). Lease files live in a
+   Loss and restore now also fire trusted `webglcontextlost` / `webglcontextrestored` events at the
+   canvas (non-bubbling, cancelable, as in the reference browser), where pages listen with
+   `addEventListener`, in every mode; `gl.oncontextlost` keeps working
+   (`NativeWebGlPageTests.ContextLossAndRestoreFireTrustedEventsAtTheCanvas`). Lease files live in a
    private folder: the launcher grants traverse on the lease's folder, which on `%TEMP%`
    itself took minutes (also fixed in the older `GpuWorkerBroker`).
 5. **Restore and qualification.** Restore protocol, frame-time benchmark against the 16.7 ms
