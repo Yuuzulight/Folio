@@ -105,7 +105,10 @@ public sealed class WindowsSandboxTests
             Assert.True(payload.GetProperty("isLowIntegrity").GetBoolean());
             Assert.Equal(0, payload.GetProperty("capabilityCount").GetInt32());
             Assert.True(payload.GetProperty("environmentAbsent").GetBoolean());
-            Assert.Equal(256L * 1024 * 1024, payload.GetProperty("jobMemoryBytes").GetInt64());
+            var expectedJobMemory = 256L * 1024 * 1024 - (OperatingSystem.IsWindows() && capabilities.WebGl && Environment.GetEnvironmentVariable("FOLIO_GPU_WORKER") != "0"
+                ? Folio.Scripting.Gpu.Remote.GpuWebGlWorker.SectionBytes
+                : 0L);
+            Assert.Equal(expectedJobMemory, payload.GetProperty("jobMemoryBytes").GetInt64());
             Assert.Equal(1, payload.GetProperty("activeProcessLimit").GetInt32());
             Assert.Equal(25, payload.GetProperty("cpuRatePercent").GetInt32());
             Assert.Equal(0xff, payload.GetProperty("uiRestrictions").GetInt32());
