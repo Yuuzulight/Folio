@@ -29,6 +29,7 @@ public sealed class GpuWorkerProcessTests
         """;
 
     [Fact(Skip = "Only supported on Windows.", SkipUnless = nameof(IsWindows), Timeout = 60_000)]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     public async Task WebGlDrawsThroughTheSeparateGpuWorker()
     {
         ContentProcessClient.GpuWorkerOverride = true;
@@ -42,6 +43,8 @@ public sealed class GpuWorkerProcessTests
             using var process = Process.GetProcessById(worker!.Value);
             Assert.False(process.HasExited);
             WorkerIsolationCapabilityMatrixTests.AssertRestricted(process); // its own AppContainer and job
+            // The child maps the parent-committed sections, so its job's commit limit is lowered by their size.
+            Assert.Equal(new ContentProcessLimits().MemoryBytes - Folio.Scripting.Gpu.Remote.GpuWebGlWorker.SectionBytes, client.JobMemoryLimit);
         }
         finally { ContentProcessClient.GpuWorkerOverride = null; }
     }
@@ -81,6 +84,7 @@ public sealed class GpuWorkerProcessTests
         await using var client = Start();
         Assert.Equal("255,0,0,255", await Value(client, new { html = Page, capabilities = Capabilities, script = "drawn" }, TestContext.Current.CancellationToken));
         Assert.Null(client.GpuWorkerProcessId);
+        Assert.Equal(new ContentProcessLimits().MemoryBytes, client.JobMemoryLimit);
     }
 
     private static readonly FeatureCapabilities Capabilities = new() { WebGl = true };

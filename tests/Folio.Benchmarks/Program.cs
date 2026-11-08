@@ -27,6 +27,8 @@ public static class Program
             return GpuProcessBenchmark.RunAsync().GetAwaiter().GetResult();
         if (args is ["wasm", .. var wasmRest])
             return Wasm(wasmRest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 5);
+        if (args is ["webgl", .. var webGlRest] && OperatingSystem.IsWindows())
+            return WebGlFrameBenchmark.Run(webGlRest is [var n] ? Math.Max(30, int.Parse(n, CultureInfo.InvariantCulture)) : 120);
         if (args is ["media", .. var mediaRest])
             return MediaFrameBenchmark.Run(mediaRest is [var n] ? Math.Max(30, int.Parse(n, CultureInfo.InvariantCulture)) : 120);
         if (args is ["scripted", .. var scriptedRest])

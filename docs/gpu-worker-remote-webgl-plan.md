@@ -108,3 +108,16 @@ Production WebGL still runs in the document process until stage 5 lands and pass
 5. **Restore and qualification.** Restore protocol, frame-time benchmark against the 16.7 ms
    budget, memory accounting. Gate: full suites, conformance, published NativeAOT host, then a
    user-approved hardware pass. Only after that may the classifier route WebGL here.
+   *Benchmark done:* `Folio.Benchmarks webgl [frames]` animates an 800x600 page (4000 vertices uploaded
+   through the upload section, then 20 draws with uniform changes, per requestAnimationFrame) directly,
+   through the in-process remote path and through the GPU worker process, and fails when the worker's p95
+   is over 16.7 ms or any path reports errors, loss or missed frames. CI runs it on Windows. First local
+   run (Windows, hardware GPU): direct 4.5 / 5.1 ms median / p95, in-process remote 4.4 / 5.2 ms, worker
+   5.5 / 8.0 ms. The binding presents after every draw (one synchronous readback each), which costs the
+   worker about 1 ms median here; batching presents per frame is not needed at this size.
+   *Memory accounting done:* the parent commits both shared sections, so neither job's commit limit sees
+   them. The content job's limit is lowered by their 32 MiB when the channel is handed over, and the
+   worker job starts at 512 MiB minus 32 MiB; `GpuWorkerProcessTests` checks the content job's limit as
+   the OS reports it. The benchmark prints the worker's peak working set and private bytes.
+   *Still open:* the restore protocol (a new public `ContentMessageKind`, which needs approval), the
+   published NativeAOT host run, and the hardware pass.

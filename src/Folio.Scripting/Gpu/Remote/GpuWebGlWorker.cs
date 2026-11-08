@@ -17,6 +17,12 @@ namespace Folio.Scripting.Gpu.Remote;
 internal sealed class GpuWebGlWorker : IDisposable
 {
     internal const int UploadBytes = 16 * 1024 * 1024, ReadbackBytes = 16 * 1024 * 1024;
+    /// <summary>
+    /// Both sections are mapped by the worker and the content child but committed by the parent, so neither
+    /// job's commit limit sees them: each job's limit is lowered by this much instead.
+    /// </summary>
+    internal const long SectionBytes = UploadBytes + ReadbackBytes;
+    internal const long WorkerMemoryBytes = 512L * 1024 * 1024;
     internal static readonly TimeSpan CommandDeadline = TimeSpan.FromSeconds(10);
     private readonly WindowsContentLaunch _launch;
     private readonly string _leasePath;
@@ -41,7 +47,7 @@ internal sealed class GpuWebGlWorker : IDisposable
         GpuWebGlWorker? worker = null;
         try
         {
-            launch = WindowsContentLauncher.Start(contentHostPath, "--gpu-webgl", new ContentProcessLimits(512L * 1024 * 1024, CpuRatePercent: 50), leasePath);
+            launch = WindowsContentLauncher.Start(contentHostPath, "--gpu-webgl", new ContentProcessLimits(WorkerMemoryBytes - SectionBytes, CpuRatePercent: 50), leasePath);
             worker = new GpuWebGlWorker(launch, leasePath);
             worker.Connect(deviceBudget);
             // Drain stderr with a fixed buffer; worker diagnostics are never accumulated.

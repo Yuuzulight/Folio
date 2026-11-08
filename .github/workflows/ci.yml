@@ -150,6 +150,11 @@ jobs:
           FOLIO_CONFORMANCE_ENGINE: native
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll canvas-frames 30
 
+      # Direct, in-process remote and GPU worker WebGL frames; fails when the worker's p95 is over 16.7 ms.
+      - name: WebGL frame budget through the GPU worker
+        if: always() && matrix.os == 'windows-latest'
+        run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll webgl 120
+
       - name: Native media presentation frame budget
         if: always() && matrix.os == 'windows-latest'
         run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll media 120

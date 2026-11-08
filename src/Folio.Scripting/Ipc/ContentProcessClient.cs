@@ -39,6 +39,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private string? _contentHostPath;
     /// <summary>Test seam; otherwise FOLIO_GPU_WORKER=1 opts in.</summary>
     internal static bool? GpuWorkerOverride { get; set; }
+    internal long? JobMemoryLimit => OperatingSystem.IsWindows() ? _job?.MemoryLimit : null;
     internal int? GpuWorkerProcessId => OperatingSystem.IsWindows() ? _gpuWorker?.ProcessId : null;
     private readonly bool _storageEnabled;
     private readonly IMediaCaptureProvider? _mediaCaptureProvider;
@@ -693,6 +694,8 @@ public sealed class ContentProcessClient : IAsyncDisposable
         try
         {
             _gpuWorker ??= Folio.Scripting.Gpu.Remote.GpuWebGlWorker.Start(_contentHostPath, _documentLimits.MaxGpuBytes);
+            // The child maps both shared sections; they come out of its memory budget before it can use them.
+            _job?.ReserveMemory(Folio.Scripting.Gpu.Remote.GpuWebGlWorker.SectionBytes);
             profile["gpuChannel"] = _gpuWorker.HandOff(_process.SafeHandle);
             _gpuChannelSent = true;
         }
