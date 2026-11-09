@@ -133,6 +133,10 @@ internal sealed class DtlsTransport : IDisposable
         extMs.WriteByte(0x00); extMs.WriteByte(0x02); // list length
         extMs.WriteByte(0x00); extMs.WriteByte(0x17); // secp256r1
 
+        // signature_algorithms: SHA-256/ECDSA. Without this TLS 1.2 peers
+        // can apply legacy SHA-1 defaults that do not match our certificate path.
+        extMs.Write(new byte[] { 0x00, 0x0d, 0x00, 0x04, 0x00, 0x02, 0x04, 0x03 });
+
         // Use SRTP extension (RFC 5764)
         extMs.WriteByte(0x00); extMs.WriteByte(0x0E); // use_srtp
         extMs.WriteByte(0x00); extMs.WriteByte(0x05); // length
@@ -355,7 +359,7 @@ internal sealed class DtlsTransport : IDisposable
                     HandleServerKeyExchange(body);
                     break;
                 case HandshakeCertificateRequest:
-                    if (!IsClient || !body.SequenceEqual(new byte[] { 1, 64, 0, 2, 4, 3, 0, 0 }))
+                    if (!IsClient || !SupportsCertificateRequest(body))
                         throw new CryptographicException("Unsupported DTLS client certificate request.");
                     _clientCertificateRequested = true;
                     break;
@@ -512,6 +516,30 @@ internal sealed class DtlsTransport : IDisposable
         // Send Finished
         var verifyData = ComputeVerifyData("client finished");
         SendHandshakeMessage(HandshakeFinished, verifyData);
+    }
+
+    internal static bool SupportsCertificateRequest(ReadOnlySpan<byte> body)
+    {
+        if (body.Length < 1) return false;
+        var types = body[0];
+        if (body.Length < 1 + types + 2 || !body.Slice(1, types).Contains((byte)64)) return false;
+        var offset = 1 + types;
+        var algorithms = BinaryPrimitives.ReadUInt16BigEndian(body[offset..]); offset += 2;
+        if (algorithms == 0 || algorithms % 2 != 0 || algorithms > body.Length - offset - 2) return false;
+        var supported = false;
+        for (var i = 0; i < algorithms; i += 2)
+            supported |= body[offset + i] == 4 && body[offset + i + 1] == 3;
+        offset += algorithms;
+        var authorities = BinaryPrimitives.ReadUInt16BigEndian(body[offset..]); offset += 2;
+        if (authorities != body.Length - offset) return false;
+        while (offset < body.Length)
+        {
+            if (body.Length - offset < 2) return false;
+            var nameLength = BinaryPrimitives.ReadUInt16BigEndian(body[offset..]); offset += 2;
+            if (nameLength == 0 || nameLength > body.Length - offset) return false;
+            offset += nameLength;
+        }
+        return supported;
     }
 
     private void HandleClientKeyExchange(ReadOnlySpan<byte> body)

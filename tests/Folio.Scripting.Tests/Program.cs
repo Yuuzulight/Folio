@@ -9,6 +9,8 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        if (args is ["dtls-openssl-probe", var openssl])
+            return OpenSslDtlsProbe.Run(openssl);
         if (args is ["worker-thread-pool-probe"])
             return WorkerThreadPoolProbe();
         // Mirror xUnit's generated entry point for ordinary test runs.

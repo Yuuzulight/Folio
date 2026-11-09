@@ -8,6 +8,19 @@ namespace Folio.Scripting.Tests;
 public sealed class RemoteWebRtcTests
 {
     [Fact]
+    public void CertificateRequestNegotiatesSupportedAlgorithmAndBoundsVariableLists()
+    {
+        byte[] request = [2, 1, 64, 0, 4, 4, 1, 4, 3, 0, 5, 0, 3, 1, 2, 3];
+        Assert.True(DtlsTransport.SupportsCertificateRequest(request));
+        for (var length = 0; length < request.Length; length++)
+            Assert.False(DtlsTransport.SupportsCertificateRequest(request.AsSpan(0, length)));
+        var unsupported = (byte[])request.Clone(); unsupported[8] = 1;
+        Assert.False(DtlsTransport.SupportsCertificateRequest(unsupported));
+        var malformed = (byte[])request.Clone(); malformed[12] = 4;
+        Assert.False(DtlsTransport.SupportsCertificateRequest(malformed));
+    }
+
+    [Fact]
     public void AnswersLegacyVersionCookieChallengeWithRetriedClientHello()
     {
         using var transport = new DtlsTransport();

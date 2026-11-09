@@ -129,3 +129,25 @@ a new ClientHello, and removes the initial ClientHello/challenge from its
 Finished transcript. A regression verifies cookie echo and ignores an old
 duplicate challenge. The focused RTC selection passes 37/37; build is clean.
 The full OpenSSL handshake has not yet been qualified.
+
+## Independent OpenSSL mutual handshake
+
+The reproducible command is now:
+
+```
+dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll dtls-openssl-probe <openssl-path>
+```
+
+OpenSSL 3.5.6 successfully completed a mutual DTLS 1.2 handshake with Folio as
+client, using P-256 ECDHE/ECDSA and AES-128-GCM. OpenSSL's verification log
+confirms client certificate, CertificateVerify and Finished acceptance; Folio
+reports connected after verifying the pinned server and protected Finished.
+The probe generates temporary identities, retains diagnostic logs/certificates,
+removes its private-key file, and terminates the owned server process.
+
+The probe exposed a fixed-shape CertificateRequest parser. It now negotiates
+SHA-256/ECDSA from variable certificate-type/signature lists and validates the
+bounded CA-name vector. ClientHello explicitly advertises SHA-256/ECDSA.
+Focused RTC tests pass 38/38; build is clean. This qualifies this handshake
+configuration only: reverse-role interoperability, independent application-data
+exchange, retransmission, public API wiring and release-wide checks remain open.
