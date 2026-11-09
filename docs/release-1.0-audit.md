@@ -114,3 +114,18 @@ delivery. Reassembly tests cover agreeing/conflicting overlap and allocation/
 message-count refusal. The focused RTC selection passes 36/36 with zero skips;
 build has zero warnings/errors. Flight retransmission, broader peer negotiation,
 independent interoperability and public API wiring still block release.
+
+## Independent-peer probe and framing repairs
+
+A local OpenSSL 3.5.6 `s_server -dtls1_2` probe returned a 48-byte
+HelloVerifyRequest using record version FEFF. Folio remained connecting because
+it discarded that version. This is direct interoperability failure evidence,
+not a completed independent handshake.
+
+The receive path now parses multiple DTLS records in one UDP datagram. A
+truncated record is not authenticated or admitted to the replay window. The
+client accepts FEFF specifically for the cookie challenge, echoes the cookie in
+a new ClientHello, and removes the initial ClientHello/challenge from its
+Finished transcript. A regression verifies cookie echo and ignores an old
+duplicate challenge. The focused RTC selection passes 37/37; build is clean.
+The full OpenSSL handshake has not yet been qualified.

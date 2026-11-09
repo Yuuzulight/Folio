@@ -17,6 +17,7 @@ internal sealed class DtlsTransport : IDisposable
     private const byte ContentTypeApplicationData = 23;
 
     private const byte HandshakeClientHello = 1;
+    private const byte HandshakeHelloVerifyRequest = 3;
     private const byte HandshakeServerHello = 2;
     private const byte HandshakeCertificate = 11;
     private const byte HandshakeServerKeyExchange = 12;
@@ -62,6 +63,7 @@ internal sealed class DtlsTransport : IDisposable
     private bool _remoteCipherSpec;
     private bool _clientCertificateRequested;
     private bool _peerCertificateProof;
+    private byte[] _cookie = [];
 
     private readonly List<byte> _handshakeMessages = [];
     private readonly object _gate = new();
@@ -112,8 +114,8 @@ internal sealed class DtlsTransport : IDisposable
         ms.Write(_localRandom); // 32 bytes random
         ms.WriteByte(0); // Session ID length
 
-        // Cookie (empty initially)
-        ms.WriteByte(0);
+        ms.WriteByte((byte)_cookie.Length);
+        ms.Write(_cookie);
 
         // Cipher suites (TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 = 0xC02B)
         ms.WriteByte(0); ms.WriteByte(2); // 2 bytes length
@@ -197,17 +199,38 @@ internal sealed class DtlsTransport : IDisposable
 
     public void ProcessIncomingDatagram(byte[] datagram)
     {
+        ArgumentNullException.ThrowIfNull(datagram);
+        lock (_gate)
+        {
+            var offset = 0;
+            while (offset < datagram.Length)
+            {
+                if (datagram.Length - offset < 13) return;
+                var length = BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(offset + 11));
+                if (length > datagram.Length - offset - 13) return;
+                ProcessIncomingRecord(datagram.AsSpan(offset, 13 + length));
+                offset += 13 + length;
+            }
+        }
+    }
+
+    private void ProcessIncomingRecord(ReadOnlySpan<byte> datagram)
+    {
         lock (_gate)
         {
             if (_disposed || datagram.Length < 13) return;
 
             var contentType = datagram[0];
-            var version = BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(1));
-            var epoch = BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(3));
-            var length = BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(11));
+            var version = BinaryPrimitives.ReadUInt16BigEndian(datagram[1..]);
+            var epoch = BinaryPrimitives.ReadUInt16BigEndian(datagram[3..]);
+            var length = BinaryPrimitives.ReadUInt16BigEndian(datagram[11..]);
 
-            if (version != DtlsVersion12 || datagram.Length != 13 + length) return;
-            var payload = datagram.AsSpan(13, length);
+            // DTLS servers may use the DTLS 1.0 record version for the stateless
+            // cookie challenge, even when DTLS 1.2 was requested.
+            var legacyChallenge = IsClient && epoch == 0 && contentType == ContentTypeHandshake &&
+                length >= 12 && datagram.Length >= 25 && datagram[13] == HandshakeHelloVerifyRequest && version == 0xfeff;
+            if ((version != DtlsVersion12 && !legacyChallenge) || datagram.Length != 13 + length) return;
+            var payload = datagram.Slice(13, length);
 
             switch (contentType)
             {
@@ -269,6 +292,21 @@ internal sealed class DtlsTransport : IDisposable
             if (fragOffset != 0 || fragLength != length || payload.Length < 12 + fragLength ||
                 msgSeq != _nextRemoteHandshake) return;
             var body = payload.Slice(12, fragLength);
+
+            if (type == HandshakeHelloVerifyRequest)
+            {
+                if (!IsClient || State != "connecting" || _remoteRandom is not null || body.Length < 3 ||
+                    body[0] != 0xfe || body[1] is not (0xfd or 0xff) || body[2] != body.Length - 3)
+                    throw new CryptographicException("Invalid DTLS cookie challenge.");
+                _cookie = body[3..].ToArray();
+                _nextRemoteHandshake++;
+                // Initial ClientHello and HelloVerifyRequest are excluded from
+                // the transcript authenticated by Finished (RFC 6347).
+                _handshakeMessages.Clear();
+                SendClientHello();
+                payload = payload[(12 + fragLength)..];
+                continue;
+            }
 
             if (type == HandshakeCertificateVerify)
             {

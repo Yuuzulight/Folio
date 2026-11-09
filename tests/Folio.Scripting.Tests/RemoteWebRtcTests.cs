@@ -7,6 +7,27 @@ namespace Folio.Scripting.Tests;
 
 public sealed class RemoteWebRtcTests
 {
+    [Fact]
+    public void AnswersLegacyVersionCookieChallengeWithRetriedClientHello()
+    {
+        using var transport = new DtlsTransport();
+        var sent = new List<byte[]>(); transport.OnDatagramToSend += sent.Add;
+        transport.StartHandshake();
+        var challenge = new byte[31];
+        challenge[0] = 22; challenge[1] = 0xfe; challenge[2] = 0xff;
+        challenge[12] = 18; challenge[13] = 3; challenge[16] = 6; challenge[24] = 6;
+        challenge[25] = 0xfe; challenge[26] = 0xfd; challenge[27] = 3;
+        challenge[28] = 10; challenge[29] = 20; challenge[30] = 30;
+        transport.ProcessIncomingDatagram(challenge);
+        Assert.Equal(2, sent.Count);
+        var retry = sent[1];
+        Assert.Equal(1, retry[18]); // handshake message sequence
+        Assert.Equal(3, retry[60]); // ClientHello cookie length
+        Assert.Equal(new byte[] { 10, 20, 30 }, retry[61..64]);
+        transport.ProcessIncomingDatagram(challenge);
+        Assert.Equal(2, sent.Count); // old challenge cannot restart the transcript
+    }
+
     [Theory]
     [InlineData(false, false, false)]
     [InlineData(true, false, false)]

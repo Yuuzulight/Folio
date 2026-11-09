@@ -36,6 +36,18 @@ public sealed class DtlsRecordCipherTests
         Assert.NotNull(sent);
         Assert.True(peer.TryUnprotect(sent, out var clear));
         Assert.Equal(new byte[] { 7, 8 }, clear);
+        // Independent TLS implementations may put several records in one UDP
+        // datagram. Parse each record boundary and authenticate it separately.
+        var first = peer.Protect(23, 1, 7, [10]);
+        var second = peer.Protect(23, 1, 8, [11]);
+        transport.ProcessIncomingDatagram(first.Concat(second).ToArray());
+        Assert.Equal(3, delivered.Count);
+        Assert.Equal(new byte[] { 10 }, delivered[1]);
+        Assert.Equal(new byte[] { 11 }, delivered[2]);
+        transport.ProcessIncomingDatagram(peer.Protect(23, 1, 9, [12])[..^1]);
+        Assert.Equal(3, delivered.Count);
+        transport.ProcessIncomingDatagram(peer.Protect(23, 1, 9, [12]));
+        Assert.Equal(4, delivered.Count);
     }
 
     private static void SetField(DtlsTransport target, string name, object value) =>
