@@ -1,0 +1,216 @@
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
+using Folio.Scripting.Rtc;
+
+namespace Folio.Scripting.Tests;
+
+public sealed class RemoteWebRtcTests
+{
+    [Fact]
+    public void IceCandidateParsesAndFormatsSdpCorrectly()
+    {
+        var raw = "candidate:1 1 udp 2130706431 127.0.0.1 54321 typ host ufrag testUfrag";
+        var parsed = IceCandidate.TryParse(raw, out var candidate);
+        Assert.True(parsed);
+        Assert.NotNull(candidate);
+        Assert.Equal("1", candidate.Foundation);
+        Assert.Equal(1, candidate.Component);
+        Assert.Equal("udp", candidate.Protocol);
+        Assert.Equal(2130706431, candidate.Priority);
+        Assert.Equal("127.0.0.1", candidate.Address);
+        Assert.Equal(54321, candidate.Port);
+        Assert.Equal("host", candidate.Type);
+        Assert.Equal("testUfrag", candidate.UsernameFragment);
+
+        var sdp = candidate.ToSdp();
+        Assert.Contains("candidate:1 1 udp 2130706431 127.0.0.1 54321 typ host", sdp);
+    }
+
+    [Fact]
+    public void IceCandidatePriorityFollowsRfc5245()
+    {
+        var hostPriority = IceCandidate.ComputePriority("host", 1);
+        var srflxPriority = IceCandidate.ComputePriority("srflx", 1);
+        var relayPriority = IceCandidate.ComputePriority("relay", 1);
+
+        Assert.True(hostPriority > srflxPriority);
+        Assert.True(srflxPriority > relayPriority);
+    }
+
+    [Fact]
+    public void StunMessageEncodesAndParsesUnauthenticatedBindingRequest()
+    {
+        var txId = new byte[12];
+        RandomNumberGenerator.Fill(txId);
+
+        var wire = StunMessage.EncodeRequest(StunMessage.BindingRequest, txId);
+        var parsed = StunMessage.TryParse(wire, out var msg);
+
+        Assert.True(parsed);
+        Assert.NotNull(msg);
+        Assert.Equal(StunMessage.BindingRequest, msg.Type);
+        Assert.True(msg.TransactionId.Span.SequenceEqual(txId));
+        Assert.True(msg.VerifyFingerprint());
+    }
+
+    [Fact]
+    public void DtlsTransportGeneratesValidSha256Fingerprint()
+    {
+        using var dtls = new DtlsTransport();
+        Assert.NotNull(dtls.Fingerprint);
+        Assert.Matches(@"^([0-9A-F]{2}:){31}[0-9A-F]{2}$", dtls.Fingerprint);
+    }
+
+    [Fact]
+    public void SrtpProtectsAndUnprotectsPacketsWithAntiReplayWindow()
+    {
+        var localKey = new byte[16];
+        var localSalt = new byte[14];
+        var remoteKey = new byte[16];
+        var remoteSalt = new byte[14];
+        RandomNumberGenerator.Fill(localKey);
+        RandomNumberGenerator.Fill(localSalt);
+        RandomNumberGenerator.Fill(remoteKey);
+        RandomNumberGenerator.Fill(remoteSalt);
+
+        using var sender = new SrtpTransport(localKey, localSalt, remoteKey, remoteSalt);
+        using var receiver = new SrtpTransport(remoteKey, remoteSalt, localKey, localSalt);
+
+        // Build a mock RTP packet: V=2, PT=96, Seq=100, Timestamp=1000, SSRC=0x12345678, Payload="hello audio"
+        var rtp = new byte[12 + 11];
+        rtp[0] = 0x80; // V=2, P=0, X=0, CC=0
+        rtp[1] = 96;   // M=0, PT=96
+        rtp[2] = 0; rtp[3] = 100; // Seq = 100
+        rtp[4] = 0; rtp[5] = 0; rtp[6] = 3; rtp[7] = 232; // Timestamp = 1000
+        rtp[8] = 0x12; rtp[9] = 0x34; rtp[10] = 0x56; rtp[11] = 0x78; // SSRC
+        Encoding.UTF8.GetBytes("hello audio").CopyTo(rtp.AsSpan(12));
+
+        var protectedPacket = sender.ProtectRtp(rtp);
+        Assert.Equal(rtp.Length + 16, protectedPacket.Length); // 16-byte auth tag added
+
+        // Receiver unprotects
+        var unprotected = receiver.TryUnprotectRtp(protectedPacket, out var decrypted);
+        Assert.True(unprotected);
+        Assert.NotNull(decrypted);
+        Assert.Equal(rtp, decrypted);
+
+        // Replay of the exact same packet must be rejected by 64-packet sliding window
+        var replay = receiver.TryUnprotectRtp(protectedPacket, out _);
+        Assert.False(replay);
+    }
+
+    [Fact]
+    public void SctpDataChannelsNegotiateAndExchangeMessages()
+    {
+        using var client = new SctpDataChannel();
+        using var server = new SctpDataChannel();
+
+        // Connect client to server packet streams
+        client.OnPacketToSend += pkt => server.ProcessIncomingPacket(pkt);
+        server.OnPacketToSend += pkt => client.ProcessIncomingPacket(pkt);
+
+        client.StartAssociation(isClient: true);
+        server.StartAssociation(isClient: false);
+
+        Assert.Equal("connected", client.State);
+        Assert.Equal("connected", server.State);
+
+        SctpDataChannel.ChannelState? remoteChannel = null;
+        server.OnDataChannelCreated += ch => remoteChannel = ch;
+
+        var localChannel = client.CreateDataChannel("chat");
+        Assert.NotNull(remoteChannel);
+        Assert.Equal("chat", remoteChannel.Label);
+        Assert.Equal("open", remoteChannel.ReadyState);
+
+        string? receivedOnServer = null;
+        remoteChannel.OnMessage += msg => receivedOnServer = msg as string;
+
+        localChannel.Send("ping from client");
+        Assert.Equal("ping from client", receivedOnServer);
+
+        string? receivedOnClient = null;
+        localChannel.OnMessage += msg => receivedOnClient = msg as string;
+
+        remoteChannel.Send("pong from server");
+        Assert.Equal("pong from server", receivedOnClient);
+    }
+
+    [Fact]
+    public void RtcSdpRoundtripsOffersAndAnswersWithCandidates()
+    {
+        var sdp = new RtcSdp
+        {
+            Type = "offer",
+            IceUfrag = "abc12345",
+            IcePassword = "password1234567890123456",
+            FingerprintValue = "AA:BB:CC:DD:EE:FF:11:22:33:44:55:66:77:88:99:00:AA:BB:CC:DD:EE:FF:11:22:33:44:55:66:77:88:99:00",
+            Setup = "actpass"
+        };
+        sdp.Media.Add(new RtcMediaDescription
+        {
+            Kind = "application",
+            Port = 9,
+            Protocol = "UDP/DTLS/SCTP",
+            Mid = "0",
+            SctpPort = 5000
+        });
+        sdp.Candidates.Add(new IceCandidate
+        {
+            Foundation = "1",
+            Component = 1,
+            Protocol = "udp",
+            Priority = 2130706431,
+            Address = "127.0.0.1",
+            Port = 49152,
+            Type = "host"
+        });
+
+        var text = sdp.ToSdp();
+        Assert.Contains("v=0", text);
+        Assert.Contains("a=ice-ufrag:abc12345", text);
+        Assert.Contains("a=fingerprint:sha-256 AA:BB:CC", text);
+        Assert.Contains("m=application 9 UDP/DTLS/SCTP", text);
+        Assert.Contains("a=candidate:1 1 udp 2130706431 127.0.0.1 49152 typ host", text);
+
+        var parsed = RtcSdp.Parse(text);
+        Assert.Equal("abc12345", parsed.IceUfrag);
+        Assert.Equal("password1234567890123456", parsed.IcePassword);
+        Assert.Equal("AA:BB:CC:DD:EE:FF:11:22:33:44:55:66:77:88:99:00:AA:BB:CC:DD:EE:FF:11:22:33:44:55:66:77:88:99:00", parsed.FingerprintValue);
+        Assert.Single(parsed.Media);
+        Assert.Equal("application", parsed.Media[0].Kind);
+        Assert.Single(parsed.Candidates);
+        Assert.Equal("127.0.0.1", parsed.Candidates[0].Address);
+        Assert.Equal(49152, parsed.Candidates[0].Port);
+    }
+
+    [Fact]
+    public async Task TwoControllersPerformCandidateExchangeAndConnect()
+    {
+        using var a = new RtcPeerConnectionController();
+        using var b = new RtcPeerConnectionController();
+
+        var offerSdp = await a.CreateOfferAsync(hasDataChannels: true, audioSenders: 0, videoSenders: 0);
+        a.SetLocalDescription("offer", offerSdp);
+        b.SetRemoteDescription("offer", offerSdp);
+
+        var answerSdp = await b.CreateAnswerAsync(hasDataChannels: true, audioSenders: 0, videoSenders: 0);
+        b.SetLocalDescription("answer", answerSdp);
+        a.SetRemoteDescription("answer", answerSdp);
+
+        // Exchange gathered candidates
+        foreach (var c in a.Ice.LocalCandidates) b.AddIceCandidate(c.ToSdp());
+        foreach (var c in b.Ice.LocalCandidates) a.AddIceCandidate(c.ToSdp());
+
+        // Wait up to 2 seconds for ICE and DTLS connection over UDP
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (DateTime.UtcNow < deadline && (a.IceConnectionState != "connected" || b.IceConnectionState != "connected"))
+        {
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal("connected", a.IceConnectionState);
+        Assert.Equal("connected", b.IceConnectionState);
+    }
+}

@@ -972,9 +972,41 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             var length = Math.Min(chunkSamples, target - _audioCursor);
             var samples = frame.Samples.Slice(_audioCursor, length).ToArray();
             if (Volume < 1) for (var i = 0; i < samples.Length; i++) samples[i] *= (float)Volume;
+            if (PlaybackRate != 1.0 && PlaybackRate > 0)
+                samples = ResampleAudio(samples, frame.Channels, PlaybackRate);
             _audioOutput.Submit(new MediaAudioFrame(frame.SampleRate, frame.Channels, samples));
             _audioCursor += length;
         }
+    }
+
+    private static float[] ResampleAudio(float[] samples, int channels, double playbackRate)
+    {
+        if (channels <= 0 || playbackRate <= 0) return samples;
+        var inFrames = samples.Length / channels;
+        if (inFrames <= 1) return samples;
+        var outFrames = Math.Max(1, (int)Math.Round(inFrames / playbackRate));
+        var result = new float[outFrames * channels];
+        for (var j = 0; j < outFrames; j++)
+        {
+            var srcPos = j * playbackRate;
+            var srcIndex = (int)srcPos;
+            var frac = (float)(srcPos - srcIndex);
+            if (srcIndex >= inFrames - 1)
+            {
+                for (var c = 0; c < channels; c++)
+                    result[j * channels + c] = samples[(inFrames - 1) * channels + c];
+            }
+            else
+            {
+                for (var c = 0; c < channels; c++)
+                {
+                    var s0 = samples[srcIndex * channels + c];
+                    var s1 = samples[(srcIndex + 1) * channels + c];
+                    result[j * channels + c] = s0 + (s1 - s0) * frac;
+                }
+            }
+        }
+        return result;
     }
 
     private void SubmitCaptureAudio(double seconds, long generation)

@@ -9,19 +9,26 @@ public sealed class StageSixRoutingTests
     };
 
     [Theory]
-    [InlineData("<canvas id=c></canvas><script>c.getContext('webgl')</script>")]
-    [InlineData("<video></video>")]
-    [InlineData("<audio></audio>")]
     [InlineData("<iframe></iframe>")]
-    [InlineData("<script>new Worker('worker.js')</script>")]
-    [InlineData("<script>new RTCPeerConnection()</script>")]
     [InlineData("<script>navigator.serviceWorker.register('sw.js')</script>")]
-    [InlineData("<button onclick=\"new Worker('worker.js')\">run</button>")]
     [InlineData("<a href=\"javascript:navigator.serviceWorker.register('sw.js')\">run</a>")]
     public void HostPermissionDoesNotMakeAnUnbuiltFeatureAvailable(string html)
     {
         var result = ArtifactClassifier.Classify(html, new FolioOptions { Capabilities = AllCapabilities });
         Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
+    }
+
+    [Theory]
+    [InlineData("<canvas id=c></canvas><script>c.getContext('webgl')</script>", ArtifactKind.Scripted)]
+    [InlineData("<video></video>", ArtifactKind.Static)]
+    [InlineData("<audio></audio>", ArtifactKind.Static)]
+    [InlineData("<script>new Worker('worker.js')</script>", ArtifactKind.Scripted)]
+    [InlineData("<script>new RTCPeerConnection()</script>", ArtifactKind.Scripted)]
+    public void ProductionFeaturesRouteWhenHostGrantsThem(string html, ArtifactKind expectedKind)
+    {
+        var result = ArtifactClassifier.Classify(html, new FolioOptions { Capabilities = AllCapabilities });
+        Assert.Equal(expectedKind, result.Kind);
+        Assert.DoesNotContain(result.Reasons, reason => reason.Contains("not yet complete", StringComparison.Ordinal));
     }
 
     public static IEnumerable<object[]> AvailabilityAndGrantCases()
@@ -102,9 +109,9 @@ public sealed class StageSixRoutingTests
     [Fact]
     public void SimulatedAvailabilityDoesNotChangeProductionRouting()
     {
-        const string html = "<script>new Worker('worker.js')</script>";
+        const string html = "<iframe></iframe>";
         var options = new FolioOptions { Capabilities = AllCapabilities };
-        Assert.Equal(ArtifactKind.Scripted, ArtifactClassifier.Classify(html, options, ArtifactClassifier.ImplementedFeatures.Workers).Kind);
+        Assert.Equal(ArtifactKind.Static, ArtifactClassifier.Classify(html, options, ArtifactClassifier.ImplementedFeatures.Iframes).Kind);
         Assert.Equal(ArtifactKind.NeedsBrowser, ArtifactClassifier.Classify(html, options).Kind);
         Assert.Equal(ArtifactKind.Static, ArtifactClassifier.Classify("<p>ordinary page</p>").Kind);
         Assert.Equal(ArtifactKind.Scripted, ArtifactClassifier.Classify("<button onclick='alert(1)'>run</button>").Kind);

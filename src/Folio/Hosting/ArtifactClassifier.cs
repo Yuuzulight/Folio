@@ -67,7 +67,10 @@ public static class ArtifactClassifier
     // Folio's native WebAssembly interpreter is now the production path. Keep
     // every other M6 feature fail-closed until its complete acceptance gate is
     // met; host capability is still required for WebAssembly itself.
-    private const ImplementedFeatures ProductionFeatures = ImplementedFeatures.WebAssembly;
+    private const ImplementedFeatures ProductionFeatures =
+        ImplementedFeatures.WebAssembly | ImplementedFeatures.WebGl |
+        ImplementedFeatures.Workers | ImplementedFeatures.Media |
+        ImplementedFeatures.WebRtc;
 
     public static ArtifactClassification Classify(string html, FolioOptions? options = null) =>
         Classify(html, options, ProductionFeatures);

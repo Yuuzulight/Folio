@@ -333,10 +333,18 @@ internal sealed class WorkerState
         _workerThreadId = Environment.CurrentManagedThreadId;
         try
         {
+            var sliceWatch = System.Diagnostics.Stopwatch.StartNew();
             while (!Terminated)
             {
                 try
                 {
+                    // Cooperative 16ms scheduling slice to interleave fair turns with parent/siblings
+                    if (sliceWatch.ElapsedMilliseconds >= 16)
+                    {
+                        sliceWatch.Restart();
+                        Thread.Yield();
+                    }
+
                     // A timed BlockingCollection take can remain in its semaphore
                     // wait under contention, preventing overdue timers from running.
                     // Poll commands without blocking, then give the timer loop its turn.
@@ -346,7 +354,10 @@ internal sealed class WorkerState
                     if (!Terminated && !_workerEventLoop!.IsIdle())
                         ExecuteWithWatchdog(() => ranTurn = _workerEventLoop.RunOneTurn());
                     if (!Terminated && !ranCommand && !ranTurn)
+                    {
+                        sliceWatch.Restart();
                         Thread.Sleep(1);
+                    }
                 }
                 catch (InvalidOperationException) { break; }
                 catch (Exception error) { QueueWorkerError(error); }
@@ -811,8 +822,14 @@ internal sealed class WorkerState
             return true;
         }
         if (resourceLoader is null || !Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
-        var response = resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Script), cancellationToken)
-            .WaitAsync(TimeSpan.FromSeconds(10), cancellationToken).GetAwaiter().GetResult();
+        ResourceResponse? response;
+        try
+        {
+            var loadTask = Task.Run(() => resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Script), cancellationToken), cancellationToken);
+            response = loadTask.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken).GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException) { return false; }
+        catch (TimeoutException) { return false; }
         if (response?.Data is not { } data) return false;
         source = System.Text.Encoding.UTF8.GetString(data);
         return true;

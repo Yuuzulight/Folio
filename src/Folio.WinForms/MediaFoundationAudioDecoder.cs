@@ -356,7 +356,7 @@ public sealed class MediaFoundationAudioDecoder : IMediaDecoder
             var kind = BinaryPrimitives.ReadUInt32BigEndian(source.AsSpan(handler.Payload + 8));
             if (kind != 0x736f756e && kind != 0x76696465) continue; // soun / vide
             if (kind == 0x736f756e && ++audioCount > 1 || kind == 0x76696465 && ++videoCount > 1)
-                throw new InvalidDataException("Ambiguous MP4 track selection.");
+                continue;
             var edts = children.Where(box => box.Type == 0x65647473).ToArray();
             if (edts.Length == 0) continue;
             if (edts.Length != 1) throw new InvalidDataException("Duplicate MP4 edit container.");
@@ -368,7 +368,7 @@ public sealed class MediaFoundationAudioDecoder : IMediaDecoder
             if (bytes.Length < 8 || bytes[0] > 1) throw new InvalidDataException("Invalid MP4 edit list.");
             var count = BinaryPrimitives.ReadUInt32BigEndian(bytes[4..]);
             var size = bytes[0] == 1 ? 20 : 12;
-            if (count is < 1 or > 2 || bytes.Length != 8 + count * size)
+            if (count is < 1 or > 64 || bytes.Length != 8 + count * size)
                 throw new InvalidDataException("Unsupported MP4 edit sequence.");
             long leading = 0; Mp4Edit? edit = null;
             for (var i = 0; i < count; i++)
@@ -378,17 +378,20 @@ public sealed class MediaFoundationAudioDecoder : IMediaDecoder
                 var time = size == 20 ? BinaryPrimitives.ReadInt64BigEndian(entry[8..]) : BinaryPrimitives.ReadInt32BigEndian(entry[4..]);
                 if (BinaryPrimitives.ReadUInt32BigEndian(entry[^4..]) != 0x10000 || length == 0)
                     throw new InvalidDataException("Unsupported MP4 edit rate/duration.");
-                if (time == -1 && i == 0 && count == 2) leading = Mp4Ticks(length, movieScale);
-                else if (time >= 0 && i == count - 1)
+                if (time == -1) leading = checked(leading + Mp4Ticks(length, movieScale));
+                else if (time >= 0)
+                {
                     edit = new Mp4Edit(checked(leading - Mp4Ticks((ulong)time, mediaScale)), leading,
                         checked(leading + Mp4Ticks(length, movieScale)));
+                    leading = checked(leading + Mp4Ticks(length, movieScale));
+                }
                 else throw new InvalidDataException("Unsupported MP4 media edit.");
             }
             if (edit is null) throw new InvalidDataException("MP4 edit has no media segment.");
             if (kind == 0x736f756e) audioEdit = edit; else videoEdit = edit;
             "free"u8.CopyTo(source.AsSpan(edts[0].Offset + 4, 4));
         }
-        if (video ? videoCount != 1 : audioCount != 1) throw new InvalidDataException("MP4 requested track is missing.");
+        if (video ? videoCount < 1 : audioCount < 1) throw new InvalidDataException("MP4 requested track is missing.");
         return new Mp4Presentation(Mp4Ticks(movieDuration, movieScale), audioEdit, videoEdit);
     }
 

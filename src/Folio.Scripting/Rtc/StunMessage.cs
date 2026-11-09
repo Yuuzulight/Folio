@@ -5,12 +5,21 @@ using System.Security.Cryptography;
 
 namespace Folio.Scripting.Rtc;
 
-/// <summary>Bounded STUN framing and short-term HMAC-SHA1 authentication for ICE.
-/// This component opens no sockets and is not a complete ICE/TURN/WebRTC transport.</summary>
+/// <summary>Bounded STUN framing and short-term HMAC-SHA1 authentication for ICE and TURN.</summary>
 internal sealed class StunMessage
 {
     internal const uint Cookie = 0x2112a442;
-    internal const ushort Username = 0x0006, Integrity = 0x0008, XorMappedAddress = 0x0020, Fingerprint = 0x8028;
+    internal const ushort BindingRequest = 0x0001, BindingResponse = 0x0101, BindingErrorResponse = 0x0111,
+        AllocateRequest = 0x0003, AllocateResponse = 0x0103, RefreshRequest = 0x0004, RefreshResponse = 0x0104,
+        SendIndication = 0x0016, DataIndication = 0x0017, CreatePermissionRequest = 0x0008, CreatePermissionResponse = 0x0108,
+        ChannelBindRequest = 0x0009, ChannelBindResponse = 0x0109;
+
+    internal const ushort MappedAddress = 0x0001, Username = 0x0006, Integrity = 0x0008, ErrorCode = 0x0009,
+        UnknownAttributes = 0x000a, Lifetime = 0x000d, XorPeerAddress = 0x0012, Data = 0x0013, Realm = 0x0014,
+        Nonce = 0x0015, XorRelayedAddress = 0x0016, EvenPort = 0x0018, RequestedTransport = 0x0019,
+        DontFragment = 0x001a, XorMappedAddress = 0x0020, Priority = 0x0024, UseCandidate = 0x0025,
+        Software = 0x8022, Fingerprint = 0x8028, IceControlled = 0x8029, IceControlling = 0x802a;
+
     private readonly byte[] _wire;
     private readonly List<(ushort Type, int Offset, int Length)> _attributes;
     private StunMessage(byte[] wire, List<(ushort, int, int)> attributes) => (_wire, _attributes) = (wire, attributes);
@@ -74,10 +83,13 @@ internal sealed class StunMessage
         return true;
     }
 
-    internal bool TryXorMappedAddress(out IPEndPoint? endpoint)
+    internal bool TryXorMappedAddress(out IPEndPoint? endpoint) => TryDecodeXorAddress(XorMappedAddress, out endpoint);
+    internal bool TryXorRelayedAddress(out IPEndPoint? endpoint) => TryDecodeXorAddress(XorRelayedAddress, out endpoint);
+
+    private bool TryDecodeXorAddress(ushort attrType, out IPEndPoint? endpoint)
     {
         endpoint = null;
-        if (!TryAttribute(XorMappedAddress, out var memory)) return false;
+        if (!TryAttribute(attrType, out var memory)) return false;
         var value = memory.Span;
         if (value.Length < 4 || value[0] != 0) return false;
         var size = value[1] == 1 ? 4 : value[1] == 2 ? 16 : 0;
@@ -119,6 +131,42 @@ internal sealed class StunMessage
         HMACSHA1.HashData(integrityKey, result.AsSpan(0, offset), result.AsSpan(offset + 4, 20));
         offset += 24;
         BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(2), (ushort)(length - 20));
+        if (fingerprint)
+        {
+            BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(offset), Fingerprint);
+            BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(offset + 2), 4);
+            BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(offset + 4), Crc32(result.AsSpan(0, offset)) ^ 0x5354554e);
+        }
+        return result;
+    }
+
+    internal static byte[] EncodeRequest(ushort type, ReadOnlySpan<byte> transactionId,
+        IReadOnlyList<(ushort Type, byte[] Value)>? attributes = null, bool fingerprint = true)
+    {
+        attributes ??= [];
+        if ((type & 0xc000) != 0 || transactionId.Length != 12 || attributes.Count > 254)
+            throw new ArgumentException("Invalid STUN message inputs.");
+        var length = 20 + (fingerprint ? 8 : 0);
+        foreach (var attribute in attributes)
+        {
+            if (attribute.Type is Integrity or Fingerprint || attribute.Value is null || attribute.Value.Length > ushort.MaxValue)
+                throw new ArgumentException("Invalid STUN attribute.");
+            length = checked(length + 4 + ((attribute.Value.Length + 3) & ~3));
+            if (length > 65552) throw new ArgumentException("STUN message is too large.");
+        }
+        var result = new byte[length];
+        BinaryPrimitives.WriteUInt16BigEndian(result, type);
+        BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(2), (ushort)(length - 20));
+        BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(4), Cookie);
+        transactionId.CopyTo(result.AsSpan(8));
+        var offset = 20;
+        foreach (var attribute in attributes)
+        {
+            BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(offset), attribute.Type);
+            BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(offset + 2), (ushort)attribute.Value.Length);
+            attribute.Value.CopyTo(result.AsSpan(offset + 4));
+            offset += 4 + ((attribute.Value.Length + 3) & ~3);
+        }
         if (fingerprint)
         {
             BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(offset), Fingerprint);
