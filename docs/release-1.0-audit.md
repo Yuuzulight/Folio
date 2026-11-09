@@ -151,3 +151,12 @@ bounded CA-name vector. ClientHello explicitly advertises SHA-256/ECDSA.
 Focused RTC tests pass 38/38; build is clean. This qualifies this handshake
 configuration only: reverse-role interoperability, independent application-data
 exchange, retransmission, public API wiring and release-wide checks remain open.
+
+The OpenSSL probe now also requires encrypted application-data delivery in both
+directions. OpenSSL receives `folio-to-openssl-probe`; Folio receives
+`openssl-to-folio-probe`. A fresh local OpenSSL 3.5.6 run passes both directions
+and mutual authentication with no OpenSSL error in the captured diagnostics.
+The Ubuntu CI build now runs this command using `/usr/bin/openssl`; hosted
+confirmation is pending. This is still one client-role/cipher configuration;
+reverse-role coverage, packet-loss recovery, browser API/SCTP integration and
+the remaining release checks are not established by it.

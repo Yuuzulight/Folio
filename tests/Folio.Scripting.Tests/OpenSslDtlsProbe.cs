@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using Folio.Scripting.Rtc;
 
 namespace Folio.Scripting.Tests;
@@ -26,7 +27,7 @@ internal static class OpenSslDtlsProbe
         var port = ((IPEndPoint)portReservation.Client.LocalEndPoint!).Port;
         portReservation.Close();
         var start = new ProcessStartInfo(openssl) { UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true };
+            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
         foreach (var argument in new[] { "s_server", "-dtls1_2", "-accept", "127.0.0.1:" + port,
             "-cert", Path.Combine(root, "server.pem"), "-key", Path.Combine(root, "server-key.pem"),
             "-CAfile", Path.Combine(root, "client.pem"), "-Verify", "1", "-verify_return_error",
@@ -35,6 +36,14 @@ internal static class OpenSslDtlsProbe
         using var server = Process.Start(start) ?? throw new InvalidOperationException("OpenSSL did not start.");
         var errors = server.StandardError.ReadToEndAsync();
         var output = server.StandardOutput.ReadToEndAsync();
+        const string fromOpenSsl = "openssl-to-folio-probe";
+        const string fromFolio = "folio-to-openssl-probe";
+        // Queue input before the handshake; OpenSSL's Windows console input
+        // loop otherwise blocks on the redirected pipe before reading UDP.
+        server.StandardInput.WriteLine(fromOpenSsl);
+        server.StandardInput.Flush();
+        var received = new StringBuilder();
+        transport.OnApplicationDataReceived += bytes => received.Append(Encoding.UTF8.GetString(bytes));
         using var socket = new UdpClient(0);
         socket.Client.ReceiveTimeout = 1000;
         var destination = new IPEndPoint(IPAddress.Loopback, port);
@@ -61,7 +70,26 @@ internal static class OpenSslDtlsProbe
                 catch (SocketException error) when (error.SocketErrorCode == SocketError.TimedOut) { }
             }
             Console.WriteLine("Folio DTLS state: " + transport.State);
-            return transport.State == "connected" ? 0 : 1;
+            if (transport.State != "connected") return 1;
+            transport.SendApplicationData(Encoding.UTF8.GetBytes(fromFolio + "\n"));
+            deadline.Restart();
+            while (deadline.Elapsed < TimeSpan.FromSeconds(5) && !received.ToString().Contains(fromOpenSsl, StringComparison.Ordinal))
+            {
+                IPEndPoint remote = new(IPAddress.Any, 0);
+                try
+                {
+                    var record = socket.Receive(ref remote);
+                    if (remote.Equals(destination)) transport.ProcessIncomingDatagram(record);
+                }
+                catch (SocketException error) when (error.SocketErrorCode == SocketError.TimedOut) { }
+            }
+            // Avoid sending EOF through s_server's Windows console adapter:
+            // it can attempt a zero-length SSL_write and emit a spurious error.
+            if (!server.HasExited) { server.Kill(); server.WaitForExit(); }
+            var outgoingDelivered = output.GetAwaiter().GetResult().Contains(fromFolio, StringComparison.Ordinal);
+            var incomingDelivered = received.ToString().Contains(fromOpenSsl, StringComparison.Ordinal);
+            Console.WriteLine($"Application data: Folio to OpenSSL={outgoingDelivered}, OpenSSL to Folio={incomingDelivered}.");
+            return outgoingDelivered && incomingDelivered ? 0 : 1;
         }
         catch (Exception error) { Console.WriteLine(error); return 1; }
         finally
