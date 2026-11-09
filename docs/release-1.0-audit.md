@@ -60,5 +60,12 @@ Plaintext Finished records are rejected. Focused record/remote-RTC tests pass
 
 This implements protected handshake record framing, not a complete DTLS
 handshake: flight/transcript/state ordering, mutual client authentication,
-fragment reassembly and retransmission remain required. Application-data
-readback still uses its older decryptor and needs the same replay protection.
+fragment reassembly and retransmission remain required.
+
+Application-data send/receive now uses the same authenticated record cipher and
+replay window as handshake records. The duplicate application-data decryptor and
+redundant key objects were removed. A post-handshake transport-boundary fixture
+verifies corruption rejection, duplicate rejection, shared handshake/application
+sequence space, and outgoing encrypted data. It supplies keys directly and must
+not be counted as handshake interoperability evidence. Focused tests pass 18/18
+and the project build has zero warnings/errors.

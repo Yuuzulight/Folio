@@ -4,6 +4,44 @@ namespace Folio.Scripting.Tests;
 
 public sealed class DtlsRecordCipherTests
 {
+    [Fact]
+    public void TransportApplicationDataUsesAuthenticatedRecordsAndSharedReplayWindow()
+    {
+        using var transport = new DtlsTransport();
+        using var peer = new DtlsRecordCipher(new byte[16], new byte[4]);
+        // Isolate the post-handshake record boundary. This fixture does not prove
+        // handshake completion; real peer qualification remains a release gate.
+        SetField(transport, "_handshakeReader", new DtlsRecordCipher(new byte[16], new byte[4]));
+        SetField(transport, "_handshakeWriter", new DtlsRecordCipher(new byte[16], new byte[4]));
+        SetField(transport, "_localEpoch", (ushort)1);
+        SetField(transport, "<State>k__BackingField", "connected");
+        var delivered = new List<byte[]>();
+        transport.OnApplicationDataReceived += delivered.Add;
+        var record = peer.Protect(23, 1, 5, [42]);
+        var corrupt = (byte[])record.Clone(); corrupt[^1] ^= 1;
+        transport.ProcessIncomingDatagram(corrupt);
+        Assert.Empty(delivered);
+        transport.ProcessIncomingDatagram(record);
+        transport.ProcessIncomingDatagram(record);
+        Assert.Single(delivered);
+        Assert.Equal(new byte[] { 42 }, delivered[0]);
+        // A handshake record consumes the same sequence space, so replaying it
+        // under application content type cannot bypass the replay window.
+        transport.ProcessIncomingDatagram(peer.Protect(22, 1, 6, []));
+        transport.ProcessIncomingDatagram(peer.Protect(23, 1, 6, [99]));
+        Assert.Single(delivered);
+        byte[]? sent = null;
+        transport.OnDatagramToSend += bytes => sent = bytes;
+        transport.SendApplicationData([7, 8]);
+        Assert.NotNull(sent);
+        Assert.True(peer.TryUnprotect(sent, out var clear));
+        Assert.Equal(new byte[] { 7, 8 }, clear);
+    }
+
+    private static void SetField(DtlsTransport target, string name, object value) =>
+        typeof(DtlsTransport).GetField(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(target, value);
+
     [Theory]
     [InlineData(22)]
     [InlineData(23)]

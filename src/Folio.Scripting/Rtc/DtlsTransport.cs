@@ -46,10 +46,6 @@ internal sealed class DtlsTransport : IDisposable
     private byte[]? _remoteRandom;
     private byte[]? _masterSecret;
 
-    private AesGcm? _localGcm;
-    private AesGcm? _remoteGcm;
-    private byte[]? _localImplicitIv;
-    private byte[]? _remoteImplicitIv;
 
     public byte[]? SrtpLocalMasterKey { get; private set; }
     public byte[]? SrtpRemoteMasterKey { get; private set; }
@@ -167,7 +163,7 @@ internal sealed class DtlsTransport : IDisposable
 
     private void SendRecord(byte contentType, byte[] payload)
     {
-        if (contentType == ContentTypeHandshake && _localEpoch == 1)
+        if (_localEpoch == 1)
         {
             if (_handshakeWriter is null) throw new InvalidOperationException("DTLS handshake keys are unavailable.");
             OnDatagramToSend?.Invoke(_handshakeWriter.Protect(contentType, _localEpoch, _localSequenceNumber++, payload));
@@ -225,7 +221,9 @@ internal sealed class DtlsTransport : IDisposable
                     // Change cipher spec received
                     break;
                 case ContentTypeApplicationData:
-                    ProcessApplicationDataRecord(epoch, payload);
+                    if (State == "connected" && epoch == 1 && _handshakeReader is not null &&
+                        _handshakeReader.TryUnprotect(datagram, out var applicationData))
+                        OnApplicationDataReceived?.Invoke(applicationData);
                     break;
             }
         }
@@ -508,21 +506,6 @@ internal sealed class DtlsTransport : IDisposable
         var clientWriteIv = keyBlock[32..36];
         var serverWriteIv = keyBlock[36..40];
 
-        if (IsClient)
-        {
-            _localGcm = new AesGcm(clientWriteKey, 16);
-            _remoteGcm = new AesGcm(serverWriteKey, 16);
-            _localImplicitIv = clientWriteIv;
-            _remoteImplicitIv = serverWriteIv;
-        }
-        else
-        {
-            _localGcm = new AesGcm(serverWriteKey, 16);
-            _remoteGcm = new AesGcm(clientWriteKey, 16);
-            _localImplicitIv = serverWriteIv;
-            _remoteImplicitIv = clientWriteIv;
-        }
-
         _handshakeWriter?.Dispose(); _handshakeReader?.Dispose();
         _handshakeWriter = new DtlsRecordCipher(IsClient ? clientWriteKey : serverWriteKey, IsClient ? clientWriteIv : serverWriteIv);
         _handshakeReader = new DtlsRecordCipher(IsClient ? serverWriteKey : clientWriteKey, IsClient ? serverWriteIv : clientWriteIv);
@@ -588,75 +571,11 @@ internal sealed class DtlsTransport : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (State != "connected" || _localGcm is null || _localImplicitIv is null)
+            if (State != "connected" || _localEpoch != 1 || _handshakeWriter is null)
                 throw new InvalidOperationException("DTLS application data requires an authenticated connection.");
 
-            var seq = _localSequenceNumber;
-            var nonce = new byte[12];
-            _localImplicitIv.CopyTo(nonce.AsSpan(0, 4));
-            BinaryPrimitives.WriteUInt64BigEndian(nonce.AsSpan(4), seq);
-
-            // AAD: 8 bytes epoch + seq + 1 byte content type + 2 bytes version + 2 bytes length
-            var aad = new byte[13];
-            BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(0), _localEpoch);
-            aad[2] = (byte)(seq >> 40);
-            aad[3] = (byte)(seq >> 32);
-            aad[4] = (byte)(seq >> 24);
-            aad[5] = (byte)(seq >> 16);
-            aad[6] = (byte)(seq >> 8);
-            aad[7] = (byte)seq;
-            aad[8] = ContentTypeApplicationData;
-            BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(9), DtlsVersion12);
-            BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(11), (ushort)data.Length);
-
-            var ciphertext = new byte[data.Length];
-            var tag = new byte[16];
-            _localGcm.Encrypt(nonce, data, ciphertext, tag, aad);
-
-            // DTLS 1.2 record with explicit nonce (8 bytes) + ciphertext + tag
-            var payload = new byte[8 + ciphertext.Length + 16];
-            BinaryPrimitives.WriteUInt64BigEndian(payload.AsSpan(0), seq);
-            ciphertext.CopyTo(payload.AsSpan(8));
-            tag.CopyTo(payload.AsSpan(8 + ciphertext.Length));
-
-            SendRecord(ContentTypeApplicationData, payload);
+            SendRecord(ContentTypeApplicationData, data);
         }
-    }
-
-    private void ProcessApplicationDataRecord(ushort epoch, ReadOnlySpan<byte> payload)
-    {
-        if (State != "connected" || _remoteGcm is null || _remoteImplicitIv is null || epoch != 1)
-            return;
-
-        if (payload.Length < 8 + 16) return;
-        var explicitNonce = payload.Slice(0, 8);
-        var ciphertext = payload.Slice(8, payload.Length - 8 - 16);
-        var tag = payload[^16..];
-
-        var nonce = new byte[12];
-        _remoteImplicitIv.CopyTo(nonce.AsSpan(0, 4));
-        explicitNonce.CopyTo(nonce.AsSpan(4));
-
-        var seq = BinaryPrimitives.ReadUInt64BigEndian(explicitNonce);
-        var aad = new byte[13];
-        BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(0), epoch);
-        aad[2] = (byte)(seq >> 40);
-        aad[3] = (byte)(seq >> 32);
-        aad[4] = (byte)(seq >> 24);
-        aad[5] = (byte)(seq >> 16);
-        aad[6] = (byte)(seq >> 8);
-        aad[7] = (byte)seq;
-        aad[8] = ContentTypeApplicationData;
-        BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(9), DtlsVersion12);
-        BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(11), (ushort)ciphertext.Length);
-
-        var plaintext = new byte[ciphertext.Length];
-        try
-        {
-            _remoteGcm.Decrypt(nonce, ciphertext, tag, plaintext, aad);
-            OnApplicationDataReceived?.Invoke(plaintext);
-        }
-        catch (CryptographicException) { }
     }
 
     public void Close() => Dispose();
@@ -673,10 +592,8 @@ internal sealed class DtlsTransport : IDisposable
         _localCert.Dispose();
         _localEcdh.Dispose();
         _remoteSigningKey?.Dispose();
-        _localGcm?.Dispose();
         _handshakeWriter?.Dispose();
         _handshakeReader?.Dispose();
-        _remoteGcm?.Dispose();
         OnStateChanged?.Invoke("closed");
     }
 }
