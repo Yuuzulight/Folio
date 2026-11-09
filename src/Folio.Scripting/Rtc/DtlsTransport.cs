@@ -24,7 +24,7 @@ internal sealed class DtlsTransport : IDisposable
     private const byte HandshakeClientKeyExchange = 16;
     private const byte HandshakeFinished = 20;
 
-    private const ushort DtlsVersion12 = 0xFEFF;
+    private const ushort DtlsVersion12 = 0xFEFD;
 
     public string Fingerprint { get; }
     public string? RemoteFingerprint { get; set; }
@@ -39,6 +39,8 @@ internal sealed class DtlsTransport : IDisposable
     private readonly X509Certificate2 _localCert;
     private readonly ECDiffieHellman _localEcdh;
     private ECDsa? _remoteSigningKey;
+    private DtlsRecordCipher? _handshakeWriter;
+    private DtlsRecordCipher? _handshakeReader;
 
     private readonly byte[] _localRandom = new byte[32];
     private byte[]? _remoteRandom;
@@ -165,6 +167,12 @@ internal sealed class DtlsTransport : IDisposable
 
     private void SendRecord(byte contentType, byte[] payload)
     {
+        if (contentType == ContentTypeHandshake && _localEpoch == 1)
+        {
+            if (_handshakeWriter is null) throw new InvalidOperationException("DTLS handshake keys are unavailable.");
+            OnDatagramToSend?.Invoke(_handshakeWriter.Protect(contentType, _localEpoch, _localSequenceNumber++, payload));
+            return;
+        }
         var record = new byte[13 + payload.Length];
         record[0] = contentType;
         BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(1), DtlsVersion12);
@@ -195,13 +203,23 @@ internal sealed class DtlsTransport : IDisposable
             var epoch = BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(3));
             var length = BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(11));
 
-            if (datagram.Length < 13 + length) return;
+            if (version != DtlsVersion12 || datagram.Length != 13 + length) return;
             var payload = datagram.AsSpan(13, length);
 
             switch (contentType)
             {
                 case ContentTypeHandshake:
-                    ProcessHandshakeRecord(payload);
+                    if (epoch == 1)
+                    {
+                        if (_handshakeReader is not null && _handshakeReader.TryUnprotect(datagram, out var clear))
+                            ProcessHandshakeRecord(clear);
+                    }
+                    else if (epoch == 0 && State != "connected")
+                    {
+                        // Finished is never valid in the plaintext epoch.
+                        if (payload.Length >= 1 && payload[0] == HandshakeFinished) return;
+                        ProcessHandshakeRecord(payload);
+                    }
                     break;
                 case ContentTypeChangeCipherSpec:
                     // Change cipher spec received
@@ -505,6 +523,10 @@ internal sealed class DtlsTransport : IDisposable
             _remoteImplicitIv = clientWriteIv;
         }
 
+        _handshakeWriter?.Dispose(); _handshakeReader?.Dispose();
+        _handshakeWriter = new DtlsRecordCipher(IsClient ? clientWriteKey : serverWriteKey, IsClient ? clientWriteIv : serverWriteIv);
+        _handshakeReader = new DtlsRecordCipher(IsClient ? serverWriteKey : clientWriteKey, IsClient ? serverWriteIv : clientWriteIv);
+
         // RFC 5764 DTLS-SRTP Key Exporter:
         // Extract 2 * (16 + 14) = 60 bytes of key material
         var srtpSeed = new byte[64];
@@ -652,6 +674,8 @@ internal sealed class DtlsTransport : IDisposable
         _localEcdh.Dispose();
         _remoteSigningKey?.Dispose();
         _localGcm?.Dispose();
+        _handshakeWriter?.Dispose();
+        _handshakeReader?.Dispose();
         _remoteGcm?.Dispose();
         OnStateChanged?.Invoke("closed");
     }

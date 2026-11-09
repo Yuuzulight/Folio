@@ -48,3 +48,17 @@ wrong signing key, changed client/server randoms, changed point, corrupted or
 truncated signature and invalid point encoding. The focused group passes 13/13.
 Mutual client authentication, protected handshake records, transcript/state
 ordering and independent-peer interoperability still block release.
+
+## Protected handshake record repair
+
+Handshake records in epoch 1 now use AES-128-GCM and authenticated record
+headers. The wire version is corrected to FEFD. The reader rejects duplicate
+authenticated records with a 64-record sliding window, accepts valid reordered
+records within that window, and only advances it after authentication succeeds.
+Plaintext Finished records are rejected. Focused record/remote-RTC tests pass
+17/17 with zero skips; the project build has zero warnings/errors.
+
+This implements protected handshake record framing, not a complete DTLS
+handshake: flight/transcript/state ordering, mutual client authentication,
+fragment reassembly and retransmission remain required. Application-data
+readback still uses its older decryptor and needs the same replay protection.
