@@ -69,3 +69,20 @@ verifies corruption rejection, duplicate rejection, shared handshake/application
 sequence space, and outgoing encrypted data. It supplies keys directly and must
 not be counted as handshake interoperability evidence. Focused tests pass 18/18
 and the project build has zero warnings/errors.
+
+## Handshake ordering repair
+
+The server now waits for the client's authenticated Finished before sending its
+final flight. The authenticated client Finished enters the transcript used to
+verify the server Finished. Incoming handshake sequence numbers and complete
+fragment lengths are checked, and Finished requires receipt of ChangeCipherSpec.
+Key expansion consistently uses server-random then client-random; SRTP export
+consistently uses client-random then server-random for both roles.
+
+A queued Folio-to-Folio datagram test now completes a server-pinned handshake,
+checks matching directional SRTP keys, delivers encrypted application data, and
+rejects duplicate delivery. Corrupting the client's encrypted Finished leaves
+both transports unconnected and application sends refused. The focused group
+passes 20/20. This is same-implementation evidence; mutual client authentication,
+independent-peer interoperability, fragmentation/retransmission and public API
+wiring remain required before release.

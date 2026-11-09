@@ -7,6 +7,54 @@ namespace Folio.Scripting.Tests;
 
 public sealed class RemoteWebRtcTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PinnedServerHandshakeExchangesEncryptedApplicationData(bool corruptClientFinished)
+    {
+        using var client = new DtlsTransport();
+        using var server = new DtlsTransport { IsClient = false };
+        client.RemoteFingerprint = server.Fingerprint;
+        server.RemoteFingerprint = client.Fingerprint;
+        var pending = new Queue<(DtlsTransport Target, byte[] Record)>();
+        client.OnDatagramToSend += bytes =>
+        {
+            if (corruptClientFinished && bytes[0] == 22 && bytes[4] == 1)
+                bytes[^1] ^= 1;
+            pending.Enqueue((server, bytes));
+        };
+        server.OnDatagramToSend += bytes => pending.Enqueue((client, bytes));
+        void Drain()
+        {
+            var count = 0;
+            while (pending.TryDequeue(out var message))
+            {
+                Assert.True(++count < 100);
+                message.Target.ProcessIncomingDatagram(message.Record);
+            }
+        }
+        server.StartHandshake(); client.StartHandshake(); Drain();
+        if (corruptClientFinished)
+        {
+            Assert.Equal("connecting", client.State);
+            Assert.Equal("connecting", server.State);
+            Assert.Throws<InvalidOperationException>(() => client.SendApplicationData([1]));
+            Assert.Throws<InvalidOperationException>(() => server.SendApplicationData([1]));
+            return;
+        }
+        Assert.Equal("connected", client.State);
+        Assert.Equal("connected", server.State);
+        Assert.Equal(client.SrtpLocalMasterKey, server.SrtpRemoteMasterKey);
+        Assert.Equal(client.SrtpRemoteMasterKey, server.SrtpLocalMasterKey);
+        var received = new List<byte[]>();
+        server.OnApplicationDataReceived += received.Add;
+        client.SendApplicationData([1, 2, 3]);
+        var applicationRecord = pending.Peek().Record;
+        Drain(); server.ProcessIncomingDatagram(applicationRecord);
+        Assert.Single(received);
+        Assert.Equal(new byte[] { 1, 2, 3 }, received[0]);
+    }
+
     [Fact]
     public void ServerKeyExchangeAuthenticatesParametersAndBothRandoms()
     {

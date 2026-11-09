@@ -55,6 +55,8 @@ internal sealed class DtlsTransport : IDisposable
     private ushort _localEpoch = 0;
     private ulong _localSequenceNumber = 0;
     private ushort _handshakeSeq = 0;
+    private ushort _nextRemoteHandshake;
+    private bool _remoteCipherSpec;
 
     private readonly List<byte> _handshakeMessages = [];
     private readonly object _gate = new();
@@ -218,7 +220,8 @@ internal sealed class DtlsTransport : IDisposable
                     }
                     break;
                 case ContentTypeChangeCipherSpec:
-                    // Change cipher spec received
+                    if (epoch == 0 && _masterSecret is not null && payload.SequenceEqual(new byte[] { 1 }))
+                        _remoteCipherSpec = true;
                     break;
                 case ContentTypeApplicationData:
                     if (State == "connected" && epoch == 1 && _handshakeReader is not null &&
@@ -239,16 +242,29 @@ internal sealed class DtlsTransport : IDisposable
             var fragOffset = (payload[6] << 16) | (payload[7] << 8) | payload[8];
             var fragLength = (payload[9] << 16) | (payload[10] << 8) | payload[11];
 
-            if (payload.Length < 12 + fragLength) break;
+            if (fragOffset != 0 || fragLength != length || payload.Length < 12 + fragLength ||
+                msgSeq != _nextRemoteHandshake) return;
             var body = payload.Slice(12, fragLength);
 
             // Finished authenticates the preceding transcript, not itself.
             if (type == HandshakeFinished)
             {
-                HandleFinished(body);
+                if (!_remoteCipherSpec || !VerifyFinished(body)) return;
+                _nextRemoteHandshake++;
+                _handshakeMessages.AddRange(payload.Slice(0, 12 + fragLength).ToArray());
+                if (!IsClient)
+                {
+                    SendRecord(ContentTypeChangeCipherSpec, [1]);
+                    _localEpoch = 1;
+                    _localSequenceNumber = 0;
+                    SendHandshakeMessage(HandshakeFinished, ComputeVerifyData("server finished"));
+                }
+                State = "connected";
+                OnStateChanged?.Invoke(State);
                 payload = payload[(12 + fragLength)..];
                 continue;
             }
+            _nextRemoteHandshake++;
             _handshakeMessages.AddRange(payload.Slice(0, 12 + fragLength).ToArray());
 
             switch (type)
@@ -414,24 +430,16 @@ internal sealed class DtlsTransport : IDisposable
 
         DeriveKeys(preMasterSecret);
 
-        // Server sends ChangeCipherSpec, Finished
-        SendRecord(ContentTypeChangeCipherSpec, [1]);
-        _localEpoch = 1;
-        _localSequenceNumber = 0;
-
-        var verifyData = ComputeVerifyData("server finished");
-        SendHandshakeMessage(HandshakeFinished, verifyData);
+        // The server waits for the client's authenticated Finished before
+        // sending its own final flight.
     }
 
-    private void HandleFinished(ReadOnlySpan<byte> verifyData)
+    private bool VerifyFinished(ReadOnlySpan<byte> verifyData)
     {
         if (State != "connecting" || _masterSecret is null || verifyData.Length != 12)
-            return;
+            return false;
         var expected = ComputeVerifyData(IsClient ? "server finished" : "client finished");
-        if (!CryptographicOperations.FixedTimeEquals(expected, verifyData))
-            return;
-        State = "connected";
-        OnStateChanged?.Invoke(State);
+        return CryptographicOperations.FixedTimeEquals(expected, verifyData);
     }
 
     // RFC 8422: ECPoint is an uncompressed curve point, not a DER SPKI blob.
@@ -497,8 +505,8 @@ internal sealed class DtlsTransport : IDisposable
 
         // Key expansion
         var keyBlockSeed = new byte[64];
-        _remoteRandom!.CopyTo(keyBlockSeed.AsSpan(0, 32));
-        _localRandom.CopyTo(keyBlockSeed.AsSpan(32, 32));
+        (IsClient ? _remoteRandom! : _localRandom).CopyTo(keyBlockSeed.AsSpan(0, 32));
+        (IsClient ? _localRandom : _remoteRandom!).CopyTo(keyBlockSeed.AsSpan(32, 32));
         var keyBlock = Prf(_masterSecret, "key expansion"u8, keyBlockSeed, 40);
 
         var clientWriteKey = keyBlock[0..16];
@@ -513,8 +521,8 @@ internal sealed class DtlsTransport : IDisposable
         // RFC 5764 DTLS-SRTP Key Exporter:
         // Extract 2 * (16 + 14) = 60 bytes of key material
         var srtpSeed = new byte[64];
-        _localRandom.CopyTo(srtpSeed.AsSpan(0, 32));
-        _remoteRandom!.CopyTo(srtpSeed.AsSpan(32, 32));
+        (IsClient ? _localRandom : _remoteRandom!).CopyTo(srtpSeed.AsSpan(0, 32));
+        (IsClient ? _remoteRandom! : _localRandom).CopyTo(srtpSeed.AsSpan(32, 32));
         var srtpBlock = Prf(_masterSecret, "EXTRACTOR-dtls_srtp"u8, srtpSeed, 60);
 
         if (IsClient)
