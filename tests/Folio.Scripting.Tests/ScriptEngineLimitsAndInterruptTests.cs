@@ -102,6 +102,9 @@ public class ScriptEngineLimitsAndInterruptTests
                 Limits = new ScriptLimits
                 {
                     Timeout = TimeSpan.FromSeconds(10), // long enough that only interrupt ends it
+                    MaxStatements = null,
+                    MaxRecursionDepth = null,
+                    MemoryLimitBytes = null,
                 }
             });
 
