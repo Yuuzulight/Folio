@@ -113,6 +113,36 @@ public sealed class WorkerIsolationAcceptanceTests
         fixture.AssertReleased(worker);
         fixture.AssertReplacementReplies();
     }
+
+    [Fact]
+    public async Task SynchronouslyBlockingLoaderDoesNotHangWorkerStartupWhenTerminatedOrCancelled()
+    {
+        var blockingLoader = new BlockingResourceLoader();
+        var fixture = new WorkerIsolationFixture("native", maxWorkers: 1, loader: blockingLoader);
+        var sw = Stopwatch.StartNew();
+        var workerTask = Task.Run(() =>
+        {
+            try { fixture.Engine.Evaluate("var worker = new Worker('https://blocked.example/script.js');"); }
+            catch { }
+        }, TestContext.Current.CancellationToken);
+        Assert.True(blockingLoader.Entered.Wait(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken), "Loader was not entered");
+        fixture.Dispose();
+        await workerTask.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), "Synchronous blocking loader hung worker startup/termination");
+    }
+
+    private sealed class BlockingResourceLoader : Folio.Resources.IResourceLoader
+    {
+        public ManualResetEventSlim Entered { get; } = new();
+
+        public Task<Folio.Resources.ResourceResponse?> LoadAsync(Folio.Resources.ResourceRequest request, CancellationToken cancellationToken)
+        {
+            Entered.Set();
+            // Block synchronously before returning task unless cancellation is requested
+            cancellationToken.WaitHandle.WaitOne(5000);
+            return Task.FromResult<Folio.Resources.ResourceResponse?>(null);
+        }
+    }
 }
 
 /// <summary>
@@ -296,13 +326,14 @@ internal sealed class WorkerIsolationFixture : IDisposable
     private readonly Document _document;
     private readonly HtmlEventLoop _loop;
 
-    internal WorkerIsolationFixture(string implementation, int maxWorkers = 2)
+    internal WorkerIsolationFixture(string implementation, int maxWorkers = 2, Folio.Resources.IResourceLoader? loader = null)
     {
         Engine = implementation == "native" ? new NativeJavaScriptEngine() : new JintScriptEngine();
         _document = Document.Parse("<p>worker isolation</p>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { Workers = true },
-            Limits = Limits with { MaxWorkers = maxWorkers, MaxAggregateWorkerMemoryBytes = maxWorkers * Limits.MaxWorkerMemoryBytes }
+            Limits = Limits with { MaxWorkers = maxWorkers, MaxAggregateWorkerMemoryBytes = maxWorkers * Limits.MaxWorkerMemoryBytes },
+            ResourceLoader = loader
         });
         _loop = new HtmlEventLoop(Engine);
         DomBindings.Install(Engine, _document, eventLoop: _loop);
