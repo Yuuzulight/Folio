@@ -1,3 +1,4 @@
+#if WINDOWS
 using Folio;
 using Folio.WinForms;
 
@@ -83,3 +84,4 @@ public sealed class SharedMediaAudioRouterTests
         public void Stop() => LifecycleCalls.Add("Stop");
     }
 }
+#endif
