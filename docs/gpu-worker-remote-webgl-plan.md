@@ -187,4 +187,4 @@ Production WebGL still runs in the document process until stage 5 lands and pass
      reports unavailable when the worker is on. D8 6/6 through real workers; WinForms view tests 39/39
      and render canvas/fallback tests 122/122 with the worker on. CI now runs the WebGL classes (394
      tests) and D8 through real workers.
-   The worker stays opt-in (`FOLIO_GPU_WORKER=1`) until Yuuzulight decides to route WebGL to it.
+   The GPU worker is enabled by default whenever WebGL is granted (`FOLIO_GPU_WORKER=0` acts as a kill switch; direct mode remains the fallback).

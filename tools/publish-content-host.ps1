@@ -54,7 +54,12 @@ try {
     })
     if ($sidecars.Count) { throw "Standalone native publish contains runtime/engine sidecars: $($sidecars.Name -join ', ')" }
 
-    Add-Type -AssemblyName System.Reflection.Metadata
+    if ($PSVersionTable.PSEdition -eq 'Core') {
+        Add-Type -AssemblyName System.Reflection.Metadata
+    } else {
+        $metaPath = (Get-ChildItem -Path "$env:ProgramFiles\dotnet\sdk" -Filter "System.Reflection.Metadata.dll" -Recurse | Where-Object { $_.FullName -like "*net472*" } | Select-Object -First 1).FullName
+        if ($metaPath) { [System.Reflection.Assembly]::LoadFrom($metaPath) | Out-Null }
+    }
     $stream = [IO.File]::OpenRead($executable)
     $reader = [System.Reflection.PortableExecutable.PEReader]::new($stream)
     try {
@@ -64,8 +69,14 @@ try {
     } finally { $reader.Dispose(); $stream.Dispose() }
 
     $assetsPath = Join-Path $buildDirectory 'obj/Folio.ContentHost/project.assets.json'
-    $assets = Get-Content -LiteralPath $assetsPath -Raw | ConvertFrom-Json -AsHashtable
-    $compilerPackages = @($assets.libraries.Keys | Where-Object { $_ -match '(^|\.)Microsoft\.DotNet\.ILCompiler/' })
+    $rawAssets = Get-Content -LiteralPath $assetsPath -Raw
+    $compilerPackages = @(
+        if ($PSVersionTable.PSEdition -eq 'Core') {
+            (ConvertFrom-Json $rawAssets -AsHashtable).libraries.Keys | Where-Object { $_ -match '(^|\.)Microsoft\.DotNet\.ILCompiler/' }
+        } else {
+            (ConvertFrom-Json $rawAssets).libraries.PSObject.Properties.Name | Where-Object { $_ -match '(^|\.)Microsoft\.DotNet\.ILCompiler/' }
+        }
+    )
     if ($compilerPackages.Count -lt 2) { throw 'Native compiler package provenance is incomplete.' }
     foreach ($package in $compilerPackages) {
         if ([version]($package.Split('/')[-1]) -lt [version]'10.0.14') { throw "Unpatched native runtime/compiler: $package" }

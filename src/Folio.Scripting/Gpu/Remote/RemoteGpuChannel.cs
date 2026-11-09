@@ -42,7 +42,7 @@ internal sealed class RemoteGpuChannel : IDisposable
     }
 
     /// <summary>A document GPU device backed by the shared session. Disposing it leaves the session open.</summary>
-    internal Func<long, GpuDeviceResult> DocumentDeviceFactory => _ => new(new RemoteGpuDevice(Session), null);
+    internal Func<long, GpuDeviceResult> DocumentDeviceFactory => maxBytes => new(new RemoteGpuDevice(Session, maxBytes), null);
 
     private static long Handle(JsonElement channel, string name)
     {
@@ -78,20 +78,34 @@ internal sealed class RemoteGpuChannel : IDisposable
         }
     }
 
-    private sealed class RemoteGpuDevice(GpuWebGlSession session) : IGpuDevice, INativeWebGlFactory
+    private sealed class RemoteGpuDevice(GpuWebGlSession session, long maxBytes) : IGpuDevice, INativeWebGlFactory
     {
         private int _disposed;
+        private IGpuDevice? _surfaceDevice;
         // What the worker's device reported; unknown (Unavailable) until the worker has answered once.
-        public GpuRendererKind RendererKind => session.IsLost ? GpuRendererKind.Unavailable : session.RendererKind ?? GpuRendererKind.Unavailable;
-        public string RendererIdentity => $"Folio GPU worker ({RendererKind})";
-        public long ReservedBytes { get { session.Synchronize(); return session.ReservedBytes; } }
-        public long PeakReservedBytes { get { session.Synchronize(); return session.PeakReservedBytes; } }
+        public GpuRendererKind RendererKind => _surfaceDevice?.RendererKind ?? (session.IsLost ? GpuRendererKind.Unavailable : session.RendererKind ?? GpuRendererKind.Unavailable);
+        public string RendererIdentity => _surfaceDevice?.RendererIdentity ?? $"Folio GPU worker ({RendererKind})";
+        public long ReservedBytes { get { session.Synchronize(); return session.ReservedBytes + (_surfaceDevice?.ReservedBytes ?? 0); } }
+        public long PeakReservedBytes { get { session.Synchronize(); return session.PeakReservedBytes + (_surfaceDevice?.PeakReservedBytes ?? 0); } }
         public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
-        // Canvas surface clears are not routed through the worker; callers already handle this failure.
-        public GpuSurfaceResult TryCreateSurface(int width, int height) =>
-            new(null, new GpuFailure(GpuFailureKind.Unavailable, "GPU surfaces are not available through the GPU worker."));
+        // The host-only GPU canvas clear (ClearNativeCanvas) does not go through the worker.
+        public GpuSurfaceResult TryCreateSurface(int width, int height)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                _surfaceDevice ??= FolioGpuBackend.TryCreate(maxBytes).Device;
+                if (_surfaceDevice is not null) return _surfaceDevice.TryCreateSurface(width, height);
+            }
+            return new(null, new GpuFailure(GpuFailureKind.Unavailable, "GPU surfaces are not available through the GPU worker."));
+        }
+
+
         public bool TryCreate(WebGlContextOptions options, out INativeWebGlContext? context, out GpuFailure? failure) =>
             session.TryCreate(options, out context, out failure);
-        public void Dispose() => Volatile.Write(ref _disposed, 1);
+        public void Dispose()
+        {
+            Volatile.Write(ref _disposed, 1);
+            _surfaceDevice?.Dispose();
+        }
     }
 }
