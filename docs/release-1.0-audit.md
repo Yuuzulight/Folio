@@ -99,3 +99,18 @@ CertificateVerify signature prevents connection. This currently accepts the
 specific supported ECDSA request shape; general extension negotiation and
 independent-peer interoperability remain unqualified. Public API wiring and
 fragmentation/retransmission still block 1.0.
+
+## Bounded handshake fragment reassembly
+
+Handshake fragments are now buffered by message sequence, reassembled before
+transcript processing, and consumed in sequence order. Overlaps must contain
+identical bytes; conflicting headers/overlaps and malformed ranges are rejected.
+Payload and coverage storage is charged against a 256 KiB aggregate cap, with
+at most 16 pending messages. Accepted-message retransmissions are ignored.
+
+The queued mutual-handshake test now also splits the server certificate and
+delivers its fragments in reverse order, then verifies encrypted application
+delivery. Reassembly tests cover agreeing/conflicting overlap and allocation/
+message-count refusal. The focused RTC selection passes 36/36 with zero skips;
+build has zero warnings/errors. Flight retransmission, broader peer negotiation,
+independent interoperability and public API wiring still block release.

@@ -8,10 +8,11 @@ namespace Folio.Scripting.Tests;
 public sealed class RemoteWebRtcTests
 {
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public void PinnedServerHandshakeExchangesEncryptedApplicationData(bool corruptClientFinished, bool corruptClientProof)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    public void PinnedServerHandshakeExchangesEncryptedApplicationData(bool corruptClientFinished, bool corruptClientProof, bool fragmentCertificate)
     {
         using var client = new DtlsTransport();
         using var server = new DtlsTransport { IsClient = false };
@@ -26,7 +27,24 @@ public sealed class RemoteWebRtcTests
                 bytes[^1] ^= 1;
             pending.Enqueue((server, bytes));
         };
-        server.OnDatagramToSend += bytes => pending.Enqueue((client, bytes));
+        server.OnDatagramToSend += bytes =>
+        {
+            if (!fragmentCertificate || bytes[0] != 22 || bytes[4] != 0 || bytes[13] != 11)
+            { pending.Enqueue((client, bytes)); return; }
+            var length = bytes.Length - 25;
+            var split = length / 2;
+            // Deliver the second certificate fragment first.
+            foreach (var (offset, count) in new[] { (split, length - split), (0, split) })
+            {
+                var fragment = new byte[25 + count];
+                Array.Copy(bytes, fragment, 25);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(fragment.AsSpan(11), (ushort)(12 + count));
+                fragment[19] = (byte)(offset >> 16); fragment[20] = (byte)(offset >> 8); fragment[21] = (byte)offset;
+                fragment[22] = (byte)(count >> 16); fragment[23] = (byte)(count >> 8); fragment[24] = (byte)count;
+                Array.Copy(bytes, 25 + offset, fragment, 25, count);
+                pending.Enqueue((client, fragment));
+            }
+        };
         void Drain()
         {
             var count = 0;

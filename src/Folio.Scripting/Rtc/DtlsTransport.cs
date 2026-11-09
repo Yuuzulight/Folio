@@ -58,6 +58,7 @@ internal sealed class DtlsTransport : IDisposable
     private ulong _localSequenceNumber = 0;
     private ushort _handshakeSeq = 0;
     private ushort _nextRemoteHandshake;
+    private readonly DtlsHandshakeFragments _fragments = new();
     private bool _remoteCipherSpec;
     private bool _clientCertificateRequested;
     private bool _peerCertificateProof;
@@ -214,7 +215,7 @@ internal sealed class DtlsTransport : IDisposable
                     if (epoch == 1)
                     {
                         if (_handshakeReader is not null && _handshakeReader.TryUnprotect(datagram, out var clear))
-                            ProcessHandshakeRecord(clear);
+                            ProcessHandshakeRecord(clear, protectedRecord: true);
                     }
                     else if (epoch == 0 && State != "connected")
                     {
@@ -236,7 +237,26 @@ internal sealed class DtlsTransport : IDisposable
         }
     }
 
-    private void ProcessHandshakeRecord(ReadOnlySpan<byte> payload)
+    private void ProcessHandshakeRecord(ReadOnlySpan<byte> payload, bool protectedRecord = false)
+    {
+        while (!payload.IsEmpty)
+        {
+            if (payload.Length < 12) throw new CryptographicException("Truncated DTLS handshake header.");
+            if (payload[0] == HandshakeFinished && !protectedRecord) return;
+            var count = DtlsHandshakeFragments.Read24(payload[9..]);
+            if (count > payload.Length - 12) throw new CryptographicException("Truncated DTLS handshake fragment.");
+            _fragments.Add(payload[..(12 + count)], _nextRemoteHandshake);
+            payload = payload[(12 + count)..];
+            while (_fragments.TryTake(_nextRemoteHandshake, out var complete))
+            {
+                var previous = _nextRemoteHandshake;
+                ProcessCompleteHandshake(complete);
+                if (_nextRemoteHandshake == previous) break;
+            }
+        }
+    }
+
+    private void ProcessCompleteHandshake(ReadOnlySpan<byte> payload)
     {
         while (payload.Length >= 12)
         {
