@@ -8,9 +8,10 @@ namespace Folio.Scripting.Tests;
 public sealed class RemoteWebRtcTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void PinnedServerHandshakeExchangesEncryptedApplicationData(bool corruptClientFinished)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void PinnedServerHandshakeExchangesEncryptedApplicationData(bool corruptClientFinished, bool corruptClientProof)
     {
         using var client = new DtlsTransport();
         using var server = new DtlsTransport { IsClient = false };
@@ -20,6 +21,8 @@ public sealed class RemoteWebRtcTests
         client.OnDatagramToSend += bytes =>
         {
             if (corruptClientFinished && bytes[0] == 22 && bytes[4] == 1)
+                bytes[^1] ^= 1;
+            if (corruptClientProof && bytes[0] == 22 && bytes[4] == 0 && bytes[13] == 15)
                 bytes[^1] ^= 1;
             pending.Enqueue((server, bytes));
         };
@@ -33,7 +36,15 @@ public sealed class RemoteWebRtcTests
                 message.Target.ProcessIncomingDatagram(message.Record);
             }
         }
-        server.StartHandshake(); client.StartHandshake(); Drain();
+        server.StartHandshake(); client.StartHandshake();
+        if (corruptClientProof)
+        {
+            Assert.Throws<CryptographicException>(Drain);
+            Assert.NotEqual("connected", client.State);
+            Assert.NotEqual("connected", server.State);
+            return;
+        }
+        Drain();
         if (corruptClientFinished)
         {
             Assert.Equal("connecting", client.State);

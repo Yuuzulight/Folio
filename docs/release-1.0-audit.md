@@ -86,3 +86,16 @@ both transports unconnected and application sends refused. The focused group
 passes 20/20. This is same-implementation evidence; mutual client authentication,
 independent-peer interoperability, fragmentation/retransmission and public API
 wiring remain required before release.
+
+## Mutual client certificate repair
+
+The server now requests an ECDSA/SHA-256 client certificate. The client sends
+its certificate and a CertificateVerify signature over the preceding transcript.
+The server pins that certificate to the expected SDP fingerprint, verifies the
+signature, and requires this proof before accepting Finished. The client also
+requires the server's signed key-exchange proof before sending its final flight.
+The queued handshake regression passes with mutual proof; corrupting the client
+CertificateVerify signature prevents connection. This currently accepts the
+specific supported ECDSA request shape; general extension negotiation and
+independent-peer interoperability remain unqualified. Public API wiring and
+fragmentation/retransmission still block 1.0.

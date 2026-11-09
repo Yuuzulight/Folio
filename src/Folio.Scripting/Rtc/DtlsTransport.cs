@@ -20,6 +20,8 @@ internal sealed class DtlsTransport : IDisposable
     private const byte HandshakeServerHello = 2;
     private const byte HandshakeCertificate = 11;
     private const byte HandshakeServerKeyExchange = 12;
+    private const byte HandshakeCertificateRequest = 13;
+    private const byte HandshakeCertificateVerify = 15;
     private const byte HandshakeServerHelloDone = 14;
     private const byte HandshakeClientKeyExchange = 16;
     private const byte HandshakeFinished = 20;
@@ -57,6 +59,8 @@ internal sealed class DtlsTransport : IDisposable
     private ushort _handshakeSeq = 0;
     private ushort _nextRemoteHandshake;
     private bool _remoteCipherSpec;
+    private bool _clientCertificateRequested;
+    private bool _peerCertificateProof;
 
     private readonly List<byte> _handshakeMessages = [];
     private readonly object _gate = new();
@@ -246,6 +250,17 @@ internal sealed class DtlsTransport : IDisposable
                 msgSeq != _nextRemoteHandshake) return;
             var body = payload.Slice(12, fragLength);
 
+            if (type == HandshakeCertificateVerify)
+            {
+                if (IsClient || _remoteSigningKey is null || _masterSecret is null ||
+                    body.Length < 4 || body[0] != 4 || body[1] != 3 ||
+                    BinaryPrimitives.ReadUInt16BigEndian(body[2..]) != body.Length - 4 ||
+                    !_remoteSigningKey.VerifyData(_handshakeMessages.ToArray(), body[4..],
+                        HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
+                    throw new CryptographicException("DTLS client certificate proof is invalid.");
+                _peerCertificateProof = true;
+            }
+
             // Finished authenticates the preceding transcript, not itself.
             if (type == HandshakeFinished)
             {
@@ -280,6 +295,11 @@ internal sealed class DtlsTransport : IDisposable
                     break;
                 case HandshakeServerKeyExchange:
                     HandleServerKeyExchange(body);
+                    break;
+                case HandshakeCertificateRequest:
+                    if (!IsClient || !body.SequenceEqual(new byte[] { 1, 64, 0, 2, 4, 3, 0, 0 }))
+                        throw new CryptographicException("Unsupported DTLS client certificate request.");
+                    _clientCertificateRequested = true;
                     break;
                 case HandshakeServerHelloDone:
                     HandleServerHelloDone();
@@ -354,6 +374,8 @@ internal sealed class DtlsTransport : IDisposable
         skeMs.Write(signature);
 
         SendHandshakeMessage(HandshakeServerKeyExchange, skeMs.ToArray());
+        // TLS 1.2 CertificateRequest: ECDSA signing, SHA-256/ECDSA, no CA list.
+        SendHandshakeMessage(HandshakeCertificateRequest, [1, 64, 0, 2, 4, 3, 0, 0]);
         SendHandshakeMessage(HandshakeServerHelloDone, []);
     }
 
@@ -394,6 +416,7 @@ internal sealed class DtlsTransport : IDisposable
         if (_remoteSigningKey is null || _remoteRandom is null)
             throw new CryptographicException("DTLS server key exchange requires a pinned certificate and server random.");
         using var peerEcdh = VerifyServerKeyExchange(body, _remoteSigningKey, _localRandom, _remoteRandom);
+        _peerCertificateProof = true;
         var preMasterSecret = _localEcdh.DeriveRawSecretAgreement(peerEcdh.PublicKey);
 
         DeriveKeys(preMasterSecret);
@@ -401,12 +424,27 @@ internal sealed class DtlsTransport : IDisposable
 
     private void HandleServerHelloDone()
     {
-        // Client responds with ClientKeyExchange, ChangeCipherSpec, Finished
+        if (!_clientCertificateRequested || !_peerCertificateProof)
+            throw new CryptographicException("DTLS requires mutual certificate authentication.");
+        var certificate = _localCert.RawData;
+        var certificateBody = new byte[6 + certificate.Length];
+        var listLength = certificate.Length + 3;
+        certificateBody[0] = (byte)(listLength >> 16); certificateBody[1] = (byte)(listLength >> 8); certificateBody[2] = (byte)listLength;
+        certificateBody[3] = (byte)(certificate.Length >> 16); certificateBody[4] = (byte)(certificate.Length >> 8); certificateBody[5] = (byte)certificate.Length;
+        certificate.CopyTo(certificateBody, 6);
+        SendHandshakeMessage(HandshakeCertificate, certificateBody);
         var ecdhPub = ExportKeyExchangePoint(_localEcdh);
         using var ckeMs = new MemoryStream();
         ckeMs.WriteByte((byte)ecdhPub.Length);
         ckeMs.Write(ecdhPub);
         SendHandshakeMessage(HandshakeClientKeyExchange, ckeMs.ToArray());
+
+        var signature = _localEcdsa.SignData(_handshakeMessages.ToArray(), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        var proof = new byte[4 + signature.Length];
+        proof[0] = 4; proof[1] = 3;
+        BinaryPrimitives.WriteUInt16BigEndian(proof.AsSpan(2), (ushort)signature.Length);
+        signature.CopyTo(proof, 4);
+        SendHandshakeMessage(HandshakeCertificateVerify, proof);
 
         // Send ChangeCipherSpec
         SendRecord(ContentTypeChangeCipherSpec, [1]);
@@ -436,7 +474,7 @@ internal sealed class DtlsTransport : IDisposable
 
     private bool VerifyFinished(ReadOnlySpan<byte> verifyData)
     {
-        if (State != "connecting" || _masterSecret is null || verifyData.Length != 12)
+        if (State != "connecting" || !_peerCertificateProof || _masterSecret is null || verifyData.Length != 12)
             return false;
         var expected = ComputeVerifyData(IsClient ? "server finished" : "client finished");
         return CryptographicOperations.FixedTimeEquals(expected, verifyData);
