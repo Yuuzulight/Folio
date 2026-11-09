@@ -7,6 +7,52 @@ namespace Folio.Scripting.Tests;
 
 public sealed class RemoteWebRtcTests
 {
+    [Fact]
+    public void ServerKeyExchangeAuthenticatesParametersAndBothRandoms()
+    {
+        using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var exchange = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        var clientRandom = RandomNumberGenerator.GetBytes(32);
+        var serverRandom = RandomNumberGenerator.GetBytes(32);
+        var body = SignedExchange(signer, exchange, clientRandom, serverRandom);
+        using var peer = DtlsTransport.VerifyServerKeyExchange(body, signer, clientRandom, serverRandom);
+        Assert.Equal(exchange.ExportParameters(false).Q.X, peer.ExportParameters(false).Q.X);
+        using var otherKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        Assert.Throws<CryptographicException>(() => DtlsTransport.VerifyServerKeyExchange(body, otherKey, clientRandom, serverRandom));
+        clientRandom[0] ^= 1;
+        Assert.Throws<CryptographicException>(() => DtlsTransport.VerifyServerKeyExchange(body, signer, clientRandom, serverRandom));
+        clientRandom[0] ^= 1;
+        serverRandom[0] ^= 1;
+        Assert.Throws<CryptographicException>(() => DtlsTransport.VerifyServerKeyExchange(body, signer, clientRandom, serverRandom));
+        serverRandom[0] ^= 1;
+        body[20] ^= 1;
+        Assert.Throws<CryptographicException>(() => DtlsTransport.VerifyServerKeyExchange(body, signer, clientRandom, serverRandom));
+    }
+
+    [Fact]
+    public void ServerKeyExchangeRejectsMalformedSignatureAndPoint()
+    {
+        using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var exchange = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        var random = new byte[32];
+        var body = SignedExchange(signer, exchange, random, random);
+        body[^1] ^= 1;
+        Assert.Throws<CryptographicException>(() => DtlsTransport.VerifyServerKeyExchange(body, signer, random, random));
+        Assert.Throws<CryptographicException>(() => DtlsTransport.VerifyServerKeyExchange(body[..^1], signer, random, random));
+        Assert.Throws<CryptographicException>(() => DtlsTransport.ImportKeyExchangePoint(exchange.ExportSubjectPublicKeyInfo()));
+        Assert.Throws<CryptographicException>(() => DtlsTransport.ImportKeyExchangePoint(new byte[65]));
+    }
+
+    private static byte[] SignedExchange(ECDsa signer, ECDiffieHellman exchange, byte[] clientRandom, byte[] serverRandom)
+    {
+        var parameters = new byte[69];
+        parameters[0] = 3; parameters[2] = 23; parameters[3] = 65;
+        DtlsTransport.ExportKeyExchangePoint(exchange).CopyTo(parameters, 4);
+        var signed = clientRandom.Concat(serverRandom).Concat(parameters).ToArray();
+        var signature = signer.SignData(signed, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        return parameters.Concat(new byte[] { 4, 3, (byte)(signature.Length >> 8), (byte)signature.Length }).Concat(signature).ToArray();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

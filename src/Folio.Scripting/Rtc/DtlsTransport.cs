@@ -38,6 +38,7 @@ internal sealed class DtlsTransport : IDisposable
     private readonly ECDsa _localEcdsa;
     private readonly X509Certificate2 _localCert;
     private readonly ECDiffieHellman _localEcdh;
+    private ECDsa? _remoteSigningKey;
 
     private readonly byte[] _localRandom = new byte[32];
     private byte[]? _remoteRandom;
@@ -99,7 +100,6 @@ internal sealed class DtlsTransport : IDisposable
 
     private void SendClientHello()
     {
-        var ecdhPub = _localEcdh.ExportSubjectPublicKeyInfo();
         using var ms = new MemoryStream();
 
         // ClientHello body
@@ -302,7 +302,7 @@ internal sealed class DtlsTransport : IDisposable
         SendHandshakeMessage(HandshakeCertificate, certMs.ToArray());
 
         // Send ServerKeyExchange (ECDH pubkey + signature)
-        var ecdhPub = _localEcdh.ExportSubjectPublicKeyInfo();
+        var ecdhPub = ExportKeyExchangePoint(_localEcdh);
         using var skeMs = new MemoryStream();
         skeMs.WriteByte(3); // named_curve
         skeMs.WriteByte(0x00); skeMs.WriteByte(0x17); // secp256r1
@@ -314,7 +314,7 @@ internal sealed class DtlsTransport : IDisposable
         sigParams.Write(_remoteRandom!);
         sigParams.Write(_localRandom);
         sigParams.Write(skeMs.ToArray());
-        var signature = _localEcdsa.SignData(sigParams.ToArray(), HashAlgorithmName.SHA256);
+        var signature = _localEcdsa.SignData(sigParams.ToArray(), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
 
         skeMs.WriteByte(0x04); skeMs.WriteByte(0x03); // ecdsa_secp256r1_sha256
         skeMs.WriteByte((byte)(signature.Length >> 8));
@@ -337,7 +337,7 @@ internal sealed class DtlsTransport : IDisposable
         var certLen = (body[3] << 16) | (body[4] << 8) | body[5];
         if (body.Length < 6 + certLen) return;
         var certBytes = body.Slice(6, certLen).ToArray();
-        var cert = X509CertificateLoader.LoadCertificate(certBytes);
+        using var cert = X509CertificateLoader.LoadCertificate(certBytes);
 
         var certHash = SHA256.HashData(cert.RawData);
         var sb = new StringBuilder();
@@ -348,25 +348,21 @@ internal sealed class DtlsTransport : IDisposable
         }
         var computedFingerprint = sb.ToString();
 
-        // Verify fingerprint against expected RemoteFingerprint if set
-        if (!string.IsNullOrEmpty(RemoteFingerprint))
-        {
-            var expected = RemoteFingerprint.Trim().Replace(" ", "");
-            if (!string.Equals(computedFingerprint, expected, StringComparison.OrdinalIgnoreCase))
-                throw new CryptographicException("DTLS remote certificate fingerprint mismatch.");
-        }
+        var expected = RemoteFingerprint?.Trim().Replace(" ", "");
+        if (string.IsNullOrEmpty(expected) || !string.Equals(computedFingerprint, expected, StringComparison.OrdinalIgnoreCase))
+            throw new CryptographicException("DTLS remote certificate fingerprint mismatch or missing pin.");
+        var signingKey = cert.GetECDsaPublicKey()
+            ?? throw new CryptographicException("DTLS requires an ECDSA peer certificate.");
+        _remoteSigningKey?.Dispose();
+        _remoteSigningKey = signingKey;
     }
 
     private void HandleServerKeyExchange(ReadOnlySpan<byte> body)
     {
-        if (body.Length < 4) return;
-        var pubLen = body[3];
-        if (body.Length < 4 + pubLen) return;
-        var peerPub = body.Slice(4, pubLen).ToArray();
-
-        using var peerEcdh = ECDiffieHellman.Create();
-        peerEcdh.ImportSubjectPublicKeyInfo(peerPub, out _);
-        var preMasterSecret = _localEcdh.DeriveKeyMaterial(peerEcdh.PublicKey);
+        if (_remoteSigningKey is null || _remoteRandom is null)
+            throw new CryptographicException("DTLS server key exchange requires a pinned certificate and server random.");
+        using var peerEcdh = VerifyServerKeyExchange(body, _remoteSigningKey, _localRandom, _remoteRandom);
+        var preMasterSecret = _localEcdh.DeriveRawSecretAgreement(peerEcdh.PublicKey);
 
         DeriveKeys(preMasterSecret);
     }
@@ -374,7 +370,7 @@ internal sealed class DtlsTransport : IDisposable
     private void HandleServerHelloDone()
     {
         // Client responds with ClientKeyExchange, ChangeCipherSpec, Finished
-        var ecdhPub = _localEcdh.ExportSubjectPublicKeyInfo();
+        var ecdhPub = ExportKeyExchangePoint(_localEcdh);
         using var ckeMs = new MemoryStream();
         ckeMs.WriteByte((byte)ecdhPub.Length);
         ckeMs.Write(ecdhPub);
@@ -397,9 +393,8 @@ internal sealed class DtlsTransport : IDisposable
         if (body.Length < 1 + pubLen) return;
         var peerPub = body.Slice(1, pubLen).ToArray();
 
-        using var peerEcdh = ECDiffieHellman.Create();
-        peerEcdh.ImportSubjectPublicKeyInfo(peerPub, out _);
-        var preMasterSecret = _localEcdh.DeriveKeyMaterial(peerEcdh.PublicKey);
+        using var peerEcdh = ImportKeyExchangePoint(peerPub);
+        var preMasterSecret = _localEcdh.DeriveRawSecretAgreement(peerEcdh.PublicKey);
 
         DeriveKeys(preMasterSecret);
 
@@ -421,6 +416,51 @@ internal sealed class DtlsTransport : IDisposable
             return;
         State = "connected";
         OnStateChanged?.Invoke(State);
+    }
+
+    // RFC 8422: ECPoint is an uncompressed curve point, not a DER SPKI blob.
+    internal static byte[] ExportKeyExchangePoint(ECDiffieHellman key)
+    {
+        var parameters = key.ExportParameters(false);
+        if (parameters.Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value ||
+            parameters.Q.X?.Length != 32 || parameters.Q.Y?.Length != 32)
+            throw new CryptographicException("DTLS requires a P-256 key.");
+        var point = new byte[65];
+        point[0] = 4;
+        parameters.Q.X.CopyTo(point, 1);
+        parameters.Q.Y.CopyTo(point, 33);
+        return point;
+    }
+
+    internal static ECDiffieHellman ImportKeyExchangePoint(ReadOnlySpan<byte> point)
+    {
+        if (point.Length != 65 || point[0] != 4)
+            throw new CryptographicException("Invalid DTLS P-256 point.");
+        return ECDiffieHellman.Create(new ECParameters
+        {
+            Curve = ECCurve.NamedCurves.nistP256,
+            Q = new ECPoint { X = point.Slice(1, 32).ToArray(), Y = point.Slice(33, 32).ToArray() }
+        });
+    }
+
+    internal static ECDiffieHellman VerifyServerKeyExchange(ReadOnlySpan<byte> body, ECDsa signingKey,
+        ReadOnlySpan<byte> clientRandom, ReadOnlySpan<byte> serverRandom)
+    {
+        const int parameterLength = 69; // named P-256 + length-prefixed point
+        if (clientRandom.Length != 32 || serverRandom.Length != 32 || body.Length < parameterLength + 4 ||
+            body[0] != 3 || body[1] != 0 || body[2] != 23 || body[3] != 65 ||
+            body[69] != 4 || body[70] != 3)
+            throw new CryptographicException("Invalid DTLS server key exchange parameters.");
+        var signatureLength = BinaryPrimitives.ReadUInt16BigEndian(body.Slice(71, 2));
+        if (signatureLength == 0 || body.Length != 73 + signatureLength)
+            throw new CryptographicException("Invalid DTLS server key exchange signature length.");
+        var signed = new byte[64 + parameterLength];
+        clientRandom.CopyTo(signed);
+        serverRandom.CopyTo(signed.AsSpan(32));
+        body[..parameterLength].CopyTo(signed.AsSpan(64));
+        if (!signingKey.VerifyData(signed, body[73..], HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
+            throw new CryptographicException("DTLS server key exchange signature mismatch.");
+        return ImportKeyExchangePoint(body.Slice(4, 65));
     }
 
     private void DeriveKeys(byte[] preMasterSecret)
@@ -610,6 +650,7 @@ internal sealed class DtlsTransport : IDisposable
         _localEcdsa.Dispose();
         _localCert.Dispose();
         _localEcdh.Dispose();
+        _remoteSigningKey?.Dispose();
         _localGcm?.Dispose();
         _remoteGcm?.Dispose();
         OnStateChanged?.Invoke("closed");

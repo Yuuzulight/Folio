@@ -36,3 +36,15 @@ send/receive plaintext paths. This is not full DTLS qualification.
 
 `TwoControllersPerformCandidateExchangeAndConnect` currently asserts ICE state
 only, despite its DTLS comment. Full transport acceptance needs tests beyond it.
+
+## Key-exchange repair
+
+The server ephemeral key is now verified against the pinned ECDSA certificate
+over the client random, server random and complete curve parameters. Missing
+fingerprint pins are rejected. P-256 keys use the RFC 8422 uncompressed ECPoint
+wire encoding and DER ECDSA signatures; ECDH now supplies the raw shared secret
+to the TLS PRF rather than a separately hashed key. Tests cover a valid signature,
+wrong signing key, changed client/server randoms, changed point, corrupted or
+truncated signature and invalid point encoding. The focused group passes 13/13.
+Mutual client authentication, protected handshake records, transcript/state
+ordering and independent-peer interoperability still block release.
