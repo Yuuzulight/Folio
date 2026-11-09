@@ -226,6 +226,13 @@ internal sealed class DtlsTransport : IDisposable
             if (payload.Length < 12 + fragLength) break;
             var body = payload.Slice(12, fragLength);
 
+            // Finished authenticates the preceding transcript, not itself.
+            if (type == HandshakeFinished)
+            {
+                HandleFinished(body);
+                payload = payload[(12 + fragLength)..];
+                continue;
+            }
             _handshakeMessages.AddRange(payload.Slice(0, 12 + fragLength).ToArray());
 
             switch (type)
@@ -247,9 +254,6 @@ internal sealed class DtlsTransport : IDisposable
                     break;
                 case HandshakeClientKeyExchange:
                     HandleClientKeyExchange(body);
-                    break;
-                case HandshakeFinished:
-                    HandleFinished();
                     break;
             }
 
@@ -408,8 +412,13 @@ internal sealed class DtlsTransport : IDisposable
         SendHandshakeMessage(HandshakeFinished, verifyData);
     }
 
-    private void HandleFinished()
+    private void HandleFinished(ReadOnlySpan<byte> verifyData)
     {
+        if (State != "connecting" || _masterSecret is null || verifyData.Length != 12)
+            return;
+        var expected = ComputeVerifyData(IsClient ? "server finished" : "client finished");
+        if (!CryptographicOperations.FixedTimeEquals(expected, verifyData))
+            return;
         State = "connected";
         OnStateChanged?.Invoke(State);
     }
@@ -516,12 +525,9 @@ internal sealed class DtlsTransport : IDisposable
     {
         lock (_gate)
         {
-            if (_localGcm is null || _localImplicitIv is null)
-            {
-                // Unencrypted application data (e.g. before handshake completes)
-                SendRecord(ContentTypeApplicationData, data);
-                return;
-            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (State != "connected" || _localGcm is null || _localImplicitIv is null)
+                throw new InvalidOperationException("DTLS application data requires an authenticated connection.");
 
             var seq = _localSequenceNumber;
             var nonce = new byte[12];
@@ -557,11 +563,8 @@ internal sealed class DtlsTransport : IDisposable
 
     private void ProcessApplicationDataRecord(ushort epoch, ReadOnlySpan<byte> payload)
     {
-        if (_remoteGcm is null || _remoteImplicitIv is null || epoch == 0)
-        {
-            OnApplicationDataReceived?.Invoke(payload.ToArray());
+        if (State != "connected" || _remoteGcm is null || _remoteImplicitIv is null || epoch != 1)
             return;
-        }
 
         if (payload.Length < 8 + 16) return;
         var explicitNonce = payload.Slice(0, 8);

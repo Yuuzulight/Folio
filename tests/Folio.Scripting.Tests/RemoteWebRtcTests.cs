@@ -7,6 +7,39 @@ namespace Folio.Scripting.Tests;
 
 public sealed class RemoteWebRtcTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnauthenticatedFinishedCannotConnect(bool started)
+    {
+        using var transport = new DtlsTransport();
+        if (started) transport.StartHandshake();
+        var record = new byte[25];
+        record[0] = 22; // handshake record
+        record[1] = 0xfe; record[2] = 0xfd;
+        record[12] = 12; // record payload length
+        record[13] = 20; // empty Finished handshake
+        transport.ProcessIncomingDatagram(record);
+        Assert.NotEqual("connected", transport.State);
+    }
+
+    [Fact]
+    public void ApplicationDataRequiresAnAuthenticatedConnection()
+    {
+        using var transport = new DtlsTransport();
+        var delivered = false;
+        var sent = false;
+        transport.OnApplicationDataReceived += _ => delivered = true;
+        transport.OnDatagramToSend += _ => sent = true;
+        var record = new byte[14];
+        record[0] = 23; record[1] = 0xfe; record[2] = 0xfd;
+        record[12] = 1; record[13] = 42;
+        transport.ProcessIncomingDatagram(record);
+        Assert.False(delivered);
+        Assert.Throws<InvalidOperationException>(() => transport.SendApplicationData([42]));
+        Assert.False(sent);
+    }
+
     [Fact]
     public void IceCandidateParsesAndFormatsSdpCorrectly()
     {
