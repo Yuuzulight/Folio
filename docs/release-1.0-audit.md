@@ -669,3 +669,48 @@ it does not by itself establish the cause of every intermittent UDP/DTLS timeout
 Browser/load/published-host and updated-head CI qualification are pending, and
 the ten-second public-test deadline is unchanged. Do not merge from the earlier
 head's green CI. Logs: `%TEMP%/folio-tail-red.log`, `%TEMP%/folio-tail-rtc-final.log`.
+
+
+## Verification harness corrections after the tail repair
+
+The `7c288c23` clean native publication succeeded (`sourceDirty: false`, executable
+SHA256 `baf505d3352695742d8b928cd66a23d4b5299fb65c98e4927fbcba9721f7a53b`).
+Chrome **157.0.8103.40** passed both offer/answer probes, and three 54-test RTC
+repetitions passed. The full solution using that published executable completed
+**4,953 passed, one failed, two skipped** (4,956 total). Its only failure was
+`ServiceWorkerSafetyLifecycleTests.RevocationOrCloseCancelsAnAlreadyWaitingNonCooperatingHostLoad(close:false)`
+at the post-await elapsed-time assertion, not an RTC failure. This is not a green
+full run and does not establish that all intermittency is gone.
+
+#709 records the timing-test correction. Start the blocking load on a dedicated
+thread, record its monotonic completion timestamp in `finally`, and compare that
+instant to cancellation. The original two-second actual-retirement bound,
+bounded completion wait, cancellation-exception assertion and propagated-token
+assertion remain. Test-runner continuation latency is no longer counted as load
+retirement. The focused lifecycle selection passes **29/29**, zero skips. This
+is a harness repair, not a claim of repairing production service-worker loading.
+
+Hosted run `42837053404` passed Ubuntu's full suite (4,865 passed, zero failures,
+51 platform/oracle skips), but FAILED its independent OpenSSL step. The log
+reaches authenticated connected state, sends Folio's encrypted message, then
+reports only the OpenSSL-to-Folio marker before terminating OpenSSL about two
+milliseconds later. #710 records the probe's early-kill race: the receive loop
+stopped when only the incoming marker appeared, killed the peer, and only then
+checked its captured stdout for Folio's outgoing marker.
+
+The probe now consumes stdout incrementally, detects markers spanning reads,
+and waits for both directions before terminating the peer, within the existing
+five-second application deadline. Handshake authentication, selected-source
+checks, both plaintext markers and failure diagnostics remain. Three fresh
+reviews covered timing/marker semantics, bounded waits and process cleanup,
+then partial reads and exception/cancellation behavior. Real OpenSSL probes pass
+**three times in each role (six runs)** with both encrypted-data markers. The
+local OpenSSL is 3.5.6. Updated Ubuntu CI must still verify this correction; the
+failed run is not reclassified as green.
+
+The changes after `7c288c23` affect tests/docs only; production source remains
+that clean published head. The new full-load run and updated-head hosted CI
+are pending. PR #705 remains draft and unmerged; #704, #706, #707, #709 and #710
+remain open. No milestone or 1.0 release is signed off. Logs:
+`%TEMP%/folio-tail-clean-full.log`, `%TEMP%/folio-sw-timing-focused.log`,
+`%TEMP%/folio-ci-7c-ubuntu.log`, `%TEMP%/folio-ssl-harness-{client,server}-{1,2,3}.log`.

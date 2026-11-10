@@ -36,10 +36,11 @@ internal static class OpenSslDtlsProbe
         foreach (var argument in arguments)
             start.ArgumentList.Add(argument);
         using var server = Process.Start(start) ?? throw new InvalidOperationException("OpenSSL did not start.");
-        var errors = server.StandardError.ReadToEndAsync();
-        var output = server.StandardOutput.ReadToEndAsync();
         const string fromOpenSsl = "openssl-to-folio-probe";
         const string fromFolio = "folio-to-openssl-probe";
+        var errors = server.StandardError.ReadToEndAsync();
+        var peerReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var output = CaptureOutputAsync(server.StandardOutput, fromFolio, peerReceived);
         // Queue input before the handshake; OpenSSL's Windows console input
         // loop otherwise blocks on the redirected pipe before reading UDP.
         server.StandardInput.WriteLine(fromOpenSsl);
@@ -75,7 +76,8 @@ internal static class OpenSslDtlsProbe
             if (transport.State != "connected") return 1;
             transport.SendApplicationData(Encoding.UTF8.GetBytes(fromFolio + "\n"));
             deadline.Restart();
-            while (deadline.Elapsed < TimeSpan.FromSeconds(5) && !received.ToString().Contains(fromOpenSsl, StringComparison.Ordinal))
+            while (deadline.Elapsed < TimeSpan.FromSeconds(5) &&
+                (!received.ToString().Contains(fromOpenSsl, StringComparison.Ordinal) || !peerReceived.Task.IsCompletedSuccessfully))
             {
                 IPEndPoint remote = new(IPAddress.Any, 0);
                 try
@@ -105,4 +107,23 @@ internal static class OpenSslDtlsProbe
             File.Delete(Path.Combine(root, "server-key.pem"));
         }
     }
+
+    private static async Task<string> CaptureOutputAsync(StreamReader reader, string marker, TaskCompletionSource received)
+    {
+        var output = new StringBuilder();
+        var buffer = new char[1024];
+        string suffix = "";
+        int count;
+        while ((count = await reader.ReadAsync(buffer.AsMemory()).ConfigureAwait(false)) != 0)
+        {
+            output.Append(buffer, 0, count);
+            // Preserve a split marker across reads without repeatedly copying
+            // the complete handshake trace while the peer is still running.
+            var text = suffix + new string(buffer, 0, count);
+            if (text.Contains(marker, StringComparison.Ordinal)) received.TrySetResult();
+            suffix = text.Length < marker.Length ? text : text[^(marker.Length - 1)..];
+        }
+        return output.ToString();
+    }
+
 }
