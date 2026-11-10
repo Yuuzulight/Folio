@@ -4,6 +4,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Diagnostics;
 
 namespace Folio.Scripting.Rtc;
 
@@ -27,6 +28,7 @@ internal sealed class IceAgent : IDisposable
     public event Action<string>? OnGatheringStateChanged;
     public event Action<string>? OnConnectionStateChanged;
     public event Action<byte[]>? OnDatagramReceived;
+    internal event Action? OnMaintenance;
 
     private readonly List<IceCandidate> _localCandidates = [];
     private readonly List<IceCandidate> _remoteCandidates = [];
@@ -40,6 +42,8 @@ internal sealed class IceAgent : IDisposable
     private bool _disposed;
     private readonly IReadOnlyList<string> _iceServers;
     private readonly SemaphoreSlim _checkSerial = new(1, 1);
+    private Thread? _receiveThread;
+    internal bool IsReceivePumpAlive => _receiveThread?.IsAlive == true;
 
     public IReadOnlyList<IceCandidate> LocalCandidates { get { lock (_gate) return _localCandidates.ToArray(); } }
 
@@ -84,7 +88,7 @@ internal sealed class IceAgent : IDisposable
             FormPairs();
         }
         OnGatheringStateChanged?.Invoke("complete");
-        _ = Task.Run(CheckConnectivityAsync);
+        _ = CheckConnectivityAsync();
     }
 
     private void BindSocket()
@@ -95,7 +99,8 @@ internal sealed class IceAgent : IDisposable
             _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             _socket.Bind(new IPEndPoint(IPAddress.Any, 0));
             _localPort = ((IPEndPoint)_socket.LocalEndPoint!).Port;
-            _ = Task.Run(ReceiveLoopAsync);
+            _receiveThread = new Thread(ReceiveLoop) { IsBackground = true, Name = "Folio ICE receive" };
+            _receiveThread.Start();
         }
     }
 
@@ -213,8 +218,8 @@ internal sealed class IceAgent : IDisposable
         }
         try
         {
-            await _socket.SendToAsync(request, SocketFlags.None, destination, _cts.Token).ConfigureAwait(false);
-            using var timeoutCts = new CancellationTokenSource(timeout);
+            var attempts = integrityKey is null ? 1 : 3;
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * ((1 << attempts) - 1)));
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, timeoutCts.Token);
             using (linked.Token.Register(() =>
             {
@@ -224,8 +229,20 @@ internal sealed class IceAgent : IDisposable
                     tcs.TrySetCanceled(linked.Token);
             }))
             {
-                var result = await tcs.Task.ConfigureAwait(false);
-                return (result.Item1, result.Item2);
+                for (var attempt = 0; attempt < attempts; attempt++)
+                {
+                    await _socket.SendToAsync(request, SocketFlags.None, destination, linked.Token).ConfigureAwait(false);
+                    var retry = Task.Delay(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * (1 << attempt)), linked.Token);
+                    if (await Task.WhenAny(tcs.Task, retry).ConfigureAwait(false) == tcs.Task)
+                    {
+                        var result = await tcs.Task.ConfigureAwait(false);
+                        return (result.Item1, result.Item2);
+                    }
+                    await retry.ConfigureAwait(false);
+                }
+                if (Interlocked.CompareExchange(ref responseAccepted, 2, 0) == 0) tcs.TrySetCanceled();
+                var final = await tcs.Task.ConfigureAwait(false);
+                return (final.Item1, final.Item2);
             }
         }
         catch
@@ -251,7 +268,7 @@ internal sealed class IceAgent : IDisposable
             _remoteCandidates.Add(candidate);
             FormPairs();
         }
-        _ = Task.Run(CheckConnectivityAsync);
+        _ = CheckConnectivityAsync();
     }
 
     private void FormPairs()
@@ -367,28 +384,35 @@ internal sealed class IceAgent : IDisposable
         if (newlyConnected) OnConnectionStateChanged?.Invoke("connected");
     }
 
-    private async Task ReceiveLoopAsync()
+    private void ReceiveLoop()
     {
         var buffer = new byte[65536];
         EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
+        var maintenance = Stopwatch.GetTimestamp();
 
         while (!_cts.IsCancellationRequested)
         {
             try
             {
-                if (_socket is null) break;
-                var result = await _socket.ReceiveFromAsync(buffer, SocketFlags.None, remoteEp, _cts.Token).ConfigureAwait(false);
-                var bytes = buffer.AsSpan(0, result.ReceivedBytes);
+                var socket = _socket;
+                if (socket is null) break;
+                if (Stopwatch.GetElapsedTime(maintenance) >= TimeSpan.FromMilliseconds(250))
+                { maintenance = Stopwatch.GetTimestamp(); OnMaintenance?.Invoke(); }
+                // Socket completions and transport retry timers must not wait
+                // behind synchronous page work on the shared CLR thread pool.
+                if (!socket.Poll(250000, SelectMode.SelectRead)) continue;
+                var received = socket.ReceiveFrom(buffer, SocketFlags.None, ref remoteEp);
+                var bytes = buffer.AsSpan(0, received);
 
                 if (StunMessage.TryParse(bytes, out var stun))
                 {
-                    HandleStunMessage(stun, result.RemoteEndPoint);
+                    HandleStunMessage(stun, remoteEp);
                 }
                 else
                 {
                     // Non-STUN datagram: DTLS or SRTP packet
                     lock (_gate)
-                        if (_selectedPair is null || !_selectedPair.RemoteEndPoint.Equals(result.RemoteEndPoint)) continue;
+                        if (_selectedPair is null || !_selectedPair.RemoteEndPoint.Equals(remoteEp)) continue;
                     var copy = bytes.ToArray();
                     OnDatagramReceived?.Invoke(copy);
                 }

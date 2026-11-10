@@ -31,8 +31,12 @@ internal sealed class RtcPeerConnectionController : IDisposable
     public RtcPeerConnectionController(IReadOnlyList<string>? iceServers = null)
     {
         Ice = new IceAgent(iceServers);
-        Dtls = new DtlsTransport();
-        Sctp = new SctpDataChannel();
+        Dtls = new DtlsTransport(TimeProvider.System, enableRetryTimer: false);
+        Sctp = new SctpDataChannel(TimeProvider.System, enableRetryTimer: false);
+        Ice.OnMaintenance += () =>
+        {
+            Dtls.RetryDueFlight(); Sctp.RetryDueHandshake(); Sctp.RetryDueData();
+        };
 
         Ice.OnCandidateGathered += candidate => OnIceCandidate?.Invoke(candidate);
         Ice.OnGatheringStateChanged += state =>

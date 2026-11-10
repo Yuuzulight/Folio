@@ -12,6 +12,12 @@ internal sealed class WebRtcBindingState : IDisposable
     private long _nextId;
     private bool _disposed;
     internal int ActivePeerCount { get { lock (_gate) return _peers.Count; } }
+    internal string GetDiagnostics()
+    {
+        PeerLease[] peers;
+        lock (_gate) peers = _peers.Values.ToArray();
+        return string.Join("; ", peers.Select(peer => $"peer={peer.Id},ice={peer.Controller.IceConnectionState},dtls={peer.Controller.Dtls.State},sctp=[{peer.Controller.Sctp.GetDiagnostics()}]"));
+    }
     internal WebRtcBindingState(IScriptEngine engine, DomContext context) { _engine = engine; _context = context; }
     private bool PermissionGranted() => !_disposed && _context.Capabilities.WebRtc && !_context.ScriptFeaturesDisposed;
     private void EnsurePermission() { if (!PermissionGranted()) { _context.CheckCapability("WebRTC", false); throw WebIdlException.DomException("NotSupportedError", "WebRTC is disabled by the host."); } }
@@ -171,7 +177,9 @@ internal sealed class WebRtcBindingState : IDisposable
     internal void Release(ScriptValue value)
     {
         if (!_engine.TryGetHostTarget(value, out var target) || target is not PeerLease lease || !ReferenceEquals(lease.Owner, this)) return;
-        lock (_gate) if (_peers.Remove(lease.Id)) { lease.Dispose(); }
+        bool removed;
+        lock (_gate) removed = _peers.Remove(lease.Id);
+        if (removed) lease.Dispose();
     }
 
     internal bool AllowOrigin(string value)

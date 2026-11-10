@@ -42,6 +42,10 @@ internal sealed class SctpDataChannel : IDisposable
     public string State { get; private set; } = "new";
     internal int MaximumSendMessageBytes { get; private set; } = 65536;
     private ushort _remotePort = SctpPort;
+    internal string GetDiagnostics()
+    {
+        lock (_gate) return $"{State},packets={_outboundPackets.Count},{_reliable.Diagnostics}";
+    }
 
     internal void ConfigureRemote(ulong maximumMessageBytes, int port = SctpPort)
     {

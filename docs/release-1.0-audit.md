@@ -507,3 +507,73 @@ congestion avoidance and idle decay. The Release solution builds with zero
 warnings/errors. Expanded Chrome probes still pass in both roles. The final
 broader solution test run is in progress; the prior 256 KiB parallel-load
 failure is not declared resolved until that run provides evidence.
+
+
+## Owned transport progress under shared-pool starvation
+
+Hosted run `42824602362` passed at `f57010fc`; it predates this patch.
+Sender pacing alone did not settle the parallel-load failure. One later run
+failed before DTLS completed; another reached connected state but retained part
+of the 256 KiB message. These are not reported as successful acceptance runs.
+The earlier pre-checkpoint process session could not be recovered after reset,
+so its terminal totals are not used as evidence here.
+
+Controller-owned RTC transports now receive datagrams and drive DTLS/SCTP
+maintenance on an owned socket thread instead of sharing CLR pool scheduling
+with synchronously blocked page/test work. Standalone transport constructors
+retain their timer behavior. ICE checks start directly and retry an authenticated
+transaction with the same request bytes at 500 ms, 1 s and 2 s, under a bounded
+3.5-second cancellation window. Unauthenticated STUN discovery keeps its original
+single-attempt deadline. Public peer release no longer disposes the transport
+while holding the document peer-registry lock. Diagnostic snapshots also release
+that lock before inspecting transport state.
+
+A subprocess occupies the sole CLR worker thread, then establishes real
+ICE/DTLS/SCTP, delivers a byte-exact 256 KiB payload and verifies both owned
+receive threads retire after disposal. The probe passes. This establishes that
+path without free pool workers; asynchronous STUN retry/check continuations and
+public offer/answer behavior are not claimed independent of the pool.
+
+The same full-load investigation found the GPU cancellation harness sometimes
+failed to enter its injected read within the unchanged two-second deadline.
+Production GPU pipe exchange also used shared-pool work and a pool-driven timeout
+continuation. #706 tracks the correction: one persistent owned blocking-I/O
+thread with a capacity-one request queue, synchronous deadline/cancellation waits,
+an owned fixed-buffer stderr drain, and idempotent owner disposal. Concurrent
+requests are still rejected, reply validation and payload caps are preserved,
+and terminal faults still kill only the owned worker. The harness call starts
+on its own thread; its existing time limits are unchanged.
+
+The GPU subprocess probe occupies the sole CLR worker thread, performs 32 real
+anonymous-pipe request/reply exchanges, verifies stalled timeout and cancellation,
+and verifies the owned I/O threads retire. It passes. Another regression rejects
+concurrent admission without losing the active context, disposes a blocked pump,
+and checks the termination and owner-disposal callbacks each run once.
+
+Three fresh review passes covered request/packet admission and reply integrity,
+thread scheduling and lock ordering, then cancellation/disposal/resource lifetime.
+The Release solution builds with zero warnings/errors. The final focused GPU,
+ICE-authentication and public-transport selection passes 26/26, zero skips. Both
+expanded Chrome roles pass after the RTC changes. An intermediate full solution
+run passed 4,948 tests, failed zero and skipped two (4,950 total); the final
+owner-disposal guard and teardown regression were added after that build.
+The final build's full solution run passes **4,949 tests, zero failures, two
+skips** (4,951 total; 4m 42.951s). The skips are the explicit Wasmtime-oracle
+benchmark and unavailable local symlink creation. Command:
+`dotnet test --solution Folio.slnx -c Release --no-build --max-parallel-test-modules 1`.
+Normal concurrency inside test modules is retained. Logs were captured in
+`%TEMP%/folio-full-final.log`; build and focused logs are
+`%TEMP%/folio-release-build-final.log` and `%TEMP%/folio-focused-final.log`.
+One intermediate and one final green local run provide progress evidence;
+they do not prove an intermittent failure can never recur. Hosted CI for this
+patch is pending, and the native GPU worker still needs published-host acceptance
+on the final head.
+
+M6 was incorrectly closed while verified blocker #704 had no milestone. #704
+is now assigned to M6, M6 is reopened, and #706 is assigned to it as well. Neither
+issue is closed. PR #705 remains draft. No other milestone is newly signed off;
+all original M0–M7 acceptance and mandatory replacement requirements remain in
+the final release audit. Stream reset/restart, queued event/metadata budgets,
+Blob/binaryType/options, ICE role/consent/relay/network-policy acceptance, remote
+media, iframe/service-worker production routing and release qualification remain
+required. No 1.0 tag or release has been published.

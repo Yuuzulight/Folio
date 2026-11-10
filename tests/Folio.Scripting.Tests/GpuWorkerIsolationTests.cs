@@ -2,9 +2,27 @@ using Folio.Scripting.Gpu;
 
 namespace Folio.Scripting.Tests;
 
-// These tests never open a device, compile a shader, or launch a process.
+// These tests never open a device or compile a shader. The isolated starvation
+// probe launches only this managed test assembly, not the native GPU worker.
 public sealed class GpuWorkerIsolationTests
 {
+    [Fact]
+    public async Task PipeRepliesAndTerminalDeadlinesDoNotNeedTheSharedThreadPool()
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("dotnet")
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        start.ArgumentList.Add(typeof(Program).Assembly.Location); start.ArgumentList.Add("gpu-thread-pool-probe");
+        using var process = System.Diagnostics.Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+        var errors = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
+            Assert.True(process.ExitCode == 0, $"GPU pool probe {process.ExitCode}: {await output} {await errors}");
+        }
+        finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+    }
+
     [Fact]
     public void OversizedReplyLosesOnlyTheOwnedWorker()
     {
@@ -31,7 +49,7 @@ public sealed class GpuWorkerIsolationTests
         int killed = 0;
         using var broker = new GpuWorkerBroker(new MemoryStream(), stalled,
             () => { Interlocked.Increment(ref killed); stalled.Release.Set(); }, TimeSpan.FromSeconds(5));
-        var call = Task.Run(() => broker.Exchange(GpuWorkerProtocol.Request(GpuWorkerCommand.Open), cancellation.Token), testCancellation);
+        var call = Task.Factory.StartNew(() => broker.Exchange(GpuWorkerProtocol.Request(GpuWorkerCommand.Open), cancellation.Token), testCancellation, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         Assert.True(stalled.Entered.Wait(TimeSpan.FromSeconds(2), testCancellation));
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => { await call.WaitAsync(TimeSpan.FromSeconds(2), testCancellation); });
@@ -47,10 +65,37 @@ public sealed class GpuWorkerIsolationTests
         int killed = 0;
         using var broker = new GpuWorkerBroker(new MemoryStream(), stalled,
             () => { Interlocked.Increment(ref killed); stalled.Release.Set(); }, TimeSpan.FromMilliseconds(50));
-        var call = Task.Run(() => broker.Exchange(GpuWorkerProtocol.Request(GpuWorkerCommand.Open), testCancellation), testCancellation);
+        var call = Task.Factory.StartNew(() => broker.Exchange(GpuWorkerProtocol.Request(GpuWorkerCommand.Open), testCancellation), testCancellation, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         await Assert.ThrowsAsync<TimeoutException>(async () => { await call.WaitAsync(TimeSpan.FromSeconds(5), testCancellation); });
         Assert.True(broker.IsLost);
         Assert.Equal(1, killed);
+    }
+
+    [Fact]
+    public async Task ConcurrentAdmissionIsRejectedAndDisposalRetiresTheBlockedPump()
+    {
+        var testCancellation = TestContext.Current.CancellationToken;
+        using var stalled = new StalledReadStream(testCancellation);
+        int killed = 0;
+        var owner = new CountingOwner();
+        using var broker = new GpuWorkerBroker(new MemoryStream(), stalled,
+            () => { Interlocked.Increment(ref killed); stalled.Release.Set(); }, TimeSpan.FromSeconds(5), owner);
+        var call = Task.Factory.StartNew(() => broker.Exchange(GpuWorkerProtocol.Request(GpuWorkerCommand.Open), testCancellation),
+            testCancellation, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        Assert.True(stalled.Entered.Wait(TimeSpan.FromSeconds(2), testCancellation));
+        Assert.Throws<InvalidOperationException>(() => broker.Exchange(GpuWorkerProtocol.Request(GpuWorkerCommand.Open), testCancellation));
+        Assert.False(broker.IsLost);
+        broker.Dispose(); broker.Dispose();
+        await Assert.ThrowsAsync<EndOfStreamException>(async () => { await call.WaitAsync(TimeSpan.FromSeconds(2), testCancellation); });
+        Assert.True(SpinWait.SpinUntil(() => !broker.IsIoThreadAlive, TimeSpan.FromSeconds(2)));
+        Assert.Equal(1, killed);
+        Assert.Equal(1, owner.Count);
+    }
+
+    private sealed class CountingOwner : IDisposable
+    {
+        internal int Count;
+        public void Dispose() => Interlocked.Increment(ref Count);
     }
 
     [Theory]

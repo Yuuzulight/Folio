@@ -19,6 +19,10 @@ public static class Program
             return OpenSslDtlsProbe.Run(serverOpenSsl, folioServer: true);
         if (args is ["worker-thread-pool-probe"])
             return WorkerThreadPoolProbe();
+        if (args is ["rtc-thread-pool-probe"])
+            return RtcThreadPoolProbe.Run();
+        if (args is ["gpu-thread-pool-probe"])
+            return GpuThreadPoolProbe.Run();
         // Mirror xUnit's generated entry point for ordinary test runs.
         if (args.Any(arg => arg is "--server" or "--internal-msbuild-node"))
             return TestPlatformTestFramework.RunAsync(args, SelfRegisteredExtensions.AddSelfRegisteredExtensions).GetAwaiter().GetResult();

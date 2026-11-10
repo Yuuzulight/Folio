@@ -44,6 +44,7 @@ internal sealed class SctpReliableDelivery(uint initialLocalTsn = 1)
     internal int CongestionWindow => _congestionWindow;
     internal int FlightBytes => _outgoing.Values.Where(p => p.Sent && !p.GapAcknowledged).Sum(p => p.WireBytes);
     internal uint HighestEmittedTsn => _highestEmitted;
+    internal string Diagnostics => $"assigned={_highestAssigned},emitted={_highestEmitted},ack={_lastAck},queued={_unsent.Count},pending={_outgoing.Count},flight={FlightBytes},cwnd={_congestionWindow},rwnd={_peerWindow},rto={_rtoSeconds:F3},rx={_cumulativeReceived},gaps={_received.Count},fragments={_fragments.Count},rxBytes={_receiveBytes}";
     internal uint NextTsn => unchecked(_highestAssigned + 1);
 
     internal readonly record struct Message(ushort Stream, uint Ppid, byte[] Data, long ReceivedAt = 0);

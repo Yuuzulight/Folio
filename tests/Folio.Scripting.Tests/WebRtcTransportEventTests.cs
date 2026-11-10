@@ -41,7 +41,8 @@ public sealed class WebRtcTransportEventTests
             }
             Assert.Equal("", engine.Evaluate("error").AsString());
             var bytes = new byte[length];
-            var state = engine.Evaluate("a.connectionState+':'+b.connectionState+':'+channel.readyState+':'+channel.bufferedAmount+':'+(received===null)+':'+(reply===null)").AsString();
+            var state = engine.Evaluate("a.connectionState+':'+b.connectionState+':'+channel.readyState+':'+channel.bufferedAmount+':'+(received===null)+':'+(reply===null)+':ICE='+a.iceConnectionState+'/'+b.iceConnectionState+':signal='+a.signalingState+'/'+b.signalingState+':gather='+a.iceGatheringState+'/'+b.iceGatheringState").AsString();
+            state += "; " + DomBindings.GetWebRtcDiagnostics(engine);
             Assert.True(engine.TryCopyBufferSource(engine.Evaluate("received"), 0, bytes), state); Assert.Equal(expected, bytes);
             Assert.True(engine.TryCopyBufferSource(engine.Evaluate("reply"), 0, bytes), state); Assert.Equal(expected, bytes);
             engine.Evaluate("a.close();b.close();");
