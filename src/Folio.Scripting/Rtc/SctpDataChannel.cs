@@ -75,38 +75,55 @@ internal sealed class SctpDataChannel : IDisposable
             _retryTimer = clock.CreateTimer(_ =>
             {
                 try { RetryDueHandshake(); }
-                catch { lock (_gate) FailAssociation(); }
+                catch { FailAssociation(); }
             }, null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
     }
 
     internal void RetryDueHandshake()
     {
+        byte[]? packet = null;
+        var fail = false;
         lock (_gate)
         {
             if (_disposed || State != "connecting") return;
             if (_clock.GetElapsedTime(_associationStartedAt) >= TimeSpan.FromSeconds(60))
-            { FailAssociation(); return; }
-            if (_handshakePacket is null ||
-                _clock.GetElapsedTime(_lastHandshakeSend) < _handshakeRetryDelay) return;
-            if (_handshakeRetries >= 6) { FailAssociation(); return; }
-            _handshakeRetries++;
-            _handshakeRetryDelay = TimeSpan.FromSeconds(Math.Min(8, 1 << _handshakeRetries));
-            _lastHandshakeSend = _clock.GetTimestamp();
-            OnPacketToSend?.Invoke((byte[])_handshakePacket.Clone());
+                fail = true;
+            else
+            {
+                if (_handshakePacket is null ||
+                    _clock.GetElapsedTime(_lastHandshakeSend) < _handshakeRetryDelay) return;
+                if (_handshakeRetries >= 6) fail = true;
+                else
+                {
+                    _handshakeRetries++;
+                    _handshakeRetryDelay = TimeSpan.FromSeconds(Math.Min(8, 1 << _handshakeRetries));
+                    _lastHandshakeSend = _clock.GetTimestamp();
+                    packet = (byte[])_handshakePacket.Clone();
+                }
+            }
         }
+        // DTLS receive callbacks acquire DTLS then SCTP. Never acquire DTLS
+        // through a timer send while holding SCTP in the opposite order.
+        if (fail) FailAssociation();
+        else if (packet is not null) OnPacketToSend?.Invoke(packet);
     }
 
     private void FailAssociation()
     {
-        if (_disposed) return;
-        State = "failed";
-        _handshakePacket = null;
-        _cookieEchoSent = false;
-        foreach (var channel in _channels.Values.ToArray())
+        ChannelState[] channels;
+        lock (_gate)
+        {
+            if (_disposed || State != "connecting") return;
+            State = "failed";
+            _handshakePacket = null;
+            _cookieEchoSent = false;
+            channels = _channels.Values.ToArray();
+            _pendingChannels.Clear();
+        }
+        foreach (var channel in channels)
         {
             try { channel.Close(); } catch { /* Teardown must survive a consumer callback. */ }
         }
-        _pendingChannels.Clear();
     }
 
     public void StartAssociation(bool isClient)

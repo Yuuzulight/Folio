@@ -4,6 +4,29 @@ namespace Folio.Scripting.Tests;
 
 public sealed class SctpRetransmissionTests
 {
+    [Fact]
+    public async Task RetrySendDoesNotHoldAssociationLockAcrossTransportCallback()
+    {
+        var clock = new Clock();
+        using var client = new SctpDataChannel(clock);
+        Task? access = null;
+        var sends = 0; var accessedDuringCallback = false;
+        client.OnPacketToSend += _ =>
+        {
+            if (++sends != 2) return;
+            // A DTLS receive thread must be able to enter SCTP while the
+            // retry's transport callback waits for DTLS on a different thread.
+            access = Task.Factory.StartNew(() => client.CreateDataChannel("concurrent"),
+                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            accessedDuringCallback = access.Wait(TimeSpan.FromSeconds(2));
+        };
+        client.StartAssociation(true);
+        clock.Ticks = TimeSpan.FromSeconds(1).Ticks;
+        clock.Timer!.Fire();
+        await access!;
+        Assert.True(accessedDuringCallback);
+    }
+
     private sealed class Clock : TimeProvider
     {
         internal long Ticks;

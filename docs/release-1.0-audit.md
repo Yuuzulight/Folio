@@ -340,3 +340,15 @@ parallel/load qualification.
 This closes basic association loss recovery, not reliable DATA/DCEP delivery,
 congestion control, fragmentation, restart, stream reset or independent-peer
 SCTP acceptance. Those and the broader release gates above remain open.
+
+## Retry callback lock ordering
+
+Fresh review found that timer sends could acquire SCTP then DTLS, opposite to
+incoming DTLS application delivery. Retry packets are now copied under SCTP's
+lock and sent after releasing it. Failure state is set under lock, with channel
+close callbacks invoked afterward. A regression requires a separate thread to
+enter SCTP before the retry's transport callback returns. Focused RTC tests
+pass 64/64. The preceding parallel full run completed: 1,828 total, four failed,
+zero skips (GPU cancellation, both registration timeout cases, one RTC deadline).
+That run does not prove a deadlock; the lock-order fix follows direct code review.
+Parallel/load qualification remains unresolved.
