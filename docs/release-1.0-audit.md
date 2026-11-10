@@ -316,3 +316,27 @@ Cookie validation retains per-association state; this is not a completed RFC
 9260 stateless state-restoration implementation. Association retry and restart
 handling, reliability, fragmentation and independent SCTP interoperability
 remain required. This work does not close #704 or qualify release 1.0.
+
+## SCTP association retransmission
+
+The active endpoint retains only its current INIT or COOKIE_ECHO packet, retries
+with exponential delays capped at eight seconds, and stops after six retries.
+Both roles have a 60-second absolute association deadline. Failure closes
+pending channels and refuses new channels or incoming packets. The owned
+250-millisecond timer is disposed on teardown; throwing consumer close callbacks
+cannot interrupt cleanup. Handshake completion releases the retained packet.
+
+Deterministic tests independently drop each of the four association flights,
+verify recovery and DCEP opening, exhaust the retry budget, expire a passive
+association and exercise the actual registered timer callback and disposal.
+The focused RTC selection passes 63/63; the build has zero warnings/errors.
+Before this retry change, the complete scripting suite passed 1,821 tests with
+zero failures/skips under serialized execution. An unrestricted parallel run
+of the final retry build exposed timing failures in GPU worker cancellation,
+both service-worker registration timeout cases and one public RTC negotiation
+case. These failures remain open; focused or serialized passes do not resolve
+parallel/load qualification.
+
+This closes basic association loss recovery, not reliable DATA/DCEP delivery,
+congestion control, fragmentation, restart, stream reset or independent-peer
+SCTP acceptance. Those and the broader release gates above remain open.

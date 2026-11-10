@@ -57,14 +57,56 @@ internal sealed class SctpDataChannel : IDisposable
     private long _cookieIssuedAt;
     private static readonly TimeSpan CookieLifetime = TimeSpan.FromSeconds(60);
     private bool _cookieEchoSent;
+    private readonly ITimer? _retryTimer;
+    private byte[]? _handshakePacket;
+    private long _lastHandshakeSend;
+    private int _handshakeRetries;
+    private TimeSpan _handshakeRetryDelay = TimeSpan.FromSeconds(1);
+    private long _associationStartedAt;
 
     public SctpDataChannel() : this(TimeProvider.System) { }
 
-    internal SctpDataChannel(TimeProvider clock)
+    internal SctpDataChannel(TimeProvider clock, bool enableRetryTimer = true)
     {
         _clock = clock;
         do { LocalVerificationTag = BinaryPrimitives.ReadUInt32BigEndian(RandomNumberGenerator.GetBytes(4)); }
         while (LocalVerificationTag == 0);
+        if (enableRetryTimer)
+            _retryTimer = clock.CreateTimer(_ =>
+            {
+                try { RetryDueHandshake(); }
+                catch { lock (_gate) FailAssociation(); }
+            }, null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
+    }
+
+    internal void RetryDueHandshake()
+    {
+        lock (_gate)
+        {
+            if (_disposed || State != "connecting") return;
+            if (_clock.GetElapsedTime(_associationStartedAt) >= TimeSpan.FromSeconds(60))
+            { FailAssociation(); return; }
+            if (_handshakePacket is null ||
+                _clock.GetElapsedTime(_lastHandshakeSend) < _handshakeRetryDelay) return;
+            if (_handshakeRetries >= 6) { FailAssociation(); return; }
+            _handshakeRetries++;
+            _handshakeRetryDelay = TimeSpan.FromSeconds(Math.Min(8, 1 << _handshakeRetries));
+            _lastHandshakeSend = _clock.GetTimestamp();
+            OnPacketToSend?.Invoke((byte[])_handshakePacket.Clone());
+        }
+    }
+
+    private void FailAssociation()
+    {
+        if (_disposed) return;
+        State = "failed";
+        _handshakePacket = null;
+        _cookieEchoSent = false;
+        foreach (var channel in _channels.Values.ToArray())
+        {
+            try { channel.Close(); } catch { /* Teardown must survive a consumer callback. */ }
+        }
+        _pendingChannels.Clear();
     }
 
     public void StartAssociation(bool isClient)
@@ -76,6 +118,7 @@ internal sealed class SctpDataChannel : IDisposable
             _nextStreamId = (ushort)(isClient ? 0 : 1);
             AssignPendingStreamIds(isClient);
             State = "connecting";
+            _associationStartedAt = _clock.GetTimestamp();
 
             if (isClient)
             {
@@ -97,7 +140,7 @@ internal sealed class SctpDataChannel : IDisposable
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(14), 1024); // MIS
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(16), _localTsn);
 
-        SendSctpPacket(0, [chunk]);
+        SendSctpPacket(0, [chunk], rememberHandshake: true);
     }
 
     private void SendInitAck()
@@ -139,7 +182,7 @@ internal sealed class SctpDataChannel : IDisposable
     {
         lock (_gate)
         {
-            if (_disposed || packet.Length < 12) return;
+            if (_disposed || State is not ("connecting" or "connected") || packet.Length < 12) return;
 
             var srcPort = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(0, 2));
             var dstPort = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2));
@@ -202,7 +245,7 @@ internal sealed class SctpDataChannel : IDisposable
                     BinaryPrimitives.WriteUInt16BigEndian(echo.AsSpan(2), (ushort)echo.Length);
                     cookie.CopyTo(echo.AsSpan(4));
                     _cookieEchoSent = true;
-                    SendSctpPacket(RemoteVerificationTag, [echo]);
+                    SendSctpPacket(RemoteVerificationTag, [echo], rememberHandshake: true);
 
                     // Wait for COOKIE_ACK before opening pending channels.
                 }
@@ -355,6 +398,7 @@ internal sealed class SctpDataChannel : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            if (State == "failed") throw new InvalidOperationException("SCTP association has failed.");
             if (_channels.Count >= 1024 || (long)Encoding.UTF8.GetByteCount(label) + Encoding.UTF8.GetByteCount(protocol) > MaxUnfragmentedMessageBytes - 12)
                 throw new InvalidOperationException("SCTP data channel limits exceeded.");
             // Before the DTLS role is selected, reserve a channel object and
@@ -379,6 +423,7 @@ internal sealed class SctpDataChannel : IDisposable
     {
         if (State == "connected") return;
         State = "connected";
+        _handshakePacket = null;
         beforePendingChannels?.Invoke();
         var pending = _pendingChannels.ToArray();
         _pendingChannels.Clear();
@@ -448,7 +493,7 @@ internal sealed class SctpDataChannel : IDisposable
         SendSctpPacket(RemoteVerificationTag, [chunk]);
     }
 
-    private void SendSctpPacket(uint vTag, IReadOnlyList<byte[]> chunks)
+    private void SendSctpPacket(uint vTag, IReadOnlyList<byte[]> chunks, bool rememberHandshake = false)
     {
         var totalChunksLen = 0;
         foreach (var c in chunks) totalChunksLen += (c.Length + 3) & ~3;
@@ -469,6 +514,13 @@ internal sealed class SctpDataChannel : IDisposable
         var crc = ComputeCrc32c(packet);
         BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(8), crc);
 
+        if (rememberHandshake)
+        {
+            _handshakePacket = (byte[])packet.Clone();
+            _handshakeRetries = 0;
+            _handshakeRetryDelay = TimeSpan.FromSeconds(1);
+            _lastHandshakeSend = _clock.GetTimestamp();
+        }
         OnPacketToSend?.Invoke(packet);
     }
 
@@ -491,8 +543,13 @@ internal sealed class SctpDataChannel : IDisposable
         {
             if (_disposed) return;
             _disposed = true;
+            _retryTimer?.Dispose();
+            _handshakePacket = null;
             State = "closed";
-            foreach (var ch in _channels.Values) ch.Close();
+            foreach (var ch in _channels.Values.ToArray())
+            {
+                try { ch.Close(); } catch { /* Finish releasing owned secrets and timer. */ }
+            }
             _channels.Clear();
             _pendingChannels.Clear();
             if (_issuedCookie is not null) CryptographicOperations.ZeroMemory(_issuedCookie);

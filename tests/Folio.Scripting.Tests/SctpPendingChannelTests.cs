@@ -17,7 +17,7 @@ public sealed class SctpPendingChannelTests
     {
         var clock = new Clock();
         using var client = new SctpDataChannel();
-        using var server = new SctpDataChannel(clock);
+        using var server = new SctpDataChannel(clock, false);
         var requests = new Queue<byte[]>(); var responses = new Queue<byte[]>();
         client.OnPacketToSend += requests.Enqueue;
         server.OnPacketToSend += responses.Enqueue;
