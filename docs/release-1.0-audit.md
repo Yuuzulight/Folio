@@ -174,3 +174,27 @@ AEAD-AES-128-GCM profile, and both now run in Ubuntu CI (hosted result pending).
 Focused RTC tests pass 39/39; build is clean. Packet-loss recovery, fuller
 negotiation/policy checks, browser API/SCTP integration and release qualification
 remain open.
+
+## Pause checkpoint: handshake flight retransmission
+
+The transport retains a bounded outgoing handshake flight (64 records / 1 MiB),
+retries with exponential backoff, and fails an uncompleted handshake after six
+retries. The final server flight remains available for bounded retransmission
+until authenticated application traffic confirms progress. Disposal clears the
+flight and retires the timer. Deterministic-clock tests recover after dropping
+the initial ClientHello, server certificate, client Finished and server Finished;
+another test verifies retry exhaustion and no sends after disposal.
+
+The five retry tests pass. The combined 44-test RTC selection initially failed
+the existing TwoControllersPerformCandidateExchangeAndConnect ICE assertion
+(checking rather than connected). That test passed alone, and all 44 passed in
+a subsequent serialized run. The parallel failure remains unresolved evidence.
+Both OpenSSL roles reran successfully with mutual authentication and encrypted
+application data in both directions after the retransmission change.
+
+Next work: investigate ICE scheduling/policy and controller-role integration;
+connect public RTCPeerConnection/RTCDataChannel state and data to the transport;
+qualify independent SCTP/SRTP/media and loss/reorder behavior; resolve iframe/
+service-worker routing against original acceptance; then rerun the entire
+milestone, production, performance, packaging, consumer and hosted CI gates.
+No 1.0 tag or release has been published. PR #705 and blocker #704 remain open.

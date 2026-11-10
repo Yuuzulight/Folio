@@ -68,9 +68,18 @@ internal sealed class DtlsTransport : IDisposable
     private readonly List<byte> _handshakeMessages = [];
     private readonly object _gate = new();
     private bool _disposed;
+    private readonly TimeProvider _clock;
+    private readonly ITimer? _retryTimer;
+    private readonly List<byte[]> _flight = [];
+    private int _flightBytes;
+    private int _retryCount;
+    private DateTimeOffset _nextRetry;
 
-    public DtlsTransport()
+    public DtlsTransport() : this(TimeProvider.System, true) { }
+
+    internal DtlsTransport(TimeProvider clock, bool enableRetryTimer)
     {
+        _clock = clock;
         _localEcdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var request = new CertificateRequest("CN=FolioWebRTC", _localEcdsa, HashAlgorithmName.SHA256);
         _localCert = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
@@ -88,6 +97,55 @@ internal sealed class DtlsTransport : IDisposable
             sb.Append(certHash[i].ToString("X2"));
         }
         Fingerprint = sb.ToString();
+        if (enableRetryTimer)
+            _retryTimer = clock.CreateTimer(_ =>
+            {
+                try { RetryDueFlight(); }
+                catch (Exception)
+                {
+                    lock (_gate) { StopFlight(); if (!_disposed) State = "failed"; }
+                }
+            }, null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
+    }
+
+    private void BeginFlight()
+    {
+        StopFlight();
+        _nextRetry = _clock.GetUtcNow() + TimeSpan.FromSeconds(1);
+    }
+
+    private void StopFlight() { _flight.Clear(); _flightBytes = 0; _retryCount = 0; }
+
+    private void EmitRecord(byte type, byte[] record)
+    {
+        if (type is ContentTypeHandshake or ContentTypeChangeCipherSpec)
+        {
+            if (_flight.Count >= 64 || record.Length > 1024 * 1024 - _flightBytes)
+                throw new CryptographicException("DTLS retransmission flight limit exceeded.");
+            _flight.Add((byte[])record.Clone()); _flightBytes += record.Length;
+        }
+        OnDatagramToSend?.Invoke(record);
+    }
+
+    internal void RetryDueFlight()
+    {
+        lock (_gate)
+        {
+            if (_disposed || _flight.Count == 0 || _clock.GetUtcNow() < _nextRetry) return;
+            if (_retryCount >= 6)
+            {
+                StopFlight();
+                if (State == "connecting") { State = "failed"; OnStateChanged?.Invoke(State); }
+                return;
+            }
+            _retryCount++;
+            _nextRetry = _clock.GetUtcNow() + TimeSpan.FromSeconds(Math.Min(8, 1 << _retryCount));
+            foreach (var record in _flight.ToArray())
+            {
+                if (_disposed) break;
+                OnDatagramToSend?.Invoke((byte[])record.Clone());
+            }
+        }
     }
 
     public void StartHandshake()
@@ -107,6 +165,7 @@ internal sealed class DtlsTransport : IDisposable
 
     private void SendClientHello()
     {
+        BeginFlight();
         using var ms = new MemoryStream();
 
         // ClientHello body
@@ -179,7 +238,7 @@ internal sealed class DtlsTransport : IDisposable
         if (_localEpoch == 1)
         {
             if (_handshakeWriter is null) throw new InvalidOperationException("DTLS handshake keys are unavailable.");
-            OnDatagramToSend?.Invoke(_handshakeWriter.Protect(contentType, _localEpoch, _localSequenceNumber++, payload));
+            EmitRecord(contentType, _handshakeWriter.Protect(contentType, _localEpoch, _localSequenceNumber++, payload));
             return;
         }
         var record = new byte[13 + payload.Length];
@@ -198,7 +257,7 @@ internal sealed class DtlsTransport : IDisposable
         BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(11), (ushort)payload.Length);
         payload.CopyTo(record.AsSpan(13));
 
-        OnDatagramToSend?.Invoke(record);
+        EmitRecord(contentType, record);
     }
 
     public void ProcessIncomingDatagram(byte[] datagram)
@@ -260,7 +319,10 @@ internal sealed class DtlsTransport : IDisposable
                 case ContentTypeApplicationData:
                     if (State == "connected" && epoch == 1 && _handshakeReader is not null &&
                         _handshakeReader.TryUnprotect(datagram, out var applicationData))
+                    {
+                        StopFlight();
                         OnApplicationDataReceived?.Invoke(applicationData);
+                    }
                     break;
             }
         }
@@ -333,11 +395,13 @@ internal sealed class DtlsTransport : IDisposable
                 _handshakeMessages.AddRange(payload.Slice(0, 12 + fragLength).ToArray());
                 if (!IsClient)
                 {
+                    BeginFlight();
                     SendRecord(ContentTypeChangeCipherSpec, [1]);
                     _localEpoch = 1;
                     _localSequenceNumber = 0;
                     SendHandshakeMessage(HandshakeFinished, ComputeVerifyData("server finished"));
                 }
+                else StopFlight();
                 State = "connected";
                 OnStateChanged?.Invoke(State);
                 payload = payload[(12 + fragLength)..];
@@ -380,6 +444,7 @@ internal sealed class DtlsTransport : IDisposable
     private void HandleClientHello(ReadOnlySpan<byte> body)
     {
         if (body.Length < 34) return;
+        BeginFlight();
         _remoteRandom = body.Slice(2, 32).ToArray();
 
         // Send ServerHello
@@ -523,6 +588,7 @@ internal sealed class DtlsTransport : IDisposable
     {
         if (!_clientCertificateRequested || !_peerCertificateProof)
             throw new CryptographicException("DTLS requires mutual certificate authentication.");
+        BeginFlight();
         var certificate = _localCert.RawData;
         var certificateBody = new byte[6 + certificate.Length];
         var listLength = certificate.Length + 3;
@@ -753,6 +819,8 @@ internal sealed class DtlsTransport : IDisposable
         {
             if (_disposed) return;
             _disposed = true;
+            StopFlight();
+            _retryTimer?.Dispose();
             State = "closed";
         }
         _localEcdsa.Dispose();
