@@ -314,8 +314,8 @@ public sealed class RemoteWebRtcTests
         client.OnPacketToSend += pkt => server.ProcessIncomingPacket(pkt);
         server.OnPacketToSend += pkt => client.ProcessIncomingPacket(pkt);
 
-        client.StartAssociation(isClient: true);
         server.StartAssociation(isClient: false);
+        client.StartAssociation(isClient: true);
 
         Assert.Equal("connected", client.State);
         Assert.Equal("connected", server.State);

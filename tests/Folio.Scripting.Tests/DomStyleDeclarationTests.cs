@@ -1275,7 +1275,7 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(loopEngine, Document.Parse("<html></html>", new FolioOptions { Capabilities = new FeatureCapabilities { WebRtc = true } }));
         Assert.True(loopEngine.Evaluate("const loopOffer = new RTCPeerConnection(); const loopAnswer = new RTCPeerConnection(); let loopMessage = ''; let loopTrack = ''; loopAnswer.ondatachannel = e => e.channel.onmessage = message => loopMessage = message.data; loopAnswer.ontrack = e => loopTrack = e.track.kind; loopOffer.setLocalDescription({ type: 'offer', sdp: '' }); loopAnswer.setRemoteDescription({ type: 'offer', sdp: '' }); loopAnswer.setLocalDescription({ type: 'answer', sdp: '' }); loopOffer.setRemoteDescription({ type: 'answer', sdp: '' }); const loopChannel = loopOffer.createDataChannel('loop'); loopChannel.send('hello'); loopOffer.addTrack(new MediaStreamTrack('video')); loopMessage === 'hello' && loopTrack === 'video'").AsBoolean());
         Assert.True(DomBindings.Dispose(loopEngine));
-        Assert.True(allowed.Evaluate("const eventPc = new RTCPeerConnection(); let observedPeerEvents = ''; const peerStateHandler = e => { observedPeerEvents += e.type + (e.target === eventPc ? ':' : '?'); }; eventPc.addEventListener('connectionstatechange', peerStateHandler); eventPc.addEventListener('connectionstatechange', peerStateHandler); eventPc.addEventListener('iceconnectionstatechange', peerStateHandler); eventPc.addIceCandidate(null); eventPc.removeEventListener('connectionstatechange', peerStateHandler); observedPeerEvents === 'iceconnectionstatechange:connectionstatechange:'").AsBoolean());
+        Assert.True(allowed.Evaluate("const eventPc = new RTCPeerConnection(); let observedPeerEvents = ''; const peerStateHandler = e => { observedPeerEvents += e.type + (e.target === eventPc ? ':' : '?'); }; eventPc.addEventListener('connectionstatechange', peerStateHandler); eventPc.addEventListener('connectionstatechange', peerStateHandler); eventPc.addEventListener('iceconnectionstatechange', peerStateHandler); eventPc.addIceCandidate(null); const candidateDidNotConnect = eventPc.connectionState === 'new' && observedPeerEvents === ''; eventPc.close(); eventPc.removeEventListener('connectionstatechange', peerStateHandler); candidateDidNotConnect && observedPeerEvents === 'connectionstatechange:'").AsBoolean());
         Assert.True(allowed.Evaluate("let devicesBeforeCapture = -1; navigator.mediaDevices.enumerateDevices().then(devices => devicesBeforeCapture = devices.length); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal(0, allowed.Evaluate("devicesBeforeCapture").AsNumber());
@@ -1358,7 +1358,8 @@ public sealed class DomStyleDeclarationTests
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("localDescriptionRejected").AsBoolean());
         Assert.True(allowed.Evaluate("pc.iceGatheringState === 'new' && pc.getConfiguration() !== null; pc.setLocalDescription({ type: 'offer' }); pc.iceGatheringState === 'complete'; pc.restartIce(); pc.iceGatheringState === 'new'").AsBoolean());
-        Assert.True(allowed.Evaluate("const remote = pc.addTransceiver('video'); let remoteKind = ''; let remoteStreams = 0; pc.ontrack = e => { remoteKind = e.track.kind; remoteStreams = e.streams.length; }; pc.signalingState === 'have-local-offer' && candidates === 1; pc.setRemoteDescription({ type: 'answer' }); pc.signalingState === 'stable' && remoteKind === 'video' && remoteStreams === 1").AsBoolean());
+        // An SDP shell is not evidence of a remote media track or transport.
+        Assert.True(allowed.Evaluate("const remote = pc.addTransceiver('video'); let remoteKind = ''; let remoteStreams = 0; pc.ontrack = e => { remoteKind = e.track.kind; remoteStreams = e.streams.length; }; pc.setRemoteDescription({ type: 'answer' }); pc.signalingState === 'stable' && remoteKind === '' && remoteStreams === 0").AsBoolean());
         Assert.True(allowed.Evaluate("let badDescription = false; pc.setRemoteDescription({ type: 'invalid' }).catch(error => badDescription = error.name === 'TypeError'); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("badDescription").AsBoolean());
@@ -1366,8 +1367,8 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("let closedDescriptionRejected = false; stoppedPc.setRemoteDescription({ type: 'answer' }).catch(error => closedDescriptionRejected = error.name === 'InvalidStateError'); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("closedDescriptionRejected").AsBoolean());
-        Assert.True(allowed.Evaluate("let connectedEvents = 0; pc.onconnectionstatechange = e => connectedEvents++; pc.setRemoteDescription({ type: 'answer' }); pc.connectionState === 'connected' && pc.iceConnectionState === 'connected' && connectedEvents === 1").AsBoolean());
-        Assert.True(allowed.Evaluate("const icePc = new RTCPeerConnection(); let iceConnected = 0; icePc.onconnectionstatechange = e => iceConnected++; icePc.addIceCandidate({ candidate: 'candidate:1' }); icePc.connectionState === 'connected' && iceConnected === 1").AsBoolean());
+        Assert.True(allowed.Evaluate("let connectedEvents = 0; pc.onconnectionstatechange = e => connectedEvents++; pc.setRemoteDescription({ type: 'answer' }); pc.connectionState === 'new' && pc.iceConnectionState === 'new' && connectedEvents === 0").AsBoolean());
+        Assert.True(allowed.Evaluate("const icePc = new RTCPeerConnection(); let iceConnected = 0; icePc.onconnectionstatechange = e => iceConnected++; icePc.addIceCandidate({ candidate: 'candidate:1' }); icePc.connectionState === 'new' && iceConnected === 0").AsBoolean());
         Assert.True(allowed.Evaluate("icePc.addIceCandidate(null).then(() => true)").IsObject);
         Assert.True(allowed.Evaluate("let badCandidate = false; icePc.addIceCandidate({ sdpMid: '0' }).catch(error => badCandidate = error.name === 'TypeError'); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
@@ -1412,7 +1413,7 @@ public sealed class DomStyleDeclarationTests
         allowed.Evaluate("let replaceRejected = false; sender.replaceTrack({ kind: 'video' }).catch(() => replaceRejected = true);");
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("replaceRejected").AsBoolean());
-        Assert.True(allowed.Evaluate("iceEvents >= 1 && stateEvents === 1").AsBoolean());
+        Assert.True(allowed.Evaluate("iceEvents >= 1 && stateEvents === 0").AsBoolean());
     }
 
     [Fact]

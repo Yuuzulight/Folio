@@ -21,18 +21,24 @@ send/receive plaintext paths. This is not full DTLS qualification.
 
 ## Remaining required work
 
-- Complete DTLS certificate/key-exchange signature checks, encrypted handshake
-  records, correct transcript/flight ordering, epochs, replay rejection,
-  retransmission and independent-peer interoperability.
-- Connect public peer state and data channels to ICE/DTLS/SCTP. The current
-  JavaScript binding declares connected on an answer and delivers messages
-  between local objects; those paths do not prove remote transport.
+- Complete DTLS negotiation/state/alert and adversarial acceptance beyond the
+  supported profile. Certificate proofs, encrypted records, replay protection,
+  bounded fragmentation/retry and OpenSSL interoperability in both roles now
+  have evidence below; these focused checks do not establish full WebRTC parity.
+- Complete SCTP association retry/restart, reliable message delivery,
+  fragmentation, stream reset and independent-peer interoperability. Public
+  strings and buffer sources now use ICE/DTLS/SCTP with a document loop;
+  Blob/binaryType semantics, channel options and event budgets remain unfinished.
+  Explicit empty-SDP/no-loop legacy paths still simulate local delivery.
 - Verify encoded media transport, host network policy, cancellation, teardown,
   budgets and sandbox behavior with real remote peers.
 - Resolve iframe/service-worker production routing against original acceptance.
   Both remain excluded from `ArtifactClassifier.ProductionFeatures`.
 - Repeat all milestone, conformance, performance, deployment and release checks
   against the final reviewed commit before publishing 1.0.
+- Reconcile all M0–M7 original acceptance requirements, including the mandatory
+  Folio-owned replacement track. Earlier passing builds and milestone closure
+  are not substitutes for that audit.
 
 `TwoControllersPerformCandidateExchangeAndConnect` currently asserts ICE state
 only, despite its DTLS comment. Full transport acceptance needs tests beyond it.
@@ -283,3 +289,30 @@ admission uses its combined encoded size. Large messages are refused explicitly;
 this limit is not evidence that large-message SCTP acceptance is complete.
 Blob delivery/binaryType semantics, fragmentation/reliability, event budgets,
 remote reset and independent SCTP interoperability remain release work.
+
+## SCTP association validation
+
+Packets now require the configured SCTP ports and the local verification tag;
+INIT alone requires tag zero. INIT_ACK carries an HMAC-SHA256 state cookie
+binding both tags, initial TSNs, ports, creation time, lifetime and a random
+nonce. Its exact bytes must be returned before the server accepts COOKIE_ECHO;
+the cookie expires after 60 seconds measured by a monotonic clock.
+The client requires a valid cookie parameter and its own outstanding COOKIE_ECHO
+before accepting COOKIE_ACK. Verification tags use cryptographic randomness.
+Pre-establishment DATA is refused. Pending stream identifiers are reserved before
+packet callbacks run, and the server is ready for DATA before emitting COOKIE_ACK,
+including synchronous callback delivery.
+
+Regressions mutate ports, tags and cookie bytes while recomputing valid CRCs,
+remove the mandatory cookie, send an unsolicited ACK, and then complete the
+genuine handshake. Expired cookies are refused and a fresh INIT can obtain a
+new cookie. Synchronous pending channels exchange messages in both directions.
+The focused RTC selection passes 56/56 serialized and the project builds with
+zero warnings/errors. The older capability regression now asserts that SDP
+shells and candidates do not fabricate a connected transport or remote tracks;
+its close-event and capability assertions also pass.
+
+Cookie validation retains per-association state; this is not a completed RFC
+9260 stateless state-restoration implementation. Association retry and restart
+handling, reliability, fragmentation and independent SCTP interoperability
+remain required. This work does not close #704 or qualify release 1.0.

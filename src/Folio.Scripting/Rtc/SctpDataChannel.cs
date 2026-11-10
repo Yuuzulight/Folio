@@ -1,11 +1,13 @@
 using System.Buffers.Binary;
 using System.Text;
+using System.Security.Cryptography;
 
 namespace Folio.Scripting.Rtc;
 
 /// <summary>
 /// Folio-owned SCTP data channel engine (RFC 4960 / RFC 8831 / RFC 8832) operating over DTLS.
-/// Implements DCEP channel negotiation, CRC32c validation, chunk framing, and ordered/unordered delivery.
+/// Implements basic DCEP negotiation and single-record delivery. Full SCTP
+/// reliability, fragmentation and stream reset remain unqualified.
 /// </summary>
 internal sealed class SctpDataChannel : IDisposable
 {
@@ -49,10 +51,20 @@ internal sealed class SctpDataChannel : IDisposable
     private bool? _isClient;
     private readonly object _gate = new();
     private bool _disposed;
+    private byte[]? _issuedCookie;
+    private readonly byte[] _cookieKey = RandomNumberGenerator.GetBytes(32);
+    private readonly TimeProvider _clock;
+    private long _cookieIssuedAt;
+    private static readonly TimeSpan CookieLifetime = TimeSpan.FromSeconds(60);
+    private bool _cookieEchoSent;
 
-    public SctpDataChannel()
+    public SctpDataChannel() : this(TimeProvider.System) { }
+
+    internal SctpDataChannel(TimeProvider clock)
     {
-        LocalVerificationTag = (uint)Random.Shared.Next(1, int.MaxValue);
+        _clock = clock;
+        do { LocalVerificationTag = BinaryPrimitives.ReadUInt32BigEndian(RandomNumberGenerator.GetBytes(4)); }
+        while (LocalVerificationTag == 0);
     }
 
     public void StartAssociation(bool isClient)
@@ -62,6 +74,7 @@ internal sealed class SctpDataChannel : IDisposable
             if (_disposed || State != "new") return;
             _isClient = isClient;
             _nextStreamId = (ushort)(isClient ? 0 : 1);
+            AssignPendingStreamIds(isClient);
             State = "connecting";
 
             if (isClient)
@@ -89,15 +102,35 @@ internal sealed class SctpDataChannel : IDisposable
 
     private void SendInitAck()
     {
-        var chunk = new byte[20];
+        if (_issuedCookie is null || _clock.GetElapsedTime(_cookieIssuedAt) >= CookieLifetime)
+        {
+            // Cookie body includes both tags, initial TSNs, ports, creation
+            // time and lifetime. Authenticate all fields with an owned key.
+            _issuedCookie = new byte[80];
+            BinaryPrimitives.WriteUInt32BigEndian(_issuedCookie, LocalVerificationTag);
+            BinaryPrimitives.WriteUInt32BigEndian(_issuedCookie.AsSpan(4), RemoteVerificationTag);
+            BinaryPrimitives.WriteUInt32BigEndian(_issuedCookie.AsSpan(8), _localTsn);
+            BinaryPrimitives.WriteUInt32BigEndian(_issuedCookie.AsSpan(12), _remoteTsn);
+            BinaryPrimitives.WriteUInt16BigEndian(_issuedCookie.AsSpan(16), SctpPort);
+            BinaryPrimitives.WriteUInt16BigEndian(_issuedCookie.AsSpan(18), SctpPort);
+            BinaryPrimitives.WriteInt64BigEndian(_issuedCookie.AsSpan(20), _clock.GetUtcNow().ToUnixTimeSeconds());
+            BinaryPrimitives.WriteUInt32BigEndian(_issuedCookie.AsSpan(28), 60);
+            RandomNumberGenerator.Fill(_issuedCookie.AsSpan(32, 16));
+            HMACSHA256.HashData(_cookieKey, _issuedCookie.AsSpan(0, 48), _issuedCookie.AsSpan(48));
+            _cookieIssuedAt = _clock.GetTimestamp();
+        }
+        var chunk = new byte[24 + _issuedCookie.Length];
         chunk[0] = ChunkInitAck;
         chunk[1] = 0;
-        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(2), 20);
+        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(2), (ushort)chunk.Length);
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(4), LocalVerificationTag);
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(8), 131072);
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(12), 1024);
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(14), 1024);
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(16), _localTsn);
+        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(20), 7); // State Cookie
+        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(22), (ushort)(4 + _issuedCookie.Length));
+        _issuedCookie.CopyTo(chunk, 24);
 
         SendSctpPacket(RemoteVerificationTag, [chunk]);
     }
@@ -112,6 +145,7 @@ internal sealed class SctpDataChannel : IDisposable
             var dstPort = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2));
             var vTag = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4));
             var checksum = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(8, 4));
+            if (srcPort != SctpPort || dstPort != SctpPort || State == "new") return;
 
             // Verify CRC32c by recomputing over packet with zeroed checksum field
             var copy = packet.ToArray();
@@ -126,6 +160,11 @@ internal sealed class SctpDataChannel : IDisposable
                 var chunkLength = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(offset + 2, 2));
 
                 if (chunkLength < 4 || offset + chunkLength > packet.Length) break;
+                if (chunkType == ChunkInit)
+                {
+                    if (vTag != 0 || offset != 12 || chunkLength != packet.Length - 12) return;
+                }
+                else if (vTag != LocalVerificationTag) return;
                 var chunkPayload = packet.Slice(offset + 4, chunkLength - 4);
 
                 ProcessChunk(chunkType, chunkFlags, chunkPayload, vTag);
@@ -141,7 +180,9 @@ internal sealed class SctpDataChannel : IDisposable
         switch (type)
         {
             case ChunkInit:
-                if (payload.Length >= 16)
+                if (State == "connecting" && _isClient == false && payload.Length >= 16 &&
+                    BinaryPrimitives.ReadUInt32BigEndian(payload) != 0 &&
+                    (RemoteVerificationTag == 0 || RemoteVerificationTag == BinaryPrimitives.ReadUInt32BigEndian(payload)))
                 {
                     RemoteVerificationTag = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(0, 4));
                     _remoteTsn = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4));
@@ -150,14 +191,17 @@ internal sealed class SctpDataChannel : IDisposable
                 break;
 
             case ChunkInitAck:
-                if (payload.Length >= 16)
+                if (State == "connecting" && _isClient == true && payload.Length >= 16 &&
+                    BinaryPrimitives.ReadUInt32BigEndian(payload) != 0 && TryGetCookie(payload, out var cookie))
                 {
                     RemoteVerificationTag = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(0, 4));
                     _remoteTsn = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4));
                     // Send CookieEcho
-                    var echo = new byte[8];
+                    var echo = new byte[4 + cookie.Length];
                     echo[0] = ChunkCookieEcho;
-                    BinaryPrimitives.WriteUInt16BigEndian(echo.AsSpan(2), 8);
+                    BinaryPrimitives.WriteUInt16BigEndian(echo.AsSpan(2), (ushort)echo.Length);
+                    cookie.CopyTo(echo.AsSpan(4));
+                    _cookieEchoSent = true;
                     SendSctpPacket(RemoteVerificationTag, [echo]);
 
                     // Wait for COOKIE_ACK before opening pending channels.
@@ -165,19 +209,25 @@ internal sealed class SctpDataChannel : IDisposable
                 break;
 
             case ChunkCookieEcho:
+                if (_isClient != false || _issuedCookie is null ||
+                    _clock.GetElapsedTime(_cookieIssuedAt) >= CookieLifetime ||
+                    !CryptographicOperations.FixedTimeEquals(payload, _issuedCookie)) break;
                 // Send CookieAck
                 var ack = new byte[4];
                 ack[0] = ChunkCookieAck;
                 BinaryPrimitives.WriteUInt16BigEndian(ack.AsSpan(2), 4);
-                SendSctpPacket(RemoteVerificationTag, [ack]);
-                AssociationConnected();
+                // Accept DATA triggered synchronously by our ACK, but send our
+                // pending DCEP only after the peer has received that ACK.
+                if (State == "connected") SendSctpPacket(RemoteVerificationTag, [ack]);
+                else AssociationConnected(() => SendSctpPacket(RemoteVerificationTag, [ack]));
                 break;
 
             case ChunkCookieAck:
-                AssociationConnected();
+                if (_cookieEchoSent && payload.IsEmpty) AssociationConnected();
                 break;
 
             case ChunkHeartbeat:
+                if (State != "connected") break;
                 // Echo back heartbeat ack
                 var hbAck = new byte[4 + payload.Length];
                 hbAck[0] = ChunkHeartbeatAck;
@@ -187,9 +237,29 @@ internal sealed class SctpDataChannel : IDisposable
                 break;
 
             case ChunkData:
-                ProcessDataChunk(flags, payload);
+                if (State == "connected") ProcessDataChunk(flags, payload);
                 break;
         }
+    }
+
+    private static bool TryGetCookie(ReadOnlySpan<byte> initAck, out ReadOnlySpan<byte> cookie)
+    {
+        cookie = default;
+        for (var offset = 16; offset < initAck.Length;)
+        {
+            if (initAck.Length - offset < 4) return false;
+            var type = BinaryPrimitives.ReadUInt16BigEndian(initAck.Slice(offset));
+            var length = BinaryPrimitives.ReadUInt16BigEndian(initAck.Slice(offset + 2));
+            if (length < 4 || length > initAck.Length - offset) return false;
+            if (type == 7)
+            {
+                if (length == 4 || !cookie.IsEmpty) return false;
+                cookie = initAck.Slice(offset + 4, length - 4);
+            }
+            offset += (length + 3) & ~3;
+            if (offset > initAck.Length) return false;
+        }
+        return !cookie.IsEmpty;
     }
 
     private void ProcessDataChunk(byte flags, ReadOnlySpan<byte> payload)
@@ -305,26 +375,39 @@ internal sealed class SctpDataChannel : IDisposable
         }
     }
 
-    private void AssociationConnected()
+    private void AssociationConnected(Action? beforePendingChannels = null)
     {
         if (State == "connected") return;
         State = "connected";
+        beforePendingChannels?.Invoke();
         var pending = _pendingChannels.ToArray();
         _pendingChannels.Clear();
         foreach (var channel in pending)
         {
             if (channel.ReadyState == "closed") continue;
-            if (channel.AutomaticId && _isClient is { } client && (channel.Id & 1) != (client ? 0 : 1))
-            {
-                _channels.Remove(channel.Id);
-                channel.Id++;
-                if (_channels.ContainsKey(channel.Id)) throw new InvalidOperationException("SCTP role-selected stream collision.");
-                _channels.Add(channel.Id, channel);
-            }
             SendChannelOpen(channel);
         }
-        if (pending.Length > 0)
-            _nextStreamId = (ushort)Math.Min(ushort.MaxValue, Math.Max(_nextStreamId, pending.Max(channel => (int)channel.Id) + 2));
+    }
+
+    private void AssignPendingStreamIds(bool client)
+    {
+        // Reserve role-correct identifiers before any packet callback can
+        // deliver the peer's OPEN, including synchronous in-process transports.
+        foreach (var channel in _pendingChannels)
+        {
+            if (!channel.AutomaticId || (channel.Id & 1) == (client ? 0 : 1)) continue;
+            if (_channels.ContainsKey((ushort)(channel.Id + 1)))
+                throw new InvalidOperationException("SCTP role-selected stream collision.");
+        }
+        foreach (var channel in _pendingChannels)
+        {
+            if (!channel.AutomaticId || (channel.Id & 1) == (client ? 0 : 1)) continue;
+            _channels.Remove(channel.Id);
+            channel.Id++;
+            _channels.Add(channel.Id, channel);
+        }
+        if (_channels.Count > 0)
+            _nextStreamId = (ushort)Math.Min(ushort.MaxValue, Math.Max(_nextStreamId, _channels.Keys.Max(id => (int)id) + 2));
     }
 
     private void SendChannelOpen(ChannelState channel)
@@ -412,6 +495,10 @@ internal sealed class SctpDataChannel : IDisposable
             foreach (var ch in _channels.Values) ch.Close();
             _channels.Clear();
             _pendingChannels.Clear();
+            if (_issuedCookie is not null) CryptographicOperations.ZeroMemory(_issuedCookie);
+            _issuedCookie = null;
+            _cookieEchoSent = false;
+            CryptographicOperations.ZeroMemory(_cookieKey);
         }
     }
 

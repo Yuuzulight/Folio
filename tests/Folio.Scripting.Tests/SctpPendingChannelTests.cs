@@ -1,9 +1,120 @@
 using Folio.Scripting.Rtc;
+using System.Buffers.Binary;
 
 namespace Folio.Scripting.Tests;
 
 public sealed class SctpPendingChannelTests
 {
+    private sealed class Clock : TimeProvider
+    {
+        internal long Ticks;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => Ticks;
+    }
+
+    [Fact]
+    public void ExpiredCookieCannotEstablishAssociationAndInitCanRefreshIt()
+    {
+        var clock = new Clock();
+        using var client = new SctpDataChannel();
+        using var server = new SctpDataChannel(clock);
+        var requests = new Queue<byte[]>(); var responses = new Queue<byte[]>();
+        client.OnPacketToSend += requests.Enqueue;
+        server.OnPacketToSend += responses.Enqueue;
+        server.StartAssociation(false); client.StartAssociation(true);
+        var init = requests.Dequeue();
+        server.ProcessIncomingPacket(init);
+        client.ProcessIncomingPacket(responses.Dequeue());
+        var oldEcho = requests.Dequeue();
+        clock.Ticks = TimeSpan.FromSeconds(60).Ticks;
+        server.ProcessIncomingPacket(oldEcho);
+        Assert.Equal("connecting", server.State);
+        Assert.Empty(responses);
+        server.ProcessIncomingPacket(init);
+        client.ProcessIncomingPacket(responses.Dequeue());
+        server.ProcessIncomingPacket(oldEcho);
+        Assert.Empty(responses);
+        server.ProcessIncomingPacket(requests.Dequeue());
+        client.ProcessIncomingPacket(responses.Dequeue());
+        Assert.Equal("connected", client.State);
+        Assert.Equal("connected", server.State);
+    }
+
+    [Fact]
+    public void SynchronousCookieAckDeliveryAllowsPendingChannelsOnBothPeers()
+    {
+        using var client = new SctpDataChannel();
+        using var server = new SctpDataChannel();
+        client.OnPacketToSend += packet => server.ProcessIncomingPacket(packet);
+        server.OnPacketToSend += packet => client.ProcessIncomingPacket(packet);
+        var first = client.CreateDataChannel("client");
+        var second = server.CreateDataChannel("server");
+        var received = new List<string>();
+        client.OnDataChannelCreated += channel => channel.OnMessage += value => received.Add((string)value);
+        server.OnDataChannelCreated += channel => channel.OnMessage += value => received.Add((string)value);
+        server.StartAssociation(false); client.StartAssociation(true);
+        Assert.Equal("open", first.ReadyState);
+        Assert.Equal("open", second.ReadyState);
+        first.Send("from-client"); second.Send("from-server");
+        Assert.Equal(new[] { "from-client", "from-server" }, received);
+    }
+
+    [Fact]
+    public void InvalidTagsPortsAndCookiesCannotAdvanceHandshake()
+    {
+        using var client = new SctpDataChannel();
+        using var server = new SctpDataChannel();
+        var outboundClient = new Queue<byte[]>();
+        var outboundServer = new Queue<byte[]>();
+        client.OnPacketToSend += outboundClient.Enqueue;
+        server.OnPacketToSend += outboundServer.Enqueue;
+        server.StartAssociation(false); client.StartAssociation(true);
+        var init = outboundClient.Dequeue();
+        var invalid = (byte[])init.Clone(); invalid[7] = 1; Rechecksum(invalid);
+        server.ProcessIncomingPacket(invalid);
+        Assert.Empty(outboundServer);
+        invalid = (byte[])init.Clone(); invalid[0] ^= 1; Rechecksum(invalid);
+        server.ProcessIncomingPacket(invalid);
+        Assert.Empty(outboundServer);
+        server.ProcessIncomingPacket(init);
+        var initAck = outboundServer.Dequeue();
+        invalid = (byte[])initAck.Clone(); invalid[7] ^= 1; Rechecksum(invalid);
+        client.ProcessIncomingPacket(invalid);
+        Assert.Empty(outboundClient);
+        // An INIT_ACK without its mandatory cookie is not a usable offer.
+        invalid = initAck[..32];
+        BinaryPrimitives.WriteUInt16BigEndian(invalid.AsSpan(14), 20); Rechecksum(invalid);
+        client.ProcessIncomingPacket(invalid);
+        Assert.Empty(outboundClient);
+        // Even a correctly tagged COOKIE_ACK must follow our COOKIE_ECHO.
+        invalid = new byte[16]; initAck.AsSpan(0, 8).CopyTo(invalid);
+        invalid[12] = 11; invalid[15] = 4; Rechecksum(invalid);
+        client.ProcessIncomingPacket(invalid);
+        Assert.Equal("connecting", client.State);
+        client.ProcessIncomingPacket(initAck);
+        var echo = outboundClient.Dequeue();
+        invalid = (byte[])echo.Clone(); invalid[^1] ^= 1; Rechecksum(invalid);
+        server.ProcessIncomingPacket(invalid);
+        Assert.Empty(outboundServer);
+        Assert.Equal("connecting", server.State);
+        server.ProcessIncomingPacket(echo);
+        client.ProcessIncomingPacket(outboundServer.Dequeue());
+        Assert.Equal("connected", client.State);
+        Assert.Equal("connected", server.State);
+    }
+
+    private static void Rechecksum(byte[] packet)
+    {
+        packet.AsSpan(8, 4).Clear();
+        uint crc = uint.MaxValue;
+        foreach (var value in packet)
+        {
+            crc ^= value;
+            for (var bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ ((crc & 1) != 0 ? 0x82f63b78u : 0);
+        }
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(8), ~crc);
+    }
+
     [Fact]
     public void ChannelsCreatedBeforeNegotiationWaitAndUseDtlsRoleParity()
     {
