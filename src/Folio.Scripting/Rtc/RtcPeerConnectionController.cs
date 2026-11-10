@@ -148,6 +148,9 @@ internal sealed class RtcPeerConnectionController : IDisposable
 
     public async Task<string> CreateAnswerAsync(bool hasDataChannels, int audioSenders, int videoSenders)
     {
+        // An answer must retain the offered data m-line even when this peer
+        // has not created a local channel of its own.
+        hasDataChannels |= RemoteDescription?.Media.Any(media => media.Kind == "application") == true;
         var sdp = new RtcSdp
         {
             Type = "answer",

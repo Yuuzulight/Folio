@@ -245,3 +245,26 @@ RTC selection passes 49/49 serialized; build is clean.
 This is a prerequisite for replacing public JavaScript channel delivery, which
 is still unfinished. SCTP cookie/verification-tag validation, reliability and
 independent-peer conformance also require further qualification before 1.0.
+
+## Public string data-channel transport
+
+Documents with an owner event loop now create native SCTP channel leases.
+Public string sends reach SCTP/DTLS/UDP; remote channel, open and message events
+are delivered through the document loop after lease/capability checks. Channel
+state comes from the native channel and owned teardown bypasses monkeypatched
+JavaScript close methods. Answer generation retains an offered application
+m-line even without locally created channels. ICE rebuilds candidate pairs when
+local gathering finishes after remote SDP, avoiding a duplicate-trickle dependency.
+
+Native and Jint public-API regressions create a channel before negotiation,
+exchange real SDP, wait for onopen, deliver a string, echo it remotely and close
+both peers. The focused RTC selection passes 51/51 serialized; build is clean.
+These checks exposed and repaired answer m-line, ICE pairing and native teardown
+failures during development.
+
+Remaining channel scope includes outbound binary/Blob data, partial-reliability
+and negotiated options, remote stream reset/close semantics, bounded event
+delivery and independent SCTP/reliability acceptance. Unsupported options are
+explicitly refused. No-loop legacy fixtures still use their old in-page path;
+they must not be counted as production network qualification. This delivery
+does not close #704 or qualify 1.0.

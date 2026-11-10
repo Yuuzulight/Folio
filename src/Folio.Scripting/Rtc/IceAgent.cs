@@ -78,8 +78,12 @@ internal sealed class IceAgent : IDisposable
         lock (_gate)
         {
             GatheringState = "complete";
+            // Remote SDP may arrive before local gathering. Rebuild pairs
+            // now instead of requiring a duplicate trickled candidate.
+            FormPairs();
         }
         OnGatheringStateChanged?.Invoke("complete");
+        _ = Task.Run(CheckConnectivityAsync);
     }
 
     private void BindSocket()

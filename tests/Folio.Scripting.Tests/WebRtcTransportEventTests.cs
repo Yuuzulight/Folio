@@ -9,6 +9,48 @@ public sealed class WebRtcTransportEventTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void PublicChannelExchangesStringsOverNegotiatedUdpTransport(bool native)
+    {
+        using IScriptEngine engine = native ? new NativeJavaScriptEngine() : new JintScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions { Capabilities = new FeatureCapabilities { WebRtc = true } });
+        using var loop = new HtmlEventLoop(engine);
+        var diagnostics = new List<string>();
+        loop.UncaughtException += error => diagnostics.Add(error.ToString());
+        DomBindings.Install(engine, document, eventLoop: loop);
+        try
+        {
+            engine.Evaluate("""
+                var a=new RTCPeerConnection(),b=new RTCPeerConnection(),received='',reply='',error='';
+                b.ondatachannel=function(e){e.channel.onmessage=function(m){received=m.data;e.channel.send('echo:'+m.data);};};
+                var channel=a.createDataChannel('public-udp');
+                channel.onopen=function(){channel.send('real transport');};
+                channel.onmessage=function(e){reply=e.data;};
+                a.createOffer().then(function(o){return a.setLocalDescription(o).then(function(){return b.setRemoteDescription(o);});})
+                  .then(function(){return b.createAnswer();})
+                  .then(function(answer){return b.setLocalDescription(answer).then(function(){return a.setRemoteDescription(answer);});})
+                  .catch(function(e){error=String(e);});
+                """);
+            var deadline = System.Diagnostics.Stopwatch.StartNew();
+            while (deadline.Elapsed < TimeSpan.FromSeconds(5))
+            {
+                engine.PerformMicrotaskCheckpoint();
+                loop.RunOneTurn();
+                if (engine.Evaluate("reply").AsString() == "echo:real transport") break;
+                Thread.Sleep(10);
+            }
+            Assert.Equal("", engine.Evaluate("error").AsString());
+            Assert.True(engine.Evaluate("received").AsString() == "real transport",
+                engine.Evaluate("a.connectionState+':'+b.connectionState+':'+channel.readyState+':'+reply+':'+a.signalingState+':'+b.signalingState+':'+(a.remoteDescription&&a.remoteDescription.sdp)").AsString() + string.Join("\n", diagnostics));
+            Assert.Equal("echo:real transport", engine.Evaluate("reply").AsString());
+            Assert.Equal("connected", engine.Evaluate("a.connectionState").AsString());
+            engine.Evaluate("a.close();b.close();");
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void PublicPeerReceivesTransportGatheringEventsOnDocumentLoop(bool native)
     {
         using IScriptEngine engine = native ? new NativeJavaScriptEngine() : new JintScriptEngine();

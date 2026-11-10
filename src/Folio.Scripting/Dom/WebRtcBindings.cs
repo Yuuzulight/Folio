@@ -78,7 +78,84 @@ internal sealed class WebRtcBindingState : IDisposable
         lease.Controller.OnConnectionStateChange += state => Queue("connectionState", state);
         lease.Controller.OnIceConnectionStateChange += state => Queue("iceConnectionState", state);
         lease.Controller.OnIceGatheringStateChange += state => Queue("iceGatheringState", state);
+        lease.Controller.OnDataChannel += channel =>
+        {
+            var wrapped = new ChannelLease(this, lease, channel);
+            QueuePeer(lease, () => _engine.Call(lease.TransportCallback, ScriptValue.Undefined,
+                [ScriptValue.FromString("datachannel"), _engine.CreateHostObject(ChannelTemplate, wrapped)]));
+        };
     }
+
+    private void QueuePeer(PeerLease peer, Action action)
+    {
+        try
+        {
+            _context.OwnerEventLoop?.QueueTask(TaskSource.Generic, () =>
+            {
+                lock (_gate) if (!PermissionGranted() || !_peers.ContainsKey(peer.Id)) return;
+                action();
+            }, "WebRTC data channel");
+        }
+        catch (ObjectDisposedException) { }
+    }
+
+    private ScriptValue CreateChannel(ScriptValue value, string label, string protocol)
+    {
+        EnsurePermission();
+        if (_context.OwnerEventLoop is null || !_engine.TryGetHostTarget(value, out var target) || target is not PeerLease peer ||
+            !ReferenceEquals(peer.Owner, this) || !IsLive(value))
+            throw WebIdlException.DomException("InvalidStateError", "No live WebRTC transport.");
+        var channel = peer.Controller.CreateDataChannel(label, protocol);
+        return _engine.CreateHostObject(ChannelTemplate, new ChannelLease(this, peer, channel));
+    }
+
+    private sealed class ChannelLease
+    {
+        internal WebRtcBindingState Owner { get; }
+        internal PeerLease Peer { get; }
+        internal SctpDataChannel.ChannelState Channel { get; }
+        internal ScriptValue Callback;
+        internal ChannelLease(WebRtcBindingState owner, PeerLease peer, SctpDataChannel.ChannelState channel)
+        {
+            Owner = owner; Peer = peer; Channel = channel;
+            channel.OnOpen += () => Notify("open", null);
+            channel.OnClose += () => Notify("close", null);
+            channel.OnMessage += value => Notify("message", value);
+        }
+        internal void Notify(string kind, object? value) => Owner.QueuePeer(Peer, () =>
+        {
+            if (!Callback.IsFunction) return;
+            var payload = value is string text ? ScriptValue.FromString(text)
+                : value is byte[] bytes ? Owner._engine.CreateArrayBuffer(bytes) : ScriptValue.Undefined;
+            Owner._engine.Call(Callback, ScriptValue.Undefined, [ScriptValue.FromString(kind), payload]);
+        });
+        internal void Send(ScriptValue value)
+        {
+            lock (Owner._gate)
+                if (!Owner.PermissionGranted() || !Owner._peers.ContainsKey(Peer.Id))
+                    throw WebIdlException.DomException("InvalidStateError", "WebRTC peer is closed.");
+            if (!value.IsString) throw new ArgumentException("Transport data channel currently requires string data.");
+            Channel.Send(value.AsString() ?? "");
+        }
+    }
+
+    private static readonly HostObjectTemplate ChannelTemplate = new HostObjectTemplate("RTCDataChannelTransport")
+        .DefineProperty("label", (target, _) => ScriptValue.FromString(((ChannelLease)target).Channel.Label))
+        .DefineProperty("protocol", (target, _) => ScriptValue.FromString(((ChannelLease)target).Channel.Protocol))
+        .DefineProperty("id", (target, _) => ScriptValue.FromNumber(((ChannelLease)target).Channel.Id))
+        .DefineProperty("readyState", (target, _) => ScriptValue.FromString(((ChannelLease)target).Channel.ReadyState))
+        .DefineMethod("register", (target, _, args) =>
+        {
+            var lease = (ChannelLease)target;
+            if (args.Length > 0 && args[0].IsFunction)
+            {
+                lease.Callback = args[0];
+                if (lease.Channel.ReadyState == "open") lease.Notify("open", null);
+            }
+            return ScriptValue.Undefined;
+        })
+        .DefineMethod("send", (target, _, args) => { ((ChannelLease)target).Send(args.Length > 0 ? args[0] : ScriptValue.Undefined); return ScriptValue.Undefined; })
+        .DefineMethod("close", (target, _, _) => { ((ChannelLease)target).Channel.Close(); return ScriptValue.Undefined; });
 
     internal void Release(ScriptValue value)
     {
@@ -178,6 +255,8 @@ internal sealed class WebRtcBindingState : IDisposable
             .DefineMethod("live", (_, _, a) => ScriptValue.FromBoolean(a.Length > 0 && state.IsLive(a[0])))
             .DefineMethod("register", (_, _, a) => { if (a.Length > 1) state.Register(a[0], a[1]); return ScriptValue.Undefined; })
             .DefineMethod("registerTransport", (_, _, a) => { if (a.Length > 1) state.RegisterTransport(a[0], a[1]); return ScriptValue.Undefined; })
+            .DefineMethod("transportEnabled", (_, _, _) => ScriptValue.FromBoolean(context.OwnerEventLoop is not null))
+            .DefineMethod("createChannel", (_, _, a) => state.CreateChannel(a[0], a[1].AsString() ?? "", a.Length > 2 ? a[2].AsString() ?? "" : ""))
             .DefineMethod("release", (_, _, a) => { if (a.Length > 0) state.Release(a[0]); return ScriptValue.Undefined; })
             .DefineMethod("allowOrigin", (_, _, a) => ScriptValue.FromBoolean(a.Length > 0 && state.AllowOrigin(a[0].AsString() ?? "")))
             .DefineMethod("createOffer", (_, _, a) => ScriptValue.FromString(a.Length > 0 ? state.CreateOffer(a[0], a.Length > 1 && a[1].AsBoolean(), a.Length > 2 ? (int)a[2].AsNumber() : 0, a.Length > 3 ? (int)a[3].AsNumber() : 0) : ""))
@@ -198,19 +277,22 @@ internal sealed class WebRtcBindingState : IDisposable
   'use strict';
   var peers = new WeakMap();
   var retired = new WeakMap();
+  var transportClosers = new WeakMap();
+  function closeOwnedChannel(channel) { var nativeClose=apply(weakGet,transportClosers,[channel]);if(nativeClose){nativeClose();return;}try{channel.close();}finally{channel.readyState='closed';} }
   var channelOwners = new WeakMap(), channelClosed = new WeakMap(), channelRetiring = new WeakMap(), channelLists = new WeakMap(), channelPartners = new WeakMap();
   var apply = Reflect.apply, weakGet = WeakMap.prototype.get, weakSet = WeakMap.prototype.set, weakDelete = WeakMap.prototype.delete;
   function denied() { throw new DOMException('The WebRTC connection is closed or disabled by the host.', 'InvalidStateError'); }
   function asyncDead(self) { try { token(self); return null; } catch (error) { return Promise.reject(error); } }
   function token(self) { var value=apply(weakGet,peers,[self]); if(!value || !host.live(value)) denied(); return value; }
   function dispatch(self,type,extra) { var event=extra||{}; event.type=type; if(event.target===undefined)event.target=self; var handler=self['on'+type]; if(typeof handler==='function')handler.call(self,event); (self._listeners[type]||[]).slice().forEach(function(listener){listener.call(self,event);}); }
-  function retire(self,fromHost) { if(apply(weakGet,retired,[self]))return; apply(weakSet,retired,[self,true]); var channels=[]; try { channels=apply(weakGet,channelLists,[self]).slice(); } catch (_) {} channels.forEach(function(c){ apply(weakSet,channelRetiring,[c,true]); }); try { self._folioReleased=true; self.connectionState='closed'; } catch (_) {} channels.forEach(function(c){ try { c.close(); } catch (_) {} apply(weakSet,channelClosed,[c,true]); apply(weakSet,channelRetiring,[c,false]); try { c.readyState='closed'; } catch (_) {} }); var lease=apply(weakGet,peers,[self]); if(!fromHost) try { host.release(lease); } catch (_) {} apply(weakDelete,peers,[self]); var retiredIndex=__folio_webrtc_peers.indexOf(self); if(retiredIndex>=0)__folio_webrtc_peers.splice(retiredIndex,1); try { dispatch(self,'connectionstatechange',{}); } catch (_) {} }
+  function retire(self,fromHost) { if(apply(weakGet,retired,[self]))return; apply(weakSet,retired,[self,true]); var channels=[]; try { channels=apply(weakGet,channelLists,[self]).slice(); } catch (_) {} channels.forEach(function(c){ apply(weakSet,channelRetiring,[c,true]); }); try { self._folioReleased=true; self.connectionState='closed'; } catch (_) {} channels.forEach(function(c){ try { closeOwnedChannel(c); } catch (_) {} apply(weakSet,channelClosed,[c,true]); apply(weakSet,channelRetiring,[c,false]); }); var lease=apply(weakGet,peers,[self]); if(!fromHost) try { host.release(lease); } catch (_) {} apply(weakDelete,peers,[self]); var retiredIndex=__folio_webrtc_peers.indexOf(self); if(retiredIndex>=0)__folio_webrtc_peers.splice(retiredIndex,1); try { dispatch(self,'connectionstatechange',{}); } catch (_) {} }
   function validate(configuration) { configuration=configuration||{}; var iceTransportPolicy=configuration.iceTransportPolicy===undefined?'all':String(configuration.iceTransportPolicy), bundlePolicy=configuration.bundlePolicy===undefined?'balanced':String(configuration.bundlePolicy), rtcpMuxPolicy=configuration.rtcpMuxPolicy===undefined?'require':String(configuration.rtcpMuxPolicy); if(iceTransportPolicy!=='all'&&iceTransportPolicy!=='relay')throw new TypeError('Invalid iceTransportPolicy.'); if(bundlePolicy!=='balanced'&&bundlePolicy!=='max-compat'&&bundlePolicy!=='max-bundle')throw new TypeError('Invalid bundlePolicy.'); if(rtcpMuxPolicy!=='require'&&rtcpMuxPolicy!=='negotiate')throw new TypeError('Invalid rtcpMuxPolicy.'); var servers=configuration.iceServers||[]; if(!Array.isArray(servers))throw new TypeError('iceServers must be an array.'); for(var i=0;i<servers.length;i++){var urls=servers[i]&&servers[i].urls!==undefined?servers[i].urls:[]; urls=Array.isArray(urls)?urls:[urls]; for(var j=0;j<urls.length;j++){var endpoint=String(urls[j]); if(!/^(stun|stuns|turn|turns):/i.test(endpoint)||!host.allowOrigin(endpoint))throw new DOMException('The WebRTC server URL is invalid or not allowed.','SecurityError');}} return configuration; }
   var __folio_webrtc_peers=[];
 
 globalThis.RTCPeerConnection = function(configuration) { var connection=this; configuration=validate(configuration); var lease=host.acquire(); apply(weakSet,peers,[this,lease]); apply(weakSet,channelLists,[this,[]]); __folio_webrtc_peers.push(this); try { host.register(lease,function(){retire(connection,true);});
     host.registerTransport(lease,function(property,value) {
         token(connection);
+        if(property==='datachannel') { var incoming=transportChannel(connection,value); connection._dispatch('datachannel',{channel:incoming}); return; }
         if(connection[property]===value)return;
         connection[property]=value;
         var eventName=property==='connectionState'?'connectionstatechange':property==='iceConnectionState'?'iceconnectionstatechange':'icegatheringstatechange';
@@ -262,6 +344,27 @@ RTCPeerConnection.prototype.createDataChannel = function(label, options) {
     apply(weakSet,channelOwners,[channel,this]); apply(weakSet,channelClosed,[channel,false]); apply(weakSet,channelRetiring,[channel,false]); apply(weakGet,channelLists,[this]).push(channel); this._dataChannels.push(channel); if (this._peer) { channel._remote = __folio_make_remote_channel(this._peer, channel); if (typeof this._peer.ondatachannel === 'function') this._peer.ondatachannel({ type: 'datachannel', target: this._peer, channel: channel._remote }); } return channel;
 };
 RTCPeerConnection.prototype.close = function() { retire(this,false); };
+function transportChannel(owner, nativeChannel) {
+    var listeners={}, channel={label:nativeChannel.label,protocol:nativeChannel.protocol,ordered:true,binaryType:'arraybuffer',bufferedAmount:0};
+    Object.defineProperty(channel,'id',{get:function(){return nativeChannel.id;}});
+    Object.defineProperty(channel,'readyState',{get:function(){return nativeChannel.readyState;}});
+    channel.addEventListener=function(type,fn){if(typeof fn==='function')(listeners[type]||(listeners[type]=[])).push(fn);};
+    channel.removeEventListener=function(type,fn){listeners[type]=(listeners[type]||[]).filter(function(item){return item!==fn;});};
+    channel.send=function(data){token(owner);if(nativeChannel.readyState!=='open')throw new DOMException('Channel is not open.','InvalidStateError');nativeChannel.send(data);};
+    channel.close=function(){nativeChannel.close();};
+    apply(weakSet,transportClosers,[channel,function(){nativeChannel.close();}]);
+    nativeChannel.register(function(type,data){token(owner);var event={type:type,target:channel};if(type==='message')event.data=data;var handler=channel['on'+type];if(typeof handler==='function')handler.call(channel,event);(listeners[type]||[]).slice().forEach(function(fn){fn.call(channel,event);});});
+    apply(weakSet,channelOwners,[channel,owner]);apply(weakGet,channelLists,[owner]).push(channel);
+    return channel;
+}
+var legacyCreateChannel=RTCPeerConnection.prototype.createDataChannel;
+RTCPeerConnection.prototype.createDataChannel=function(label,options) {
+    if(!host.transportEnabled())return legacyCreateChannel.call(this,label,options);
+    options=options||{};
+    if(options.negotiated || options.id!==undefined || options.ordered===false || options.maxRetransmits!==undefined || options.maxPacketLifeTime!==undefined)throw new DOMException('Transport channel option is not implemented.','NotSupportedError');
+    var channel=transportChannel(this,host.createChannel(token(this),String(label||''),String(options.protocol||'')));
+    this._dataChannels.push(channel);return channel;
+};
 // Empty descriptions remain solely for the legacy in-page fixtures. Real SDP
 // must derive connectivity from transport events, never from accepting an answer.
 var legacyRemoteDescription=RTCPeerConnection.prototype.setRemoteDescription;
