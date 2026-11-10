@@ -113,7 +113,8 @@ internal sealed class RtcPeerConnectionController : IDisposable
                 Port = 9,
                 Protocol = "UDP/DTLS/SCTP",
                 Mid = "0",
-                SctpPort = 5000
+                SctpPort = 5000,
+                MaximumMessageSize = SctpDataChannel.MaxMessageBytes
             });
         }
 
@@ -168,7 +169,8 @@ internal sealed class RtcPeerConnectionController : IDisposable
                 Port = 9,
                 Protocol = "UDP/DTLS/SCTP",
                 Mid = "0",
-                SctpPort = 5000
+                SctpPort = 5000,
+                MaximumMessageSize = SctpDataChannel.MaxMessageBytes
             });
         }
 
@@ -239,6 +241,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
         {
             RemoteDescription = RtcSdp.Parse(sdp);
             RemoteDescription.Type = type;
+            Sctp.ConfigureRemote(RemoteDescription.RemoteMaximumMessageSize, RemoteDescription.RemoteSctpPort);
 
             if (type == "offer")
             {

@@ -38,6 +38,8 @@ internal sealed class RtcSdp
     internal string? TransportIcePassword => TransportMedia()?.IcePassword ?? IcePassword;
     internal string? TransportFingerprint => TransportMedia()?.FingerprintValue ?? FingerprintValue;
     internal IReadOnlyList<IceCandidate> TransportCandidates => TransportMedia() is { Candidates.Count: > 0 } media ? media.Candidates : Candidates;
+    internal ulong RemoteMaximumMessageSize => Media.FirstOrDefault(media => media.Kind == "application" && media.Port != 0)?.MaximumMessageSize ?? 65536;
+    internal int RemoteSctpPort => Media.FirstOrDefault(media => media.Kind == "application" && media.Port != 0)?.SctpPort ?? SctpPort;
 
     public static RtcSdp Parse(string sdp)
     {
@@ -118,6 +120,13 @@ internal sealed class RtcSdp
                         result.SctpPort = port;
                     }
                 }
+                else if (attrName.Equals("max-message-size", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (currentMedia is null || currentMedia.Kind != "application" || currentMedia.MaximumMessageSize is not null ||
+                        !ulong.TryParse(attrValue, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var maximum))
+                        throw new InvalidDataException("Invalid SCTP max-message-size attribute.");
+                    currentMedia.MaximumMessageSize = maximum;
+                }
                 else if (attrName.Equals("candidate", StringComparison.OrdinalIgnoreCase))
                 {
                     if (IceCandidate.TryParse("candidate:" + attrValue, out var candidate))
@@ -178,6 +187,7 @@ internal sealed class RtcSdp
             if (m.Kind == "application")
             {
                 sb.Append("a=sctp-port:").Append(m.SctpPort > 0 ? m.SctpPort : SctpPort).Append("\r\n");
+                if (m.MaximumMessageSize is { } maximum) sb.Append("a=max-message-size:").Append(maximum).Append("\r\n");
             }
             else
             {
@@ -216,5 +226,6 @@ internal sealed class RtcMediaDescription
     public string? FingerprintValue { get; set; }
     public string? Setup { get; set; }
     public int SctpPort { get; set; } = 5000;
+    public ulong? MaximumMessageSize { get; set; }
     public List<IceCandidate> Candidates { get; } = [];
 }

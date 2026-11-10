@@ -17,9 +17,9 @@ public sealed class SctpReliableDeliveryTests
     {
         var sender = new SctpReliableDelivery(); var receiver = new SctpReliableDelivery();
         receiver.SetPeerInitialTsn(1);
-        var first = sender.Enqueue(1, 0, 51, [1], 0);
-        var second = sender.Enqueue(2, 0, 51, [2], 0);
-        var independent = sender.Enqueue(3, 2, 51, [3], 0);
+        var first = Assert.Single(sender.Enqueue(1, 0, 51, [1], 0));
+        var second = Assert.Single(sender.Enqueue(2, 0, 51, [2], 0));
+        var independent = Assert.Single(sender.Enqueue(3, 2, 51, [3], 0));
         Assert.Empty(receiver.Receive(3, second.AsSpan(4)));
         Assert.Equal(new byte[] { 3 }, Assert.Single(receiver.Receive(3, independent.AsSpan(4))).Data);
         var sack = receiver.CreateSack();
@@ -44,15 +44,16 @@ public sealed class SctpReliableDeliveryTests
     public void RejectsFutureOrMalformedAcksWithoutReleasingSendAdmission()
     {
         var sender = new SctpReliableDelivery();
-        var data = new byte[SctpDataChannel.MaxUnfragmentedMessageBytes];
-        for (uint tsn = 1; tsn <= 64; tsn++) sender.Enqueue(tsn, 0, 53, data, 0);
-        var sack = new byte[12]; BinaryPrimitives.WriteUInt32BigEndian(sack, 65);
+        var data = new byte[SctpDataChannel.MaxFragmentPayloadBytes];
+        var count = (uint)(SctpReliableDelivery.MaxSendBytes / (16 + data.Length));
+        for (uint tsn = 1; tsn <= count; tsn++) sender.Enqueue(tsn, 0, 53, data, 0);
+        var sack = new byte[12]; BinaryPrimitives.WriteUInt32BigEndian(sack, count + 1);
         Assert.False(sender.Acknowledge(sack));
-        Assert.Throws<InvalidOperationException>(() => sender.Enqueue(65, 0, 53, data, 0));
-        BinaryPrimitives.WriteUInt32BigEndian(sack, 64);
+        Assert.Throws<InvalidOperationException>(() => sender.Enqueue(count + 1, 0, 53, data, 0));
+        BinaryPrimitives.WriteUInt32BigEndian(sack, count);
         Assert.True(sender.Acknowledge(sack));
-        var admitted = sender.Enqueue(65, 0, 53, [9], 0);
-        Assert.Equal(64, BinaryPrimitives.ReadUInt16BigEndian(admitted.AsSpan(10)));
+        var admitted = Assert.Single(sender.Enqueue(count + 1, 0, 53, [9], 0));
+        Assert.Equal(count, BinaryPrimitives.ReadUInt16BigEndian(admitted.AsSpan(10)));
         Assert.Equal(1, sender.BufferedAmount(0));
     }
 
@@ -62,7 +63,7 @@ public sealed class SctpReliableDeliveryTests
         var sender = new SctpReliableDelivery(); var receiver = new SctpReliableDelivery();
         receiver.SetPeerInitialTsn(1);
         byte[] source = [1, 2, 3];
-        var data = sender.Enqueue(1, 0, 53, source, 0); source[0] = 99;
+        var data = Assert.Single(sender.Enqueue(1, 0, 53, source, 0)); source[0] = 99;
         Assert.Equal(new byte[] { 1, 2, 3 }, Assert.Single(receiver.Receive(3, data.AsSpan(4))).Data);
         var clock = new Clock { Ticks = TimeSpan.FromSeconds(1).Ticks };
         var retry = Assert.Single(sender.DueRetransmissions(clock, out var failed));
@@ -77,14 +78,14 @@ public sealed class SctpReliableDeliveryTests
     {
         var sender = new SctpReliableDelivery(uint.MaxValue); var receiver = new SctpReliableDelivery();
         receiver.SetPeerInitialTsn(uint.MaxValue);
-        var previous = sender.Enqueue(uint.MaxValue, 0, 51, [1], 0);
-        var wrapped = sender.Enqueue(0, 0, 51, [2], 0);
+        var previous = Assert.Single(sender.Enqueue(uint.MaxValue, 0, 51, [1], 0));
+        var wrapped = Assert.Single(sender.Enqueue(0, 0, 51, [2], 0));
         Assert.Empty(receiver.Receive(3, wrapped.AsSpan(4)));
         Assert.Equal(2, receiver.Receive(3, previous.AsSpan(4)).Count);
         Assert.True(sender.Acknowledge(receiver.CreateSack().AsSpan(4)));
         for (uint tsn = 1; tsn <= ushort.MaxValue; tsn++)
         {
-            var chunk = sender.Enqueue(tsn, 0, 56, [], 0);
+            var chunk = Assert.Single(sender.Enqueue(tsn, 0, 56, [], 0));
             Assert.Single(receiver.Receive(3, chunk.AsSpan(4)));
             Assert.True(sender.Acknowledge(receiver.CreateSack().AsSpan(4)));
         }
@@ -96,7 +97,7 @@ public sealed class SctpReliableDeliveryTests
     public void EmptyMessagesCarryTheRequiredPaddingByteWithoutApplicationBufferCharge(uint ppid)
     {
         var sender = new SctpReliableDelivery();
-        var chunk = sender.Enqueue(1, 0, ppid, [], 0);
+        var chunk = Assert.Single(sender.Enqueue(1, 0, ppid, [], 0));
         Assert.Equal(17, chunk.Length); Assert.Equal(0, chunk[16]);
         Assert.Equal(0, sender.BufferedAmount(0));
     }
@@ -106,7 +107,7 @@ public sealed class SctpReliableDeliveryTests
     {
         var sender = new SctpReliableDelivery();
         sender.Enqueue(1, 0, 51, [1], 0);
-        var later = sender.Enqueue(2, 0, 51, [2], 0);
+        var later = Assert.Single(sender.Enqueue(2, 0, 51, [2], 0));
         var sack = new byte[16];
         BinaryPrimitives.WriteUInt16BigEndian(sack.AsSpan(8), 1);
         BinaryPrimitives.WriteUInt16BigEndian(sack.AsSpan(12), 2);
@@ -121,22 +122,35 @@ public sealed class SctpReliableDeliveryTests
     }
 
     [Fact]
-    public void IncompleteFragmentsAndFullReceiveBuffersAreNotAcknowledged()
+    public void IncompleteFragmentsAreRetainedWithoutDeliveryAndExpire()
     {
         var sender = new SctpReliableDelivery(); var receiver = new SctpReliableDelivery();
         receiver.SetPeerInitialTsn(1);
-        var chunk = sender.Enqueue(1, 0, 51, [1], 0);
+        var chunk = Assert.Single(sender.Enqueue(1, 0, 51, [1], 0));
         Assert.Empty(receiver.Receive(2, chunk.AsSpan(4)));
-        Assert.Equal(0u, BinaryPrimitives.ReadUInt32BigEndian(receiver.CreateSack().AsSpan(4)));
-        // Keep SSN zero missing so subsequent complete messages consume receive storage.
-        for (uint tsn = 2; tsn <= 10; tsn++)
+        Assert.Equal(1u, BinaryPrimitives.ReadUInt32BigEndian(receiver.CreateSack().AsSpan(4)));
+        var clock = new Clock { Ticks = TimeSpan.FromSeconds(60).Ticks };
+        Assert.Empty(receiver.DueRetransmissions(clock, out var failed)); Assert.True(failed);
+    }
+
+    [Fact]
+    public void FullReceiveStorageRefusesMoreFragmentsWithoutAcknowledgingThem()
+    {
+        var sender = new SctpReliableDelivery(); var receiver = new SctpReliableDelivery();
+        receiver.SetPeerInitialTsn(1);
+        sender.Enqueue(1, 0, 51, [1], 0); // Keep SSN zero and TSN one missing.
+        for (var message = 0; message < 5; message++)
         {
-            chunk = sender.Enqueue(tsn, 0, 53, new byte[SctpDataChannel.MaxUnfragmentedMessageBytes], 0);
-            Assert.Empty(receiver.Receive(3, chunk.AsSpan(4)));
+            foreach (var chunk in sender.Enqueue(sender.NextTsn, 0, 53, new byte[SctpDataChannel.MaxMessageBytes], 0))
+                Assert.Empty(receiver.Receive(chunk[1], chunk.AsSpan(4)));
+            // A faulty peer can continue sending despite receiver credit. Its
+            // local queue is released here; the receiving limit must still hold.
+            var ack = new byte[12]; BinaryPrimitives.WriteUInt32BigEndian(ack, sender.NextTsn - 1);
+            Assert.True(sender.Acknowledge(ack));
         }
         var sack = receiver.CreateSack();
-        Assert.True(BinaryPrimitives.ReadUInt32BigEndian(sack.AsSpan(8)) < 16368);
-        Assert.Equal(9, BinaryPrimitives.ReadUInt16BigEndian(sack.AsSpan(18)));
-        Assert.Single(receiver.Receive(3, sender.Enqueue(11, 2, 51, [7], 0).AsSpan(4)));
+        Assert.InRange(BinaryPrimitives.ReadUInt32BigEndian(sack.AsSpan(8)), 0u, (uint)(SctpDataChannel.MaxFragmentPayloadBytes + 11));
+        Assert.Equal(0u, BinaryPrimitives.ReadUInt32BigEndian(sack.AsSpan(4)));
+        Assert.True(BinaryPrimitives.ReadUInt16BigEndian(sack.AsSpan(18)) < sender.NextTsn - 1);
     }
 }

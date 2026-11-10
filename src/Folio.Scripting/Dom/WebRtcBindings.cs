@@ -138,8 +138,8 @@ internal sealed class WebRtcBindingState : IDisposable
             if (value.IsString) { Channel.Send(value.AsString() ?? ""); return; }
             if (!Owner._engine.TryGetBufferSourceInfo(value, out var info))
                 throw new ArgumentException("Data channel send requires a string or attached buffer source.");
-            if (info.ByteLength > SctpDataChannel.MaxUnfragmentedMessageBytes)
-                throw WebIdlException.DomException("OperationError", "Data channel message requires SCTP fragmentation.");
+            if (info.ByteLength > Channel.MaximumMessageSize)
+                throw new ArgumentException("Data channel message exceeds the negotiated SCTP size.");
             var bytes = new byte[info.ByteLength];
             if (!Owner._engine.TryCopyBufferSource(value, 0, bytes))
                 throw new ArgumentException("Cannot read data channel buffer source.");

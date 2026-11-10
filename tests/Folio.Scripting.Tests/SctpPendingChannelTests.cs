@@ -181,7 +181,7 @@ public sealed class SctpPendingChannelTests
         association.CreateDataChannel("first", explicitId: 10);
         Assert.Throws<InvalidOperationException>(() => association.CreateDataChannel("duplicate", explicitId: 10));
         Assert.Throws<InvalidOperationException>(() => association.CreateDataChannel(new string('\u20ac', 22000)));
-        Assert.Throws<InvalidOperationException>(() => association.CreateDataChannel(new string('a', 9000), new string('b', 9000)));
+        Assert.Throws<InvalidOperationException>(() => association.CreateDataChannel(new string('a', 40000), new string('b', 40000)));
         association.Dispose();
         Assert.Throws<ObjectDisposedException>(() => association.CreateDataChannel("retired"));
     }

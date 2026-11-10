@@ -13,6 +13,8 @@ internal sealed class SctpDataChannel : IDisposable
 {
     // Leave room for SCTP common/DATA headers inside one 16 KiB DTLS record.
     internal const int MaxUnfragmentedMessageBytes = 16356;
+    internal const int MaxFragmentPayloadBytes = 1120;
+    internal const int MaxMessageBytes = 256 * 1024;
     private const ushort SctpPort = 5000;
 
     private const byte ChunkData = 0;
@@ -38,6 +40,18 @@ internal sealed class SctpDataChannel : IDisposable
     public uint LocalVerificationTag { get; }
     public uint RemoteVerificationTag { get; private set; } = 0;
     public string State { get; private set; } = "new";
+    internal int MaximumSendMessageBytes { get; private set; } = 65536;
+    private ushort _remotePort = SctpPort;
+
+    internal void ConfigureRemote(ulong maximumMessageBytes, int port = SctpPort)
+    {
+        if (port is < 1 or > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(port));
+        lock (_gate)
+        {
+            MaximumSendMessageBytes = maximumMessageBytes == 0 ? MaxMessageBytes : (int)Math.Min((ulong)MaxMessageBytes, maximumMessageBytes);
+            _remotePort = (ushort)port;
+        }
+    }
 
     public event Action<byte[]>? OnPacketToSend;
     public event Action<ChannelState>? OnDataChannelCreated;
@@ -179,7 +193,7 @@ internal sealed class SctpDataChannel : IDisposable
         chunk[1] = 0; // flags
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(2), 20); // length
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(4), LocalVerificationTag);
-        BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(8), 131072); // a_rwnd
+        BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(8), SctpReliableDelivery.MaxReceiveBytes); // a_rwnd
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(12), 1024); // OS
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(14), 1024); // MIS
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(16), _localTsn);
@@ -199,7 +213,7 @@ internal sealed class SctpDataChannel : IDisposable
             BinaryPrimitives.WriteUInt32BigEndian(_issuedCookie.AsSpan(8), _localTsn);
             BinaryPrimitives.WriteUInt32BigEndian(_issuedCookie.AsSpan(12), _remoteTsn);
             BinaryPrimitives.WriteUInt16BigEndian(_issuedCookie.AsSpan(16), SctpPort);
-            BinaryPrimitives.WriteUInt16BigEndian(_issuedCookie.AsSpan(18), SctpPort);
+            BinaryPrimitives.WriteUInt16BigEndian(_issuedCookie.AsSpan(18), _remotePort);
             BinaryPrimitives.WriteInt64BigEndian(_issuedCookie.AsSpan(20), _clock.GetUtcNow().ToUnixTimeSeconds());
             BinaryPrimitives.WriteUInt32BigEndian(_issuedCookie.AsSpan(28), 60);
             RandomNumberGenerator.Fill(_issuedCookie.AsSpan(32, 16));
@@ -211,7 +225,7 @@ internal sealed class SctpDataChannel : IDisposable
         chunk[1] = 0;
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(2), (ushort)chunk.Length);
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(4), LocalVerificationTag);
-        BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(8), 131072);
+        BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(8), SctpReliableDelivery.MaxReceiveBytes);
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(12), 1024);
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(14), 1024);
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(16), _localTsn);
@@ -234,7 +248,7 @@ internal sealed class SctpDataChannel : IDisposable
                 var dstPort = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2));
                 var vTag = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4));
                 var checksum = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(8, 4));
-                if (srcPort != SctpPort || dstPort != SctpPort || State == "new") return;
+                if (srcPort != _remotePort || dstPort != SctpPort || State == "new") return;
 
                 // Verify CRC32c by recomputing over packet with zeroed checksum field
                 var copy = packet.ToArray();
@@ -263,6 +277,7 @@ internal sealed class SctpDataChannel : IDisposable
                 }
             }
         }
+        catch (InvalidDataException) { FailAssociation(); }
         finally { FlushPackets(); }
     }
 
@@ -375,7 +390,7 @@ internal sealed class SctpDataChannel : IDisposable
     private void ProcessDataChunk(byte flags, ReadOnlySpan<byte> payload)
     {
         if (payload.Length < 12) return;
-        var ready = _reliable.Receive(flags, payload);
+        var ready = _reliable.Receive(flags, payload, _clock.GetTimestamp());
         SendSctpPacket(RemoteVerificationTag, [_reliable.CreateSack()]);
         foreach (var message in ready)
         {
@@ -447,7 +462,9 @@ internal sealed class SctpDataChannel : IDisposable
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
                 if (State == "failed") throw new InvalidOperationException("SCTP association has failed.");
-                if (_channels.Count >= 1024 || (long)Encoding.UTF8.GetByteCount(label) + Encoding.UTF8.GetByteCount(protocol) > MaxUnfragmentedMessageBytes - 12)
+                var labelBytes = Encoding.UTF8.GetByteCount(label); var protocolBytes = Encoding.UTF8.GetByteCount(protocol);
+                if (_channels.Count >= 1024 || labelBytes > ushort.MaxValue || protocolBytes > ushort.MaxValue ||
+                    (long)labelBytes + protocolBytes > MaximumSendMessageBytes - 12)
                     throw new InvalidOperationException("SCTP data channel limits exceeded.");
                 // Before the DTLS role is selected, reserve a channel object and
                 // assign its parity-correct stream identifier when association starts.
@@ -509,8 +526,8 @@ internal sealed class SctpDataChannel : IDisposable
     {
         var labelBytes = Encoding.UTF8.GetBytes(channel.Label);
         var protoBytes = Encoding.UTF8.GetBytes(channel.Protocol);
-        if (labelBytes.Length + protoBytes.Length > MaxUnfragmentedMessageBytes - 12)
-            throw new InvalidOperationException("DCEP message requires fragmentation.");
+        if (labelBytes.Length + protoBytes.Length > MaximumSendMessageBytes - 12)
+            throw new InvalidOperationException("DCEP message exceeds the negotiated message size.");
 
         var openMsg = new byte[12 + labelBytes.Length + protoBytes.Length];
         openMsg[0] = DcepOpen;
@@ -532,9 +549,10 @@ internal sealed class SctpDataChannel : IDisposable
             lock (_gate)
             {
                 if (_disposed || State != "connected") throw new InvalidOperationException("SCTP association is not connected.");
-                var chunk = _reliable.Enqueue(_localTsn, streamId, ppid, data, _clock.GetTimestamp());
-                _localTsn++;
-                SendSctpPacket(RemoteVerificationTag, [chunk]);
+                if (data.Length > MaximumSendMessageBytes) throw new ArgumentException("Message exceeds the negotiated SCTP size.");
+                var chunks = _reliable.Enqueue(_localTsn, streamId, ppid, data, _clock.GetTimestamp());
+                _localTsn = _reliable.NextTsn;
+                foreach (var chunk in chunks) SendSctpPacket(RemoteVerificationTag, [chunk]);
             }
         }
         finally { FlushPackets(); }
@@ -547,7 +565,7 @@ internal sealed class SctpDataChannel : IDisposable
 
         var packet = new byte[12 + totalChunksLen];
         BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(0), SctpPort);
-        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2), SctpPort);
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2), _remotePort);
         BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(4), vTag);
         BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(8), 0); // checksum zeroed for computation
 
@@ -657,6 +675,7 @@ internal sealed class SctpDataChannel : IDisposable
         public string ReadyState { get; private set; } = "connecting";
         public long BufferedAmount { get { lock (owner._gate) return owner._reliable.BufferedAmount(Id); } }
         public long BufferedAmountLowThreshold { get; set; } = 0;
+        internal int MaximumMessageSize => owner.MaximumSendMessageBytes;
 
         public event Action? OnOpen;
         public event Action? OnClose;
@@ -667,8 +686,8 @@ internal sealed class SctpDataChannel : IDisposable
         public void Send(string text)
         {
             if (ReadyState != "open") throw new InvalidOperationException("Data channel is not open.");
-            if (Encoding.UTF8.GetByteCount(text) > MaxUnfragmentedMessageBytes)
-                throw new InvalidOperationException("SCTP message requires fragmentation.");
+            if (Encoding.UTF8.GetByteCount(text) > MaximumMessageSize)
+                throw new ArgumentException("Message exceeds the negotiated SCTP size.");
             var bytes = Encoding.UTF8.GetBytes(text);
             owner.SendData(Id, bytes.Length == 0 ? PpidStringEmpty : PpidString, bytes);
         }

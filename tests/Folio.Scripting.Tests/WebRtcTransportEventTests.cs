@@ -50,7 +50,7 @@ public sealed class WebRtcTransportEventTests
             Assert.Equal("connected", engine.Evaluate("a.connectionState").AsString());
             loop.SpinUntilIdle();
             Assert.True(engine.Evaluate("channel.bufferedAmount===0 && channel.bufferedAmountLowThreshold===0 && lowEvents>0").AsBoolean());
-            Assert.ThrowsAny<Exception>(() => engine.Evaluate("channel.send(new Uint8Array(20000));"));
+            Assert.ThrowsAny<Exception>(() => engine.Evaluate("channel.send(new Uint8Array(262145));"));
             Assert.Equal("open", engine.Evaluate("channel.readyState").AsString());
             engine.Evaluate("a.close();b.close();");
         }
