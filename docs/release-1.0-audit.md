@@ -231,3 +231,17 @@ gathering and verify that accepting an answer without connectivity does not
 report connected. The focused RTC selection passes 47/47 serialized, zero
 skips; build is clean. Initial wrapper-constructor integration failed on the
 native engine and was corrected by registering directly in the constructor.
+
+## SCTP channel readiness prerequisite
+
+Channels created before negotiation now remain connecting and queue DCEP OPEN
+until association readiness. Automatically assigned stream IDs use DTLS-client
+even / DTLS-server odd parity; duplicates, oversized UTF-8 labels/protocols and
+creation after disposal are rejected. Pending closed channels are not advertised.
+Tests create channels on both sides before negotiation, pump packet exchange,
+verify opening/parity and cancellation, and check admission failures. The focused
+RTC selection passes 49/49 serialized; build is clean.
+
+This is a prerequisite for replacing public JavaScript channel delivery, which
+is still unfinished. SCTP cookie/verification-tag validation, reliability and
+independent-peer conformance also require further qualification before 1.0.

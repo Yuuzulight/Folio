@@ -43,6 +43,8 @@ internal sealed class SctpDataChannel : IDisposable
     private ushort _nextStreamId = 0;
 
     private readonly Dictionary<ushort, ChannelState> _channels = [];
+    private readonly List<ChannelState> _pendingChannels = [];
+    private bool? _isClient;
     private readonly object _gate = new();
     private bool _disposed;
 
@@ -56,6 +58,8 @@ internal sealed class SctpDataChannel : IDisposable
         lock (_gate)
         {
             if (_disposed || State != "new") return;
+            _isClient = isClient;
+            _nextStreamId = (ushort)(isClient ? 0 : 1);
             State = "connecting";
 
             if (isClient)
@@ -154,7 +158,7 @@ internal sealed class SctpDataChannel : IDisposable
                     BinaryPrimitives.WriteUInt16BigEndian(echo.AsSpan(2), 8);
                     SendSctpPacket(RemoteVerificationTag, [echo]);
 
-                    State = "connected";
+                    // Wait for COOKIE_ACK before opening pending channels.
                 }
                 break;
 
@@ -164,11 +168,11 @@ internal sealed class SctpDataChannel : IDisposable
                 ack[0] = ChunkCookieAck;
                 BinaryPrimitives.WriteUInt16BigEndian(ack.AsSpan(2), 4);
                 SendSctpPacket(RemoteVerificationTag, [ack]);
-                State = "connected";
+                AssociationConnected();
                 break;
 
             case ChunkCookieAck:
-                State = "connected";
+                AssociationConnected();
                 break;
 
             case ChunkHeartbeat:
@@ -278,13 +282,53 @@ internal sealed class SctpDataChannel : IDisposable
     {
         lock (_gate)
         {
-            var id = explicitId ?? _nextStreamId++;
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_channels.Count >= 1024 || Encoding.UTF8.GetByteCount(label) > ushort.MaxValue || Encoding.UTF8.GetByteCount(protocol) > ushort.MaxValue)
+                throw new InvalidOperationException("SCTP data channel limits exceeded.");
+            // Before the DTLS role is selected, reserve a channel object and
+            // assign its parity-correct stream identifier when association starts.
+            var id = explicitId ?? _nextStreamId;
+            if (_channels.ContainsKey(id)) throw new InvalidOperationException("SCTP stream id is already in use.");
+            if (explicitId is null)
+            {
+                if (_nextStreamId > ushort.MaxValue - 2) throw new InvalidOperationException("SCTP stream ids exhausted.");
+                _nextStreamId += 2;
+            }
             var channel = new ChannelState(this, id, label, protocol);
             _channels[id] = channel;
+            channel.AutomaticId = explicitId is null;
+            if (State == "connected") SendChannelOpen(channel);
+            else _pendingChannels.Add(channel);
+            return channel;
+        }
+    }
 
-            // Send DCEP OPEN
-            var labelBytes = Encoding.UTF8.GetBytes(label);
-            var protoBytes = Encoding.UTF8.GetBytes(protocol);
+    private void AssociationConnected()
+    {
+        if (State == "connected") return;
+        State = "connected";
+        var pending = _pendingChannels.ToArray();
+        _pendingChannels.Clear();
+        foreach (var channel in pending)
+        {
+            if (channel.ReadyState == "closed") continue;
+            if (channel.AutomaticId && _isClient is { } client && (channel.Id & 1) != (client ? 0 : 1))
+            {
+                _channels.Remove(channel.Id);
+                channel.Id++;
+                if (_channels.ContainsKey(channel.Id)) throw new InvalidOperationException("SCTP role-selected stream collision.");
+                _channels.Add(channel.Id, channel);
+            }
+            SendChannelOpen(channel);
+        }
+        if (pending.Length > 0)
+            _nextStreamId = (ushort)Math.Min(ushort.MaxValue, Math.Max(_nextStreamId, pending.Max(channel => (int)channel.Id) + 2));
+    }
+
+    private void SendChannelOpen(ChannelState channel)
+    {
+            var labelBytes = Encoding.UTF8.GetBytes(channel.Label);
+            var protoBytes = Encoding.UTF8.GetBytes(channel.Protocol);
 
             var openMsg = new byte[12 + labelBytes.Length + protoBytes.Length];
             openMsg[0] = DcepOpen;
@@ -296,9 +340,7 @@ internal sealed class SctpDataChannel : IDisposable
             labelBytes.CopyTo(openMsg.AsSpan(12));
             protoBytes.CopyTo(openMsg.AsSpan(12 + labelBytes.Length));
 
-            SendData(id, PpidDcep, openMsg);
-            return channel;
-        }
+            SendData(channel.Id, PpidDcep, openMsg);
     }
 
     internal void SendData(ushort streamId, uint ppid, byte[] data)
@@ -363,12 +405,14 @@ internal sealed class SctpDataChannel : IDisposable
             State = "closed";
             foreach (var ch in _channels.Values) ch.Close();
             _channels.Clear();
+            _pendingChannels.Clear();
         }
     }
 
     internal sealed class ChannelState(SctpDataChannel owner, ushort id, string label, string protocol)
     {
-        public ushort Id { get; } = id;
+        public ushort Id { get; internal set; } = id;
+        internal bool AutomaticId { get; set; }
         public string Label { get; } = label;
         public string Protocol { get; } = protocol;
         public string ReadyState { get; private set; } = "connecting";
