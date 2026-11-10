@@ -11,27 +11,29 @@ namespace Folio.Scripting.Tests;
 
 internal static class OpenSslDtlsProbe
 {
-    public static int Run(string openssl)
+    public static int Run(string openssl, bool folioServer = false)
     {
         var root = Path.Combine(Path.GetTempPath(), "folio-openssl-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using var certificate = new CertificateRequest("CN=FolioInterop", signer, HashAlgorithmName.SHA256)
             .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
-        using var transport = new DtlsTransport { RemoteFingerprint = string.Join(":", SHA256.HashData(certificate.RawData).Select(value => value.ToString("X2"))) };
+        using var transport = new DtlsTransport { IsClient = !folioServer, RemoteFingerprint = string.Join(":", SHA256.HashData(certificate.RawData).Select(value => value.ToString("X2"))) };
         var clientCertificate = (X509Certificate2)typeof(DtlsTransport).GetField("_localCert", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(transport)!;
         File.WriteAllText(Path.Combine(root, "server.pem"), certificate.ExportCertificatePem());
         File.WriteAllText(Path.Combine(root, "server-key.pem"), signer.ExportPkcs8PrivateKeyPem());
         File.WriteAllText(Path.Combine(root, "client.pem"), clientCertificate.ExportCertificatePem());
         using var portReservation = new UdpClient(0);
-        var port = ((IPEndPoint)portReservation.Client.LocalEndPoint!).Port;
+        using var socket = new UdpClient(0);
+        var port = ((IPEndPoint)(folioServer ? socket : portReservation).Client.LocalEndPoint!).Port;
         portReservation.Close();
         var start = new ProcessStartInfo(openssl) { UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
-        foreach (var argument in new[] { "s_server", "-dtls1_2", "-accept", "127.0.0.1:" + port,
+        var arguments = new List<string> { folioServer ? "s_client" : "s_server", "-dtls1_2", folioServer ? "-connect" : "-accept", "127.0.0.1:" + port,
             "-cert", Path.Combine(root, "server.pem"), "-key", Path.Combine(root, "server-key.pem"),
-            "-CAfile", Path.Combine(root, "client.pem"), "-Verify", "1", "-verify_return_error",
-            "-cipher", "ECDHE-ECDSA-AES128-GCM-SHA256", "-sigalgs", "ECDSA+SHA256", "-groups", "P-256", "-quiet", "-state", "-msg" })
+            "-CAfile", Path.Combine(root, "client.pem"), folioServer ? "-verify" : "-Verify", "1", "-verify_return_error",
+            "-cipher", "ECDHE-ECDSA-AES128-GCM-SHA256", "-sigalgs", "ECDSA+SHA256", "-groups", "P-256", "-use_srtp", "SRTP_AEAD_AES_128_GCM", "-quiet", "-state", "-msg" };
+        foreach (var argument in arguments)
             start.ArgumentList.Add(argument);
         using var server = Process.Start(start) ?? throw new InvalidOperationException("OpenSSL did not start.");
         var errors = server.StandardError.ReadToEndAsync();
@@ -44,13 +46,12 @@ internal static class OpenSslDtlsProbe
         server.StandardInput.Flush();
         var received = new StringBuilder();
         transport.OnApplicationDataReceived += bytes => received.Append(Encoding.UTF8.GetString(bytes));
-        using var socket = new UdpClient(0);
         socket.Client.ReceiveTimeout = 1000;
-        var destination = new IPEndPoint(IPAddress.Loopback, port);
+        IPEndPoint? destination = folioServer ? null : new IPEndPoint(IPAddress.Loopback, port);
         transport.OnDatagramToSend += bytes =>
         {
             Console.WriteLine($"Sending {bytes.Length} bytes to OpenSSL port {port}.");
-            socket.Send(bytes, destination);
+            socket.Send(bytes, destination ?? throw new InvalidOperationException("No probe peer."));
         };
         try
         {
@@ -63,6 +64,7 @@ internal static class OpenSslDtlsProbe
                 try
                 {
                     var record = socket.Receive(ref remote);
+                    if (folioServer && destination is null && IPAddress.IsLoopback(remote.Address)) destination = remote;
                     if (!remote.Equals(destination)) continue;
                     Console.WriteLine($"Received {record.Length} bytes from OpenSSL, type {record[0]}.");
                     transport.ProcessIncomingDatagram(record);

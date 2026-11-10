@@ -160,3 +160,17 @@ The Ubuntu CI build now runs this command using `/usr/bin/openssl`; hosted
 confirmation is pending. This is still one client-role/cipher configuration;
 reverse-role coverage, packet-loss recovery, browser API/SCTP integration and
 the remaining release checks are not established by it.
+
+## Reverse-role OpenSSL verification
+
+The probe accepts `folio-server` after the OpenSSL path to run Folio as server
+against OpenSSL `s_client`. OpenSSL 3.5.6 now passes mutual authentication and
+both application-data directions in this role too. The independent test exposed
+the initial FEFF ClientHello header and RFC 5746 renegotiation signaling gaps.
+The server now accepts the initial legacy record header specifically for
+ClientHello and returns the empty renegotiation-info extension when signaled by
+the peer. Verification was not disabled. Both probe roles negotiate SRTP's
+AEAD-AES-128-GCM profile, and both now run in Ubuntu CI (hosted result pending).
+Focused RTC tests pass 39/39; build is clean. Packet-loss recovery, fuller
+negotiation/policy checks, browser API/SCTP integration and release qualification
+remain open.

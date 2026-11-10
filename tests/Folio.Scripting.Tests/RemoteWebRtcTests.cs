@@ -8,6 +8,20 @@ namespace Folio.Scripting.Tests;
 public sealed class RemoteWebRtcTests
 {
     [Fact]
+    public void DetectsSecureRenegotiationScsvWithoutReadingOutsideClientHello()
+    {
+        var hello = new byte[44];
+        hello[0] = 0xfe; hello[1] = 0xfd;
+        hello[37] = 4; hello[38] = 0xc0; hello[39] = 0x2b;
+        hello[41] = 0xff; hello[42] = 1;
+        Assert.True(DtlsTransport.OffersSecureRenegotiation(hello));
+        for (var length = 0; length < hello.Length; length++)
+            Assert.False(DtlsTransport.OffersSecureRenegotiation(hello.AsSpan(0, length)));
+        hello[41] = 0;
+        Assert.False(DtlsTransport.OffersSecureRenegotiation(hello));
+    }
+
+    [Fact]
     public void CertificateRequestNegotiatesSupportedAlgorithmAndBoundsVariableLists()
     {
         byte[] request = [2, 1, 64, 0, 4, 4, 1, 4, 3, 0, 5, 0, 3, 1, 2, 3];

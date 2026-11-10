@@ -106,6 +106,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll dtls-openssl-probe /usr/bin/openssl
 
+      - name: Independent DTLS server role (OpenSSL)
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll dtls-openssl-probe /usr/bin/openssl folio-server
+
       - name: WebGL page regressions with both script engines
         if: matrix.os == 'windows-latest'
         shell: pwsh

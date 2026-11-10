@@ -233,7 +233,9 @@ internal sealed class DtlsTransport : IDisposable
             // cookie challenge, even when DTLS 1.2 was requested.
             var legacyChallenge = IsClient && epoch == 0 && contentType == ContentTypeHandshake &&
                 length >= 12 && datagram.Length >= 25 && datagram[13] == HandshakeHelloVerifyRequest && version == 0xfeff;
-            if ((version != DtlsVersion12 && !legacyChallenge) || datagram.Length != 13 + length) return;
+            var legacyClientHello = !IsClient && _remoteRandom is null && epoch == 0 && contentType == ContentTypeHandshake &&
+                length >= 12 && datagram.Length >= 25 && datagram[13] == HandshakeClientHello && version == 0xfeff;
+            if ((version != DtlsVersion12 && !legacyChallenge && !legacyClientHello) || datagram.Length != 13 + length) return;
             var payload = datagram.Slice(13, length);
 
             switch (contentType)
@@ -395,6 +397,8 @@ internal sealed class DtlsTransport : IDisposable
         extMs.WriteByte(0x00); extMs.WriteByte(0x02);
         extMs.WriteByte(0x00); extMs.WriteByte(0x07);
         extMs.WriteByte(0x00);
+        if (OffersSecureRenegotiation(body))
+            extMs.Write(new byte[] { 0xff, 0x01, 0x00, 0x01, 0x00 });
         var extBytes = extMs.ToArray();
         shMs.WriteByte((byte)(extBytes.Length >> 8));
         shMs.WriteByte((byte)extBytes.Length);
@@ -445,6 +449,37 @@ internal sealed class DtlsTransport : IDisposable
     {
         if (body.Length < 34) return;
         _remoteRandom = body.Slice(2, 32).ToArray();
+    }
+
+    internal static bool OffersSecureRenegotiation(ReadOnlySpan<byte> hello)
+    {
+        if (hello.Length < 35) return false;
+        var offset = 35 + hello[34];
+        if (offset >= hello.Length) return false;
+        offset += 1 + hello[offset]; // cookie
+        if (hello.Length - offset < 2) return false;
+        var suites = BinaryPrimitives.ReadUInt16BigEndian(hello[offset..]); offset += 2;
+        if ((suites & 1) != 0 || suites > hello.Length - offset) return false;
+        var signaled = false;
+        for (var i = 0; i < suites; i += 2)
+            signaled |= hello[offset + i] == 0 && hello[offset + i + 1] == 0xff;
+        offset += suites;
+        if (offset >= hello.Length) return false;
+        offset += 1 + hello[offset]; // compression methods
+        if (offset == hello.Length) return signaled;
+        if (hello.Length - offset < 2) return false;
+        var extensions = BinaryPrimitives.ReadUInt16BigEndian(hello[offset..]); offset += 2;
+        if (extensions != hello.Length - offset) return false;
+        while (offset < hello.Length)
+        {
+            if (hello.Length - offset < 4) return false;
+            var type = BinaryPrimitives.ReadUInt16BigEndian(hello[offset..]);
+            var length = BinaryPrimitives.ReadUInt16BigEndian(hello[(offset + 2)..]); offset += 4;
+            if (length > hello.Length - offset) return false;
+            if (type == 0xff01) signaled |= length == 1 && hello[offset] == 0;
+            offset += length;
+        }
+        return signaled;
     }
 
     private void HandleCertificate(ReadOnlySpan<byte> body)
