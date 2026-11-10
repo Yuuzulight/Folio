@@ -352,3 +352,21 @@ pass 64/64. The preceding parallel full run completed: 1,828 total, four failed,
 zero skips (GPU cancellation, both registration timeout cases, one RTC deadline).
 That run does not prove a deadlock; the lock-order fix follows direct code review.
 Parallel/load qualification remains unresolved.
+
+## Continuation checkpoint
+
+Production code is pushed through `079b48a1` in PR #705. The complete scripting
+suite for the lock-order correction passes **1,829/1,829**, zero skips, serialized
+(`-parallelMode none`). The final test-source rebuild has zero warnings/errors;
+all eight SCTP retransmission tests pass after that rebuild. Both OpenSSL DTLS
+roles also passed encrypted bidirectional application-data probes this session.
+The hosted run for `079b48a1` was still in progress when recorded; it is not
+claimed green. The prior unrestricted parallel run's four failures remain open.
+
+Next work is reliable DATA/DCEP retransmission and ordering (including pending
+server channels when COOKIE_ACK is lost), bounded receive/event queues, SCTP
+fragmentation/congestion/reset/restart and independent peer coverage, public
+Blob/options semantics, remote encoded media and host network policy, routing
+qualification, and the complete original M0–M7/replacement and release audit.
+No milestone is newly signed off by this checkpoint. PR #705 is unmerged;
+issue #704 remains open and release 1.0 has not been created.
