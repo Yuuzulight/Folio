@@ -389,8 +389,10 @@ public sealed class RemoteWebRtcTests
         Assert.Equal(49152, parsed.Candidates[0].Port);
     }
 
-    [Fact]
-    public async Task TwoControllersPerformCandidateExchangeAndConnect()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TwoControllersPerformCandidateExchangeAndConnect(bool passiveAnswer)
     {
         using var a = new RtcPeerConnectionController();
         using var b = new RtcPeerConnectionController();
@@ -400,6 +402,7 @@ public sealed class RemoteWebRtcTests
         b.SetRemoteDescription("offer", offerSdp);
 
         var answerSdp = await b.CreateAnswerAsync(hasDataChannels: true, audioSenders: 0, videoSenders: 0);
+        if (passiveAnswer) answerSdp = answerSdp.Replace("a=setup:active", "a=setup:passive", StringComparison.Ordinal);
         b.SetLocalDescription("answer", answerSdp);
         a.SetRemoteDescription("answer", answerSdp);
 
@@ -407,14 +410,36 @@ public sealed class RemoteWebRtcTests
         foreach (var c in a.Ice.LocalCandidates) b.AddIceCandidate(c.ToSdp());
         foreach (var c in b.Ice.LocalCandidates) a.AddIceCandidate(c.ToSdp());
 
-        // Wait up to 2 seconds for ICE and DTLS connection over UDP
+        Assert.Equal(passiveAnswer, a.Dtls.IsClient);
+        Assert.Equal(!passiveAnswer, b.Dtls.IsClient);
+        Assert.True(a.Ice.IsControlling);
+        Assert.False(b.Ice.IsControlling);
+        // Require real DTLS and SCTP progress, rather than treating ICE as proof
+        // that the authenticated transport and data association are ready.
         var deadline = DateTime.UtcNow.AddSeconds(2);
-        while (DateTime.UtcNow < deadline && (a.IceConnectionState != "connected" || b.IceConnectionState != "connected"))
+        while (DateTime.UtcNow < deadline && (a.Sctp.State != "connected" || b.Sctp.State != "connected"))
         {
             await Task.Delay(20, TestContext.Current.CancellationToken);
         }
 
         Assert.Equal("connected", a.IceConnectionState);
         Assert.Equal("connected", b.IceConnectionState);
+        Assert.Equal("connected", a.Dtls.State);
+        Assert.Equal("connected", b.Dtls.State);
+        Assert.Equal("connected", a.Sctp.State);
+        Assert.Equal("connected", b.Sctp.State);
+
+        var remote = new TaskCompletionSource<SctpDataChannel.ChannelState>(TaskCreationOptions.RunContinuationsAsynchronously);
+        b.OnDataChannel += channel => remote.TrySetResult(channel);
+        var local = a.CreateDataChannel("udp-chat");
+        var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        local.OnOpen += () => opened.TrySetResult();
+        if (local.ReadyState != "open")
+            await opened.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        var remoteChannel = await remote.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        var delivered = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        remoteChannel.OnMessage += value => delivered.TrySetResult(value as string ?? "wrong type");
+        local.Send("authenticated UDP data");
+        Assert.Equal("authenticated UDP data", await delivered.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
     }
 }

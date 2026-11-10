@@ -198,3 +198,21 @@ qualify independent SCTP/SRTP/media and loss/reorder behavior; resolve iframe/
 service-worker routing against original acceptance; then rerun the entire
 milestone, production, performance, packaging, consumer and hosted CI gates.
 No 1.0 tag or release has been published. PR #705 and blocker #704 remain open.
+
+## Resume: negotiated controller roles and real UDP data
+
+All 26 hosted checks passed for `f0252fe4` before this continuation. Controller
+DTLS roles now follow the SDP `setup` attribute: active answers initiate DTLS,
+passive answers accept it, and the offerer selects the opposite role. ICE
+controlling/controlled roles are selected independently. Generated answers also
+respect an active remote offer.
+
+The former ICE-only controller regression now covers both active/passive answer
+roles and requires ICE, mutual DTLS, SCTP association, DCEP channel opening and
+a received string over real UDP. It waits for channel opening rather than
+assuming remote channel creation implies that the local ACK arrived. The focused
+selection passes 45/45 serialized; build is clean.
+
+Empty-description in-page JavaScript loopback fixtures still exist and retain
+their compatibility behavior. They are not network interoperability evidence.
+Replacing that public JS delivery path and its fixtures remains required.

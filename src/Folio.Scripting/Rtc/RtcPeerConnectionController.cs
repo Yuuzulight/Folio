@@ -154,7 +154,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
             IceUfrag = Ice.LocalUfrag,
             IcePassword = Ice.LocalPassword,
             FingerprintValue = Dtls.Fingerprint,
-            Setup = "active"
+            Setup = RemoteDescription?.Setup == "active" ? "passive" : "active"
         };
 
         if (hasDataChannels)
@@ -207,11 +207,21 @@ internal sealed class RtcPeerConnectionController : IDisposable
 
             if (type == "offer")
             {
+                Ice.IsControlling = true;
                 SignalingState = "have-local-offer";
                 OnSignalingStateChange?.Invoke(SignalingState);
             }
             else if (type == "answer")
             {
+                Dtls.IsClient = LocalDescription.Setup switch
+                {
+                    "active" => true,
+                    "passive" => false,
+                    // Empty descriptions are retained only by the old in-page
+                    // loopback fixture; they contain no remote credentials or candidates.
+                    _ when string.IsNullOrWhiteSpace(sdp) => Dtls.IsClient,
+                    _ => throw new InvalidOperationException("A DTLS answer must select active or passive setup.")
+                };
                 SignalingState = "stable";
                 OnSignalingStateChange?.Invoke(SignalingState);
             }
@@ -229,15 +239,28 @@ internal sealed class RtcPeerConnectionController : IDisposable
 
             if (type == "offer")
             {
+                Ice.IsControlling = false;
                 SignalingState = "have-remote-offer";
                 OnSignalingStateChange?.Invoke(SignalingState);
-                Dtls.IsClient = false; // Remote made offer, we answer -> we are DTLS server
+                // Our generated answer selects active, so we initiate DTLS.
+                Dtls.IsClient = RemoteDescription.Setup switch
+                {
+                    "actpass" or "passive" => true,
+                    "active" => false,
+                    _ => throw new InvalidOperationException("Unsupported remote DTLS setup.")
+                };
             }
             else if (type == "answer")
             {
                 SignalingState = "stable";
                 OnSignalingStateChange?.Invoke(SignalingState);
-                Dtls.IsClient = true; // We made offer, remote answered -> we are DTLS client
+                Dtls.IsClient = RemoteDescription.Setup switch
+                {
+                    "active" => false,
+                    "passive" => true,
+                    _ when string.IsNullOrWhiteSpace(sdp) => Dtls.IsClient,
+                    _ => throw new InvalidOperationException("A remote DTLS answer must select active or passive setup.")
+                };
             }
 
             if (!string.IsNullOrEmpty(RemoteDescription.IceUfrag))
