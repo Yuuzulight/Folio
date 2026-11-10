@@ -216,3 +216,18 @@ selection passes 45/45 serialized; build is clean.
 Empty-description in-page JavaScript loopback fixtures still exist and retain
 their compatibility behavior. They are not network interoperability evidence.
 Replacing that public JS delivery path and its fixtures remains required.
+
+## Public transport state bridge
+
+Public peers now register a native transport callback. ICE gathering, ICE
+connection and authenticated connection events are queued onto the document
+event loop; callbacks recheck capability and lease lifetime before entering the
+engine. Actual nonempty SDP answers and ICE candidates no longer synthesize
+connected state. Empty-SDP fixtures retain their old in-page behavior until
+their replacement; local JS data-channel delivery still remains to be removed.
+
+Native and Jint regressions observe gathering/complete events from real candidate
+gathering and verify that accepting an answer without connectivity does not
+report connected. The focused RTC selection passes 47/47 serialized, zero
+skips; build is clean. Initial wrapper-constructor integration failed on the
+native engine and was corrected by registering directly in the constructor.

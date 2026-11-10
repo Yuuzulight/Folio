@@ -43,6 +43,43 @@ internal sealed class WebRtcBindingState : IDisposable
         lock (_gate) if (!_disposed && _peers.TryGetValue(lease.Id, out var current) && PermissionGranted()) current.CloseCallback = callback;
     }
 
+    internal void RegisterTransport(ScriptValue value, ScriptValue callback)
+    {
+        if (!callback.IsFunction || !_engine.TryGetHostTarget(value, out var target) || target is not PeerLease lease ||
+            !ReferenceEquals(lease.Owner, this)) return;
+        lock (_gate)
+        {
+            if (!PermissionGranted() || !_peers.ContainsKey(lease.Id) || lease.TransportRegistered) return;
+            lease.TransportRegistered = true;
+            lease.TransportCallback = callback;
+        }
+        void Queue(string kind, string state)
+        {
+            // Transport callbacks run on socket/timer threads. Only touch the
+            // script engine from its document event loop, after rechecking life.
+            var loop = _context.OwnerEventLoop;
+            if (loop is null) return;
+            try
+            {
+                loop.QueueTask(TaskSource.Generic, () =>
+                {
+                    ScriptValue handler;
+                    lock (_gate)
+                    {
+                        if (!PermissionGranted() || !_peers.ContainsKey(lease.Id)) return;
+                        handler = lease.TransportCallback;
+                    }
+                    if (handler.IsFunction)
+                        _engine.Call(handler, ScriptValue.Undefined, [ScriptValue.FromString(kind), ScriptValue.FromString(state)]);
+                }, "WebRTC transport state");
+            }
+            catch (ObjectDisposedException) { }
+        }
+        lease.Controller.OnConnectionStateChange += state => Queue("connectionState", state);
+        lease.Controller.OnIceConnectionStateChange += state => Queue("iceConnectionState", state);
+        lease.Controller.OnIceGatheringStateChange += state => Queue("iceGatheringState", state);
+    }
+
     internal void Release(ScriptValue value)
     {
         if (!_engine.TryGetHostTarget(value, out var target) || target is not PeerLease lease || !ReferenceEquals(lease.Owner, this)) return;
@@ -120,12 +157,15 @@ internal sealed class WebRtcBindingState : IDisposable
         internal long Id { get; } = id;
         internal bool Released { get; set; }
         internal ScriptValue CloseCallback { get; set; } = ScriptValue.Undefined;
+        internal bool TransportRegistered { get; set; }
+        internal ScriptValue TransportCallback { get; set; } = ScriptValue.Undefined;
         internal RtcPeerConnectionController Controller { get; } = new(owner._context.WebRtcAllowedOrigins?.ToArray());
 
         public void Dispose()
         {
             Released = true;
             CloseCallback = ScriptValue.Undefined;
+            TransportCallback = ScriptValue.Undefined;
             Controller.Dispose();
         }
     }
@@ -137,6 +177,7 @@ internal sealed class WebRtcBindingState : IDisposable
             .DefineMethod("acquire", (_, _, _) => state.Acquire())
             .DefineMethod("live", (_, _, a) => ScriptValue.FromBoolean(a.Length > 0 && state.IsLive(a[0])))
             .DefineMethod("register", (_, _, a) => { if (a.Length > 1) state.Register(a[0], a[1]); return ScriptValue.Undefined; })
+            .DefineMethod("registerTransport", (_, _, a) => { if (a.Length > 1) state.RegisterTransport(a[0], a[1]); return ScriptValue.Undefined; })
             .DefineMethod("release", (_, _, a) => { if (a.Length > 0) state.Release(a[0]); return ScriptValue.Undefined; })
             .DefineMethod("allowOrigin", (_, _, a) => ScriptValue.FromBoolean(a.Length > 0 && state.AllowOrigin(a[0].AsString() ?? "")))
             .DefineMethod("createOffer", (_, _, a) => ScriptValue.FromString(a.Length > 0 ? state.CreateOffer(a[0], a.Length > 1 && a[1].AsBoolean(), a.Length > 2 ? (int)a[2].AsNumber() : 0, a.Length > 3 ? (int)a[3].AsNumber() : 0) : ""))
@@ -168,6 +209,13 @@ internal sealed class WebRtcBindingState : IDisposable
   var __folio_webrtc_peers=[];
 
 globalThis.RTCPeerConnection = function(configuration) { var connection=this; configuration=validate(configuration); var lease=host.acquire(); apply(weakSet,peers,[this,lease]); apply(weakSet,channelLists,[this,[]]); __folio_webrtc_peers.push(this); try { host.register(lease,function(){retire(connection,true);});
+    host.registerTransport(lease,function(property,value) {
+        token(connection);
+        if(connection[property]===value)return;
+        connection[property]=value;
+        var eventName=property==='connectionState'?'connectionstatechange':property==='iceConnectionState'?'iceconnectionstatechange':'icegatheringstatechange';
+        connection._dispatch(eventName,{});
+    });
     this.configuration = configuration; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable'; this.onconnectionstatechange = null; this.onsignalingstatechange = null; this.onicegatheringstatechange = null; this.oniceconnectionstatechange = null; this.onicecandidate = null; this.ontrack = null; this.onnegotiationneeded = null; this._listeners = {};
     this.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; var list = this._listeners[type] || (this._listeners[type] = []); if (list.indexOf(handler) < 0) list.push(handler); };
     this.removeEventListener = function(type, handler) { var list = this._listeners[type] || []; this._listeners[type] = list.filter(function(item) { return item !== handler; }); };
@@ -214,6 +262,31 @@ RTCPeerConnection.prototype.createDataChannel = function(label, options) {
     apply(weakSet,channelOwners,[channel,this]); apply(weakSet,channelClosed,[channel,false]); apply(weakSet,channelRetiring,[channel,false]); apply(weakGet,channelLists,[this]).push(channel); this._dataChannels.push(channel); if (this._peer) { channel._remote = __folio_make_remote_channel(this._peer, channel); if (typeof this._peer.ondatachannel === 'function') this._peer.ondatachannel({ type: 'datachannel', target: this._peer, channel: channel._remote }); } return channel;
 };
 RTCPeerConnection.prototype.close = function() { retire(this,false); };
+// Empty descriptions remain solely for the legacy in-page fixtures. Real SDP
+// must derive connectivity from transport events, never from accepting an answer.
+var legacyRemoteDescription=RTCPeerConnection.prototype.setRemoteDescription;
+var legacyIceCandidate=RTCPeerConnection.prototype.addIceCandidate;
+RTCPeerConnection.prototype.setRemoteDescription=function(description) {
+    if(description && description.sdp==='')return legacyRemoteDescription.call(this,description);
+    var dead=asyncDead(this);if(dead)return dead;
+    if(!description || (description.type!=='offer' && description.type!=='answer'))return Promise.reject(new TypeError('Invalid remote description.'));
+    try {
+        host.setRemoteDescription(token(this),description.type,String(description.sdp||''));
+        this.remoteDescription=new RTCSessionDescription(description);
+        this.signalingState=description.type==='offer'?'have-remote-offer':'stable';
+        this._dispatch('signalingstatechange',{});
+        return Promise.resolve();
+    } catch(error) { return Promise.reject(error); }
+};
+RTCPeerConnection.prototype.addIceCandidate=function(candidate) {
+    if(this.remoteDescription && this.remoteDescription.sdp==='')return legacyIceCandidate.call(this,candidate);
+    var dead=asyncDead(this);if(dead)return dead;
+    if(candidate!==null && candidate!==undefined && typeof candidate!=='string' && typeof candidate.candidate!=='string')return Promise.reject(new TypeError('Invalid ICE candidate.'));
+    try {
+        host.addIceCandidate(token(this),typeof candidate==='string'?candidate:(candidate&&candidate.candidate||''));
+        return Promise.resolve();
+    } catch(error) { return Promise.reject(error); }
+};
 })(__folio_webrtc_authority);
 ";
 }
