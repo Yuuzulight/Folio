@@ -629,6 +629,35 @@ all pool use throughout Folio. #706 and #704 remain open, PR #705 remains draft,
 and original M0–M7/replacement and release acceptance remain required.
 
 
+## Metadata admission slice and recurring large-message failure
+
+On `fix/rtc-queued-delivery-budgets`, #707 now has a metadata-admission slice:
+a 256 KiB per-association aggregate budget, conservatively charged at twice the
+UTF-8 label/protocol byte length before remote string decoding. Local failed
+OPEN admission rolls back both metadata charge and stream reservation. Failed
+and disposed associations clear owned registries and charge. Closed registered
+streams retain their charge until actual registry teardown; stream reset is
+still separate required work. Four regressions cover Unicode/exact limits,
+closed-state retention, failed-OPEN rollback/reuse, and a raw fragmented remote
+metadata flood with sibling-association isolation. SCTP selection passes 56/56,
+zero skips, and the Release build has zero warnings/errors. The owner-loop event
+queue portion of #707 is NOT implemented; #707 must stay open.
+
+Broader RTC qualification on this slice FAILED: 53/54 passed; the Jint 256 KiB
+public round trip exceeded its unchanged ten-second deadline. Both peers were
+connected. Sender diagnostics: assigned/emitted236, cumulative ACK200,
+36 pending chunks, 39,840 flight bytes, cwnd2,272 and RTO8s. Receiver diagnostics:
+contiguous TSN200, 199 retained fragments, no gap reports, 225,268 retained bytes.
+This is a contiguous missing tail, not evidence that the metadata budget failed.
+A base-head reproduction and deterministic sender loss-recovery test are still
+required before assigning the cause. Earlier exact-head green full/published
+runs remain valid historical evidence, not proof of eliminating intermittency.
+
+PR #705 is held from merging again. Original #704 remains open. Do not increase
+the ten-second deadline or call the reliable-delivery/load acceptance complete
+from the earlier passing runs. Logs: `%TEMP%/folio-metadata-tests.log` and
+`%TEMP%/folio-metadata-rtc-tests.log`.
+
 ## Reopened large-message qualification and deterministic tail recovery
 
 Hosted run `42832983570` completed **26/26 jobs green** for `69a71d8a`.
