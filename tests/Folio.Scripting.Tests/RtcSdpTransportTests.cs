@@ -4,6 +4,32 @@ namespace Folio.Scripting.Tests;
 
 public sealed class RtcSdpTransportTests
 {
+    [Theory]
+    [InlineData("", 65536)]
+    [InlineData("a=max-message-size:0\n", 262144)]
+    [InlineData("a=max-message-size:1234\n", 1234)]
+    [InlineData("a=max-message-size:18446744073709551615\n", 262144)]
+    public void AppliesTheRemoteMessageLimitAndSctpPort(string attribute, int expected)
+    {
+        using var peer = new RtcPeerConnectionController();
+        peer.SetRemoteDescription("offer", "v=0\na=setup:actpass\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\na=sctp-port:6001\n" + attribute);
+        Assert.Equal(expected, peer.Sctp.MaximumSendMessageBytes);
+        using var sctp = new SctpDataChannel(); sctp.ConfigureRemote(peer.RemoteDescription!.RemoteMaximumMessageSize, 6001);
+        byte[]? packet = null; sctp.OnPacketToSend += value => packet = value; sctp.StartAssociation(true);
+        Assert.NotNull(packet);
+        Assert.Equal(5000, System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(packet));
+        Assert.Equal(6001, System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(2)));
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("+1")]
+    [InlineData("1.5")]
+    [InlineData("invalid")]
+    [InlineData("1\na=max-message-size:2")]
+    public void RefusesMalformedOrDuplicateMessageLimits(string value)
+        => Assert.Throws<InvalidDataException>(() => RtcSdp.Parse("m=application 9 UDP/DTLS/SCTP webrtc-datachannel\na=max-message-size:" + value));
+
     [Fact]
     public void MediaLevelTransportOverridesSessionDefaultsAndRoundTrips()
     {

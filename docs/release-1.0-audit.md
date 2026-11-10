@@ -434,3 +434,47 @@ fixed. #704 and the overall M0–M7/replacement/release goal remain open.
 The previous checkpoint `ec263561` completed hosted CI successfully (run
 `42779691574`). That result predates the reliable-delivery/browser changes and
 is not evidence that the new tip's CI has passed.
+
+## Resumed fragmentation acceptance and ICE ordering repair
+
+The paused `b372bdb0` checkpoint has been resumed. The Chrome probe now checks
+byte-exact 65,536-byte binary messages, 60,000-byte UTF-8 strings, empty strings
+and binary messages, and oversize-send refusal, in both directions and in both
+offer/answer roles. All checks pass locally against Chrome 156.0.8078.80 using
+default ICE host privacy. These replace the earlier small-string-only probe;
+they do not prove arbitrary-size, lossy-network or congestion acceptance.
+
+Public native and Jint tests also pass byte-exact 64 KiB and 256 KiB round trips
+after source-buffer mutation. Packet tests cover a lost middle fragment,
+conflicting metadata with a valid packet checksum, partial-chain expiry and an
+unaffected sibling association. SDP tests cover absent/zero/explicit/invalid
+message limits and the remote SCTP destination port. Pending channels that
+cannot fit a newly negotiated limit close rather than remaining connecting;
+failed immediate channel admission rolls back its registry/identifier reservation.
+
+The checkpoint's hosted run `42785213081` failed on Windows because
+`TwoControllersPerformCandidateExchangeAndConnect(passiveAnswer: False)` found
+DTLS still connecting; ICE was already connected. Review found that a validated
+STUN response scheduled endpoint selection asynchronously, allowing a following
+DTLS packet to be discarded before selection. Authenticated response handling
+now selects the endpoint before returning to socket delivery. Response and
+cancellation compete atomically, so an expired check cannot be revived by a
+late response. A socket regression sends a DTLS-shaped datagram immediately
+after the valid response. The original two-second controller deadline is retained.
+
+Final local build: Release solution, **zero warnings/errors**. Final focused
+RTC selection: **111/111**, zero skips. Both expanded Chrome roles pass after
+the final guards. A broader solution run during this continuation finished
+**4,933 passed, one failed, two skipped** (4,936 total); its sole failure was the
+native 256 KiB public round trip exceeding its ten-second deadline under normal
+test parallelism. The previously observed timing failures were not reproduced
+in that run; one passing run is not proof that every intermittent issue is gone.
+The broader run predates the final cancellation/admission guards and is not
+reported as a green run for the final commit.
+
+**Next required work:** sender congestion/peer-window control and load
+qualification. The current sender emits all fragments of a large message in a
+burst. The new large-message failure remains unresolved; do not relax the
+deadline or count focused/serialized results as resolving it. Fragmentation
+qualification, hosted CI and the entire original M0–M7/replacement/release scope
+remain open. PR #705 stays draft and #704 is not closed.

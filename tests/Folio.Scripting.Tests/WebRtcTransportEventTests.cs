@@ -7,6 +7,50 @@ namespace Folio.Scripting.Tests;
 public sealed class WebRtcTransportEventTests
 {
     [Theory]
+    [InlineData(false, 65536)]
+    [InlineData(true, 65536)]
+    [InlineData(false, 262144)]
+    [InlineData(true, 262144)]
+    public void PublicFragmentedBinaryRoundTripIsByteExactAndOwnsItsSource(bool native, int length)
+    {
+        using IScriptEngine engine = native ? new NativeJavaScriptEngine() : new JintScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions { Capabilities = new FeatureCapabilities { WebRtc = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        try
+        {
+            var expected = Enumerable.Range(0, length).Select(index => (byte)(index % 251)).ToArray();
+            engine.SetGlobalProperty("payload", engine.CreateArrayBuffer(expected));
+            engine.Evaluate("""
+                var a=new RTCPeerConnection(),b=new RTCPeerConnection(),received=null,reply=null,error='';
+                b.ondatachannel=function(e){e.channel.onmessage=function(m){received=m.data;e.channel.send(m.data);};};
+                var channel=a.createDataChannel('fragmented');
+                channel.onopen=function(){channel.send(payload);new Uint8Array(payload).fill(0);};
+                channel.onmessage=function(e){reply=e.data;};
+                a.createOffer().then(function(o){return a.setLocalDescription(o).then(function(){return b.setRemoteDescription(o);});})
+                  .then(function(){return b.createAnswer();})
+                  .then(function(answer){return b.setLocalDescription(answer).then(function(){return a.setRemoteDescription(answer);});})
+                  .catch(function(e){error=String(e);});
+                """);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (watch.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                engine.PerformMicrotaskCheckpoint(); loop.RunOneTurn();
+                if (engine.TryGetBufferSourceInfo(engine.Evaluate("reply"), out _)) break;
+                Thread.Sleep(5);
+            }
+            Assert.Equal("", engine.Evaluate("error").AsString());
+            var bytes = new byte[length];
+            var state = engine.Evaluate("a.connectionState+':'+b.connectionState+':'+channel.readyState+':'+channel.bufferedAmount+':'+(received===null)+':'+(reply===null)").AsString();
+            Assert.True(engine.TryCopyBufferSource(engine.Evaluate("received"), 0, bytes), state); Assert.Equal(expected, bytes);
+            Assert.True(engine.TryCopyBufferSource(engine.Evaluate("reply"), 0, bytes), state); Assert.Equal(expected, bytes);
+            engine.Evaluate("a.close();b.close();");
+            Assert.ThrowsAny<Exception>(() => engine.Evaluate("channel.send(payload);"));
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(false, true)]

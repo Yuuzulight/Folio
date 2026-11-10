@@ -469,6 +469,7 @@ internal sealed class SctpDataChannel : IDisposable
                 // Before the DTLS role is selected, reserve a channel object and
                 // assign its parity-correct stream identifier when association starts.
                 var id = explicitId ?? _nextStreamId;
+                var previousNextId = _nextStreamId;
                 if (_channels.ContainsKey(id)) throw new InvalidOperationException("SCTP stream id is already in use.");
                 if (explicitId is null)
                 {
@@ -478,7 +479,15 @@ internal sealed class SctpDataChannel : IDisposable
                 var channel = new ChannelState(this, id, label, protocol);
                 _channels[id] = channel;
                 channel.AutomaticId = explicitId is null;
-                if (State == "connected") SendChannelOpen(channel);
+                if (State == "connected")
+                {
+                    try { SendChannelOpen(channel); }
+                    catch
+                    {
+                        _channels.Remove(id); _nextStreamId = previousNextId; channel.Close();
+                        throw;
+                    }
+                }
                 else _pendingChannels.Add(channel);
                 return channel;
             }
@@ -497,7 +506,13 @@ internal sealed class SctpDataChannel : IDisposable
         foreach (var channel in pending)
         {
             if (channel.ReadyState == "closed") continue;
-            SendChannelOpen(channel);
+            try { SendChannelOpen(channel); }
+            catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+            {
+                // A smaller negotiated limit or exhausted send budget must not
+                // leave an unestablishable pending channel connecting forever.
+                channel.Close();
+            }
         }
     }
 

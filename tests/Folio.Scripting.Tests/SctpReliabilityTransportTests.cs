@@ -5,6 +5,18 @@ namespace Folio.Scripting.Tests;
 
 public sealed class SctpReliabilityTransportTests
 {
+    [Fact]
+    public void SmallerNegotiatedLimitClosesUnestablishablePendingChannel()
+    {
+        using var pair = new Pair();
+        pair.Client.ConfigureRemote(1); pair.Start();
+        Assert.Equal("connected", pair.Client.State);
+        Assert.Equal("closed", pair.Local.ReadyState);
+        Assert.Equal("open", pair.Reverse.ReadyState);
+        pair.Reverse.Send("other direction works"); pair.Drain();
+        Assert.Equal(new[] { "other direction works" }, pair.Messages);
+    }
+
     private sealed class Clock : TimeProvider
     {
         internal long Ticks;
@@ -113,5 +125,57 @@ public sealed class SctpReliabilityTransportTests
         pair.Local.Send(""); pair.Drain();
         Assert.Equal(new[] { "" }, pair.Messages);
         Assert.Equal(0, pair.Local.BufferedAmount);
+    }
+
+    [Fact]
+    public void LostMiddleFragmentRecoversBeforeTheFollowingMessageIsDelivered()
+    {
+        using var pair = new Pair(); pair.Start(); var dropped = false;
+        pair.Drop = packet => !dropped && packet[12] == 0 && (packet[13] & 3) == 0 && (dropped = true);
+        var expected = new string('\u20ac', 16000);
+        pair.Local.Send(expected); pair.Local.Send("after"); pair.Drain();
+        Assert.True(dropped); Assert.Empty(pair.Messages);
+        pair.Tick();
+        Assert.Equal(new[] { expected, "after" }, pair.Messages);
+        Assert.Equal(0, pair.Local.BufferedAmount);
+    }
+
+    [Fact]
+    public void ConflictingValidChecksumFragmentClosesAssociationWithoutPartialDelivery()
+    {
+        using var pair = new Pair(); pair.Start();
+        pair.Local.Send(new string('x', 5000));
+        var first = pair.Queue.Dequeue(); var second = pair.Queue.Dequeue();
+        second.Packet[24] ^= 1; Rechecksum(second.Packet); // Change fragment PPID, preserving packet integrity.
+        first.Target.ProcessIncomingPacket(first.Packet);
+        second.Target.ProcessIncomingPacket(second.Packet);
+        Assert.Equal("failed", pair.Server.State);
+        Assert.Equal("closed", pair.Reverse.ReadyState);
+        Assert.Empty(pair.Messages);
+    }
+
+    [Fact]
+    public void MissingFinalFragmentExpiresWithoutAffectingAnUnrelatedAssociation()
+    {
+        using var pair = new Pair(); using var sibling = new Pair(); pair.Start(); sibling.Start();
+        pair.Drop = packet => packet[12] == 0 && (packet[13] & 1) != 0;
+        pair.Local.Send(new string('x', 5000)); pair.Drain();
+        Assert.Empty(pair.Messages);
+        pair.Clock.Ticks = TimeSpan.FromSeconds(60).Ticks; pair.Server.RetryDueData();
+        Assert.Equal("failed", pair.Server.State);
+        Assert.Equal("closed", pair.Reverse.ReadyState);
+        sibling.Local.Send("still alive"); sibling.Drain();
+        Assert.Equal(new[] { "still alive" }, sibling.Messages);
+    }
+
+    private static void Rechecksum(byte[] packet)
+    {
+        packet.AsSpan(8, 4).Clear(); uint crc = uint.MaxValue;
+        foreach (var value in packet)
+        {
+            crc ^= value;
+            for (var bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ ((crc & 1) != 0 ? 0x82f63b78u : 0);
+        }
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(8), ~crc);
     }
 }

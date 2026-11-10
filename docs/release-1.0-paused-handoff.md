@@ -1,5 +1,10 @@
 # Paused 1.0 handoff — 2026-11-10
 
+Historical pause snapshot at `b372bdb0`. Work has since resumed; see the latest
+section of [release-1.0-audit.md](release-1.0-audit.md) for expanded Chrome checks,
+the ICE response-order repair, current validation and the unresolved 256 KiB
+parallel-load failure. The evidence below describes the pause, not the current tip.
+
 Folio is **not release-ready**. The user requested this pause. The goal remains
 the entire original M0–M7 scope, mandatory Folio-owned replacements, full
 verification and a 1.0 release. No milestone was newly signed off here.
