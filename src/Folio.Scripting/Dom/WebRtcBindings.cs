@@ -121,6 +121,7 @@ internal sealed class WebRtcBindingState : IDisposable
             channel.OnOpen += () => Notify("open", null);
             channel.OnClose += () => Notify("close", null);
             channel.OnMessage += value => Notify("message", value);
+            channel.OnBufferedAmountLow += () => Notify("bufferedamountlow", null);
         }
         internal void Notify(string kind, object? value) => Owner.QueuePeer(Peer, () =>
         {
@@ -151,6 +152,9 @@ internal sealed class WebRtcBindingState : IDisposable
         .DefineProperty("protocol", (target, _) => ScriptValue.FromString(((ChannelLease)target).Channel.Protocol))
         .DefineProperty("id", (target, _) => ScriptValue.FromNumber(((ChannelLease)target).Channel.Id))
         .DefineProperty("readyState", (target, _) => ScriptValue.FromString(((ChannelLease)target).Channel.ReadyState))
+        .DefineProperty("bufferedAmount", (target, _) => ScriptValue.FromNumber(((ChannelLease)target).Channel.BufferedAmount))
+        .DefineProperty("bufferedAmountLowThreshold", (target, _) => ScriptValue.FromNumber(((ChannelLease)target).Channel.BufferedAmountLowThreshold),
+            (target, _, value) => ((ChannelLease)target).Channel.BufferedAmountLowThreshold = (uint)value.AsNumber())
         .DefineMethod("register", (target, _, args) =>
         {
             var lease = (ChannelLease)target;
@@ -352,9 +356,11 @@ RTCPeerConnection.prototype.createDataChannel = function(label, options) {
 };
 RTCPeerConnection.prototype.close = function() { retire(this,false); };
 function transportChannel(owner, nativeChannel) {
-    var listeners={}, channel={label:nativeChannel.label,protocol:nativeChannel.protocol,ordered:true,binaryType:'arraybuffer',bufferedAmount:0};
+    var listeners={}, channel={label:nativeChannel.label,protocol:nativeChannel.protocol,ordered:true,binaryType:'arraybuffer'};
     Object.defineProperty(channel,'id',{get:function(){return nativeChannel.id;}});
     Object.defineProperty(channel,'readyState',{get:function(){return nativeChannel.readyState;}});
+    Object.defineProperty(channel,'bufferedAmount',{get:function(){return nativeChannel.bufferedAmount;}});
+    Object.defineProperty(channel,'bufferedAmountLowThreshold',{get:function(){return nativeChannel.bufferedAmountLowThreshold;},set:function(value){nativeChannel.bufferedAmountLowThreshold=Number(value)>>>0;}});
     channel.addEventListener=function(type,fn){if(typeof fn==='function')(listeners[type]||(listeners[type]=[])).push(fn);};
     channel.removeEventListener=function(type,fn){listeners[type]=(listeners[type]||[]).filter(function(item){return item!==fn;});};
     channel.send=function(data){token(owner);if(nativeChannel.readyState!=='open')throw new DOMException('Channel is not open.','InvalidStateError');nativeChannel.send(data);};

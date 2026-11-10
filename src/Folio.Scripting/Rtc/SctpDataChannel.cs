@@ -6,8 +6,8 @@ namespace Folio.Scripting.Rtc;
 
 /// <summary>
 /// Folio-owned SCTP data channel engine (RFC 4960 / RFC 8831 / RFC 8832) operating over DTLS.
-/// Implements basic DCEP negotiation and single-record delivery. Full SCTP
-/// reliability, fragmentation and stream reset remain unqualified.
+/// Implements DCEP negotiation and bounded reliable complete-DATA delivery.
+/// Congestion/flow control, fragmentation and stream reset remain unqualified.
 /// </summary>
 internal sealed class SctpDataChannel : IDisposable
 {
@@ -63,6 +63,10 @@ internal sealed class SctpDataChannel : IDisposable
     private int _handshakeRetries;
     private TimeSpan _handshakeRetryDelay = TimeSpan.FromSeconds(1);
     private long _associationStartedAt;
+    private readonly SctpReliableDelivery _reliable = new();
+    private readonly Queue<byte[]> _outboundPackets = [];
+    private int _outboundPacketBytes;
+    private bool _flushingPackets;
 
     public SctpDataChannel() : this(TimeProvider.System) { }
 
@@ -74,9 +78,25 @@ internal sealed class SctpDataChannel : IDisposable
         if (enableRetryTimer)
             _retryTimer = clock.CreateTimer(_ =>
             {
-                try { RetryDueHandshake(); }
+                try { RetryDueHandshake(); RetryDueData(); }
                 catch { FailAssociation(); }
             }, null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
+    }
+
+    internal void RetryDueData()
+    {
+        var fail = false;
+        try
+        {
+            lock (_gate)
+            {
+                if (_disposed || State != "connected") return;
+                var chunks = _reliable.DueRetransmissions(_clock, out fail);
+                foreach (var chunk in chunks) SendSctpPacket(RemoteVerificationTag, [chunk]);
+            }
+        }
+        finally { FlushPackets(); }
+        if (fail) FailAssociation();
     }
 
     internal void RetryDueHandshake()
@@ -113,12 +133,15 @@ internal sealed class SctpDataChannel : IDisposable
         ChannelState[] channels;
         lock (_gate)
         {
-            if (_disposed || State != "connecting") return;
+            if (_disposed || State is not ("connecting" or "connected")) return;
             State = "failed";
             _handshakePacket = null;
             _cookieEchoSent = false;
             channels = _channels.Values.ToArray();
             _pendingChannels.Clear();
+            _reliable.Clear();
+            _outboundPackets.Clear();
+            _outboundPacketBytes = 0;
         }
         foreach (var channel in channels)
         {
@@ -128,20 +151,24 @@ internal sealed class SctpDataChannel : IDisposable
 
     public void StartAssociation(bool isClient)
     {
-        lock (_gate)
+        try
         {
-            if (_disposed || State != "new") return;
-            _isClient = isClient;
-            _nextStreamId = (ushort)(isClient ? 0 : 1);
-            AssignPendingStreamIds(isClient);
-            State = "connecting";
-            _associationStartedAt = _clock.GetTimestamp();
-
-            if (isClient)
+            lock (_gate)
             {
-                SendInit();
+                if (_disposed || State != "new") return;
+                _isClient = isClient;
+                _nextStreamId = (ushort)(isClient ? 0 : 1);
+                AssignPendingStreamIds(isClient);
+                State = "connecting";
+                _associationStartedAt = _clock.GetTimestamp();
+
+                if (isClient)
+                {
+                    SendInit();
+                }
             }
         }
+        finally { FlushPackets(); }
     }
 
     private void SendInit()
@@ -197,42 +224,46 @@ internal sealed class SctpDataChannel : IDisposable
 
     public void ProcessIncomingPacket(ReadOnlySpan<byte> packet)
     {
-        lock (_gate)
+        try
         {
-            if (_disposed || State is not ("connecting" or "connected") || packet.Length < 12) return;
-
-            var srcPort = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(0, 2));
-            var dstPort = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2));
-            var vTag = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4));
-            var checksum = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(8, 4));
-            if (srcPort != SctpPort || dstPort != SctpPort || State == "new") return;
-
-            // Verify CRC32c by recomputing over packet with zeroed checksum field
-            var copy = packet.ToArray();
-            BinaryPrimitives.WriteUInt32LittleEndian(copy.AsSpan(8, 4), 0);
-            if (ComputeCrc32c(copy) != checksum) return;
-
-            var offset = 12;
-            while (offset + 4 <= packet.Length)
+            lock (_gate)
             {
-                var chunkType = packet[offset];
-                var chunkFlags = packet[offset + 1];
-                var chunkLength = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(offset + 2, 2));
+                if (_disposed || State is not ("connecting" or "connected") || packet.Length < 12) return;
 
-                if (chunkLength < 4 || offset + chunkLength > packet.Length) break;
-                if (chunkType == ChunkInit)
+                var srcPort = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(0, 2));
+                var dstPort = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2));
+                var vTag = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4));
+                var checksum = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(8, 4));
+                if (srcPort != SctpPort || dstPort != SctpPort || State == "new") return;
+
+                // Verify CRC32c by recomputing over packet with zeroed checksum field
+                var copy = packet.ToArray();
+                BinaryPrimitives.WriteUInt32LittleEndian(copy.AsSpan(8, 4), 0);
+                if (ComputeCrc32c(copy) != checksum) return;
+
+                var offset = 12;
+                while (offset + 4 <= packet.Length)
                 {
-                    if (vTag != 0 || offset != 12 || chunkLength != packet.Length - 12) return;
+                    var chunkType = packet[offset];
+                    var chunkFlags = packet[offset + 1];
+                    var chunkLength = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(offset + 2, 2));
+
+                    if (chunkLength < 4 || offset + chunkLength > packet.Length) break;
+                    if (chunkType == ChunkInit)
+                    {
+                        if (vTag != 0 || offset != 12 || ((chunkLength + 3) & ~3) != packet.Length - 12) return;
+                    }
+                    else if (vTag != LocalVerificationTag) return;
+                    var chunkPayload = packet.Slice(offset + 4, chunkLength - 4);
+
+                    ProcessChunk(chunkType, chunkFlags, chunkPayload, vTag);
+
+                    // Chunks are padded to 4-byte boundaries
+                    offset += (chunkLength + 3) & ~3;
                 }
-                else if (vTag != LocalVerificationTag) return;
-                var chunkPayload = packet.Slice(offset + 4, chunkLength - 4);
-
-                ProcessChunk(chunkType, chunkFlags, chunkPayload, vTag);
-
-                // Chunks are padded to 4-byte boundaries
-                offset += (chunkLength + 3) & ~3;
             }
         }
+        finally { FlushPackets(); }
     }
 
     private void ProcessChunk(byte type, byte flags, ReadOnlySpan<byte> payload, uint vTag)
@@ -244,6 +275,7 @@ internal sealed class SctpDataChannel : IDisposable
                     BinaryPrimitives.ReadUInt32BigEndian(payload) != 0 &&
                     (RemoteVerificationTag == 0 || RemoteVerificationTag == BinaryPrimitives.ReadUInt32BigEndian(payload)))
                 {
+                    if (!_reliable.SetPeerInitialTsn(BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4)))) break;
                     RemoteVerificationTag = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(0, 4));
                     _remoteTsn = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4));
                     SendInitAck();
@@ -254,6 +286,7 @@ internal sealed class SctpDataChannel : IDisposable
                 if (State == "connecting" && _isClient == true && payload.Length >= 16 &&
                     BinaryPrimitives.ReadUInt32BigEndian(payload) != 0 && TryGetCookie(payload, out var cookie))
                 {
+                    if (!_reliable.SetPeerInitialTsn(BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4)))) break;
                     RemoteVerificationTag = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(0, 4));
                     _remoteTsn = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4));
                     // Send CookieEcho
@@ -299,6 +332,16 @@ internal sealed class SctpDataChannel : IDisposable
             case ChunkData:
                 if (State == "connected") ProcessDataChunk(flags, payload);
                 break;
+            case ChunkSack:
+                if (State == "connected")
+                {
+                    var previous = _channels.Values.Select(channel => (Channel: channel, Amount: channel.BufferedAmount)).ToArray();
+                    if (_reliable.Acknowledge(payload))
+                        foreach (var (channel, amount) in previous)
+                            if (amount > channel.BufferedAmountLowThreshold && channel.BufferedAmount <= channel.BufferedAmountLowThreshold)
+                                channel.NotifyBufferedAmountLow();
+                }
+                break;
         }
     }
 
@@ -316,8 +359,15 @@ internal sealed class SctpDataChannel : IDisposable
                 if (length == 4 || !cookie.IsEmpty) return false;
                 cookie = initAck.Slice(offset + 4, length - 4);
             }
-            offset += (length + 3) & ~3;
-            if (offset > initAck.Length) return false;
+            var next = offset + ((length + 3) & ~3);
+            if (next > initAck.Length)
+            {
+                // The final parameter's padding may belong to the chunk's
+                // outer padding and is excluded from its declared length.
+                if (offset + length != initAck.Length) return false;
+                break;
+            }
+            offset = next;
         }
         return !cookie.IsEmpty;
     }
@@ -325,31 +375,21 @@ internal sealed class SctpDataChannel : IDisposable
     private void ProcessDataChunk(byte flags, ReadOnlySpan<byte> payload)
     {
         if (payload.Length < 12) return;
-        var tsn = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(0, 4));
-        var streamId = BinaryPrimitives.ReadUInt16BigEndian(payload.Slice(4, 2));
-        var streamSeq = BinaryPrimitives.ReadUInt16BigEndian(payload.Slice(6, 2));
-        var ppid = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(8, 4));
-        var userData = payload.Slice(12);
-
-        // Send SACK
-        SendSack(tsn);
-
-        if (ppid == PpidDcep)
+        var ready = _reliable.Receive(flags, payload);
+        SendSctpPacket(RemoteVerificationTag, [_reliable.CreateSack()]);
+        foreach (var message in ready)
         {
-            ProcessDcep(streamId, userData);
-        }
-        else
-        {
-            if (_channels.TryGetValue(streamId, out var channel))
+            if (message.Ppid == PpidDcep) ProcessDcep(message.Stream, message.Data);
+            else if (_channels.TryGetValue(message.Stream, out var channel) && channel.ReadyState == "open")
             {
-                if (ppid is PpidString or PpidStringEmpty)
+                if (message.Ppid is PpidString or PpidStringEmpty)
                 {
-                    var text = ppid == PpidStringEmpty ? "" : Encoding.UTF8.GetString(userData);
+                    var text = message.Ppid == PpidStringEmpty ? "" : Encoding.UTF8.GetString(message.Data);
                     channel.DeliverMessage(text);
                 }
-                else if (ppid is PpidBinary or PpidBinaryEmpty)
+                else if (message.Ppid is PpidBinary or PpidBinaryEmpty)
                 {
-                    var bytes = ppid == PpidBinaryEmpty ? [] : userData.ToArray();
+                    var bytes = message.Ppid == PpidBinaryEmpty ? [] : message.Data;
                     channel.DeliverMessage(bytes);
                 }
             }
@@ -371,6 +411,7 @@ internal sealed class SctpDataChannel : IDisposable
             var protoLen = BinaryPrimitives.ReadUInt16BigEndian(data.Slice(10, 2));
 
             if (data.Length < 12 + labelLen + protoLen) return;
+            if (channelType != 0 || reliability != 0 || _channels.Count >= 1024 || _channels.ContainsKey(streamId)) return;
             var label = Encoding.UTF8.GetString(data.Slice(12, labelLen));
             var protocol = Encoding.UTF8.GetString(data.Slice(12 + labelLen, protoLen));
 
@@ -382,7 +423,7 @@ internal sealed class SctpDataChannel : IDisposable
             channel.SetOpen();
             OnDataChannelCreated?.Invoke(channel);
         }
-        else if (msgType == DcepAck)
+        else if (msgType == DcepAck && data.Length == 1)
         {
             if (_channels.TryGetValue(streamId, out var channel))
             {
@@ -398,42 +439,34 @@ internal sealed class SctpDataChannel : IDisposable
         SendData(streamId, PpidDcep, ack);
     }
 
-    private void SendSack(uint cumulativeTsn)
-    {
-        var sack = new byte[16];
-        sack[0] = ChunkSack;
-        BinaryPrimitives.WriteUInt16BigEndian(sack.AsSpan(2), 16);
-        BinaryPrimitives.WriteUInt32BigEndian(sack.AsSpan(4), cumulativeTsn);
-        BinaryPrimitives.WriteUInt32BigEndian(sack.AsSpan(8), 131072); // a_rwnd
-        BinaryPrimitives.WriteUInt16BigEndian(sack.AsSpan(12), 0); // num gap ack
-        BinaryPrimitives.WriteUInt16BigEndian(sack.AsSpan(14), 0); // num dup tsn
-        SendSctpPacket(RemoteVerificationTag, [sack]);
-    }
-
     public ChannelState CreateDataChannel(string label, string protocol = "", ushort? explicitId = null)
     {
-        lock (_gate)
+        try
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (State == "failed") throw new InvalidOperationException("SCTP association has failed.");
-            if (_channels.Count >= 1024 || (long)Encoding.UTF8.GetByteCount(label) + Encoding.UTF8.GetByteCount(protocol) > MaxUnfragmentedMessageBytes - 12)
-                throw new InvalidOperationException("SCTP data channel limits exceeded.");
-            // Before the DTLS role is selected, reserve a channel object and
-            // assign its parity-correct stream identifier when association starts.
-            var id = explicitId ?? _nextStreamId;
-            if (_channels.ContainsKey(id)) throw new InvalidOperationException("SCTP stream id is already in use.");
-            if (explicitId is null)
+            lock (_gate)
             {
-                if (_nextStreamId > ushort.MaxValue - 2) throw new InvalidOperationException("SCTP stream ids exhausted.");
-                _nextStreamId += 2;
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (State == "failed") throw new InvalidOperationException("SCTP association has failed.");
+                if (_channels.Count >= 1024 || (long)Encoding.UTF8.GetByteCount(label) + Encoding.UTF8.GetByteCount(protocol) > MaxUnfragmentedMessageBytes - 12)
+                    throw new InvalidOperationException("SCTP data channel limits exceeded.");
+                // Before the DTLS role is selected, reserve a channel object and
+                // assign its parity-correct stream identifier when association starts.
+                var id = explicitId ?? _nextStreamId;
+                if (_channels.ContainsKey(id)) throw new InvalidOperationException("SCTP stream id is already in use.");
+                if (explicitId is null)
+                {
+                    if (_nextStreamId > ushort.MaxValue - 2) throw new InvalidOperationException("SCTP stream ids exhausted.");
+                    _nextStreamId += 2;
+                }
+                var channel = new ChannelState(this, id, label, protocol);
+                _channels[id] = channel;
+                channel.AutomaticId = explicitId is null;
+                if (State == "connected") SendChannelOpen(channel);
+                else _pendingChannels.Add(channel);
+                return channel;
             }
-            var channel = new ChannelState(this, id, label, protocol);
-            _channels[id] = channel;
-            channel.AutomaticId = explicitId is null;
-            if (State == "connected") SendChannelOpen(channel);
-            else _pendingChannels.Add(channel);
-            return channel;
         }
+        finally { FlushPackets(); }
     }
 
     private void AssociationConnected(Action? beforePendingChannels = null)
@@ -474,40 +507,37 @@ internal sealed class SctpDataChannel : IDisposable
 
     private void SendChannelOpen(ChannelState channel)
     {
-            var labelBytes = Encoding.UTF8.GetBytes(channel.Label);
-            var protoBytes = Encoding.UTF8.GetBytes(channel.Protocol);
-            if (labelBytes.Length + protoBytes.Length > MaxUnfragmentedMessageBytes - 12)
-                throw new InvalidOperationException("DCEP message requires fragmentation.");
+        var labelBytes = Encoding.UTF8.GetBytes(channel.Label);
+        var protoBytes = Encoding.UTF8.GetBytes(channel.Protocol);
+        if (labelBytes.Length + protoBytes.Length > MaxUnfragmentedMessageBytes - 12)
+            throw new InvalidOperationException("DCEP message requires fragmentation.");
 
-            var openMsg = new byte[12 + labelBytes.Length + protoBytes.Length];
-            openMsg[0] = DcepOpen;
-            openMsg[1] = 0; // reliable ordered
-            BinaryPrimitives.WriteUInt16BigEndian(openMsg.AsSpan(2), 0); // priority
-            BinaryPrimitives.WriteUInt32BigEndian(openMsg.AsSpan(4), 0); // reliability
-            BinaryPrimitives.WriteUInt16BigEndian(openMsg.AsSpan(8), (ushort)labelBytes.Length);
-            BinaryPrimitives.WriteUInt16BigEndian(openMsg.AsSpan(10), (ushort)protoBytes.Length);
-            labelBytes.CopyTo(openMsg.AsSpan(12));
-            protoBytes.CopyTo(openMsg.AsSpan(12 + labelBytes.Length));
+        var openMsg = new byte[12 + labelBytes.Length + protoBytes.Length];
+        openMsg[0] = DcepOpen;
+        openMsg[1] = 0; // reliable ordered
+        BinaryPrimitives.WriteUInt16BigEndian(openMsg.AsSpan(2), 0); // priority
+        BinaryPrimitives.WriteUInt32BigEndian(openMsg.AsSpan(4), 0); // reliability
+        BinaryPrimitives.WriteUInt16BigEndian(openMsg.AsSpan(8), (ushort)labelBytes.Length);
+        BinaryPrimitives.WriteUInt16BigEndian(openMsg.AsSpan(10), (ushort)protoBytes.Length);
+        labelBytes.CopyTo(openMsg.AsSpan(12));
+        protoBytes.CopyTo(openMsg.AsSpan(12 + labelBytes.Length));
 
-            SendData(channel.Id, PpidDcep, openMsg);
+        SendData(channel.Id, PpidDcep, openMsg);
     }
 
     internal void SendData(ushort streamId, uint ppid, byte[] data)
     {
-        if (data.Length > MaxUnfragmentedMessageBytes)
-            throw new InvalidOperationException("SCTP message requires fragmentation.");
-        var tsn = _localTsn++;
-        var chunk = new byte[16 + data.Length];
-        chunk[0] = ChunkData;
-        chunk[1] = 0x03; // B + E flags (unordered/ordered complete message)
-        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(2), (ushort)chunk.Length);
-        BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(4), tsn);
-        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(8), streamId);
-        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(10), 0); // stream seq
-        BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(12), ppid);
-        data.CopyTo(chunk.AsSpan(16));
-
-        SendSctpPacket(RemoteVerificationTag, [chunk]);
+        try
+        {
+            lock (_gate)
+            {
+                if (_disposed || State != "connected") throw new InvalidOperationException("SCTP association is not connected.");
+                var chunk = _reliable.Enqueue(_localTsn, streamId, ppid, data, _clock.GetTimestamp());
+                _localTsn++;
+                SendSctpPacket(RemoteVerificationTag, [chunk]);
+            }
+        }
+        finally { FlushPackets(); }
     }
 
     private void SendSctpPacket(uint vTag, IReadOnlyList<byte[]> chunks, bool rememberHandshake = false)
@@ -538,7 +568,44 @@ internal sealed class SctpDataChannel : IDisposable
             _handshakeRetryDelay = TimeSpan.FromSeconds(1);
             _lastHandshakeSend = _clock.GetTimestamp();
         }
-        OnPacketToSend?.Invoke(packet);
+        lock (_gate)
+        {
+            // Control traffic must not grow memory while transport output is
+            // blocked. Dropped packets recover through association/DATA retry.
+            if (_outboundPackets.Count >= 2048 || packet.Length > 4 * 1024 * 1024 - _outboundPacketBytes) return;
+            _outboundPackets.Enqueue(packet);
+            _outboundPacketBytes += packet.Length;
+        }
+        FlushPackets();
+    }
+
+    private void FlushPackets()
+    {
+        // Public sends must not hold SCTP while entering DTLS, whose receive
+        // path calls SCTP with the DTLS lock held. Reentrant callbacks enqueue
+        // more packets for the current dispatcher rather than recursing.
+        if (Monitor.IsEntered(_gate)) return;
+        lock (_gate)
+        {
+            if (_flushingPackets) return;
+            _flushingPackets = true;
+        }
+        while (true)
+        {
+            byte[] packet;
+            lock (_gate)
+            {
+                if (!_outboundPackets.TryDequeue(out packet!))
+                { _flushingPackets = false; return; }
+                _outboundPacketBytes -= packet.Length;
+            }
+            try { OnPacketToSend?.Invoke(packet); }
+            catch
+            {
+                lock (_gate) { _outboundPackets.Clear(); _outboundPacketBytes = 0; _flushingPackets = false; }
+                throw;
+            }
+        }
     }
 
     private static uint ComputeCrc32c(ReadOnlySpan<byte> bytes)
@@ -556,23 +623,28 @@ internal sealed class SctpDataChannel : IDisposable
 
     public void Dispose()
     {
+        ChannelState[] channels;
         lock (_gate)
         {
             if (_disposed) return;
             _disposed = true;
             _retryTimer?.Dispose();
             _handshakePacket = null;
+            _outboundPackets.Clear();
+            _outboundPacketBytes = 0;
+            _reliable.Clear();
             State = "closed";
-            foreach (var ch in _channels.Values.ToArray())
-            {
-                try { ch.Close(); } catch { /* Finish releasing owned secrets and timer. */ }
-            }
+            channels = _channels.Values.ToArray();
             _channels.Clear();
             _pendingChannels.Clear();
             if (_issuedCookie is not null) CryptographicOperations.ZeroMemory(_issuedCookie);
             _issuedCookie = null;
             _cookieEchoSent = false;
             CryptographicOperations.ZeroMemory(_cookieKey);
+        }
+        foreach (var channel in channels)
+        {
+            try { channel.Close(); } catch { /* Finish releasing other owned channels. */ }
         }
     }
 
@@ -583,12 +655,14 @@ internal sealed class SctpDataChannel : IDisposable
         public string Label { get; } = label;
         public string Protocol { get; } = protocol;
         public string ReadyState { get; private set; } = "connecting";
-        public long BufferedAmount { get; private set; } = 0;
+        public long BufferedAmount { get { lock (owner._gate) return owner._reliable.BufferedAmount(Id); } }
         public long BufferedAmountLowThreshold { get; set; } = 0;
 
         public event Action? OnOpen;
         public event Action? OnClose;
         public event Action<object>? OnMessage;
+        public event Action? OnBufferedAmountLow;
+        internal void NotifyBufferedAmountLow() => OnBufferedAmountLow?.Invoke();
 
         public void Send(string text)
         {
@@ -612,6 +686,7 @@ internal sealed class SctpDataChannel : IDisposable
 
         internal void SetOpen()
         {
+            if (ReadyState != "connecting") return;
             ReadyState = "open";
             OnOpen?.Invoke();
         }

@@ -5,6 +5,33 @@ namespace Folio.Scripting.Tests;
 
 public sealed class SctpPendingChannelTests
 {
+    [Fact]
+    public void AcceptsInitAndCookieParametersWithOuterChunkPadding()
+    {
+        using var client = new SctpDataChannel(); using var server = new SctpDataChannel();
+        var requests = new Queue<byte[]>(); var responses = new Queue<byte[]>();
+        client.OnPacketToSend += requests.Enqueue; server.OnPacketToSend += responses.Enqueue;
+        server.StartAssociation(false); client.StartAssociation(true);
+        var initial = requests.Dequeue();
+        var padded = new byte[40]; initial.CopyTo(padded, 0);
+        BinaryPrimitives.WriteUInt16BigEndian(padded.AsSpan(14), 26);
+        // Supported Extensions, length six with two outer chunk-padding bytes.
+        BinaryPrimitives.WriteUInt16BigEndian(padded.AsSpan(32), 0x8008);
+        BinaryPrimitives.WriteUInt16BigEndian(padded.AsSpan(34), 6);
+        padded[36] = 130; padded[37] = 192; Rechecksum(padded);
+        server.ProcessIncomingPacket(padded);
+        var ack = responses.Dequeue();
+        // Opaque cookie with an odd length; clients must echo it verbatim.
+        BinaryPrimitives.WriteUInt16BigEndian(ack.AsSpan(14), (ushort)(ack.Length - 13));
+        BinaryPrimitives.WriteUInt16BigEndian(ack.AsSpan(34), 83);
+        Rechecksum(ack);
+        client.ProcessIncomingPacket(ack);
+        var echo = requests.Dequeue();
+        Assert.Equal(10, echo[12]);
+        Assert.Equal(83, BinaryPrimitives.ReadUInt16BigEndian(echo.AsSpan(14)));
+        Assert.Equal(ack.AsSpan(36, 79).ToArray(), echo.AsSpan(16, 79).ToArray());
+    }
+
     private sealed class Clock : TimeProvider
     {
         internal long Ticks;

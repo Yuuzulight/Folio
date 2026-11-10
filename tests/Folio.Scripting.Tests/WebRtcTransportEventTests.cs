@@ -23,9 +23,11 @@ public sealed class WebRtcTransportEventTests
         {
             engine.SetGlobalProperty("binaryProbe", ScriptValue.FromBoolean(binary));
             engine.Evaluate("""
-                var a=new RTCPeerConnection(),b=new RTCPeerConnection(),received='',reply='',error='';
+                var a=new RTCPeerConnection(),b=new RTCPeerConnection(),received='',reply='',error='',lowEvents=0;
                 b.ondatachannel=function(e){e.channel.onmessage=function(m){received=binaryProbe?Array.from(new Uint8Array(m.data)).join(','):m.data;e.channel.send(binaryProbe?m.data:'echo:'+m.data);};};
                 var channel=a.createDataChannel('public-udp');
+                channel.bufferedAmountLowThreshold=0;
+                channel.onbufferedamountlow=function(){lowEvents++;};
                 channel.onopen=function(){if(binaryProbe){var bytes=new Uint8Array([99,1,2,3,88]);channel.send(bytes.subarray(1,4));bytes.fill(0);}else channel.send('real transport');};
                 channel.onmessage=function(e){reply=binaryProbe?Array.from(new Uint8Array(e.data)).join(','):e.data;};
                 a.createOffer().then(function(o){return a.setLocalDescription(o).then(function(){return b.setRemoteDescription(o);});})
@@ -46,6 +48,8 @@ public sealed class WebRtcTransportEventTests
                 engine.Evaluate("a.connectionState+':'+b.connectionState+':'+channel.readyState+':'+reply+':'+a.signalingState+':'+b.signalingState+':'+(a.remoteDescription&&a.remoteDescription.sdp)").AsString() + string.Join("\n", diagnostics));
             Assert.Equal(binary ? "1,2,3" : "echo:real transport", engine.Evaluate("reply").AsString());
             Assert.Equal("connected", engine.Evaluate("a.connectionState").AsString());
+            loop.SpinUntilIdle();
+            Assert.True(engine.Evaluate("channel.bufferedAmount===0 && channel.bufferedAmountLowThreshold===0 && lowEvents>0").AsBoolean());
             Assert.ThrowsAny<Exception>(() => engine.Evaluate("channel.send(new Uint8Array(20000));"));
             Assert.Equal("open", engine.Evaluate("channel.readyState").AsString());
             engine.Evaluate("a.close();b.close();");
