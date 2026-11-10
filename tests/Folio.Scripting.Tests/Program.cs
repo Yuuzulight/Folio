@@ -9,6 +9,10 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        if (args is ["rtc-chrome-probe", var chrome])
+            return ChromeRtcProbe.Run(chrome);
+        if (args is ["rtc-chrome-probe", var answeringChrome, "folio-answerer"])
+            return ChromeRtcProbe.Run(answeringChrome, folioAnswerer: true);
         if (args is ["dtls-openssl-probe", var openssl])
             return OpenSslDtlsProbe.Run(openssl);
         if (args is ["dtls-openssl-probe", var serverOpenSsl, "folio-server"])

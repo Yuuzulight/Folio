@@ -157,7 +157,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
             IceUfrag = Ice.LocalUfrag,
             IcePassword = Ice.LocalPassword,
             FingerprintValue = Dtls.Fingerprint,
-            Setup = RemoteDescription?.Setup == "active" ? "passive" : "active"
+            Setup = RemoteDescription?.TransportSetup == "active" ? "passive" : "active"
         };
 
         if (hasDataChannels)
@@ -216,7 +216,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
             }
             else if (type == "answer")
             {
-                Dtls.IsClient = LocalDescription.Setup switch
+                Dtls.IsClient = LocalDescription.TransportSetup switch
                 {
                     "active" => true,
                     "passive" => false,
@@ -246,7 +246,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
                 SignalingState = "have-remote-offer";
                 OnSignalingStateChange?.Invoke(SignalingState);
                 // Our generated answer selects active, so we initiate DTLS.
-                Dtls.IsClient = RemoteDescription.Setup switch
+                Dtls.IsClient = RemoteDescription.TransportSetup switch
                 {
                     "actpass" or "passive" => true,
                     "active" => false,
@@ -257,7 +257,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
             {
                 SignalingState = "stable";
                 OnSignalingStateChange?.Invoke(SignalingState);
-                Dtls.IsClient = RemoteDescription.Setup switch
+                Dtls.IsClient = RemoteDescription.TransportSetup switch
                 {
                     "active" => false,
                     "passive" => true,
@@ -266,14 +266,14 @@ internal sealed class RtcPeerConnectionController : IDisposable
                 };
             }
 
-            if (!string.IsNullOrEmpty(RemoteDescription.IceUfrag))
-                Ice.RemoteUfrag = RemoteDescription.IceUfrag;
-            if (!string.IsNullOrEmpty(RemoteDescription.IcePassword))
-                Ice.RemotePassword = RemoteDescription.IcePassword;
-            if (!string.IsNullOrEmpty(RemoteDescription.FingerprintValue))
-                Dtls.RemoteFingerprint = RemoteDescription.FingerprintValue;
+            if (!string.IsNullOrEmpty(RemoteDescription.TransportIceUfrag))
+                Ice.RemoteUfrag = RemoteDescription.TransportIceUfrag;
+            if (!string.IsNullOrEmpty(RemoteDescription.TransportIcePassword))
+                Ice.RemotePassword = RemoteDescription.TransportIcePassword;
+            if (!string.IsNullOrEmpty(RemoteDescription.TransportFingerprint))
+                Dtls.RemoteFingerprint = RemoteDescription.TransportFingerprint;
 
-            foreach (var candidate in RemoteDescription.Candidates)
+            foreach (var candidate in RemoteDescription.TransportCandidates)
             {
                 Ice.AddRemoteCandidate(candidate);
             }

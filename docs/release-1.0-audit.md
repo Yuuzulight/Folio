@@ -370,3 +370,62 @@ Blob/options semantics, remote encoded media and host network policy, routing
 qualification, and the complete original M0–M7/replacement and release audit.
 No milestone is newly signed off by this checkpoint. PR #705 is unmerged;
 issue #704 remains open and release 1.0 has not been created.
+
+## Reliable complete-DATA delivery and public buffer state
+
+SCTP now increments per-stream message sequence numbers, retains complete DATA
+until cumulative acknowledgement, suppresses duplicate TSNs and reports gap ACKs
+without acknowledging missing packets. Ordered messages wait per stream while
+other streams can progress. Gap-ACKed packets are retained for reneging; a later
+SACK that omits them permits retransmission again. Future, stale and malformed
+acknowledgements cannot release send admission. Serial arithmetic covers TSN and
+stream-sequence wrap. Empty-message PPIDs carry one ignored wire-padding byte.
+
+Send storage is capped at 1 MiB/1,024 chunks, receive payload storage at 128 KiB/
+1,024 messages, and tracking at 1,024 receive streams. Retries back off, fail the
+association after bounded attempts, and release payloads on failure/disposal.
+Gap-retained state also has a 60-second absolute deadline. Pending transport
+output is capped at 2,048 packets/4 MiB. Packets are dispatched outside SCTP's
+lock, including public channel creation and sends, without recursive dispatch.
+Public native/Jint channels read their actual buffered amount and queue a
+`bufferedamountlow` event when acknowledgements cross the configured threshold.
+
+Regressions drop DATA/SACK and COOKIE_ACK, recover pending channels in both
+directions, reorder/duplicate messages, fill admission/receive storage, wrap
+sequence numbers and exercise gap reneging. Basic complete-message reliability
+is present; fragmentation, congestion and peer-window flow control, stream reset,
+restart and wider SCTP conformance remain incomplete. JavaScript event budgets
+are distinct from the new SCTP storage/output bounds and are still required.
+
+## Independent browser transport acceptance
+
+The new `rtc-chrome-probe` command negotiates with an unmodified headless Chrome
+using default ICE host privacy (no mDNS-disabling flags). Both Folio offerer and
+answerer roles pass against Chrome **156.0.8078.80**: ICE/DTLS/SCTP connect, both
+peers open a data channel, and three ordered strings each way are echoed and
+verified. This is real independent-browser transport evidence, not a shared
+Folio endpoint or the empty-SDP local shortcut. It does not qualify media,
+browser loss/reordering, fragmentation, TURN, or arbitrary network topology.
+
+The probe exposed and repaired:
+
+- Selection of media-level ICE credentials, fingerprint and DTLS setup using the
+  active BUNDLE transport. Media setup/fingerprint survive serialization.
+- Authenticated peer-reflexive ICE checks when a peer's SDP uses an mDNS host
+  name. This is not an mDNS resolver. Incoming ICE usernames, HMACs/fingerprints,
+  response source endpoints and integrity are checked; application datagrams
+  must come from the selected endpoint. Controlled peers require nomination.
+- Serial connectivity checks, synchronized/bounded STUN waiters and bounded
+  candidate/pair admission.
+- INIT and opaque-cookie parameter padding outside the declared chunk length.
+
+Multiple unbundled transports/BUNDLE groups are explicitly refused, not silently
+mixed. Full ICE role-conflict handling, consent freshness, relay wiring, direct
+mDNS resolution and host network-policy qualification remain required.
+
+The focused RTC selection passes **84/84**, zero skips; the Release solution
+build has zero warnings/errors. The full scripting suite is being rerun for
+these changes. Ubuntu CI now runs both Chrome roles and uploads SDP/packet/report
+evidence; that new CI configuration is not yet claimed green. The four earlier
+parallel timing failures remain unresolved until a fresh load run proves them
+fixed. #704 and the overall M0–M7/replacement/release goal remain open.

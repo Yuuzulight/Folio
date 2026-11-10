@@ -110,6 +110,28 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll dtls-openssl-probe /usr/bin/openssl folio-server
 
+      - name: Independent browser ICE, DTLS and SCTP (Folio offerer)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          FOLIO_RTC_PROBE_OUTPUT: artifacts/rtc-interop
+        run: |
+          /usr/bin/google-chrome --version
+          dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll rtc-chrome-probe /usr/bin/google-chrome
+
+      - name: Independent browser ICE, DTLS and SCTP (Folio answerer)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          FOLIO_RTC_PROBE_OUTPUT: artifacts/rtc-interop
+        run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll rtc-chrome-probe /usr/bin/google-chrome folio-answerer
+
+      - name: Upload independent browser transport evidence
+        if: always() && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: rtc-browser-interop
+          path: artifacts/rtc-interop
+          if-no-files-found: ignore
+
       - name: WebGL page regressions with both script engines
         if: matrix.os == 'windows-latest'
         shell: pwsh
