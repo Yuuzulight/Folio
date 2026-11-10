@@ -25,6 +25,52 @@ public sealed class SctpSendWindowTests
         return bytes;
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TimeoutMarksTheMissingTailForWindowLimitedRecoveryOnFollowingSacks(bool smallPeerWindow)
+    {
+        var clock = new Clock(); var sender = new SctpReliableDelivery();
+        var receiver = new SctpReliableDelivery(); receiver.SetPeerInitialTsn(1);
+        sender.Enqueue(1, 0, 53, new byte[SctpDataChannel.MaxMessageBytes], 0);
+        var network = new Queue<byte[]>(sender.TakeSendable(clock));
+        uint delivered = 0;
+        while (delivered < 200)
+        {
+            Assert.True(network.TryDequeue(out var next));
+            clock.Advance(0.001);
+            Assert.Empty(receiver.Receive(next[1], next.AsSpan(4), clock.GetTimestamp()));
+            delivered = BinaryPrimitives.ReadUInt32BigEndian(next.AsSpan(4));
+            Assert.True(sender.Acknowledge(receiver.CreateSack().AsSpan(4), clock));
+            foreach (var chunk in sender.TakeSendable(clock)) network.Enqueue(chunk);
+        }
+        Assert.True(network.Count > 4); // Drop the entire remaining in-flight tail.
+        network.Clear();
+        clock.Advance(1);
+        var first = Assert.Single(sender.DueRetransmissions(clock, out var failed));
+        Assert.False(failed);
+        Assert.Empty(receiver.Receive(first[1], first.AsSpan(4), clock.GetTimestamp()));
+        var recoveredAck = receiver.CreateSack();
+        if (smallPeerWindow) BinaryPrimitives.WriteUInt32BigEndian(recoveredAck.AsSpan(8), SctpDataChannel.MaxFragmentPayloadBytes);
+        Assert.True(sender.Acknowledge(recoveredAck.AsSpan(4), clock));
+        var recovery = sender.TakeSendable(clock);
+        if (smallPeerWindow) Assert.Single(recovery);
+        Assert.NotEmpty(recovery); // Do not wait for another doubled RTO per lost chunk.
+        Assert.InRange(sender.FlightBytes, 1, sender.CongestionWindow + SctpReliableDelivery.MaximumDataChunkBytes - 1);
+        network = new Queue<byte[]>(recovery);
+        SctpReliableDelivery.Message? complete = null;
+        for (var turn = 0; turn < 1024 && network.TryDequeue(out var next); turn++)
+        {
+            clock.Advance(0.001);
+            foreach (var message in receiver.Receive(next[1], next.AsSpan(4), clock.GetTimestamp())) complete = message;
+            Assert.True(sender.Acknowledge(receiver.CreateSack().AsSpan(4), clock));
+            foreach (var chunk in sender.TakeSendable(clock)) network.Enqueue(chunk);
+        }
+        Assert.True(complete.HasValue);
+        Assert.Equal(SctpDataChannel.MaxMessageBytes, complete.Value.Data.Length);
+        Assert.Equal(0, sender.BufferedAmount(0));
+    }
+
     [Fact]
     public void LargeMessageStartsWithOneBoundedBurstAndCannotAckUnsentData()
     {

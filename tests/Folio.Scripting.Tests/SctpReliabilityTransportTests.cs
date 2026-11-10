@@ -6,6 +6,25 @@ namespace Folio.Scripting.Tests;
 public sealed class SctpReliabilityTransportTests
 {
     [Fact]
+    public void LostLargeMessageTailRecoversWithinOneTimeoutAndAcknowledgementDrivenWindow()
+    {
+        using var pair = new Pair(); pair.Client.ConfigureRemote(0); pair.Start();
+        var dropped = 0;
+        pair.Drop = packet => packet[12] == 0 && BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(24)) == 51 &&
+            BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(16)) > 200 && ++dropped > 0;
+        var text = new string('x', SctpDataChannel.MaxMessageBytes);
+        pair.Local.Send(text); pair.Drain();
+        Assert.True(dropped > 4);
+        Assert.Empty(pair.Messages);
+        pair.Drop = null;
+        pair.Tick();
+        Assert.Equal(text, Assert.Single(pair.Messages));
+        Assert.Equal(0, pair.Local.BufferedAmount);
+        Assert.Equal("connected", pair.Client.State);
+        Assert.Equal("connected", pair.Server.State);
+    }
+
+    [Fact]
     public void SmallerNegotiatedLimitClosesUnestablishablePendingChannel()
     {
         using var pair = new Pair();

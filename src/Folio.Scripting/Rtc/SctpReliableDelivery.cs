@@ -42,9 +42,9 @@ internal sealed class SctpReliableDelivery(uint initialLocalTsn = 1)
     private long? _lastEmissionAt;
     private long? _lastPeerActivityAt;
     internal int CongestionWindow => _congestionWindow;
-    internal int FlightBytes => _outgoing.Values.Where(p => p.Sent && !p.GapAcknowledged).Sum(p => p.WireBytes);
+    internal int FlightBytes => _outgoing.Values.Where(p => p.Sent && !p.GapAcknowledged && !p.TimeoutQueued).Sum(p => p.WireBytes);
     internal uint HighestEmittedTsn => _highestEmitted;
-    internal string Diagnostics => $"assigned={_highestAssigned},emitted={_highestEmitted},ack={_lastAck},queued={_unsent.Count},pending={_outgoing.Count},flight={FlightBytes},cwnd={_congestionWindow},rwnd={_peerWindow},rto={_rtoSeconds:F3},rx={_cumulativeReceived},gaps={_received.Count},fragments={_fragments.Count},rxBytes={_receiveBytes}";
+    internal string Diagnostics => $"assigned={_highestAssigned},emitted={_highestEmitted},ack={_lastAck},queued={_unsent.Count},retransmitQueued={_outgoing.Values.Count(p => p.TimeoutQueued && !p.GapAcknowledged)},pending={_outgoing.Count},flight={FlightBytes},cwnd={_congestionWindow},rwnd={_peerWindow},rto={_rtoSeconds:F3},rx={_cumulativeReceived},gaps={_received.Count},fragments={_fragments.Count},rxBytes={_receiveBytes}";
     internal uint NextTsn => unchecked(_highestAssigned + 1);
 
     internal readonly record struct Message(ushort Stream, uint Ppid, byte[] Data, long ReceivedAt = 0);
@@ -71,6 +71,7 @@ internal sealed class SctpReliableDelivery(uint initialLocalTsn = 1)
         internal bool RttSampled;
         internal int MissingReports;
         internal bool FastQueued;
+        internal bool TimeoutQueued;
         internal bool FastRetransmitted;
         internal bool ZeroWindowProbe;
         internal int WireBytes => (Chunk.Length + 3) & ~3;
@@ -196,7 +197,7 @@ internal sealed class SctpReliableDelivery(uint initialLocalTsn = 1)
         }
         foreach (var (tsn, pending) in _outgoing)
         {
-            if (!pending.Sent || pending.GapAcknowledged) continue;
+            if (!pending.Sent || pending.GapAcknowledged || pending.TimeoutQueued) continue;
             if (highestNewAck is { } highest && unchecked((int)(highest - tsn)) > 0) pending.MissingReports++;
             if (pending.MissingReports >= 3 && !pending.FastRetransmitted)
             {
@@ -253,7 +254,7 @@ internal sealed class SctpReliableDelivery(uint initialLocalTsn = 1)
         foreach (var tsn in _sendOrder)
         {
             var pending = _outgoing[tsn];
-            if (!pending.FastQueued || pending.GapAcknowledged) continue;
+            if (!pending.FastQueued || pending.GapAcknowledged || pending.TimeoutQueued) continue;
             pending.FastQueued = false; pending.FastRetransmitted = true; pending.Retries++;
             pending.Transmissions++;
             pending.SentAt = clock.GetTimestamp(); result.Add((byte[])pending.Chunk.Clone());
@@ -261,9 +262,26 @@ internal sealed class SctpReliableDelivery(uint initialLocalTsn = 1)
             if (OldestOutstanding() == tsn) _timerStartedAt = clock.GetTimestamp();
             if (result.Count >= 4) break;
         }
-        if (_outgoing.Values.Any(pending => pending.FastQueued && !pending.GapAcknowledged)) return result;
+        if (_outgoing.Values.Any(pending => pending.FastQueued && !pending.GapAcknowledged && !pending.TimeoutQueued)) return result;
         var flight = FlightBytes;
-        var payloadFlight = _outgoing.Values.Where(p => p.Sent && !p.GapAcknowledged).Sum(p => p.Chunk.Length - 16);
+        var payloadFlight = _outgoing.Values.Where(p => p.Sent && !p.GapAcknowledged && !p.TimeoutQueued).Sum(p => p.Chunk.Length - 16);
+        // RFC 9260 section 6.3.3: after the first timeout retransmission,
+        // remaining lost DATA becomes eligible as SACKs reopen cwnd. It is
+        // no longer counted as in flight until actually retransmitted.
+        foreach (var tsn in _sendOrder)
+        {
+            var pending = _outgoing[tsn];
+            if (!pending.TimeoutQueued || pending.GapAcknowledged) continue;
+            if (result.Count >= 4 || flight >= _congestionWindow) break;
+            if (pending.DataBytes > Math.Max(0L, (long)_peerWindow - payloadFlight)) break;
+            pending.TimeoutQueued = false; pending.FastQueued = false;
+            pending.Retries++; pending.Transmissions++; pending.SentAt = clock.GetTimestamp();
+            _lastEmissionAt = clock.GetTimestamp();
+            if (OldestOutstanding() == tsn) _timerStartedAt = clock.GetTimestamp();
+            result.Add((byte[])pending.Chunk.Clone());
+            flight += pending.WireBytes; payloadFlight += pending.DataBytes;
+        }
+        if (_outgoing.Values.Any(pending => pending.TimeoutQueued && !pending.GapAcknowledged)) return result;
         while (result.Count < 4 && _unsent.TryPeek(out var tsn))
         {
             var pending = _outgoing[tsn];
@@ -313,7 +331,12 @@ internal sealed class SctpReliableDelivery(uint initialLocalTsn = 1)
             _slowStartThreshold = Math.Max(_congestionWindow / 2, 4 * MaximumDataChunkBytes);
             _congestionWindow = MaximumDataChunkBytes; _partialBytesAcked = 0; _fastRecoveryUntil = null;
             _timeoutRecoveryTsn = oldest;
-            foreach (var pending in _outgoing.Values) pending.FastQueued = false;
+            foreach (var pending in _outgoing.Values)
+            {
+                pending.FastQueued = false;
+                if (pending.Sent && !pending.GapAcknowledged) pending.TimeoutQueued = true;
+            }
+            retransmit.TimeoutQueued = false;
         }
         retransmit.SentAt = clock.GetTimestamp(); _timerStartedAt = clock.GetTimestamp();
         retransmit.Transmissions++;

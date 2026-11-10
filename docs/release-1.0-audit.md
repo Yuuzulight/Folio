@@ -627,3 +627,45 @@ The worker process's dispatcher still uses its own pool for command execution;
 this change removes dependence on the content/page process's shared pool, not
 all pool use throughout Folio. #706 and #704 remain open, PR #705 remains draft,
 and original M0–M7/replacement and release acceptance remain required.
+
+
+## Reopened large-message qualification and deterministic tail recovery
+
+Hosted run `42832983570` completed **26/26 jobs green** for `69a71d8a`.
+That result does not clear the subsequent merge hold: on the metadata branch,
+a broader RTC selection failed the Jint 256 KiB ten-second round trip with both
+peers connected, cumulative TSN200 of236 emitted, no receiver gaps and retained
+partial-message bytes. PR #705 was returned to draft. Three repetitions of the
+54-test RTC selection on the unmodified `69a71d8a` base all passed; they neither
+reproduce that intermittent failure nor establish the metadata patch caused it.
+The failure and metadata slice are preserved on draft PR #708, stacked on #705;
+#707 remains open and its owner-loop queue portion is not implemented.
+
+A new deterministic regression DOES fail on the unmodified base sender: deliver
+200 fragments of a 256 KiB message, drop the entire remaining in-flight tail,
+allow one timeout retransmission, then acknowledge it. The sender does not
+schedule the remaining missing DATA on the reopened congestion window, instead
+waiting for another backed-off timer for each fragment. The regression fails
+at the expected empty recovery-dispatch assertion before the fix.
+
+[RFC 9260 section 6.3.3](https://www.rfc-editor.org/rfc/rfc9260.html#section-6.3.3)
+requires remaining timeout DATA to be marked for retransmission as cwnd permits.
+The sender now explicitly marks that bounded recovery queue, removes declared
+lost chunks from flight accounting until retransmitted, and prioritizes their
+redispatch over new DATA under both congestion and peer credit limits. The first
+timeout still emits only one MTU-sized chunk and waits for its acknowledgement;
+RTO backoff and absolute failure/admission budgets remain intact. Diagnostics
+include the queued retransmission count.
+
+The pure sender/receiver regression now passes with normal and one-fragment
+peer credit. A transport regression drops the full final tail of a 256 KiB
+message, restores the path and verifies byte-exact completion plus zero buffered
+bytes after one timeout and acknowledgement-driven dispatch. Three fresh review
+passes covered timeout/flight accounting, acknowledgement and receiver-credit
+interactions, then ordering/retirement and compatibility with existing retries.
+Release solution build: zero warnings/errors. Final focused SCTP/RTC selection:
+**109/109**, zero skips. This proves the deterministic defect and its repair;
+it does not by itself establish the cause of every intermittent UDP/DTLS timeout.
+Browser/load/published-host and updated-head CI qualification are pending, and
+the ten-second public-test deadline is unchanged. Do not merge from the earlier
+head's green CI. Logs: `%TEMP%/folio-tail-red.log`, `%TEMP%/folio-tail-rtc-final.log`.
