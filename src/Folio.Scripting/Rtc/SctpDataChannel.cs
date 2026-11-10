@@ -107,6 +107,7 @@ internal sealed class SctpDataChannel : IDisposable
                 if (_disposed || State != "connected") return;
                 var chunks = _reliable.DueRetransmissions(_clock, out fail);
                 foreach (var chunk in chunks) SendSctpPacket(RemoteVerificationTag, [chunk]);
+                if (!fail) DrainSendWindow();
             }
         }
         finally { FlushPackets(); }
@@ -293,6 +294,7 @@ internal sealed class SctpDataChannel : IDisposable
                     if (!_reliable.SetPeerInitialTsn(BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4)))) break;
                     RemoteVerificationTag = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(0, 4));
                     _remoteTsn = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4));
+                    _reliable.SetPeerWindow(BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(4, 4)), _clock);
                     SendInitAck();
                 }
                 break;
@@ -304,6 +306,7 @@ internal sealed class SctpDataChannel : IDisposable
                     if (!_reliable.SetPeerInitialTsn(BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4)))) break;
                     RemoteVerificationTag = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(0, 4));
                     _remoteTsn = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4));
+                    _reliable.SetPeerWindow(BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(4, 4)), _clock);
                     // Send CookieEcho
                     var echo = new byte[4 + cookie.Length];
                     echo[0] = ChunkCookieEcho;
@@ -351,10 +354,13 @@ internal sealed class SctpDataChannel : IDisposable
                 if (State == "connected")
                 {
                     var previous = _channels.Values.Select(channel => (Channel: channel, Amount: channel.BufferedAmount)).ToArray();
-                    if (_reliable.Acknowledge(payload))
+                    if (_reliable.Acknowledge(payload, _clock))
+                    {
                         foreach (var (channel, amount) in previous)
                             if (amount > channel.BufferedAmountLowThreshold && channel.BufferedAmount <= channel.BufferedAmountLowThreshold)
                                 channel.NotifyBufferedAmountLow();
+                        DrainSendWindow();
+                    }
                 }
                 break;
         }
@@ -565,12 +571,17 @@ internal sealed class SctpDataChannel : IDisposable
             {
                 if (_disposed || State != "connected") throw new InvalidOperationException("SCTP association is not connected.");
                 if (data.Length > MaximumSendMessageBytes) throw new ArgumentException("Message exceeds the negotiated SCTP size.");
-                var chunks = _reliable.Enqueue(_localTsn, streamId, ppid, data, _clock.GetTimestamp());
+                _reliable.Enqueue(_localTsn, streamId, ppid, data, _clock.GetTimestamp());
                 _localTsn = _reliable.NextTsn;
-                foreach (var chunk in chunks) SendSctpPacket(RemoteVerificationTag, [chunk]);
+                DrainSendWindow();
             }
         }
         finally { FlushPackets(); }
+    }
+
+    private void DrainSendWindow()
+    {
+        foreach (var chunk in _reliable.TakeSendable(_clock)) SendSctpPacket(RemoteVerificationTag, [chunk]);
     }
 
     private void SendSctpPacket(uint vTag, IReadOnlyList<byte[]> chunks, bool rememberHandshake = false)

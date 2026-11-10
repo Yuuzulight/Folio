@@ -478,3 +478,32 @@ burst. The new large-message failure remains unresolved; do not relax the
 deadline or count focused/serialized results as resolving it. Fragmentation
 qualification, hosted CI and the entire original M0–M7/replacement/release scope
 remain open. PR #705 stays draft and #704 is not closed.
+
+## SCTP sender congestion and peer-window control
+
+The sender now distinguishes assigned/queued TSNs from emitted TSNs. SACKs
+cannot free unsent payloads. New DATA leaves the bounded queue only when peer
+credit and congestion capacity allow it, with a four-packet dispatch cap and
+limited one-packet congestion-window overbooking. Initial peer credit comes
+from INIT/INIT_ACK and later credit from validated SACKs.
+
+The sender implements slow start, congestion avoidance, partial-byte accounting,
+fast retransmit after fresh gap reports, a fast-recovery boundary, one-packet
+timeout recovery, exponential timeout backoff and idle-window decay. RTT samples
+update the retransmission timeout; retransmitted data, including zero-window
+probes, cannot contribute an ambiguous RTT sample. Gap-acknowledged payloads
+remain available for reneging, and marked retransmissions precede new DATA.
+
+Closed receive windows use bounded exponential probes. Responsive zero-window
+peers can hold the existing bounded send queue past the ordinary stalled-send
+deadline; reopening credit starts a fresh progress budget. Silent peers and
+unfinished receive chains still have bounded retirement behavior. This does
+not expand the existing payload/count admission limits.
+
+Tests now exercise the actual dequeue/emission/acknowledgement lifecycle rather
+than treating queue admission as transmission. Ten new sender-window tests cover
+credit, pacing, probe behavior, recovery, duplicate/stale ACKs, RTT/backoff,
+congestion avoidance and idle decay. The Release solution builds with zero
+warnings/errors. Expanded Chrome probes still pass in both roles. The final
+broader solution test run is in progress; the prior 256 KiB parallel-load
+failure is not declared resolved until that run provides evidence.

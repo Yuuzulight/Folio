@@ -5,6 +5,8 @@ namespace Folio.Scripting.Tests;
 
 public sealed class SctpFragmentationTests
 {
+    private sealed class Clock : TimeProvider { public override long GetTimestamp() => 0; }
+    private readonly Clock _clock = new();
     private static byte[] Pattern(int length) => Enumerable.Range(0, length).Select(index => (byte)(index % 251)).ToArray();
 
     [Fact]
@@ -33,6 +35,7 @@ public sealed class SctpFragmentationTests
             var sender = new SctpReliableDelivery(); var receiver = new SctpReliableDelivery(); receiver.SetPeerInitialTsn(1);
             var expected = Pattern(2 * SctpDataChannel.MaxFragmentPayloadBytes + 17);
             var source = (byte[])expected.Clone(); var chunks = sender.Enqueue(1, 0, 53, source, 0); source.AsSpan().Fill(99);
+            Assert.Equal(chunks.Count, sender.TakeSendable(_clock).Count);
             var messages = new List<SctpReliableDelivery.Message>();
             foreach (var index in order)
             {
@@ -40,7 +43,7 @@ public sealed class SctpFragmentationTests
                 Assert.Empty(receiver.Receive(chunks[index][1], chunks[index].AsSpan(4)));
             }
             Assert.Equal(expected, Assert.Single(messages).Data);
-            Assert.True(sender.Acknowledge(receiver.CreateSack().AsSpan(4))); Assert.Equal(0, sender.BufferedAmount(0));
+            Assert.True(sender.Acknowledge(receiver.CreateSack().AsSpan(4), _clock)); Assert.Equal(0, sender.BufferedAmount(0));
         }
     }
 
@@ -50,10 +53,11 @@ public sealed class SctpFragmentationTests
         var sender = new SctpReliableDelivery(uint.MaxValue - 1); var receiver = new SctpReliableDelivery();
         receiver.SetPeerInitialTsn(uint.MaxValue - 1);
         var expected = Pattern(3000); var chunks = sender.Enqueue(uint.MaxValue - 1, 0, 53, expected, 0);
+        Assert.Equal(chunks.Count, sender.TakeSendable(_clock).Count);
         var messages = new List<SctpReliableDelivery.Message>();
         foreach (var chunk in chunks.Reverse()) messages.AddRange(receiver.Receive(chunk[1], chunk.AsSpan(4)));
         Assert.Equal(expected, Assert.Single(messages).Data);
-        Assert.True(sender.Acknowledge(receiver.CreateSack().AsSpan(4)));
+        Assert.True(sender.Acknowledge(receiver.CreateSack().AsSpan(4), _clock));
     }
 
     [Fact]
@@ -95,7 +99,7 @@ public sealed class SctpFragmentationTests
         var nextTsn = sender.NextTsn; var amount = sender.BufferedAmount(0);
         Assert.Throws<InvalidOperationException>(() => sender.Enqueue(nextTsn, 0, 53, data, 0));
         Assert.Equal(nextTsn, sender.NextTsn); Assert.Equal(amount, sender.BufferedAmount(0));
-        var sack = new byte[12]; BinaryPrimitives.WriteUInt32BigEndian(sack, nextTsn - 1); Assert.True(sender.Acknowledge(sack));
+        SctpTestWire.DrainAndAcknowledge(sender, _clock);
         var next = Assert.Single(sender.Enqueue(nextTsn, 0, 51, [9], 0));
         Assert.Equal(3, BinaryPrimitives.ReadUInt16BigEndian(next.AsSpan(10)));
     }

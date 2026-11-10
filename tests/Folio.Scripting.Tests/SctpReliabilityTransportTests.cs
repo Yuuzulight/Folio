@@ -112,7 +112,9 @@ public sealed class SctpReliabilityTransportTests
         pair.Drop = packet => packet[12] == 0;
         pair.Local.Send("lost"); pair.Drain();
         Assert.True(pair.Local.BufferedAmount > 0);
-        for (var tick = 0; tick < 45; tick++) pair.Tick();
+        for (var tick = 0; tick < 59; tick++) pair.Tick();
+        Assert.Equal("connected", pair.Client.State);
+        pair.Tick(); // The association's absolute stalled-send budget is 60 seconds.
         Assert.Equal("failed", pair.Client.State);
         Assert.Equal("closed", pair.Local.ReadyState);
         Assert.Equal(0, pair.Local.BufferedAmount);
@@ -131,11 +133,22 @@ public sealed class SctpReliabilityTransportTests
     public void LostMiddleFragmentRecoversBeforeTheFollowingMessageIsDelivered()
     {
         using var pair = new Pair(); pair.Start(); var dropped = false;
-        pair.Drop = packet => !dropped && packet[12] == 0 && (packet[13] & 3) == 0 && (dropped = true);
+        uint? missingTsn = null; var recovered = false;
+        pair.Drop = packet =>
+        {
+            if (packet[12] != 0) return false;
+            var tsn = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(16));
+            if (!dropped && (packet[13] & 3) == 0)
+            { dropped = true; missingTsn = tsn; return true; }
+            if (missingTsn == tsn) recovered = true;
+            return false;
+        };
+        foreach (var channel in pair.RemoteChannels) channel.OnMessage += _ => Assert.True(recovered);
         var expected = new string('\u20ac', 16000);
         pair.Local.Send(expected); pair.Local.Send("after"); pair.Drain();
-        Assert.True(dropped); Assert.Empty(pair.Messages);
+        Assert.True(dropped);
         pair.Tick();
+        Assert.True(recovered);
         Assert.Equal(new[] { expected, "after" }, pair.Messages);
         Assert.Equal(0, pair.Local.BufferedAmount);
     }
