@@ -1,5 +1,6 @@
 using System.IO.Pipes;
 using Folio.Scripting.Gpu;
+using Folio.Scripting.Gpu.Remote;
 
 namespace Folio.Scripting.Tests;
 
@@ -58,10 +59,61 @@ internal static class GpuThreadPoolProbe
             catch (OperationCanceledException) { }
             if (!canceler.Join(TimeSpan.FromSeconds(2)) || !canceled.IsLost ||
                 !SpinWait.SpinUntil(() => !canceled.IsIoThreadAlive, TimeSpan.FromSeconds(2))) return 8;
+            if (!WebGlPipeProgress()) return 9;
             Console.WriteLine("32 pipe replies, timeout, cancellation and pump retirement passed with the sole CLR pool thread occupied.");
             return 0;
         }
         finally { release.Set(); blocker.GetAwaiter().GetResult(); }
+    }
+
+    private static bool WebGlPipeProgress()
+    {
+        using var commands = new AnonymousPipeServerStream(PipeDirection.Out);
+        using var replies = new AnonymousPipeServerStream(PipeDirection.In);
+        using var read = new AnonymousPipeClientStream(PipeDirection.In, commands.ClientSafePipeHandle);
+        using var write = new AnonymousPipeClientStream(PipeDirection.Out, replies.ClientSafePipeHandle);
+        Exception? serverError = null;
+        var server = new Thread(() =>
+        {
+            try
+            {
+                for (var i = 0; i < 32; i++)
+                {
+                    var batch = GpuChannelFraming.Read(read, GpuCommandBatch.MaxBatchBytes)!;
+                    GpuChannelFraming.Write(write, batch);
+                }
+            }
+            catch (Exception error) { serverError = error; }
+        }) { IsBackground = true };
+        server.Start();
+        using var transport = new GpuWebGlPipeTransport(commands, replies, TimeSpan.FromSeconds(2));
+        for (var i = 0; i < 32; i++)
+        {
+            var batch = new byte[] { 1, 2, (byte)i };
+            if (!transport.Exchange(batch).AsSpan().SequenceEqual(batch)) return false;
+        }
+        transport.Dispose();
+        if (!server.Join(TimeSpan.FromSeconds(2)) || serverError is not null || transport.IsPumpAlive) return false;
+        if (OperatingSystem.IsWindows())
+        {
+            // The peer keeps both pipes open and does not consume commands or
+            // produce a reply. Cancellation must retire reads AND blocked writes.
+            foreach (var blockedWrite in new[] { false, true })
+            {
+                using var stalledCommands = new AnonymousPipeServerStream(PipeDirection.Out);
+                using var stalledReplies = new AnonymousPipeServerStream(PipeDirection.In);
+                using var peerRead = new AnonymousPipeClientStream(PipeDirection.In, stalledCommands.ClientSafePipeHandle);
+                using var peerWrite = new AnonymousPipeClientStream(PipeDirection.Out, stalledReplies.ClientSafePipeHandle);
+                using var stalledTransport = new GpuWebGlPipeTransport(stalledCommands, stalledReplies, TimeSpan.FromMilliseconds(100));
+                try { stalledTransport.Exchange(new byte[blockedWrite ? GpuCommandBatch.MaxBatchBytes : 0]); return false; }
+                catch (TimeoutException) { }
+                if (!SpinWait.SpinUntil(() => !stalledTransport.IsPumpAlive, TimeSpan.FromSeconds(2))) return false;
+                try { stalledTransport.Exchange([]); return false; }
+                catch (IOException) { }
+            }
+        }
+        Console.WriteLine("WebGL framed pipe progress and stalled read/write retirement passed without a free shared pool worker.");
+        return true;
     }
 
     private sealed class StalledStream : Stream

@@ -577,3 +577,53 @@ the final release audit. Stream reset/restart, queued event/metadata budgets,
 Blob/binaryType/options, ICE role/consent/relay/network-policy acceptance, remote
 media, iframe/service-worker production routing and release qualification remain
 required. No 1.0 tag or release has been published.
+
+
+## Direct WebGL channel scheduling and published-host acceptance
+
+Following production wiring beyond the surface broker found a second pool
+reliance in `RemoteGpuChannel`: it performed command writes on the page caller,
+then scheduled reply reads on `Task.Run`. A stalled write was outside its reply
+deadline. Fixing `GpuWorkerBroker` alone therefore did not complete #706.
+
+The direct WebGL channel now uses `GpuWebGlPipeTransport`: one owned pump,
+a capacity-one queue, one outstanding caller, bounded frame sizes, copied batch
+ownership and a synchronous deadline covering both command write and reply read.
+A protocol/I/O fault remains terminal and preserves its original exception.
+Windows teardown uses the owned thread's handle with
+[CancelSynchronousIo](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-cancelsynchronousio),
+repeating cancellation across framed-I/O boundaries within a bounded stop wait.
+The pump closes its streams and native thread handle. Broken-pipe disposal
+exceptions cannot escape that background cleanup. The channel's worker-exit
+watch and fixed-buffer diagnostic drain also use owned threads. Channel disposal
+is idempotent and avoids joining the current exit-watcher thread.
+
+The isolated sole-pool-worker probe additionally passes 32 real framed WebGL
+pipe exchanges and Windows stalled-read/stalled-write timeout, terminal reuse
+refusal and pump-retirement checks. New regressions verify oversized replies
+keep `InvalidDataException` rather than an aggregate wrapper, and injected
+stream-disposal I/O failures do not escape the owned thread. Three fresh review
+passes covered transport ownership/deadlines/bounds, cancellation and shutdown
+races, then worker-exit reentrancy and cleanup.
+
+Validation: Release solution build has zero warnings/errors; the final focused
+GPU-isolation and remote-WebGL selection passes **26/26**, zero skips. A broader
+solution run for the transport patch passes **4,949 tests, zero failures, two
+skips** (4,951 total; 4m 49.564s); it predates the final cleanup exception guard
+and its two focused regressions. Those final changes are covered by the focused
+selection, not attributed to that earlier full run.
+
+A scratch NativeAOT win-x64 publish passed the standalone/patched-compiler/font
+checks. Its manifest records `ef56cc6a` plus `sourceDirty: true`, because it
+included the transport patch before commit. Using that fresh executable, real
+GPU-process/remote-WebGL tests pass **18/18**, zero skips, and strict native D8
+conformance passes **6/6** through real GPU workers. This is local patch evidence,
+not a clean release artifact. A clean post-commit publication and new-head hosted
+CI still need recording. Logs: `%TEMP%/folio-webgl-pump-full.log`,
+`%TEMP%/folio-webgl-pump-focused-final.log`, `%TEMP%/folio-pump-publish.log`,
+`%TEMP%/folio-native-gpu-pump-tests.log`, and `%TEMP%/folio-native-gpu-pump-d8.log`.
+
+The worker process's dispatcher still uses its own pool for command execution;
+this change removes dependence on the content/page process's shared pool, not
+all pool use throughout Folio. #706 and #704 remain open, PR #705 remains draft,
+and original M0–M7/replacement and release acceptance remain required.

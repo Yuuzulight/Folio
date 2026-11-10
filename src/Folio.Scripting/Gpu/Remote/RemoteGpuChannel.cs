@@ -13,10 +13,13 @@ namespace Folio.Scripting.Gpu.Remote;
 internal sealed class RemoteGpuChannel : IDisposable
 {
     private readonly FileStream _commands, _replies;
+    private readonly GpuWebGlPipeTransport _transport;
     private readonly GpuSharedHandles.SafeFileMappingHandle _uploadSection, _readbackSection;
     private readonly MappedGpuArena _upload, _readback;
     private readonly ManualResetEvent _workerExit;
-    private readonly RegisteredWaitHandle _exitWait;
+    private readonly ManualResetEvent _stopExitWatcher = new(false);
+    private readonly Thread _exitWatcher;
+    private int _disposed;
 
     private RemoteGpuChannel(JsonElement channel)
     {
@@ -27,9 +30,14 @@ internal sealed class RemoteGpuChannel : IDisposable
         _upload = GpuSharedHandles.Map(_uploadSection, Size(channel, "uploadBytes"));
         _readback = GpuSharedHandles.Map(_readbackSection, Size(channel, "readbackBytes"));
         var deadline = TimeSpan.FromMilliseconds(Math.Clamp(channel.GetProperty("deadlineMilliseconds").GetInt32(), 100, 120_000));
-        Session = new GpuWebGlSession(new PipeTransport(_commands, _replies, deadline), _upload, _readback);
+        _transport = new GpuWebGlPipeTransport(_commands, _replies, deadline);
+        Session = new GpuWebGlSession(_transport, _upload, _readback);
         _workerExit = new ManualResetEvent(false) { SafeWaitHandle = new SafeWaitHandle(new IntPtr(Handle(channel, "worker")), ownsHandle: true) };
-        _exitWait = ThreadPool.RegisterWaitForSingleObject(_workerExit, (_, _) => Session.Abandon(), null, Timeout.Infinite, executeOnlyOnce: true);
+        _exitWatcher = new Thread(() =>
+        {
+            if (WaitHandle.WaitAny([_workerExit, _stopExitWatcher]) == 0) Session.Abandon();
+        }) { IsBackground = true, Name = "Folio WebGL worker exit" };
+        _exitWatcher.Start();
     }
 
     internal GpuWebGlSession Session { get; }
@@ -58,24 +66,15 @@ internal sealed class RemoteGpuChannel : IDisposable
 
     public void Dispose()
     {
-        _exitWait.Unregister(null);
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _stopExitWatcher.Set();
         Session.Dispose();
-        _commands.Dispose(); _replies.Dispose();
+        _transport.Dispose();
         _upload.Dispose(); _readback.Dispose();
         _uploadSection.Dispose(); _readbackSection.Dispose();
+        if (Thread.CurrentThread != _exitWatcher) _exitWatcher.Join();
         _workerExit.Dispose();
-    }
-
-    /// <summary>Synchronous exchange with a deadline; the worker enforces a shorter one itself.</summary>
-    private sealed class PipeTransport(Stream commands, Stream replies, TimeSpan deadline) : IGpuWebGlTransport
-    {
-        public byte[] Exchange(byte[] batch)
-        {
-            GpuChannelFraming.Write(commands, batch);
-            var reply = Task.Run(() => GpuChannelFraming.Read(replies, GpuWebGlWire.MaxReplyBytes));
-            if (!reply.Wait(deadline)) throw new TimeoutException("The GPU worker did not answer in time.");
-            return reply.Result ?? throw new IOException("The GPU worker closed the channel.");
-        }
+        _stopExitWatcher.Dispose();
     }
 
     private sealed class RemoteGpuDevice(GpuWebGlSession session, long maxBytes) : IGpuDevice, INativeWebGlFactory
