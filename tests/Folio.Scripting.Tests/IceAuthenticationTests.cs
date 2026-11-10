@@ -76,8 +76,14 @@ public sealed class IceAuthenticationTests
         Assert.NotEqual("connected", agent.ConnectionState);
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         agent.OnConnectionStateChanged += state => { if (state == "connected") connected.TrySetResult(); };
+        var immediateData = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        agent.OnDatagramReceived += data => immediateData.TrySetResult(data);
         await peer.SendToAsync(good, SocketFlags.None, request.RemoteEndPoint);
+        // Real peers may send their first DTLS flight directly after the ICE
+        // response. Endpoint selection must precede that socket delivery.
+        await peer.SendToAsync(new byte[] { 22, 254, 253 }, SocketFlags.None, request.RemoteEndPoint);
         await connected.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        Assert.Equal(new byte[] { 22, 254, 253 }, await immediateData.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
         Assert.Equal("connected", agent.ConnectionState);
     }
 }

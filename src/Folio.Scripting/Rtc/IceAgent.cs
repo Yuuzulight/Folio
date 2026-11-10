@@ -185,17 +185,25 @@ internal sealed class IceAgent : IDisposable
     }
 
     private async Task<(StunMessage? Message, EndPoint? From)> SendStunRequestAsync(
-        byte[] request, byte[] transactionId, IPEndPoint destination, TimeSpan timeout, byte[]? integrityKey = null)
+        byte[] request, byte[] transactionId, IPEndPoint destination, TimeSpan timeout, byte[]? integrityKey = null,
+        Action<StunMessage>? validatedResponse = null)
     {
         if (_socket is null) return (null, null);
         var tcs = new TaskCompletionSource<(StunMessage, EndPoint)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var responseAccepted = 0;
 
         void Handler(StunMessage msg, EndPoint from)
         {
             if (from.Equals(destination) && msg.Type is StunMessage.BindingResponse or StunMessage.BindingErrorResponse &&
                 msg.TransactionId.Span.SequenceEqual(transactionId) &&
-                (integrityKey is null || (msg.VerifyIntegritySha1(integrityKey) && msg.VerifyFingerprint())))
-                tcs.TrySetResult((msg, from));
+                (integrityKey is null || (msg.VerifyIntegritySha1(integrityKey) && msg.VerifyFingerprint())) &&
+                Interlocked.CompareExchange(ref responseAccepted, 1, 0) == 0)
+            {
+                // Commit authenticated transport state before the receive loop
+                // can encounter DTLS immediately following this STUN response.
+                try { validatedResponse?.Invoke(msg); }
+                finally { tcs.TrySetResult((msg, from)); }
+            }
         }
 
         lock (_gate)
@@ -208,7 +216,13 @@ internal sealed class IceAgent : IDisposable
             await _socket.SendToAsync(request, SocketFlags.None, destination, _cts.Token).ConfigureAwait(false);
             using var timeoutCts = new CancellationTokenSource(timeout);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, timeoutCts.Token);
-            using (linked.Token.Register(() => tcs.TrySetCanceled()))
+            using (linked.Token.Register(() =>
+            {
+                // A response and timeout compete for the same transaction.
+                // A late authenticated response cannot revive an expired check.
+                if (Interlocked.CompareExchange(ref responseAccepted, 2, 0) == 0)
+                    tcs.TrySetCanceled(linked.Token);
+            }))
             {
                 var result = await tcs.Task.ConfigureAwait(false);
                 return (result.Item1, result.Item2);
@@ -324,27 +338,33 @@ internal sealed class IceAgent : IDisposable
                 var key = Encoding.UTF8.GetBytes(RemotePassword);
                 var request = StunMessage.Encode(StunMessage.BindingRequest, transactionId, attributes, key);
 
-                var (response, _) = await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint, TimeSpan.FromMilliseconds(500), key).ConfigureAwait(false);
+                var (response, _) = await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint,
+                    TimeSpan.FromMilliseconds(500), key, message => AcceptConnectivityResponse(pair, message)).ConfigureAwait(false);
                 if (response is not null && response.Type == StunMessage.BindingResponse)
                 {
-                    var newlyConnected = false;
-                    lock (_gate)
-                    {
-                        if (_disposed) return;
-                        pair.State = CandidatePairState.Succeeded;
-                        if (IsControlling && (_selectedPair is null || pair.Priority > _selectedPair.Priority))
-                        {
-                            _selectedPair = pair;
-                            newlyConnected = ConnectionState != "connected";
-                            ConnectionState = "connected";
-                        }
-                    }
-                    if (newlyConnected) OnConnectionStateChanged?.Invoke("connected");
                     if (ConnectionState == "connected") return;
                 }
             }
             catch { }
         }
+    }
+
+    private void AcceptConnectivityResponse(CandidatePair pair, StunMessage response)
+    {
+        if (response.Type != StunMessage.BindingResponse) return;
+        var newlyConnected = false;
+        lock (_gate)
+        {
+            if (_disposed) return;
+            pair.State = CandidatePairState.Succeeded;
+            if (IsControlling && (_selectedPair is null || pair.Priority > _selectedPair.Priority))
+            {
+                _selectedPair = pair;
+                newlyConnected = ConnectionState != "connected";
+                ConnectionState = "connected";
+            }
+        }
+        if (newlyConnected) OnConnectionStateChanged?.Invoke("connected");
     }
 
     private async Task ReceiveLoopAsync()
