@@ -268,3 +268,18 @@ delivery and independent SCTP/reliability acceptance. Unsupported options are
 explicitly refused. No-loop legacy fixtures still use their old in-page path;
 they must not be counted as production network qualification. This delivery
 does not close #704 or qualify 1.0.
+
+## Binary buffer-source data channels
+
+The public transport channel now copies attached ArrayBuffer/typed-array/
+DataView sources through the engine's branded buffer API. Received binary data
+is returned as an ArrayBuffer. Native and Jint public tests send a typed-array
+subview, immediately overwrite the source, and verify byte-exact remote receipt
+and echo. The focused RTC selection passes 53/53 serialized; build is clean.
+
+Until SCTP fragmentation is implemented, the single-record payload cap is checked
+before buffer allocation, UTF-8 encoding or TSN advancement. DCEP metadata
+admission uses its combined encoded size. Large messages are refused explicitly;
+this limit is not evidence that large-message SCTP acceptance is complete.
+Blob delivery/binaryType semantics, fragmentation/reliability, event budgets,
+remote reset and independent SCTP interoperability remain release work.

@@ -9,6 +9,8 @@ namespace Folio.Scripting.Rtc;
 /// </summary>
 internal sealed class SctpDataChannel : IDisposable
 {
+    // Leave room for SCTP common/DATA headers inside one 16 KiB DTLS record.
+    internal const int MaxUnfragmentedMessageBytes = 16356;
     private const ushort SctpPort = 5000;
 
     private const byte ChunkData = 0;
@@ -283,7 +285,7 @@ internal sealed class SctpDataChannel : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_channels.Count >= 1024 || Encoding.UTF8.GetByteCount(label) > ushort.MaxValue || Encoding.UTF8.GetByteCount(protocol) > ushort.MaxValue)
+            if (_channels.Count >= 1024 || (long)Encoding.UTF8.GetByteCount(label) + Encoding.UTF8.GetByteCount(protocol) > MaxUnfragmentedMessageBytes - 12)
                 throw new InvalidOperationException("SCTP data channel limits exceeded.");
             // Before the DTLS role is selected, reserve a channel object and
             // assign its parity-correct stream identifier when association starts.
@@ -329,6 +331,8 @@ internal sealed class SctpDataChannel : IDisposable
     {
             var labelBytes = Encoding.UTF8.GetBytes(channel.Label);
             var protoBytes = Encoding.UTF8.GetBytes(channel.Protocol);
+            if (labelBytes.Length + protoBytes.Length > MaxUnfragmentedMessageBytes - 12)
+                throw new InvalidOperationException("DCEP message requires fragmentation.");
 
             var openMsg = new byte[12 + labelBytes.Length + protoBytes.Length];
             openMsg[0] = DcepOpen;
@@ -345,6 +349,8 @@ internal sealed class SctpDataChannel : IDisposable
 
     internal void SendData(ushort streamId, uint ppid, byte[] data)
     {
+        if (data.Length > MaxUnfragmentedMessageBytes)
+            throw new InvalidOperationException("SCTP message requires fragmentation.");
         var tsn = _localTsn++;
         var chunk = new byte[16 + data.Length];
         chunk[0] = ChunkData;
@@ -426,6 +432,8 @@ internal sealed class SctpDataChannel : IDisposable
         public void Send(string text)
         {
             if (ReadyState != "open") throw new InvalidOperationException("Data channel is not open.");
+            if (Encoding.UTF8.GetByteCount(text) > MaxUnfragmentedMessageBytes)
+                throw new InvalidOperationException("SCTP message requires fragmentation.");
             var bytes = Encoding.UTF8.GetBytes(text);
             owner.SendData(Id, bytes.Length == 0 ? PpidStringEmpty : PpidString, bytes);
         }

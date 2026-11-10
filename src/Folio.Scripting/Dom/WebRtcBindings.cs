@@ -134,8 +134,15 @@ internal sealed class WebRtcBindingState : IDisposable
             lock (Owner._gate)
                 if (!Owner.PermissionGranted() || !Owner._peers.ContainsKey(Peer.Id))
                     throw WebIdlException.DomException("InvalidStateError", "WebRTC peer is closed.");
-            if (!value.IsString) throw new ArgumentException("Transport data channel currently requires string data.");
-            Channel.Send(value.AsString() ?? "");
+            if (value.IsString) { Channel.Send(value.AsString() ?? ""); return; }
+            if (!Owner._engine.TryGetBufferSourceInfo(value, out var info))
+                throw new ArgumentException("Data channel send requires a string or attached buffer source.");
+            if (info.ByteLength > SctpDataChannel.MaxUnfragmentedMessageBytes)
+                throw WebIdlException.DomException("OperationError", "Data channel message requires SCTP fragmentation.");
+            var bytes = new byte[info.ByteLength];
+            if (!Owner._engine.TryCopyBufferSource(value, 0, bytes))
+                throw new ArgumentException("Cannot read data channel buffer source.");
+            Channel.Send(bytes);
         }
     }
 
