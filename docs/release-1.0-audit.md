@@ -424,8 +424,13 @@ mixed. Full ICE role-conflict handling, consent freshness, relay wiring, direct
 mDNS resolution and host network-policy qualification remain required.
 
 The focused RTC selection passes **84/84**, zero skips; the Release solution
-build has zero warnings/errors. The full scripting suite is being rerun for
-these changes. Ubuntu CI now runs both Chrome roles and uploads SDP/packet/report
+build has zero warnings/errors. The full serialized scripting suite passes
+**1,849/1,849**, zero failures/skips, for production code through `fb9228b0`.
+Ubuntu CI now runs both Chrome roles and uploads SDP/packet/report
 evidence; that new CI configuration is not yet claimed green. The four earlier
 parallel timing failures remain unresolved until a fresh load run proves them
 fixed. #704 and the overall M0–M7/replacement/release goal remain open.
+
+The previous checkpoint `ec263561` completed hosted CI successfully (run
+`42779691574`). That result predates the reliable-delivery/browser changes and
+is not evidence that the new tip's CI has passed.
