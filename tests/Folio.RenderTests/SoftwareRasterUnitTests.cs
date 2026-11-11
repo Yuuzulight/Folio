@@ -27,6 +27,23 @@ public class SoftwareRasterUnitTests
         return path.Close();
     }
 
+    [Fact]
+    public void ColorMatrixCanMakeTransparentPixelsVisible()
+    {
+        var source = new Folio.Painting.Software.PixelSurface(2, 1);
+        source.Data[5] = 64;
+        source.Data[7] = 128;
+        var matrix = new Filter(FilterKind.ColorMatrix, Matrix:
+        [
+            0, 0, 0, 0, 1,
+            0, 1, 0, 0, 0,
+            0, 0, 0, 0, 0,
+            0, 0, 0, 0.5f, 0.5f,
+        ]);
+        var result = Folio.Painting.Software.SoftwareFilters.Apply(source, [matrix], Matrix3x2.Identity);
+        Assert.Equal(new byte[] { 128, 0, 0, 128, 192, 96, 0, 192 }, result.Data);
+    }
+
     // ---- coverage ----
 
     [Fact]
