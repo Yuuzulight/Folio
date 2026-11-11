@@ -1139,6 +1139,20 @@ public sealed class NativeJavaScriptEngineTests
             """).AsBoolean());
     }
 
+    [Fact]
+    public void ObjectParameterDefaultsAreEvaluatedInBindingOrder()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var count = 0;
+            var read = (initial, {target:e = initial, next = e + (++count), ...rest} = {}) =>
+                [e, next, Object.keys(rest).join(',')].join('|');
+            function ordinary({value = 7}) { return value; }
+            read(4) === '4|5|' && read(2, {target:9, next:11, extra:true}) === '9|11|extra' &&
+                read(4, {target:null, next:0}) === '|0|' && count === 1 && ordinary({}) === 7
+            """).AsBoolean());
+    }
+
     private sealed class HostState
     {
         public int Value { get; set; }
