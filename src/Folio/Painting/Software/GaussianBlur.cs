@@ -250,6 +250,17 @@ internal static class GaussianBlur
     // Pixel (x, y) of a width x height image to (y, x) of a height x width one, channels kept together.
     private static void Transpose(byte[] source, byte[] destination, int width, int height, int channels)
     {
+        if (channels == 1)
+        {
+            TransposePixels<byte>(source, destination, width, height);
+            return;
+        }
+        if (channels == 4)
+        {
+            TransposePixels<uint>(MemoryMarshal.Cast<byte, uint>(source.AsSpan()),
+                MemoryMarshal.Cast<byte, uint>(destination.AsSpan()), width, height);
+            return;
+        }
         for (var y = 0; y < height; y++)
             for (var x = 0; x < width; x++)
             {
@@ -258,6 +269,28 @@ internal static class GaussianBlur
                 for (var c = 0; c < channels; c++)
                     destination[to + c] = source[from + c];
             }
+    }
+
+    private static void TransposePixels<T>(ReadOnlySpan<T> source, Span<T> destination, int width, int height)
+        where T : unmanaged
+    {
+        // Keep the destination rows of one tile hot while walking adjacent source rows.
+        const int tile = 32;
+        for (var top = 0; top < height; top += tile)
+        {
+            var bottom = Math.Min(top + tile, height);
+            for (var left = 0; left < width; left += tile)
+            {
+                var right = Math.Min(left + tile, width);
+                for (var y = top; y < bottom; y++)
+                {
+                    var input = source.Slice(y * width + left, right - left);
+                    var output = left * height + y;
+                    for (var x = 0; x < input.Length; x++, output += height)
+                        destination[output] = input[x];
+                }
+            }
+        }
     }
 
     private static void VerticalBox(float[] input, float[] output, int rowLength, int rows, int size, int before, int first, int last, float[] windowBuffer)
