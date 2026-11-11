@@ -213,6 +213,7 @@ public sealed class ContentDocumentRuntime : IDisposable
                 MediaAudioOutput = new BrokerMediaAudioOutput(_session),
                 MediaCaptureProvider = _captureProvider,
                 WebRtcAllowedOrigins = origins,
+                DiagramLibraryUrls = ContentHostPolicy.ReadDiagramUrls(policy),
                 IframeNavigationRequested = notifyNavigation ? uri =>
                 {
                     if (documentGeneration != _documentGeneration || cancellationToken.IsCancellationRequested

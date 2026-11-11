@@ -18,6 +18,23 @@ public sealed class ContentHostPolicyTests
         Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST") is { } path &&
         string.Equals(Path.GetExtension(path), ".exe", StringComparison.OrdinalIgnoreCase);
 
+    [Fact]
+    public async Task DiagramStandInRequiresTrustedHostConfiguration()
+    {
+        const string url = "https://example.com/mermaid.js";
+        const string html = "<div class='mermaid'>sequenceDiagram\nAlice->>Bob: Hello</div>" +
+            "<script src='https://example.com/mermaid.js'></script><script>if(typeof mermaid!=='undefined')mermaid.run();</script>";
+        const string script = "document.querySelector('svg.folio-diagram') !== null";
+        await using var trusted = Start(new FolioOptions { DiagramLibraryUrls = new HashSet<string> { url } });
+        Assert.Equal("true", Value(await Exchange(trusted, new { html, script })));
+
+        await using var untrusted = Start(new FolioOptions());
+        Assert.Equal("false", Value(await Exchange(untrusted, new
+        {
+            html, script, hostPolicy = new { diagramLibraryUrls = new[] { url } }
+        })));
+    }
+
     [Fact(Skip = "Requires the published Windows content host.", SkipUnless = nameof(HasPublishedWindowsHost), Timeout = 60000)]
     public async Task PublishedHostExchangesRtcDataWithAnIndependentLocalPeer()
     {

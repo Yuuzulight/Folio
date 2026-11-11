@@ -69,6 +69,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private readonly SemaphoreSlim _captureRevocationGate = new(1, 1);
     private NavigationDocument? _navigationDocument;
     private HashSet<string> _webRtcAllowedOrigins = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _diagramLibraryUrls = new(StringComparer.OrdinalIgnoreCase);
     private Action<Uri>? _iframeNavigationRequested;
     private Func<Action, CancellationToken, ValueTask>? _iframeNavigationDispatcher;
     private event Func<ContentMessage, CancellationToken, ValueTask>? _messageReceived;
@@ -134,6 +135,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(options);
         var origins = ContentHostPolicy.NormalizeOrigins(options.WebRtcAllowedOrigins);
+        var diagramUrls = ContentHostPolicy.NormalizeDiagramUrls(options.DiagramLibraryUrls);
         IResourceLoader? loader = options.ResourceInterceptor is { } interceptor
             ? new InterceptedHostLoader(interceptor, options.ResourceLoader) : options.ResourceLoader;
         var client = Start(executablePath, limits: limits, resourceLoader: loader,
@@ -142,6 +144,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
         client._mediaCapturePermission = mediaCapturePermission ?? (options.MediaCapturePermission is { } permission
             ? (request, _) => ValueTask.FromResult(permission(request)) : null);
         client._webRtcAllowedOrigins = origins;
+        client._diagramLibraryUrls = diagramUrls;
         client._iframeNavigationRequested = options.IframeNavigationRequested;
         client._iframeNavigationDispatcher = iframeNavigationDispatcher;
         return client;
@@ -583,7 +586,8 @@ public sealed class ContentProcessClient : IAsyncDisposable
                     {
                         ["generation"] = _navigationDocument?.Generation,
                         ["iframeNavigationEnabled"] = _iframeNavigationRequested is not null,
-                        ["webRtcAllowedOrigins"] = new JsonArray(_webRtcAllowedOrigins.Select(origin => (JsonNode?)JsonValue.Create(origin)).ToArray())
+                        ["webRtcAllowedOrigins"] = new JsonArray(_webRtcAllowedOrigins.Select(origin => (JsonNode?)JsonValue.Create(origin)).ToArray()),
+                        ["diagramLibraryUrls"] = new JsonArray(_diagramLibraryUrls.Select(url => (JsonNode?)JsonValue.Create(url)).ToArray())
                     };
                 var url = profile["url"] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
                 _session.SetStorageDocumentUri(Uri.TryCreate(url, UriKind.Absolute, out var baseUri) ? baseUri : null);

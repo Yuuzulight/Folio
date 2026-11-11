@@ -400,12 +400,13 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
             ["babel.min.js"] = "Babel", ["d3.min.js"] = "d3", ["react-dom.production.min.js"] = "ReactDOM",
             ["react.production.min.js"] = "React",
         };
-        var policy = new ContentResourcePolicy
+        var diagramUrls = cache.Values.Where(entry => entry.File == "mermaid.min.js")
+            .Select(entry => entry.Url).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        await using var client = ContentProcessClient.StartWithOptions(host, new FolioOptions
         {
-            AllowedOrigins = cache.Values.Select(entry => new Uri(entry.Url).GetLeftPart(UriPartial.Authority))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase)
-        };
-        await using var client = ContentProcessClient.Start(host, resourceLoader: ConformanceCache.Loader, resourcePolicy: policy);
+            ResourceLoader = ConformanceCache.Loader,
+            DiagramLibraryUrls = diagramUrls,
+        });
         async Task<ContentMessage> Load(string html, string script)
         {
             var response = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -446,16 +447,14 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                     continue;
                 }
                 var libraries = urls.Select(url => cache[url].File).ToArray();
-                if (libraries.Contains("mermaid.min.js", StringComparer.Ordinal))
-                {
-                    Console.WriteLine($"| {id} | — | — | Diagram stand-in qualification pending |");
-                    unqualified++;
-                    continue;
-                }
-                if (libraries.Any(file => !globals.ContainsKey(file)))
+                var diagram = libraries.Contains("mermaid.min.js", StringComparer.Ordinal);
+                var externalLibraries = libraries.Where(file => file != "mermaid.min.js").ToArray();
+                if (externalLibraries.Any(file => !globals.ContainsKey(file)))
                     throw new InvalidDataException($"{id} has a pinned library without an execution probe.");
 
-                var probe = string.Join(" && ", libraries.Select(file => $"typeof globalThis.{globals[file]} !== 'undefined'"));
+                var checks = externalLibraries.Select(file => $"typeof globalThis.{globals[file]} !== 'undefined'");
+                if (diagram) checks = checks.Append("document.querySelector('svg.folio-diagram') !== null");
+                var probe = string.Join(" && ", checks);
                 var start = Stopwatch.GetTimestamp();
                 var frame = await Load(html, probe);
                 var elapsed = Stopwatch.GetElapsedTime(start);
@@ -465,7 +464,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                 try
                 {
                     var chart = libraries.Contains("chart.umd.min.js", StringComparer.Ordinal);
-                    ValidateFrame(frame, client, chart);
+                    ValidateFrame(frame, client, chart, diagram);
                     if (frame.Payload.GetProperty("value").GetString() != "true")
                         throw new InvalidDataException("A pinned library did not initialize.");
                     if (chart && frame.Payload.GetProperty("canvasCommands").GetInt32() == 0)
@@ -485,11 +484,12 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
         return measured > 0 && failed == 0 && unqualified == 0 ? 0 : 1;
     }
 
-    private static void ValidateFrame(ContentMessage message, ContentProcessClient client, bool allowChartBridge = false)
+    private static void ValidateFrame(ContentMessage message, ContentProcessClient client, bool allowChartBridge = false, bool allowDiagramBridge = false)
     {
         if (message.Kind != ContentMessageKind.Frame) throw new InvalidDataException($"Content host failed: {message.Payload}");
         if (message.Payload.TryGetProperty("diagnostics", out var diagnostics) && diagnostics.EnumerateArray().Any(diagnostic =>
-            !allowChartBridge || diagnostic.GetString() != "Replaced the configured chart library with Folio's native canvas chart bridge."))
+            !(allowChartBridge && diagnostic.GetString() == "Replaced the configured chart library with Folio's native canvas chart bridge.") &&
+            !(allowDiagramBridge && diagnostic.GetString() == "Replaced the configured diagram library with Folio.Diagrams.")))
             throw new InvalidDataException($"Content diagnostics: {diagnostics}");
         using var store = new CanvasFrameStore(client.FramePath, 1280, 720, 1280 * 4);
         var pixels = store.ReadLatest(out var sequence);
