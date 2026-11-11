@@ -33,6 +33,7 @@ public class DomNodeBindingTests
 
         Assert.Equal("Test", engine.Evaluate("document.title").AsString());
         Assert.True(engine.Evaluate("window === globalThis").AsBoolean());
+        Assert.True(engine.Evaluate("window.top === window && window.parent === window").AsBoolean());
         Assert.True(engine.Evaluate("window.document === document").AsBoolean());
         Assert.True(engine.Evaluate("document.documentElement !== null").AsBoolean());
         Assert.Equal("HTML", engine.Evaluate("document.documentElement.tagName").AsString());
@@ -51,6 +52,19 @@ public class DomNodeBindingTests
             document.querySelector('canvas') instanceof HTMLCanvasElement &&
             document.createElement('canvas') instanceof HTMLCanvasElement &&
             document.createElement('canvas') instanceof HTMLElement
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void NativeTopLevelWindowAliasesShareTheWindowEventTarget()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        DomBindings.Install(engine, TreeBuilder.Parse("<!doctype html><p>Window</p>"));
+        Assert.True(engine.Evaluate("""
+            var calls = 0;
+            window.top.addEventListener('folio-test', () => calls++);
+            window.dispatchEvent(new Event('folio-test'));
+            window.top === window && window.parent === window && calls === 1
             """).AsBoolean());
     }
 
