@@ -22,6 +22,7 @@ public sealed class ContentHostPolicyTests
     public async Task PublishedHostExchangesRtcDataWithAnIndependentLocalPeer()
     {
         await using var client = Start(new FolioOptions());
+        WorkerIsolationCapabilityMatrixTests.AssertRestricted(client.Process);
         using var remote = new RtcPeerConnectionController();
         var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         remote.OnDataChannel += channel => channel.OnMessage += payload =>
@@ -71,6 +72,19 @@ public sealed class ContentHostPolicyTests
         } while (watch.Elapsed < TimeSpan.FromSeconds(10));
         Assert.Equal("reply:folio", state);
         Assert.Equal("connected", remote.Dtls.State);
+
+        await client.UpdateCapabilitiesAsync(FeatureCapabilities.Default, cancellation);
+        var revoked = await Exchange(client, new
+        {
+            script = """
+                (function(){
+                    var result='sent';
+                    try { channel.send('after-revoke'); } catch(e) { result=e.name; }
+                    return [pc.connectionState, channel.readyState, result].join(':');
+                })()
+                """
+        });
+        Assert.Equal("closed:closed:InvalidStateError", Value(revoked));
     }
 
     [Fact]
