@@ -1167,6 +1167,20 @@ public sealed class NativeJavaScriptEngineTests
             """).AsBoolean());
     }
 
+    [Fact]
+    public void ObjectAssignmentUpdatesExistingTargetsAndReturnsItsSource()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            let process, init, rest;
+            const holder = {};
+            const source = {process: 6, nested: {value: 8}, extra: 4};
+            const result = ({process, init: init = process + 1, nested: {value: holder.value}, ...rest} = source);
+            result === source && process === 6 && init === 7 && holder.value === 8 &&
+                rest.extra === 4 && Object.keys(rest).join(',') === 'extra'
+            """).AsBoolean());
+    }
+
     private sealed class HostState
     {
         public int Value { get; set; }
