@@ -4,6 +4,26 @@ namespace Folio.Scripting.Tests;
 
 public sealed class RtcSdpTransportTests
 {
+    [Fact]
+    public void RejectedDescriptionsPreserveTheCommittedTransport()
+    {
+        using var peer = new RtcPeerConnectionController();
+        const string offer = "v=0\na=setup:actpass\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\na=max-message-size:1234\n";
+        peer.SetRemoteDescription("offer", offer);
+        var remote = peer.RemoteDescription;
+        var notifications = 0;
+        peer.OnSignalingStateChange += _ => notifications++;
+        Assert.Throws<InvalidOperationException>(() => peer.SetRemoteDescription("answer", offer.Replace("1234", "9999")));
+        Assert.Same(remote, peer.RemoteDescription);
+        Assert.Equal("have-remote-offer", peer.SignalingState);
+        Assert.Equal(1234, peer.Sctp.MaximumSendMessageBytes);
+        Assert.False(peer.Ice.IsControlling);
+        Assert.True(peer.Dtls.IsClient);
+        Assert.Throws<InvalidOperationException>(() => peer.SetLocalDescription("answer", offer));
+        Assert.Null(peer.LocalDescription);
+        Assert.Equal(0, notifications);
+    }
+
     [Theory]
     [InlineData("", 65536)]
     [InlineData("a=max-message-size:0\n", 262144)]

@@ -75,6 +75,57 @@ public sealed class WebRtcTransportEventTests
     }
 
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void PausedDocumentLoopRetiresOverflowingPeerAndPreservesSibling(bool native, bool byteLimit)
+    {
+        using IScriptEngine engine = native ? new NativeJavaScriptEngine() : new JintScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions { Capabilities = new FeatureCapabilities { WebRtc = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        try
+        {
+            engine.Evaluate("""
+                var a=new RTCPeerConnection(), b=new RTCPeerConnection(), sibling=new RTCPeerConnection();
+                var channel=a.createDataChannel('budget'), incoming=null, delivered=0, error='';
+                channel.bufferedAmountLowThreshold=1048576;
+                b.ondatachannel=function(e){incoming=e.channel;incoming.onmessage=function(){delivered++;};};
+                a.createOffer().then(function(o){return a.setLocalDescription(o).then(function(){return b.setRemoteDescription(o);});})
+                  .then(function(){return b.createAnswer();})
+                  .then(function(answer){return b.setLocalDescription(answer).then(function(){return a.setRemoteDescription(answer);});})
+                  .catch(function(e){error=String(e);});
+                """);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                engine.PerformMicrotaskCheckpoint();
+                loop.RunOneTurn();
+                return engine.Evaluate("incoming !== null && channel.readyState === 'open'").AsBoolean();
+            }, TimeSpan.FromSeconds(10)), DomBindings.GetWebRtcDiagnostics(engine));
+            loop.SpinUntilIdle();
+            var message = byteLimit ? new string('x', 196608) : "x";
+            engine.SetGlobalProperty("message", ScriptValue.FromString(message));
+            var count = byteLimit ? 3 : WebRtcBindingState.MaxDeliveryEvents + 1;
+            for (var index = 0; index < count; index++)
+            {
+                engine.Evaluate("channel.send(message)");
+                Assert.True(SpinWait.SpinUntil(() => engine.Evaluate("channel.bufferedAmount === 0").AsBoolean(),
+                    TimeSpan.FromSeconds(10)), DomBindings.GetWebRtcDiagnostics(engine));
+            }
+            Assert.Equal(0, engine.Evaluate("delivered").AsNumber());
+            loop.SpinUntilIdle();
+            Assert.Equal("", engine.Evaluate("error").AsString());
+            Assert.Equal("closed", engine.Evaluate("b.connectionState").AsString());
+            Assert.Equal("closed", engine.Evaluate("incoming.readyState").AsString());
+            Assert.Equal("new", engine.Evaluate("sibling.connectionState").AsString());
+            Assert.Equal(0, engine.Evaluate("delivered").AsNumber());
+            engine.Evaluate("sibling.createDataChannel('still live')");
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Theory]
     [InlineData(false, 65536)]
     [InlineData(true, 65536)]
     [InlineData(false, 262144)]

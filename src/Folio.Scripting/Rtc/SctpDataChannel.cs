@@ -15,6 +15,10 @@ internal sealed class SctpDataChannel : IDisposable
     internal const int MaxUnfragmentedMessageBytes = 16356;
     internal const int MaxFragmentPayloadBytes = 1120;
     internal const int MaxMessageBytes = 256 * 1024;
+    // Twice the retained UTF-8 wire length conservatively bounds UTF-16 strings.
+    internal const int MaxChannelMetadataBytes = 256 * 1024;
+    private int _channelMetadataBytes;
+    internal int RetainedChannelMetadataBytes { get { lock (_gate) return _channelMetadataBytes; } }
     private const ushort SctpPort = 5000;
 
     private const byte ChunkData = 0;
@@ -157,6 +161,8 @@ internal sealed class SctpDataChannel : IDisposable
             _handshakePacket = null;
             _cookieEchoSent = false;
             channels = _channels.Values.ToArray();
+            _channels.Clear();
+            _channelMetadataBytes = 0;
             _pendingChannels.Clear();
             _reliable.Clear();
             _outboundPackets.Clear();
@@ -437,11 +443,15 @@ internal sealed class SctpDataChannel : IDisposable
 
             if (data.Length < 12 + labelLen + protoLen) return;
             if (channelType != 0 || reliability != 0 || _channels.Count >= 1024 || _channels.ContainsKey(streamId)) return;
+            var metadataBytes = 2 * (labelLen + protoLen);
+            if (metadataBytes > MaxChannelMetadataBytes - _channelMetadataBytes)
+                throw new InvalidDataException("SCTP channel metadata budget exceeded.");
             var label = Encoding.UTF8.GetString(data.Slice(12, labelLen));
             var protocol = Encoding.UTF8.GetString(data.Slice(12 + labelLen, protoLen));
 
             var channel = new ChannelState(this, streamId, label, protocol);
             _channels[streamId] = channel;
+            _channelMetadataBytes += metadataBytes;
 
             // Send DCEP ACK
             SendDcepAck(streamId);
@@ -473,8 +483,10 @@ internal sealed class SctpDataChannel : IDisposable
                 ObjectDisposedException.ThrowIf(_disposed, this);
                 if (State == "failed") throw new InvalidOperationException("SCTP association has failed.");
                 var labelBytes = Encoding.UTF8.GetByteCount(label); var protocolBytes = Encoding.UTF8.GetByteCount(protocol);
+                var metadataBytes = 2L * (labelBytes + (long)protocolBytes);
                 if (_channels.Count >= 1024 || labelBytes > ushort.MaxValue || protocolBytes > ushort.MaxValue ||
-                    (long)labelBytes + protocolBytes > MaximumSendMessageBytes - 12)
+                    (long)labelBytes + protocolBytes > MaximumSendMessageBytes - 12 ||
+                    metadataBytes > MaxChannelMetadataBytes - _channelMetadataBytes)
                     throw new InvalidOperationException("SCTP data channel limits exceeded.");
                 // Before the DTLS role is selected, reserve a channel object and
                 // assign its parity-correct stream identifier when association starts.
@@ -488,13 +500,15 @@ internal sealed class SctpDataChannel : IDisposable
                 }
                 var channel = new ChannelState(this, id, label, protocol);
                 _channels[id] = channel;
+                _channelMetadataBytes += (int)metadataBytes;
                 channel.AutomaticId = explicitId is null;
                 if (State == "connected")
                 {
                     try { SendChannelOpen(channel); }
                     catch
                     {
-                        _channels.Remove(id); _nextStreamId = previousNextId; channel.Close();
+                        _channels.Remove(id); _channelMetadataBytes -= (int)metadataBytes;
+                        _nextStreamId = previousNextId; channel.Close();
                         throw;
                     }
                 }
@@ -684,6 +698,7 @@ internal sealed class SctpDataChannel : IDisposable
             State = "closed";
             channels = _channels.Values.ToArray();
             _channels.Clear();
+            _channelMetadataBytes = 0;
             _pendingChannels.Clear();
             if (_issuedCookie is not null) CryptographicOperations.ZeroMemory(_issuedCookie);
             _issuedCookie = null;

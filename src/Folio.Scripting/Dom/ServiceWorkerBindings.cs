@@ -1,5 +1,6 @@
 namespace Folio.Scripting.Dom;
 
+using System.Diagnostics;
 using System.Text;
 using Folio.Resources;
 using Folio.Scripting.Native;
@@ -128,12 +129,34 @@ internal static class ServiceWorkerBindings
     internal static ResourceResponse? LoadScript(IResourceLoader loader, string url, CancellationToken cancellation, TimeSpan timeout)
     {
         using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        var started = Stopwatch.GetTimestamp();
         request.CancelAfter(timeout);
         try
         {
             request.Token.ThrowIfCancellationRequested();
             var pending = loader.LoadAsync(new ResourceRequest(url, ResourceKind.Script), request.Token);
-            var response = pending.WaitAsync(request.Token).GetAwaiter().GetResult();
+            while (true)
+            {
+                var elapsed = Stopwatch.GetElapsedTime(started);
+                var remaining = timeout == Timeout.InfiniteTimeSpan
+                    ? Timeout.Infinite
+                    : (int)Math.Clamp(Math.Ceiling((timeout - elapsed).TotalMilliseconds), 0, int.MaxValue);
+                try
+                {
+                    if (pending.Wait(remaining, request.Token)) break;
+                }
+                catch (AggregateException)
+                {
+                    // Preserve the original loader exception for the binding.
+                    pending.GetAwaiter().GetResult();
+                    throw;
+                }
+                if (Stopwatch.GetElapsedTime(started) < timeout) continue;
+                try { request.Cancel(); }
+                catch (AggregateException) { }
+                throw new OperationCanceledException(request.Token);
+            }
+            var response = pending.GetAwaiter().GetResult();
             request.Token.ThrowIfCancellationRequested();
             return response;
         }
