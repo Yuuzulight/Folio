@@ -2999,6 +2999,10 @@ internal sealed class DomNodeTemplates
             (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
             (target, _, val) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(val)));
 
+        t.DefineProperty("complete", (target, _) => ScriptValue.FromBoolean(_context.IsImageComplete((ElementNode)target)));
+        t.DefineProperty("naturalWidth", (target, _) => ScriptValue.FromNumber(_context.ImageOf((ElementNode)target)?.Width ?? 0));
+        t.DefineProperty("naturalHeight", (target, _) => ScriptValue.FromNumber(_context.ImageOf((ElementNode)target)?.Height ?? 0));
+
         t.DefineProperty("alt",
             (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("alt") ?? ""),
             (target, _, val) => ((ElementNode)target).SetAttribute("alt", WebIdlConversions.ToDOMString(val)));
@@ -3007,7 +3011,7 @@ internal sealed class DomNodeTemplates
             (target, _) =>
             {
                 var val = ((ElementNode)target).GetAttribute("width");
-                return ScriptValue.FromNumber(uint.TryParse(val, out var w) ? w : 0);
+                return ScriptValue.FromNumber(uint.TryParse(val, out var w) ? w : _context.ImageOf((ElementNode)target)?.Width ?? 0);
             },
             (target, _, val) =>
             {
@@ -3019,7 +3023,7 @@ internal sealed class DomNodeTemplates
             (target, _) =>
             {
                 var val = ((ElementNode)target).GetAttribute("height");
-                return ScriptValue.FromNumber(uint.TryParse(val, out var h) ? h : 0);
+                return ScriptValue.FromNumber(uint.TryParse(val, out var h) ? h : _context.ImageOf((ElementNode)target)?.Height ?? 0);
             },
             (target, _, val) =>
             {
