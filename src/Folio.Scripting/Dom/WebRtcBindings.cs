@@ -15,6 +15,7 @@ internal sealed class WebRtcBindingState : IDisposable
     private int _deliveryCount;
     private int _deliveryBytes;
     private bool _deliveryScheduled;
+    private bool _deliveryStopped;
     private sealed record Delivery(PeerLease Peer, Action? Callback, int Bytes);
     private long _nextId;
     private bool _disposed;
@@ -34,7 +35,7 @@ internal sealed class WebRtcBindingState : IDisposable
         EnsurePermission();
         lock (_gate)
         {
-            if (_disposed) throw WebIdlException.DomException("InvalidStateError", "The document is closed.");
+            if (_disposed || _deliveryStopped) throw WebIdlException.DomException("InvalidStateError", "The document is closed.");
             if (_peers.Count >= _context.MaxWebRtcConnections) throw WebIdlException.DomException("QuotaExceededError", "The WebRTC peer connection limit has been exceeded.");
             var lease = new PeerLease(this, ++_nextId);
             _peers.Add(lease.Id, lease);
@@ -81,7 +82,8 @@ internal sealed class WebRtcBindingState : IDisposable
         };
     }
 
-    private bool IsDeliverable(PeerLease peer) => PermissionGranted() && !peer.DeliveryOverflow && _peers.ContainsKey(peer.Id);
+    private bool IsDeliverable(PeerLease peer) => PermissionGranted() && !_deliveryStopped &&
+        !peer.DeliveryOverflow && _peers.ContainsKey(peer.Id);
 
     private void QueuePeer(PeerLease peer, Action action, int bytes = 0)
     {
@@ -113,7 +115,15 @@ internal sealed class WebRtcBindingState : IDisposable
     private void ScheduleDelivery(HtmlEventLoop loop)
     {
         try { loop.QueueTask(TaskSource.Generic, () => DeliverOne(loop), "WebRTC delivery"); }
-        catch (ObjectDisposedException) { CloseAll(notifyScript: false); }
+        catch (ObjectDisposedException)
+        {
+            lock (_gate)
+            {
+                _deliveryStopped = true;
+                RemoveDeliveries(null);
+                _deliveryScheduled = false;
+            }
+        }
     }
 
     private void DeliverOne(HtmlEventLoop loop)
@@ -305,7 +315,7 @@ internal sealed class WebRtcBindingState : IDisposable
 
     internal void UpdateCapabilities() { if (!PermissionGranted()) CloseAll(); }
 
-    internal void CloseAll(bool notifyScript = true)
+    internal void CloseAll()
     {
         PeerLease[] peers;
         lock (_gate)
@@ -319,7 +329,7 @@ internal sealed class WebRtcBindingState : IDisposable
         {
             var cb = peer.CloseCallback;
             peer.CloseCallback = ScriptValue.Undefined;
-            if (notifyScript && cb.IsFunction)
+            if (cb.IsFunction)
             {
                 try { _engine.Call(cb, ScriptValue.Undefined, []); } catch { }
             }
@@ -405,7 +415,7 @@ globalThis.RTCPeerConnection = function(configuration) { var connection=this; co
     this.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; var list = this._listeners[type] || (this._listeners[type] = []); if (list.indexOf(handler) < 0) list.push(handler); };
     this.removeEventListener = function(type, handler) { var list = this._listeners[type] || []; this._listeners[type] = list.filter(function(item) { return item !== handler; }); };
     this._dispatch = function(type, event) { event = event || {}; if (event.type === undefined) event.type = type; if (event.target === undefined) event.target = this; var handler = this['on' + type]; if (typeof handler === 'function') handler(event); (this._listeners[type] || []).slice().forEach(function(listener) { listener.call(this, event); }, this); };
-    this.localDescription = null; this.remoteDescription = null; this._senders = []; this._transceivers = []; this._dataChannels = []; this._peer = null; this.ondatachannel = null; this._folioReleased = false; } catch (error) { host.release(lease); apply(weakDelete,peers,[this]); var failedIndex=__folio_webrtc_peers.indexOf(this); if(failedIndex>=0)__folio_webrtc_peers.splice(failedIndex,1); throw error; } if(!host.live(lease)) { retire(this,true); denied(); }
+    this.localDescription = null; this.remoteDescription = null; this._senders = []; this._transceivers = []; this._dataChannels = []; this._peer = null; this.ondatachannel = null; this._folioReleased = false; } catch (error) { host.release(lease); apply(weakDelete,peers,[this]); var failedIndex=__folio_webrtc_peers.indexOf(this); if(failedIndex>=0)__folio_webrtc_peers.splice(failedIndex,1); throw error; } if(!host.live(lease)) { host.release(lease); retire(this,true); denied(); }
 };
 globalThis.RTCRtpSender = function() {};
 globalThis.RTCRtpReceiver = function() {};
