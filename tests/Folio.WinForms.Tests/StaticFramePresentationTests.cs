@@ -1,3 +1,4 @@
+#if WINDOWS
 using System.Drawing;
 using Folio.WinForms;
 
@@ -38,3 +39,4 @@ public sealed class StaticFramePresentationTests
         await completion.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
     }
 }
+#endif
