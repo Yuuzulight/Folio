@@ -63,7 +63,7 @@ public static class DiagramRenderer
                                     ? StartsWithAny(line, StringComparison.OrdinalIgnoreCase, "title", "section") || line.Contains(':')
                                     : first.StartsWith("gantt", StringComparison.OrdinalIgnoreCase)
                                         ? StartsWithAny(line, StringComparison.OrdinalIgnoreCase, "dateFormat", "axisFormat", "section") || line.Split(',').Length >= 3
-                                        : line.StartsWith("title", StringComparison.OrdinalIgnoreCase) || line.Contains(':');
+                                        : line.StartsWith("title ", StringComparison.OrdinalIgnoreCase) || ReadPieSlice(line) is not null;
             if (!supported) return line;
         }
         return null;
@@ -129,7 +129,7 @@ public static class DiagramRenderer
         if (first.StartsWith("erDiagram", StringComparison.OrdinalIgnoreCase))
             return lines.Any(line => line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries).Length >= 3);
         if (first.StartsWith("pie", StringComparison.OrdinalIgnoreCase))
-            return lines.Any(line => line.Contains(':') && double.TryParse(line[(line.IndexOf(':') + 1)..].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out _));
+            return lines.Any(line => ReadPieSlice(line) is not null);
         if (first.StartsWith("timeline", StringComparison.OrdinalIgnoreCase))
             return lines.Any(line => line.Contains(':'));
         if (first.StartsWith("gantt", StringComparison.OrdinalIgnoreCase))
@@ -137,15 +137,27 @@ public static class DiagramRenderer
         return false;
     }
 
+    private static (string Label, double Value)? ReadPieSlice(string line)
+    {
+        if (line.StartsWith("title ", StringComparison.OrdinalIgnoreCase) || line.StartsWith("%%", StringComparison.Ordinal))
+            return null;
+        var separator = line.LastIndexOf(':');
+        if (separator <= 0 || !double.TryParse(line.AsSpan(separator + 1), NumberStyles.Float,
+                CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value) || value <= 0)
+            return null;
+        var label = line[..separator].Trim().Trim('"');
+        return label.Length == 0 ? null : (label, value);
+    }
+
     private static string RenderPie(IEnumerable<string> lines)
     {
-        var slices = lines.Select(line => line.Split(':', 2, StringSplitOptions.TrimEntries))
-            .Where(parts => parts.Length == 2 && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
-            .Select(parts => (Label: parts[0].Trim('"'), Value: double.Parse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture)))
-            .Where(slice => slice.Value > 0)
-            .ToList();
-        var total = slices.Sum(slice => slice.Value);
-        if (total <= 0) return Svg([], []);
+        var slices = new List<(string Label, double Value)>();
+        foreach (var line in lines)
+            if (ReadPieSlice(line) is { } slice)
+                slices.Add(slice);
+        if (slices.Count == 0) return Svg([], []);
+        var largest = slices.Max(slice => slice.Value);
+        var total = slices.Sum(slice => slice.Value / largest);
         const double cx = 230, cy = 190, radius = 130;
         var angle = -Math.PI / 2;
         var arcs = new List<string>();
@@ -153,11 +165,13 @@ public static class DiagramRenderer
         for (var i = 0; i < slices.Count; i++)
         {
             var slice = slices[i];
-            var end = angle + slice.Value / total * Math.PI * 2;
+            var end = angle + (slice.Value / largest) / total * Math.PI * 2;
             var x1 = cx + radius * Math.Cos(angle); var y1 = cy + radius * Math.Sin(angle);
             var x2 = cx + radius * Math.Cos(end); var y2 = cy + radius * Math.Sin(end);
             var large = end - angle > Math.PI ? 1 : 0;
-            var path = $"M {cx:0.##} {cy:0.##} L {x1:0.##} {y1:0.##} A {radius:0.##} {radius:0.##} 0 {large} 1 {x2:0.##} {y2:0.##} Z";
+            var path = slices.Count == 1
+                ? FormattableString.Invariant($"M {cx} {cy - radius} A {radius} {radius} 0 0 1 {cx} {cy + radius} A {radius} {radius} 0 0 1 {cx} {cy - radius} Z")
+                : FormattableString.Invariant($"M {cx:0.##} {cy:0.##} L {x1:0.##} {y1:0.##} A {radius:0.##} {radius:0.##} 0 {large} 1 {x2:0.##} {y2:0.##} Z");
             arcs.Add($"<path class=\"folio-diagram-slice\" data-label=\"{XmlEscape(slice.Label)}\" d=\"{path}\"/>");
             legend.Add($"<text class=\"folio-diagram-label folio-diagram-legend\" x=\"470\" y=\"{70 + i * 28}\">{XmlEscape(slice.Label)} ({slice.Value.ToString("0.##", CultureInfo.InvariantCulture)})</text>");
             angle = end;
