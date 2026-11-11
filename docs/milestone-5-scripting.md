@@ -4,6 +4,19 @@ Verification refresh (2026-10-30): the focused M5 acceptance suites remain green
 
 The production Folio engine is now the authoritative canvas animation path. The native 30-frame D5/D7 gate passes every artifact below the 16.70 ms total p95 limit (the heaviest local samples are D5/canvas-animated-bars at 5.31 ms and D7/canvas-snake-game at 9.84 ms). The compatibility engine remains available as a differential oracle; its slower canvas-animated-bars result is recorded for optimization but is no longer the production acceptance path.
 
+To measure pinned-library first frames in the published Windows host, set
+`FOLIO_CONTENT_HOST` to the path of the published executable and run:
+
+```powershell
+dotnet run --project tests/Folio.Benchmarks -c Release -- scripted --libraries
+```
+
+The benchmark uses one warmed process and the offline conformance cache.
+It checks startup time, working set, diagnostics and library initialization.
+It reports diagram fixtures as unqualified until the Folio stand-in is tested
+through the published host. [#733](https://github.com/Yuuzulight/Folio/issues/733)
+tracks the published-host results.
+
 This document records the current M5 implementation and verification baseline.
 
 ## Conformance
