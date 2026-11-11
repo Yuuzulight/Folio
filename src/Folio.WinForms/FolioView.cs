@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 using System.Text.RegularExpressions;
 using Folio.Painting;
 using Folio.Scripting.Ipc;
@@ -871,6 +872,7 @@ public class FolioView : Control
             canvas.Save();
             canvas.Transform(System.Numerics.Matrix3x2.CreateTranslation(0, -ScrollTop) * System.Numerics.Matrix3x2.CreateScale(PixelScale));
 
+            var rasterChanged = _renderNeedsFull;
             if (_renderNeedsFull)
             {
                 canvas.FillRoundedRect(new RoundedRect(new RectF(0, ScrollTop, width / PixelScale, height / PixelScale), default), background);
@@ -878,6 +880,7 @@ public class FolioView : Control
             }
             else if (_pendingDamage is { } damage && damage.Width > 0 && damage.Height > 0)
             {
+                rasterChanged = true;
                 canvas.Save();
                 canvas.ClipRoundedRect(new RoundedRect(damage, default));
                 canvas.FillRoundedRect(new RoundedRect(damage, default), background);
@@ -885,9 +888,10 @@ public class FolioView : Control
                 canvas.Restore();
             }
             canvas.Restore();
+            if (rasterChanged)
+                CopySurfaceToBitmap(_renderSurface, _renderBitmap);
             _renderNeedsFull = false;
             _pendingDamage = null;
-            CopySurfaceToBitmap(_renderSurface, _renderBitmap);
             e.Graphics.DrawImageUnscaled(_renderBitmap, 0, 0);
             PaintScriptStoppedNotice(e.Graphics);
             Rendered?.Invoke(this, EventArgs.Empty);
@@ -907,10 +911,20 @@ public class FolioView : Control
         {
             var rowBytes = bitmap.Width * 4;
             var rowBuffer = new byte[rowBytes];
+            var bgraOrder = Vector128.Create((byte)2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
             for (var y = 0; y < bitmap.Height; y++)
             {
                 var srcRow = src.AsSpan(y * rowBytes, rowBytes);
-                for (var x = 0; x < rowBytes; x += 4)
+                var x = 0;
+                if (Vector128.IsHardwareAccelerated)
+                {
+                    for (; x <= rowBytes - Vector128<byte>.Count; x += Vector128<byte>.Count)
+                    {
+                        var rgba = Vector128.LoadUnsafe(ref MemoryMarshal.GetReference(srcRow), (nuint)x);
+                        Vector128.Shuffle(rgba, bgraOrder).StoreUnsafe(ref rowBuffer[0], (nuint)x);
+                    }
+                }
+                for (; x < rowBytes; x += 4)
                 {
                     rowBuffer[x] = srcRow[x + 2];
                     rowBuffer[x + 1] = srcRow[x + 1];
@@ -1258,8 +1272,12 @@ public class FolioView : Control
                     _frames.Dispose();
                     _toolTip.Dispose();
                     _renderSurface?.Dispose();
+                    _renderSurface = null;
                     _renderBitmap?.Dispose();
+                    _renderBitmap = null;
                     _document?.Dispose();
+                    _document = null;
+                    _list = null;
                 }
                 finally { base.Dispose(disposing); }
             }
