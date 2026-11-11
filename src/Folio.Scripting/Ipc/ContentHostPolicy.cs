@@ -33,9 +33,29 @@ internal static class ContentHostPolicy
         return result;
     }
 
-    internal static HashSet<string> ReadOrigins(JsonElement policy)
+    internal static HashSet<string> NormalizeDiagramUrls(IEnumerable<string> urls)
     {
-        if (policy.ValueKind != JsonValueKind.Object || !policy.TryGetProperty("webRtcAllowedOrigins", out var origins)
+        ArgumentNullException.ThrowIfNull(urls);
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var count = 0;
+        var length = 0;
+        foreach (var url in urls)
+        {
+            if (++count > MaxOrigins || url is null || url.Length > MaxOriginLength ||
+                (length += url.Length) > MaxOriginsLength || !TryNavigationUri(url, out _))
+                throw new ArgumentException("The diagram library policy contains an invalid URL or exceeds its bounds.", nameof(urls));
+            result.Add(url);
+        }
+        return result;
+    }
+
+    internal static HashSet<string> ReadOrigins(JsonElement policy) => ReadUrls(policy, "webRtcAllowedOrigins", NormalizeOrigins);
+
+    internal static HashSet<string> ReadDiagramUrls(JsonElement policy) => ReadUrls(policy, "diagramLibraryUrls", NormalizeDiagramUrls);
+
+    private static HashSet<string> ReadUrls(JsonElement policy, string propertyName, Func<IEnumerable<string>, HashSet<string>> normalize)
+    {
+        if (policy.ValueKind != JsonValueKind.Object || !policy.TryGetProperty(propertyName, out var origins)
             || origins.ValueKind != JsonValueKind.Array || origins.GetArrayLength() > MaxOrigins)
             return new(StringComparer.OrdinalIgnoreCase);
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -44,7 +64,7 @@ internal static class ContentHostPolicy
                 return new(StringComparer.OrdinalIgnoreCase);
         try
         {
-            return NormalizeOrigins(origins.EnumerateArray().Select(value =>
+            return normalize(origins.EnumerateArray().Select(value =>
                 value.ValueKind == JsonValueKind.String ? value.GetString()! : throw new ArgumentException()));
         }
         catch (ArgumentException) { return new(StringComparer.OrdinalIgnoreCase); }
