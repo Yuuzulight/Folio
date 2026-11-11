@@ -629,6 +629,35 @@ all pool use throughout Folio. #706 and #704 remain open, PR #705 remains draft,
 and original M0–M7/replacement and release acceptance remain required.
 
 
+## Metadata admission slice and recurring large-message failure
+
+On `fix/rtc-queued-delivery-budgets`, #707 now has a metadata-admission slice:
+a 256 KiB per-association aggregate budget, conservatively charged at twice the
+UTF-8 label/protocol byte length before remote string decoding. Local failed
+OPEN admission rolls back both metadata charge and stream reservation. Failed
+and disposed associations clear owned registries and charge. Closed registered
+streams retain their charge until actual registry teardown; stream reset is
+still separate required work. Four regressions cover Unicode/exact limits,
+closed-state retention, failed-OPEN rollback/reuse, and a raw fragmented remote
+metadata flood with sibling-association isolation. SCTP selection passes 56/56,
+zero skips, and the Release build has zero warnings/errors. The owner-loop event
+queue portion of #707 is NOT implemented; #707 must stay open.
+
+Broader RTC qualification on this slice FAILED: 53/54 passed; the Jint 256 KiB
+public round trip exceeded its unchanged ten-second deadline. Both peers were
+connected. Sender diagnostics: assigned/emitted236, cumulative ACK200,
+36 pending chunks, 39,840 flight bytes, cwnd2,272 and RTO8s. Receiver diagnostics:
+contiguous TSN200, 199 retained fragments, no gap reports, 225,268 retained bytes.
+This is a contiguous missing tail, not evidence that the metadata budget failed.
+A base-head reproduction and deterministic sender loss-recovery test are still
+required before assigning the cause. Earlier exact-head green full/published
+runs remain valid historical evidence, not proof of eliminating intermittency.
+
+PR #705 is held from merging again. Original #704 remains open. Do not increase
+the ten-second deadline or call the reliable-delivery/load acceptance complete
+from the earlier passing runs. Logs: `%TEMP%/folio-metadata-tests.log` and
+`%TEMP%/folio-metadata-rtc-tests.log`.
+
 ## Reopened large-message qualification and deterministic tail recovery
 
 Hosted run `42832983570` completed **26/26 jobs green** for `69a71d8a`.
@@ -714,3 +743,19 @@ are pending. PR #705 remains draft and unmerged; #704, #706, #707, #709 and #710
 remain open. No milestone or 1.0 release is signed off. Logs:
 `%TEMP%/folio-tail-clean-full.log`, `%TEMP%/folio-sw-timing-focused.log`,
 `%TEMP%/folio-ci-7c-ubuntu.log`, `%TEMP%/folio-ssl-harness-{client,server}-{1,2,3}.log`.
+
+## Bounded WebRTC delivery
+
+PR #705 merged at 74edd747 after all 26 checks passed on 8f9f7624.
+The full local suite with the published native host passed 4,954 tests with two
+documented skips. Issues #706, #709 and #710 are closed.
+
+PR #708 bounds queued and executing document RTC callbacks to 256 events and
+1 MiB of retained payload. Accounting uses UTF-16 bytes for strings and raw
+bytes for binary data. The document loop schedules one RTC task at a time,
+with one event per turn. On overflow, the peer stops accepting callbacks
+and operations. The owner loop closes it on a terminal delivery, with at most
+one terminal entry per registered peer. Release, revocation and disposal purge
+pending deliveries. The paused-loop tests exercise count and byte overflow on
+both engines, including sibling survival. The focused transport-event suite
+passed 14 tests. Full suite and hosted CI are pending.

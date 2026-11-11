@@ -44,9 +44,9 @@ public sealed class HtmlEventLoop : IDisposable
     /// <summary>Enqueues a task to the appropriate task queue.</summary>
     public void QueueTask(TaskSource source, Action action, string? description = null)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
         lock (_taskQueues)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             var task = new EventLoopTask(source, action, _nextTaskSeq++, description);
             _taskQueues[source].Enqueue(task);
         }
