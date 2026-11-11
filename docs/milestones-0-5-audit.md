@@ -4,7 +4,8 @@ Release recheck (2026-11-11): all 72 S1–S6 artifacts passed strict image
 conformance with Folio software raster and ComplexShaper. The historical
 animation, hover and scroll benchmarks used the Skia oracle. One local
 Release run of the updated production-path benchmark measured 30.7 ms
-median paint-only animation, 7.6 ms hover and 18.6 ms scroll. The original
+median paint-only animation and 7.6 ms hover. A scroll run with a fixture
+that extends beyond the viewport measured 22.3 ms median. The original
 8 ms, 4 ms and 8 ms budgets remain open under [#726](https://github.com/Yuuzulight/Folio/issues/726)
 and [#727](https://github.com/Yuuzulight/Folio/issues/727).
 

@@ -37,7 +37,7 @@ internal static class FrameBenchmark
 
     public static string HoverHtml => Typical;
 
-    public static string ScrollHtml => Typical;
+    public static string ScrollHtml => Html(24, 4);
 
     private static string Html(int cardCount, int barCount)
     {
@@ -189,13 +189,16 @@ internal static class FrameBenchmark
     {
         using var document = Document.Parse(html, Options);
         var (list, contentHeight) = document.Paint(800, 600, 1, SoftwareRasterBackend.Instance.TextShaper, 0);
+        var scrollRange = contentHeight - Viewport.Height;
+        if (!(scrollRange > 0))
+            throw new InvalidOperationException("The scroll fixture must extend beyond the viewport.");
         using var surface = new SoftwareRasterSurface(800, 600);
         var canvas = surface.Canvas;
         var times = new List<TimeSpan>();
         for (var i = -10; i < steps; i++)
         {
             var start = Stopwatch.GetTimestamp();
-            var scrollTop = Math.Clamp(i * 10f, 0, Math.Max(0, contentHeight - 600));
+            var scrollTop = Math.Max(0, i) * scrollRange / Math.Max(1, steps - 1);
             canvas.Save();
             canvas.Transform(System.Numerics.Matrix3x2.CreateTranslation(0, -scrollTop));
             Replay(canvas, list, new RectF(0, scrollTop, 800, 600));
