@@ -70,13 +70,21 @@ try {
 
     $assetsPath = Join-Path $buildDirectory 'obj/Folio.ContentHost/project.assets.json'
     $rawAssets = Get-Content -LiteralPath $assetsPath -Raw
-    $compilerPackages = @(
+    $resolvedLibraries = @(
         if ($PSVersionTable.PSEdition -eq 'Core') {
-            (ConvertFrom-Json $rawAssets -AsHashtable).libraries.Keys | Where-Object { $_ -match '(^|\.)Microsoft\.DotNet\.ILCompiler/' }
+            (ConvertFrom-Json $rawAssets -AsHashtable).libraries.Keys
         } else {
-            (ConvertFrom-Json $rawAssets).libraries.PSObject.Properties.Name | Where-Object { $_ -match '(^|\.)Microsoft\.DotNet\.ILCompiler/' }
+            (ConvertFrom-Json $rawAssets).libraries.PSObject.Properties.Name
         }
     )
+    # NativeAOT can link managed dependencies directly into the executable without producing sidecars.
+    $supersededLibraries = @($resolvedLibraries | Where-Object {
+        $_ -match '^(Folio\.Skia|Folio\.Scripting\.Jint|Jint|Wasmtime|SkiaSharp|HarfBuzzSharp|Avalonia\.Angle)(\.|/)'
+    })
+    if ($supersededLibraries.Count) {
+        throw "Superseded dependencies in the production content-host restore graph: $($supersededLibraries -join ', ')"
+    }
+    $compilerPackages = @($resolvedLibraries | Where-Object { $_ -match '(^|\.)Microsoft\.DotNet\.ILCompiler/' })
     if ($compilerPackages.Count -lt 2) { throw 'Native compiler package provenance is incomplete.' }
     foreach ($package in $compilerPackages) {
         if ([version]($package.Split('/')[-1]) -lt [version]'10.0.14') { throw "Unpatched native runtime/compiler: $package" }
