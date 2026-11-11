@@ -12,6 +12,45 @@ public sealed class ServiceWorkerSafetyLifecycleTests
 {
     private const string Origin = "https://worker.example/";
 
+    [Fact]
+    public async Task LoadTimeoutDoesNotNeedAnAvailableThreadPoolThread()
+    {
+        var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, CreateNoWindow = true };
+        start.ArgumentList.Add(typeof(Program).Assembly.Location);
+        start.ArgumentList.Add("service-worker-load-deadline-probe");
+        using var process = Process.Start(start)!;
+        var cancellation = TestContext.Current.CancellationToken;
+        try
+        {
+            await process.WaitForExitAsync(cancellation).WaitAsync(TimeSpan.FromSeconds(10), cancellation);
+            Assert.Equal(0, process.ExitCode);
+        }
+        finally
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+        }
+    }
+
+    internal static int RunLoadDeadlineProbe()
+    {
+        ThreadPool.GetMinThreads(out _, out var minIo);
+        ThreadPool.GetMaxThreads(out _, out var maxIo);
+        if (!ThreadPool.SetMinThreads(1, minIo) || !ThreadPool.SetMaxThreads(1, maxIo)) return 2;
+        return Task.Run(() =>
+        {
+            var loader = new PendingLoader();
+            try
+            {
+                ServiceWorkerBindings.LoadScript(loader, Origin + "sw.js", CancellationToken.None, TimeSpan.FromMilliseconds(75));
+                return 1;
+            }
+            catch (WebIdlException error) when (error.Name == "TimeoutError" && loader.Token.IsCancellationRequested)
+            {
+                return 0;
+            }
+        }).GetAwaiter().GetResult();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
