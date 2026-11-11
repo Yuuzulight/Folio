@@ -166,14 +166,8 @@ internal static class SoftwareFilters
     // ---- primitives ----
 
     private static PixelSurface Blur(PixelSurface s, float sigmaX, float sigmaY) =>
-        sigmaX <= 0 && sigmaY <= 0 ? s : Wrap(s, GaussianBlur.Apply(s.Data, s.Width, s.Height, 4, Math.Max(sigmaX, 0), Math.Max(sigmaY, 0)));
-
-    private static PixelSurface Wrap(PixelSurface like, byte[] data)
-    {
-        var o = new PixelSurface(like.Width, like.Height);
-        Array.Copy(data, o.Data, data.Length);
-        return o;
-    }
+        sigmaX <= 0 && sigmaY <= 0 ? s :
+        new PixelSurface(s.Width, s.Height, GaussianBlur.Apply(s.Data, s.Width, s.Height, 4, Math.Max(sigmaX, 0), Math.Max(sigmaY, 0)));
 
     private static Frame ColorMatrix(Frame s, IReadOnlyList<float>? m)
     {
