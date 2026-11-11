@@ -1116,6 +1116,17 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("7", engine.Evaluate("new String(7)").AsString());
     }
 
+    [Fact]
+    public void NumericLiteralPropertyNamesUseTheSameKeysAsIndexedAccess()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var modules = { 96e3: function() { return 'module'; }, 0x20: 2, 1_000: 3, [5e2]: 4, '96e3': 5 };
+            modules[96e3]() === 'module' && modules[32] === 2 &&
+                modules[1000] === 3 && modules[500] === 4 && modules['96e3'] === 5
+            """).AsBoolean());
+    }
+
     private sealed class HostState
     {
         public int Value { get; set; }
