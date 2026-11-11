@@ -438,6 +438,13 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["clz32"] = (Func<IReadOnlyList<object?>, object?>)(args => BitOperations.LeadingZeroCount((uint)(long)Number(args, 0))),
         };
         var stringConstructor = new NativeFunction(args => args.Count == 0 ? string.Empty : StringValue(args[0]));
+        stringConstructor.SetProperty("prototype", new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["substr"] = new NativeReceiverFunction((receiver, args) =>
+                receiver is null or JavaScriptEvaluator.UndefinedValue
+                    ? throw WebIdlException.TypeError("String.prototype.substr requires a receiver.")
+                    : JavaScriptEvaluator.Substr(StringValue(receiver), args)),
+        });
         stringConstructor.SetProperty("fromCharCode", (Func<IReadOnlyList<object?>, object?>)(args =>
             string.Concat(args.Select(value => (char)((int)NumberValue(value) & 0xffff)))));
         stringConstructor.SetProperty("fromCodePoint", (Func<IReadOnlyList<object?>, object?>)(args =>

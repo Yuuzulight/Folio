@@ -4,6 +4,21 @@ namespace Folio.Scripting.Tests;
 
 public sealed class NativeJavaScriptEvaluatorTests
 {
+    [Theory]
+    [InlineData("'abcdef'.substr(-3, 2)", "de")]
+    [InlineData("'abcdef'.substr(-Infinity, 2)", "ab")]
+    [InlineData("'abcdef'.substr(Infinity)", "")]
+    [InlineData("'abcdef'.substr(2, undefined)", "cdef")]
+    [InlineData("'abcdef'.substr(2, null)", "")]
+    [InlineData("'abcdef'.substr(NaN, 2.9)", "ab")]
+    [InlineData("'abcdef'.substr(1, -2)", "")]
+    [InlineData("String.prototype.substr.call(12345, 1, 3)", "234")]
+    public void SubstrHandlesRelativeOffsetsAndLength(string source, string expected)
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(expected, engine.Evaluate(source).AsString());
+    }
+
     [Fact]
     public void EvaluatesArithmeticAndStringConcatenation()
     {
