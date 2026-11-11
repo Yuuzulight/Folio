@@ -45,6 +45,20 @@ Time targets on a mid-range desktop CPU, warm process (JIT done), typical artifa
 | Paint-only animation frame (M2) | ≤ 8 ms |
 | Canvas 2D animation (M5, conformance category) | p95 frame ≤ 16.7 ms |
 
+To measure warm static first paint in the visible Windows control, run this on
+an interactive Windows desktop from the repository root:
+
+```powershell
+dotnet run --project tools/Folio.WinForms.Benchmarks -c Release -- tests/conformance
+```
+
+The benchmark uses a 1920×1080 client area at 100% scale. It records five runs
+per S1/S3 artifact, timing from document load to the first `Rendered` event.
+Working-set deltas are sampled immediately after paint and again after the
+control is disposed and GC completes. Compare the per-artifact and corpus
+results with the targets above. [#722](https://github.com/Yuuzulight/Folio/issues/722)
+tracks full visible-host qualification.
+
 The restored scripted-process benchmark does not yet meet these M4/M5 startup
 and memory targets: the 2026-10-29 Windows run measured 963.4 ms cold first
 frame, several warm loads above 50 ms, and working-set growth from 63.2 MB to
