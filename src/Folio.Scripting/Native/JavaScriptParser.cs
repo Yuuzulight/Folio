@@ -560,18 +560,8 @@ internal sealed class JavaScriptParser
                     {
                         var key = ParseBinary(0);
                         Expect("]");
-                        var computedName = key switch
-                        {
-                            JavaScriptMemberExpression member when member.Target is JavaScriptIdentifierExpression target => target.Name + "." + member.Name,
-                            JavaScriptIdentifierExpression identifier => identifier.Name,
-                            JavaScriptLiteralExpression { Kind: JavaScriptTokenKind.Number } literal =>
-                                JavaScriptEvaluator.StringValue(literal.CachedValue),
-                            JavaScriptLiteralExpression literal => literal.Text,
-                            _ => string.Empty,
-                        };
-                        if (Match(":")) properties.Add((computedName, ParseBinary(0)));
-                        else if (_current.Text == "(") properties.Add(("__folio_method__" + computedName, ParseFunctionTail()));
-                        else properties.Add((computedName, new JavaScriptIdentifierExpression(computedName)));
+                        var value = Match(":") ? ParseBinary(0) : ParseFunctionTail();
+                        properties.Add((string.Empty, Node(new JavaScriptComputedPropertyExpression(key, value))));
                         continue;
                     }
                     if (_current.Kind is not (JavaScriptTokenKind.Identifier or JavaScriptTokenKind.String or JavaScriptTokenKind.Number)) throw Error("Expected an object property name");
