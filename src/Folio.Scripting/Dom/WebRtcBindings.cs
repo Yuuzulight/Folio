@@ -399,7 +399,7 @@ RTCPeerConnection.prototype.setRemoteDescription=function(description) {
         var value=description.sdp;
         if(!host.transportEnabled() && value==='')return legacyRemoteDescription.call(this,{type:type,sdp:value});
         var sdp=String(value||'');
-        if(!sdp.trim())throw new TypeError('Remote SDP is empty.');
+        if(host.transportEnabled() && !sdp.trim())throw new TypeError('Remote SDP is empty.');
         host.setRemoteDescription(token(this),type,sdp);
         this.remoteDescription=new RTCSessionDescription({type:type,sdp:sdp});
         this.signalingState=type==='offer'?'have-remote-offer':'stable';
