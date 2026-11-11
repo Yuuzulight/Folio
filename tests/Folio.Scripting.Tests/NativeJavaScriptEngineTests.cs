@@ -10,6 +10,28 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void AssignmentInvokesInheritedAccessorsWithTheOriginalReceiver()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var prototype = {};
+            Object.defineProperty(prototype, 'value', {
+                get: function() { return this.stored; },
+                set: function(value) { this.stored = value * 2; }
+            });
+            var middle = Object.create(prototype);
+            middle.data = 1;
+            var item = Object.create(middle);
+            item.value = 3;
+            var first = item.stored;
+            item['value'] = 5;
+            item.data = 2;
+            first === 6 && item.stored === 10 && item.value === 10 &&
+                !Object.hasOwn(item, 'value') && item.data === 2 && middle.data === 1
+            """).AsBoolean());
+    }
+
+    [Fact]
     public void FunctionConstructorUsesItsPrototypeDuringAndAfterConstruction()
     {
         using var engine = new NativeJavaScriptEngine();

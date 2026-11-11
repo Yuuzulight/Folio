@@ -1,5 +1,5 @@
 {
-  "prompt": "Build a D7 library artifact using its pinned runtime library.",
+  "prompt": "Render a Phaser Canvas scene and move its token to the right on click.",
   "features": [
     "script",
     "d7",
@@ -9,7 +9,7 @@
   "viewport": 800,
   "interaction": [
     "click #b",
-    "text #value 1"
+    "text #value 130"
   ],
   "tolerance": {
     "channelThreshold": 16,

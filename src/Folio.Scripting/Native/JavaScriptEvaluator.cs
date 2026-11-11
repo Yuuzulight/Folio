@@ -896,16 +896,7 @@ internal sealed class JavaScriptEvaluator
                 regex.LastIndex = Math.Max(0, (int)Number(assigned));
                 break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is IDictionary<string, object?> properties:
-                if (properties.TryGetValue(member.Name, out var existing)
-                    && existing is NativeJavaScriptEngine.NativePropertyAccessor accessor)
-                {
-                    if (!accessor.Set(properties, assigned))
-                        throw new InvalidDataException($"Property '{member.Name}' is read-only.");
-                }
-                else
-                {
-                    properties[member.Name] = assigned;
-                }
+                SetDictionaryProperty(properties, member.Name, assigned);
                 break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is IList<object?> values && member.Name == "length":
                 var length = (int)Number(assigned);
@@ -933,17 +924,7 @@ internal sealed class JavaScriptEvaluator
                 }
                 break;
             case JavaScriptIndexExpression index when Evaluate(index.Target) is IDictionary<string, object?> indexedProperties:
-                var indexName = StringValue(Evaluate(index.Index));
-                if (indexedProperties.TryGetValue(indexName, out var indexedExisting)
-                    && indexedExisting is NativeJavaScriptEngine.NativePropertyAccessor indexedAccessor)
-                {
-                    if (!indexedAccessor.Set(indexedProperties, assigned))
-                        throw new InvalidDataException($"Property '{indexName}' is read-only.");
-                }
-                else
-                {
-                    indexedProperties[indexName] = assigned;
-                }
+                SetDictionaryProperty(indexedProperties, StringValue(Evaluate(index.Index)), assigned);
                 break;
             case JavaScriptIndexExpression index when Evaluate(index.Target) is NativeJavaScriptEngine.INativeBuffer buffer:
                 var bufferPosition = (int)Number(Evaluate(index.Index));
@@ -965,6 +946,30 @@ internal sealed class JavaScriptEvaluator
             default:
                 throw new InvalidDataException($"Only lexical, object-property, and array-index assignment is supported (target: {target}).");
         }
+    }
+
+    private static void SetDictionaryProperty(IDictionary<string, object?> receiver, string name, object? assigned)
+    {
+        if (!receiver.TryGetValue(name, out var existing) &&
+            receiver.TryGetValue("__proto__", out var parent) && parent is IReadOnlyDictionary<string, object?> prototype &&
+            !prototype.TryGetValue(name, out existing) &&
+            prototype.TryGetValue("__proto__", out var ancestor) && ancestor is IReadOnlyDictionary<string, object?> inherited)
+        {
+            var visited = new HashSet<IReadOnlyDictionary<string, object?>>(ReferenceEqualityComparer.Instance) { prototype };
+            for (var current = inherited; current is not null && visited.Add(current);)
+            {
+                if (current.TryGetValue(name, out existing))
+                    break;
+                current = current.TryGetValue("__proto__", out var next) ? next as IReadOnlyDictionary<string, object?> : null;
+            }
+        }
+        if (existing is NativeJavaScriptEngine.NativePropertyAccessor accessor)
+        {
+            if (!accessor.Set(receiver, assigned))
+                throw new InvalidDataException($"Property '{name}' is read-only.");
+            return;
+        }
+        receiver[name] = assigned;
     }
 
     private object? ApplyCompound(string op, JavaScriptExpression leftExpression, JavaScriptExpression rightExpression)
