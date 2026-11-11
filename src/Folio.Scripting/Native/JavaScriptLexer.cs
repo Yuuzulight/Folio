@@ -22,8 +22,13 @@ internal readonly record struct JavaScriptToken(JavaScriptTokenKind Kind, string
 /// </summary>
 internal sealed class JavaScriptLexer
 {
+    private const int TokenTextCacheThreshold = 16 * 1024;
+    private const int MaxCachedTokenTexts = 4096;
+    private const int MaxCachedTokenLength = 64;
+
     private readonly string _source;
     private readonly int _maxTokens;
+    private readonly Dictionary<string, string>? _tokenTexts;
     private int _index;
     private int _line = 1;
     private int _column = 1;
@@ -34,6 +39,8 @@ internal sealed class JavaScriptLexer
         _source = source ?? throw new ArgumentNullException(nameof(source));
         if (maxTokens <= 0) throw new ArgumentOutOfRangeException(nameof(maxTokens));
         _maxTokens = maxTokens;
+        if (source.Length >= TokenTextCacheThreshold)
+            _tokenTexts = new(StringComparer.Ordinal);
     }
 
     internal JavaScriptToken Next()
@@ -231,9 +238,21 @@ internal sealed class JavaScriptLexer
             "document" => "document",
             "window" => "window",
             "globalThis" => "globalThis",
-            _ => _source[offset.._index]
+            _ => ReadTokenText(span)
         };
         return new(JavaScriptTokenKind.Identifier, text, offset, line, column);
+    }
+
+    private string ReadTokenText(ReadOnlySpan<char> span)
+    {
+        if (_tokenTexts is null || span.Length > MaxCachedTokenLength)
+            return span.ToString();
+        if (_tokenTexts.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(span, out var cached))
+            return cached;
+        var text = span.ToString();
+        if (_tokenTexts.Count < MaxCachedTokenTexts)
+            _tokenTexts.Add(text, text);
+        return text;
     }
 
     private JavaScriptToken ReadNumber(int offset, int line, int column)
@@ -259,7 +278,7 @@ internal sealed class JavaScriptLexer
             }
         }
         if (_index < _source.Length && _source[_index] == 'n') Advance();
-        return new(JavaScriptTokenKind.Number, _source[offset.._index], offset, line, column);
+        return new(JavaScriptTokenKind.Number, ReadTokenText(_source.AsSpan(offset, _index - offset)), offset, line, column);
     }
 
     private JavaScriptToken ReadString(int offset, int line, int column, char quote)
