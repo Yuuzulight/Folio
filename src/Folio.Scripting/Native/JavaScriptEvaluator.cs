@@ -707,6 +707,8 @@ internal sealed class JavaScriptEvaluator
         var constructor = call.Callee is JavaScriptIdentifierExpression identifier ? Lookup(identifier.Name) : Evaluate(call.Callee);
         var arguments = call.Arguments.Select(Evaluate).ToArray();
         var instance = new Dictionary<string, object?>(StringComparer.Ordinal) { ["__constructor"] = constructor };
+        if (TryGetPrototype(constructor, out var prototype))
+            instance["__proto__"] = prototype;
         object? result = constructor switch
         {
             NativeJavaScriptEngine.NativeReceiverFunction receiverFunction => InvokeWithReceiver(receiverFunction, instance, arguments),
@@ -714,8 +716,6 @@ internal sealed class JavaScriptEvaluator
             Func<IReadOnlyList<object?>, object?> function => InvokeWithReceiver(function, instance, arguments),
             _ => throw new NotSupportedException($"Constructor is not callable (callee: {call.Callee})."),
         };
-        if (instance is IDictionary<string, object?> properties && TryGetPrototype(constructor, out var prototype))
-            foreach (var pair in prototype) properties.TryAdd(pair.Key, pair.Value);
         return result is null or UndefinedValue ? instance : result;
     }
 
