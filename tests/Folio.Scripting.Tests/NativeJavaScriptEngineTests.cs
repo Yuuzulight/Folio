@@ -10,6 +10,23 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void FunctionConstructorUsesItsPrototypeDuringAndAfterConstruction()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            function Emitter() {}
+            Emitter.prototype.on = function(value) { this.initial = value; };
+            function Game() { this.on(7); }
+            Game.prototype = Object.create(Emitter.prototype);
+            var game = new Game();
+            Emitter.prototype.on = function(value) { this.initial = value + 1; };
+            var original = game.initial;
+            game.on(9);
+            original === 7 && game.initial === 10 && Object.getPrototypeOf(game) === Game.prototype
+            """).AsBoolean());
+    }
+
+    [Fact]
     public void NativeDeniedWebGlProbeReturnsNull()
     {
         using var engine = new NativeJavaScriptEngine();
