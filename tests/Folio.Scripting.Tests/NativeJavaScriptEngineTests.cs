@@ -1128,6 +1128,17 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ArrowLookaheadKeepsLongDefaultsAndQuotedDelimitersIntact()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var items = string.Join(",", Enumerable.Repeat("1", 600));
+        Assert.Equal("600}", engine.Evaluate($$"""
+            var read = ({mark = '}'} = {}, values = [{{items}}]) => values.length + mark;
+            read()
+            """).AsString());
+    }
+
+    [Fact]
     public void ComputedObjectKeysUseRuntimeValuesInEvaluationOrder()
     {
         using var engine = new NativeJavaScriptEngine();
