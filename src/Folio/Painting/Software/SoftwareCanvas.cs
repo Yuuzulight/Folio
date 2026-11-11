@@ -13,6 +13,8 @@ namespace Folio.Painting.Software;
 internal sealed class SoftwareCanvas : ICanvas
 {
     private const float FlattenTolerance = 0.05f;
+    private const int BlurCacheByteLimit = 2 * 1024 * 1024;
+    private const int BlurCacheEntryLimit = 128;
 
     private sealed class State
     {
@@ -32,6 +34,8 @@ internal sealed class SoftwareCanvas : ICanvas
     private State _state;
     private readonly Stack<State> _saved = new();
     private readonly Stack<Layer> _layers = new();
+    private readonly Dictionary<(int Width, int Height, float Sigma, int Hash), (byte[] Source, byte[] Result)> _blurCache = new();
+    private int _blurCacheBytes;
 
     public SoftwareCanvas(PixelSurface surface)
     {
@@ -637,10 +641,34 @@ internal sealed class SoftwareCanvas : ICanvas
         var (reachX, reachY) = ((int)MathF.Ceiling(sigmaX * 3), (int)MathF.Ceiling(sigmaY * 3));
         var bounds = new IntRect(coverage.Bounds.Left - reachX, coverage.Bounds.Top - reachY, coverage.Bounds.Right + reachX, coverage.Bounds.Bottom + reachY);
         var width = bounds.Width;
-        var data = new byte[width * bounds.Height];
+        var length = checked(width * bounds.Height);
+        var cacheBytes = (long)coverage.Data.Length + length;
+        // The mask depends on the input pixels, dimensions and deviation. Device position only changes its bounds.
+        var key = default((int Width, int Height, float Sigma, int Hash));
+        if (cacheBytes <= BlurCacheByteLimit)
+        {
+            var hash = new HashCode();
+            hash.AddBytes(coverage.Data);
+            key = (coverage.Bounds.Width, coverage.Bounds.Height, sigmaX, hash.ToHashCode());
+            if (_blurCache.TryGetValue(key, out var entry) && coverage.Data.AsSpan().SequenceEqual(entry.Source))
+                return new Coverage(bounds, entry.Result);
+        }
+
+        var data = new byte[length];
         for (var y = 0; y < coverage.Bounds.Height; y++)
             Array.Copy(coverage.Data, y * coverage.Bounds.Width, data, (y + reachY) * width + reachX, coverage.Bounds.Width);
-        return new Coverage(bounds, GaussianBlur.Apply(data, width, bounds.Height, 1, sigmaX, sigmaY));
+        var blurred = GaussianBlur.Apply(data, width, bounds.Height, 1, sigmaX, sigmaY);
+        if (cacheBytes <= BlurCacheByteLimit && !_blurCache.ContainsKey(key))
+        {
+            if (_blurCache.Count == BlurCacheEntryLimit || _blurCacheBytes + cacheBytes > BlurCacheByteLimit)
+            {
+                _blurCache.Clear();
+                _blurCacheBytes = 0;
+            }
+            _blurCache.Add(key, ((byte[])coverage.Data.Clone(), blurred));
+            _blurCacheBytes += (int)cacheBytes;
+        }
+        return new Coverage(bounds, blurred);
     }
 
     // Calls back for every pixel of the coverage inside the clip that it touches, with its coverage (clip included) 0 to 1 and the

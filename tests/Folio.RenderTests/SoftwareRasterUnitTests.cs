@@ -30,6 +30,22 @@ public class SoftwareRasterUnitTests
     // ---- coverage ----
 
     [Fact]
+    public void ReusedBlurCoverageMatchesFreshCoverageAtAnotherPosition()
+    {
+        using var cached = Surface(120);
+        using var fresh = Surface(120);
+        var paint = new Paint(new Rgba(0.4f, 0.2f, 0.8f, 0.7f), Blur: 4);
+        var original = new RoundedRect(new RectF(20.25f, 22.5f, 30, 25), default);
+        var moved = new RoundedRect(new RectF(55.25f, 50.5f, 30, 25), default);
+        cached.Canvas.FillRoundedRect(original, paint);
+        cached.Canvas.ClearRect(new RectF(0, 0, 120, 120));
+        cached.Canvas.FillRoundedRect(moved, paint);
+        fresh.Canvas.FillRoundedRect(moved, paint);
+        Assert.Contains(fresh.PremultipliedPixels, value => value != 0);
+        Assert.Equal(fresh.PremultipliedPixels, cached.PremultipliedPixels);
+    }
+
+    [Fact]
     public void ARectangleOnWholePixelsCoversThemFullyAndNothingAround()
     {
         using var surface = Surface();
