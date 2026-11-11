@@ -93,7 +93,7 @@ public static class ScriptedProcessBenchmark
         }
 
         if (args?.Contains("--libraries", StringComparer.Ordinal) == true)
-            return await MeasureLibrariesAsync(host);
+            return await MeasureLibrariesAsync(host, profile);
 
         var table = new StringBuilder()
             .AppendLine("### Scripted Start-up, First Paint, and Content-Process Memory")
@@ -389,7 +389,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
     private static bool IsLoadResponse(ContentMessage message) => message.Kind == ContentMessageKind.Diagnostic ||
         (message.Kind == ContentMessageKind.Frame && message.Payload.TryGetProperty("sequence", out var sequence) && sequence.GetInt64() > 0);
 
-    private static async Task<int> MeasureLibrariesAsync(string host)
+    private static async Task<int> MeasureLibrariesAsync(string host, bool profile)
     {
         var problems = ConformanceCache.Problems();
         if (problems.Count != 0) throw new InvalidDataException(string.Join(Environment.NewLine, problems));
@@ -418,7 +418,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
             client.MessageReceived += OnMessage;
             try
             {
-                await client.SendAsync(ContentMessageKind.Load, new { html, script });
+                await client.SendAsync(ContentMessageKind.Load, new { html, script, profile });
                 return await response.Task.WaitAsync(TimeSpan.FromSeconds(15));
             }
             finally { client.MessageReceived -= OnMessage; }
@@ -460,6 +460,8 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                 var elapsed = Stopwatch.GetElapsedTime(start);
                 client.Process.Refresh();
                 var workingSet = client.Process.WorkingSet64;
+                if (profile && frame.Payload.TryGetProperty("timings", out var timings))
+                    Console.WriteLine($"PROFILE {id}: {timings}");
                 measured++;
                 try
                 {
