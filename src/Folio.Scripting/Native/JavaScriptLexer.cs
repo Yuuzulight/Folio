@@ -331,24 +331,34 @@ internal sealed class JavaScriptLexer
     {
         var previous = _index - 1;
         while (previous >= 0 && char.IsWhiteSpace(_source[previous])) previous--;
-        return previous < 0 || "=(:,[!&|?{".Contains(_source[previous]);
+        return previous < 0 || "=(:,[!&|?{;".Contains(_source[previous]);
     }
 
     private JavaScriptToken ReadRegex(int offset, int line, int column)
     {
         Advance();
         var escaped = false;
+        var inClass = false;
         while (_index < _source.Length)
         {
             var c = _source[_index];
-            if (!escaped && c == '/') { Advance(); break; }
-            if (!escaped && c is '\r' or '\n') throw Error("A regular expression cannot contain an unescaped line break.");
+            if (c is '\r' or '\n' or '\u2028' or '\u2029')
+                throw Error("A regular expression cannot contain a line break.");
+            if (!escaped)
+            {
+                if (c == '/' && !inClass)
+                {
+                    Advance();
+                    while (_index < _source.Length && char.IsAsciiLetter(_source[_index])) Advance();
+                    return new(JavaScriptTokenKind.Regex, _source[offset.._index], offset, line, column);
+                }
+                if (c == '[') inClass = true;
+                else if (c == ']') inClass = false;
+            }
             escaped = !escaped && c == '\\';
-            if (c != '\\') escaped = false;
             Advance();
         }
-        while (_index < _source.Length && char.IsAsciiLetter(_source[_index])) Advance();
-        return new(JavaScriptTokenKind.Regex, _source[offset.._index], offset, line, column);
+        throw Error("Unterminated regular expression literal.");
     }
 
     private void SkipTrivia()
