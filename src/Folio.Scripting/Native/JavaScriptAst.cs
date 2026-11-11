@@ -118,7 +118,8 @@ internal sealed record JavaScriptClassExpression(string? Name, string? Parent, I
 
 internal abstract record JavaScriptStatement;
 internal sealed record JavaScriptExpressionStatement(JavaScriptExpression Expression) : JavaScriptStatement;
-internal sealed record JavaScriptVariableStatement(string Name, JavaScriptExpression? Initializer, bool Lexical = false) : JavaScriptStatement;
+internal sealed record JavaScriptVariableStatement(string Name, JavaScriptExpression? Initializer, bool Lexical = false,
+    IReadOnlyDictionary<string, JavaScriptExpression>? BindingDefaults = null) : JavaScriptStatement;
 internal sealed record JavaScriptFunctionDeclarationStatement(string Name, JavaScriptFunctionExpression Function) : JavaScriptStatement;
 internal sealed record JavaScriptClassDeclarationStatement(string Name, JavaScriptClassExpression Class) : JavaScriptStatement;
 internal sealed record JavaScriptReturnStatement(JavaScriptExpression? Expression) : JavaScriptStatement;

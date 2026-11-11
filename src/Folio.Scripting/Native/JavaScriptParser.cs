@@ -100,9 +100,11 @@ internal sealed class JavaScriptParser
             var declarations = new List<JavaScriptStatement>();
             do
             {
-                var name = ParseBindingName();
+                var bindingDefaults = _current.Text is "[" or "{" ? new Dictionary<string, JavaScriptExpression>(StringComparer.Ordinal) : null;
+                var name = ParseBindingName(bindingDefaults);
                 JavaScriptExpression? initializer = Match("=") ? ParseBinary(0) : null;
-                declarations.Add(new JavaScriptVariableStatement(name, initializer, lexical));
+                declarations.Add(new JavaScriptVariableStatement(name, initializer, lexical,
+                    bindingDefaults is { Count: > 0 } ? bindingDefaults : null));
             } while (Match(","));
             Match(";");
             return declarations.Count == 1 ? declarations[0] : new JavaScriptBlockStatement(declarations, CreatesScope: false);
