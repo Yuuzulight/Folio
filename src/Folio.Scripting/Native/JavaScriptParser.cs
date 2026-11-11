@@ -560,6 +560,8 @@ internal sealed class JavaScriptParser
                         {
                             JavaScriptMemberExpression member when member.Target is JavaScriptIdentifierExpression target => target.Name + "." + member.Name,
                             JavaScriptIdentifierExpression identifier => identifier.Name,
+                            JavaScriptLiteralExpression { Kind: JavaScriptTokenKind.Number } literal =>
+                                JavaScriptEvaluator.StringValue(literal.CachedValue),
                             JavaScriptLiteralExpression literal => literal.Text,
                             _ => string.Empty,
                         };
@@ -569,7 +571,10 @@ internal sealed class JavaScriptParser
                         continue;
                     }
                     if (_current.Kind is not (JavaScriptTokenKind.Identifier or JavaScriptTokenKind.String or JavaScriptTokenKind.Number)) throw Error("Expected an object property name");
-                    var name = _current.Text; Take();
+                    var name = _current.Kind == JavaScriptTokenKind.Number
+                        ? JavaScriptEvaluator.StringValue(new JavaScriptLiteralExpression(_current.Text, _current.Kind).CachedValue)
+                        : _current.Text;
+                    Take();
                     if (name == "get" && _current.Kind == JavaScriptTokenKind.Identifier)
                     {
                         var getterName = _current.Text; Take();
