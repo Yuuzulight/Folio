@@ -2225,15 +2225,24 @@ internal sealed class JavaScriptEvaluator
     {
         if (parameter.StartsWith("{", StringComparison.Ordinal) && parameter.EndsWith("}", StringComparison.Ordinal))
         {
-            foreach (var entry in SplitBindingItems(parameter[1..^1]))
+            var entries = SplitBindingItems(parameter[1..^1]);
+            var excluded = entries.Length > 0 && entries[^1].StartsWith("...", StringComparison.Ordinal)
+                ? new HashSet<string>(StringComparer.Ordinal) : null;
+            foreach (var entry in entries)
             {
                 if (entry.StartsWith("...", StringComparison.Ordinal))
                 {
-                    local[entry[3..].Trim()] = value is IReadOnlyDictionary<string, object?> source ? source.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal) : new Dictionary<string, object?>();
+                    var rest = new Dictionary<string, object?>(StringComparer.Ordinal);
+                    if (value is IReadOnlyDictionary<string, object?> source)
+                        foreach (var pair in source)
+                            if (excluded?.Contains(pair.Key) != true && pair.Key is not ("__proto__" or "__constructor"))
+                                rest[pair.Key] = pair.Value;
+                    local[entry[3..].Trim()] = rest;
                     continue;
                 }
                 var parts = entry.Split(':', 2);
-                local[parts.Length == 2 ? parts[1] : parts[0]] = MemberValue(value, parts[0]);
+                excluded?.Add(parts[0]);
+                BindParameter(local, parts.Length == 2 ? parts[1] : parts[0], MemberValue(value, parts[0]));
             }
             return;
         }
