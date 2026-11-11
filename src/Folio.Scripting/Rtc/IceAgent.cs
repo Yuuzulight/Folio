@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Diagnostics;
+using System.Globalization;
 
 namespace Folio.Scripting.Rtc;
 
@@ -40,7 +41,7 @@ internal sealed class IceAgent : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly object _gate = new();
     private bool _disposed;
-    private readonly IReadOnlyList<string> _iceServers;
+    private IReadOnlyList<string> _iceServers;
     private readonly SemaphoreSlim _checkSerial = new(1, 1);
     private Thread? _receiveThread;
     internal bool IsReceivePumpAlive => _receiveThread?.IsAlive == true;
@@ -54,7 +55,33 @@ internal sealed class IceAgent : IDisposable
         Span<byte> tieBreakerBytes = stackalloc byte[8];
         RandomNumberGenerator.Fill(tieBreakerBytes);
         TieBreaker = BinaryPrimitives.ReadUInt64BigEndian(tieBreakerBytes);
-        _iceServers = iceServers ?? [];
+        _iceServers = iceServers?.ToArray() ?? [];
+    }
+
+    internal bool TrySetIceServers(string[] servers)
+    {
+        lock (_gate)
+        {
+            if (_disposed) return false;
+            if (GatheringState != "new") return _iceServers.SequenceEqual(servers, StringComparer.OrdinalIgnoreCase);
+            _iceServers = servers;
+            return true;
+        }
+    }
+
+    // RFC 7064 uses an opaque host and optional port, without a URI authority.
+    // This transport currently opens only IPv4 sockets.
+    internal static bool TryParseStunServer(string endpoint, out string host, out int port)
+    {
+        host = "";
+        port = 3478;
+        if (!endpoint.StartsWith("stun:", StringComparison.OrdinalIgnoreCase)) return false;
+        var address = endpoint[5..];
+        var colon = address.IndexOf(':');
+        host = colon < 0 ? address : address[..colon];
+        if (Uri.CheckHostName(host) is not (UriHostNameType.Dns or UriHostNameType.IPv4)) return false;
+        return colon < 0 || (int.TryParse(address.AsSpan(colon + 1), NumberStyles.None, CultureInfo.InvariantCulture, out port)
+            && port is > 0 and <= 65535);
     }
 
     private static string GenerateRandomString(int length)
@@ -147,25 +174,30 @@ internal sealed class IceAgent : IDisposable
 
     private async Task GatherServerReflexiveCandidatesAsync()
     {
+        if (_iceServers.Count == 0) return;
+        var budget = TimeSpan.FromSeconds(2);
+        var started = Stopwatch.GetTimestamp();
+        using var deadline = new CancellationTokenSource(budget);
         foreach (var serverUrl in _iceServers)
         {
-            if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out var uri)) continue;
-            if (!string.Equals(uri.Scheme, "stun", StringComparison.OrdinalIgnoreCase)) continue;
+            if (deadline.IsCancellationRequested || _cts.IsCancellationRequested) break;
+            if (!TryParseStunServer(serverUrl, out var host, out var port)) continue;
 
             try
             {
-                var host = uri.Host;
-                var port = uri.Port > 0 ? uri.Port : 3478;
-                var ipAddresses = await Dns.GetHostAddressesAsync(host, _cts.Token).ConfigureAwait(false);
+                using var lookup = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, deadline.Token);
+                var ipAddresses = await Dns.GetHostAddressesAsync(host, lookup.Token).ConfigureAwait(false);
                 var ipv4 = ipAddresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
                 if (ipv4 is null) continue;
+                var remaining = budget - Stopwatch.GetElapsedTime(started);
+                if (remaining <= TimeSpan.Zero) break;
 
                 var endpoint = new IPEndPoint(ipv4, port);
                 var transactionId = new byte[12];
                 RandomNumberGenerator.Fill(transactionId);
                 var request = StunMessage.EncodeRequest(StunMessage.BindingRequest, transactionId);
 
-                var (response, from) = await SendStunRequestAsync(request, transactionId, endpoint, TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                var (response, _) = await SendStunRequestAsync(request, transactionId, endpoint, remaining).ConfigureAwait(false);
                 if (response is not null && response.TryXorMappedAddress(out var mapped) && mapped is not null)
                 {
                     var srflx = new IceCandidate
