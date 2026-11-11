@@ -743,3 +743,19 @@ are pending. PR #705 remains draft and unmerged; #704, #706, #707, #709 and #710
 remain open. No milestone or 1.0 release is signed off. Logs:
 `%TEMP%/folio-tail-clean-full.log`, `%TEMP%/folio-sw-timing-focused.log`,
 `%TEMP%/folio-ci-7c-ubuntu.log`, `%TEMP%/folio-ssl-harness-{client,server}-{1,2,3}.log`.
+
+## Bounded WebRTC delivery
+
+PR #705 merged at 74edd747 after all 26 checks passed on 8f9f7624.
+The full local suite with the published native host passed 4,954 tests with two
+documented skips. Issues #706, #709 and #710 are closed.
+
+PR #708 bounds queued and executing document RTC callbacks to 256 events and
+1 MiB of retained payload. Accounting uses UTF-16 bytes for strings and raw
+bytes for binary data. The document loop schedules one RTC task at a time,
+with one event per turn. On overflow, the peer stops accepting callbacks
+and operations. The owner loop closes it on a terminal delivery, with at most
+one terminal entry per registered peer. Release, revocation and disposal purge
+pending deliveries. The paused-loop tests exercise count and byte overflow on
+both engines, including sibling survival. The focused transport-event suite
+passed 14 tests. Full suite and hosted CI are pending.

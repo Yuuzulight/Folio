@@ -9,6 +9,13 @@ internal sealed class WebRtcBindingState : IDisposable
     internal readonly DomContext _context;
     private readonly object _gate = new();
     private readonly Dictionary<long, PeerLease> _peers = [];
+    internal const int MaxDeliveryEvents = 256;
+    internal const int MaxDeliveryBytes = 1024 * 1024;
+    private readonly LinkedList<Delivery> _deliveries = new();
+    private int _deliveryCount;
+    private int _deliveryBytes;
+    private bool _deliveryScheduled;
+    private sealed record Delivery(PeerLease Peer, Action? Callback, int Bytes);
     private long _nextId;
     private bool _disposed;
     internal int ActivePeerCount { get { lock (_gate) return _peers.Count; } }
@@ -40,7 +47,7 @@ internal sealed class WebRtcBindingState : IDisposable
     {
         if (!_engine.TryGetHostTarget(value, out var target) || target is not PeerLease lease || !ReferenceEquals(lease.Owner, this)) return false;
         if (!_context.CheckCapability("WebRTC", PermissionGranted())) return false;
-        lock (_gate) return !_disposed && _peers.ContainsKey(lease.Id);
+        lock (_gate) return IsDeliverable(lease);
     }
 
     internal void Register(ScriptValue value, ScriptValue callback)
@@ -59,28 +66,9 @@ internal sealed class WebRtcBindingState : IDisposable
             lease.TransportRegistered = true;
             lease.TransportCallback = callback;
         }
-        void Queue(string kind, string state)
-        {
-            // Transport callbacks run on socket/timer threads. Only touch the
-            // script engine from its document event loop, after rechecking life.
-            var loop = _context.OwnerEventLoop;
-            if (loop is null) return;
-            try
-            {
-                loop.QueueTask(TaskSource.Generic, () =>
-                {
-                    ScriptValue handler;
-                    lock (_gate)
-                    {
-                        if (!PermissionGranted() || !_peers.ContainsKey(lease.Id)) return;
-                        handler = lease.TransportCallback;
-                    }
-                    if (handler.IsFunction)
-                        _engine.Call(handler, ScriptValue.Undefined, [ScriptValue.FromString(kind), ScriptValue.FromString(state)]);
-                }, "WebRTC transport state");
-            }
-            catch (ObjectDisposedException) { }
-        }
+        void Queue(string kind, string state) => QueuePeer(lease, () =>
+            _engine.Call(lease.TransportCallback, ScriptValue.Undefined,
+                [ScriptValue.FromString(kind), ScriptValue.FromString(state)]), 2 * (kind.Length + state.Length));
         lease.Controller.OnConnectionStateChange += state => Queue("connectionState", state);
         lease.Controller.OnIceConnectionStateChange += state => Queue("iceConnectionState", state);
         lease.Controller.OnIceGatheringStateChange += state => Queue("iceGatheringState", state);
@@ -88,21 +76,111 @@ internal sealed class WebRtcBindingState : IDisposable
         {
             var wrapped = new ChannelLease(this, lease, channel);
             QueuePeer(lease, () => _engine.Call(lease.TransportCallback, ScriptValue.Undefined,
-                [ScriptValue.FromString("datachannel"), _engine.CreateHostObject(ChannelTemplate, wrapped)]));
+                [ScriptValue.FromString("datachannel"), _engine.CreateHostObject(ChannelTemplate, wrapped)]),
+                2 * (channel.Label.Length + channel.Protocol.Length));
         };
     }
 
-    private void QueuePeer(PeerLease peer, Action action)
+    private bool IsDeliverable(PeerLease peer) => PermissionGranted() && !peer.DeliveryOverflow && _peers.ContainsKey(peer.Id);
+
+    private void QueuePeer(PeerLease peer, Action action, int bytes = 0)
     {
+        var loop = _context.OwnerEventLoop;
+        if (loop is null) return;
+        lock (_gate)
+        {
+            if (!IsDeliverable(peer)) return;
+            if (_deliveryCount >= MaxDeliveryEvents || bytes > MaxDeliveryBytes - _deliveryBytes)
+            {
+                peer.DeliveryOverflow = true;
+                RemoveDeliveries(peer);
+                // One terminal notification per registered peer. Its slot is
+                // released only when the owner loop processes it or closes the peer.
+                _deliveries.AddLast(new Delivery(peer, null, 0));
+            }
+            else
+            {
+                _deliveries.AddLast(new Delivery(peer, action, bytes));
+                _deliveryCount++;
+                _deliveryBytes += bytes;
+            }
+            if (_deliveryScheduled) return;
+            _deliveryScheduled = true;
+        }
+        ScheduleDelivery(loop);
+    }
+
+    private void ScheduleDelivery(HtmlEventLoop loop)
+    {
+        try { loop.QueueTask(TaskSource.Generic, () => DeliverOne(loop), "WebRTC delivery"); }
+        catch (ObjectDisposedException) { CloseAll(notifyScript: false); }
+    }
+
+    private void DeliverOne(HtmlEventLoop loop)
+    {
+        Delivery delivery;
+        bool deliver;
+        lock (_gate)
+        {
+            if (_deliveries.First is not { } first)
+            {
+                _deliveryScheduled = false;
+                return;
+            }
+            delivery = first.Value;
+            _deliveries.RemoveFirst();
+            deliver = delivery.Callback is null
+                ? _peers.Remove(delivery.Peer.Id) && PermissionGranted()
+                : IsDeliverable(delivery.Peer);
+        }
         try
         {
-            _context.OwnerEventLoop?.QueueTask(TaskSource.Generic, () =>
+            if (delivery.Callback is { } callback)
             {
-                lock (_gate) if (!PermissionGranted() || !_peers.ContainsKey(peer.Id)) return;
-                action();
-            }, "WebRTC data channel");
+                if (deliver) callback();
+            }
+            else
+            {
+                try
+                {
+                    if (deliver && delivery.Peer.CloseCallback.IsFunction)
+                        _engine.Call(delivery.Peer.CloseCallback, ScriptValue.Undefined, []);
+                }
+                finally { delivery.Peer.Dispose(); }
+            }
         }
-        catch (ObjectDisposedException) { }
+        finally
+        {
+            bool schedule;
+            lock (_gate)
+            {
+                ReleaseDelivery(delivery);
+                schedule = _deliveryScheduled = _deliveries.Count != 0;
+            }
+            if (schedule) ScheduleDelivery(loop);
+        }
+    }
+
+    private void ReleaseDelivery(Delivery delivery)
+    {
+        if (delivery.Callback is null) return;
+        _deliveryCount--;
+        _deliveryBytes -= delivery.Bytes;
+    }
+
+    private void RemoveDeliveries(PeerLease? peer)
+    {
+        var node = _deliveries.First;
+        while (node is not null)
+        {
+            var next = node.Next;
+            if (peer is null || node.Value.Peer == peer)
+            {
+                ReleaseDelivery(node.Value);
+                _deliveries.Remove(node);
+            }
+            node = next;
+        }
     }
 
     private ScriptValue CreateChannel(ScriptValue value, string label, string protocol)
@@ -135,11 +213,11 @@ internal sealed class WebRtcBindingState : IDisposable
             var payload = value is string text ? ScriptValue.FromString(text)
                 : value is byte[] bytes ? Owner._engine.CreateArrayBuffer(bytes) : ScriptValue.Undefined;
             Owner._engine.Call(Callback, ScriptValue.Undefined, [ScriptValue.FromString(kind), payload]);
-        });
+        }, value switch { string text => 2 * text.Length, byte[] bytes => bytes.Length, _ => 0 });
         internal void Send(ScriptValue value)
         {
             lock (Owner._gate)
-                if (!Owner.PermissionGranted() || !Owner._peers.ContainsKey(Peer.Id))
+                if (!Owner.IsDeliverable(Peer))
                     throw WebIdlException.DomException("InvalidStateError", "WebRTC peer is closed.");
             if (value.IsString) { Channel.Send(value.AsString() ?? ""); return; }
             if (!Owner._engine.TryGetBufferSourceInfo(value, out var info))
@@ -178,7 +256,11 @@ internal sealed class WebRtcBindingState : IDisposable
     {
         if (!_engine.TryGetHostTarget(value, out var target) || target is not PeerLease lease || !ReferenceEquals(lease.Owner, this)) return;
         bool removed;
-        lock (_gate) removed = _peers.Remove(lease.Id);
+        lock (_gate)
+        {
+            removed = _peers.Remove(lease.Id);
+            RemoveDeliveries(lease);
+        }
         if (removed) lease.Dispose();
     }
 
@@ -223,24 +305,25 @@ internal sealed class WebRtcBindingState : IDisposable
 
     internal void UpdateCapabilities() { if (!PermissionGranted()) CloseAll(); }
 
-    internal void CloseAll()
+    internal void CloseAll(bool notifyScript = true)
     {
         PeerLease[] peers;
         lock (_gate)
         {
             peers = _peers.Values.ToArray();
             _peers.Clear();
+            RemoveDeliveries(null);
             foreach (var peer in peers) peer.Released = true;
         }
         foreach (var peer in peers)
         {
             var cb = peer.CloseCallback;
             peer.CloseCallback = ScriptValue.Undefined;
-            if (!cb.IsUndefined && cb.IsFunction)
+            if (notifyScript && cb.IsFunction)
             {
                 try { _engine.Call(cb, ScriptValue.Undefined, []); } catch { }
             }
-            peer.Controller.Dispose();
+            peer.Dispose();
         }
     }
 
@@ -252,6 +335,7 @@ internal sealed class WebRtcBindingState : IDisposable
         internal WebRtcBindingState Owner { get; } = owner;
         internal long Id { get; } = id;
         internal bool Released { get; set; }
+        internal bool DeliveryOverflow { get; set; }
         internal ScriptValue CloseCallback { get; set; } = ScriptValue.Undefined;
         internal bool TransportRegistered { get; set; }
         internal ScriptValue TransportCallback { get; set; } = ScriptValue.Undefined;
