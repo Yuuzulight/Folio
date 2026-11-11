@@ -45,6 +45,50 @@ public class DisplayListPlayerTests
     }
 
     [Fact]
+    public void OffscreenLayerDoesNotPopItsVisibleParentClip()
+    {
+        var view = new RoundedRect(new RectF(0, 0, 40, 40), default);
+        var outside = new RoundedRect(new RectF(0, 100, 20, 20), default);
+        var list = new DisplayList();
+        list.Items.AddRange([
+            new(DisplayItemKind.PushClip, view),
+            new(DisplayItemKind.PushLayer, Opacity: 0.5f),
+            new(DisplayItemKind.PushClip, outside),
+            new(DisplayItemKind.PushTransform, Transform: System.Numerics.Matrix3x2.Identity),
+            new(DisplayItemKind.Fill, outside),
+            new(DisplayItemKind.Pop),
+            new(DisplayItemKind.Pop),
+            new(DisplayItemKind.Pop),
+            new(DisplayItemKind.Fill, view),
+            new(DisplayItemKind.Pop),
+        ]);
+        var canvas = new RecordingCanvas();
+        DisplayListPlayer.Replay(list, canvas, view.Rect);
+        Assert.Equal(["save", "clip-rrect", "fill-rrect", "restore"], canvas.Calls);
+    }
+
+    [Fact]
+    public void ALayerMovedIntoTheViewportIsDrawn()
+    {
+        var calls = Replay("<style>body { margin: 0 }</style><div style='height:100px'></div>" +
+            "<div style='transform:translateY(-100px)'><div style='height:20px;opacity:.5;background:red'></div></div>",
+            new RectF(0, 0, 40, 40));
+        Assert.Contains("layer 0.5", calls);
+        Assert.Contains("fill-rrect", calls);
+        Assert.Equal(calls.Count(call => call == "save"), calls.Count(call => call == "restore"));
+    }
+
+    [Fact]
+    public void ATransformedOuterShadowUsesTheTransformedBox()
+    {
+        var calls = Replay("<style>body { margin: 0 }</style>" +
+            "<div style='width:100px;height:100px;transform:translateX(-75px);box-shadow:0 0 16px black'></div>",
+            new RectF(30, 30, 20, 20));
+        Assert.Contains("clip-path EvenOdd", calls);
+        Assert.Contains("fill-rrect", calls);
+    }
+
+    [Fact]
     public void TransformsBecomeSaveTransformRestorePairs()
     {
         var calls = Replay("<style>body { margin: 0 }</style><div style='transform: translate(2px, 3px); height: 10px; background: red'></div>");

@@ -26,7 +26,7 @@ internal static class DisplayListPlayer
         // Items are culled only in the page's own coordinates: not under a transform or inside a layer, whose filters
         // may draw beyond what is in it.
         var moved = 0;
-        var skippedLayers = 0;
+        var skippedDepth = 0;
         var startIndex = 0;
         if (visible is { } opaqueView)
         {
@@ -55,20 +55,20 @@ internal static class DisplayListPlayer
         for (var index = startIndex; index < list.Items.Count; index++)
         {
             var item = list.Items[index];
-            if (skippedLayers > 0)
+            if (skippedDepth > 0)
             {
-                if (item.Kind == DisplayItemKind.PushLayer)
-                    skippedLayers++;
+                if (item.Kind is DisplayItemKind.PushLayer or DisplayItemKind.PushClip or DisplayItemKind.PushTransform)
+                    skippedDepth++;
                 else if (item.Kind == DisplayItemKind.Pop)
-                    skippedLayers--;
+                    skippedDepth--;
                 continue;
             }
-            if (visible is { } layerView && item.Kind == DisplayItemKind.PushLayer
+            if (visible is { } layerView && moved == 0 && item.Kind == DisplayItemKind.PushLayer
                 && bounds?[index] is { } layerBounds && !Intersects(layerBounds, layerView))
             {
                 // A bounded layer cannot affect pixels outside its bounds. Skip its complete balanced subtree;
                 // this is particularly important for damage-region repainting where most cards are untouched.
-                skippedLayers = 1;
+                    skippedDepth = 1;
                 continue;
             }
             if (visible is { } view && moved == 0 && item.Kind is not (DisplayItemKind.PushClip or DisplayItemKind.PushLayer or DisplayItemKind.PushTransform or DisplayItemKind.Pop)
@@ -83,7 +83,7 @@ internal static class DisplayListPlayer
                     canvas.ClearRect(item.Shape.Rect);
                     break;
                 case DisplayItemKind.BoxShadow:
-                    PaintBoxShadow(canvas, item, visible);
+                    PaintBoxShadow(canvas, item, moved == 0 ? visible : null);
                     break;
                 case DisplayItemKind.Border:
                     PaintBorder(canvas, item.Shape, item.Border!);
