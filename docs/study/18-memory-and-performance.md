@@ -54,6 +54,9 @@ dotnet run --project tools/Folio.WinForms.Benchmarks -c Release -- tests/conform
 
 The benchmark uses a 1920×1080 client area at 100% scale. It records five runs
 per S1/S3 artifact, timing from document load to the first `Rendered` event.
+It also reports `LoadHtml` time and the portion from entry into `OnPaint` to
+`Rendered`. Compare total first paint with the acceptance target and use
+the individual timings to locate regressions.
 Working-set deltas are sampled immediately after paint and again after the
 control is disposed and GC completes. Compare the per-artifact and corpus
 results with the targets above. [#722](https://github.com/Yuuzulight/Folio/issues/722)

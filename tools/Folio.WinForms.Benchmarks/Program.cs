@@ -31,7 +31,7 @@ internal static class Program
             Measure(window, process, "<p>Warm up the renderer.</p>");
 
         var corpus = new List<Sample>();
-        Console.WriteLine("Artifact | First paint (ms) | After-paint delta (MiB) | Post-GC delta (MiB)");
+        Console.WriteLine("Artifact | First paint (ms) | LoadHtml (ms) | OnPaint to Rendered (ms) | After-paint delta (MiB) | Post-GC delta (MiB)");
         foreach (var category in new[] { "S1", "S3" })
         {
             var files = Directory.GetFiles(Path.Combine(args[0], category), "index.html", SearchOption.AllDirectories);
@@ -58,26 +58,36 @@ internal static class Program
         Collect();
         var baseline = WorkingSet(process);
         double elapsed;
+        double loadElapsed;
+        double paintElapsed;
         long loaded;
-        using (var view = new FolioView { Dock = DockStyle.Fill })
+        using (var view = new MeasuredFolioView { Dock = DockStyle.Fill })
         {
             window.Controls.Add(view);
             long finished = 0;
+            long paintStarted = 0;
             Exception? failure = null;
-            view.Rendered += (_, _) => { if (finished == 0) finished = Stopwatch.GetTimestamp(); };
+            view.Rendered += (_, _) =>
+            {
+                if (finished != 0) return;
+                finished = Stopwatch.GetTimestamp();
+                paintStarted = view.PaintStarted;
+            };
             view.RenderFailed += (_, error) => failure = error.Exception;
             var start = Stopwatch.GetTimestamp();
             view.LoadHtml(html);
+            loadElapsed = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
             view.Update();
             if (failure is not null)
                 throw new InvalidOperationException("The control failed to paint.", failure);
-            if (finished == 0)
+            if (finished == 0 || paintStarted == 0)
                 throw new InvalidOperationException("The visible control did not paint the document.");
             elapsed = Stopwatch.GetElapsedTime(start, finished).TotalMilliseconds;
+            paintElapsed = Stopwatch.GetElapsedTime(paintStarted, finished).TotalMilliseconds;
             loaded = WorkingSet(process);
         }
         Collect();
-        return new Sample(elapsed, (loaded - baseline) / MiB, (WorkingSet(process) - baseline) / MiB);
+        return new Sample(elapsed, loadElapsed, paintElapsed, (loaded - baseline) / MiB, (WorkingSet(process) - baseline) / MiB);
     }
 
     private static void Collect()
@@ -105,11 +115,24 @@ internal static class Program
         }
 
         return new Sample(Select(samples.Select(sample => sample.Milliseconds)),
+            Select(samples.Select(sample => sample.LoadMilliseconds)), Select(samples.Select(sample => sample.PaintMilliseconds)),
             Select(samples.Select(sample => sample.LoadedMiB)), Select(samples.Select(sample => sample.RetiredMiB)));
     }
 
     private static void Print(string name, Sample sample) =>
-        Console.WriteLine($"{name} | {sample.Milliseconds:F2} | {sample.LoadedMiB:F2} | {sample.RetiredMiB:F2}");
+        Console.WriteLine($"{name} | {sample.Milliseconds:F2} | {sample.LoadMilliseconds:F2} | {sample.PaintMilliseconds:F2} | {sample.LoadedMiB:F2} | {sample.RetiredMiB:F2}");
 
-    private readonly record struct Sample(double Milliseconds, double LoadedMiB, double RetiredMiB);
+    private readonly record struct Sample(double Milliseconds, double LoadMilliseconds, double PaintMilliseconds,
+        double LoadedMiB, double RetiredMiB);
+
+    private sealed class MeasuredFolioView : FolioView
+    {
+        public long PaintStarted { get; private set; }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            PaintStarted = Stopwatch.GetTimestamp();
+            base.OnPaint(e);
+        }
+    }
 }
