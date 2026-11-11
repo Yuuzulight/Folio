@@ -213,9 +213,10 @@ internal sealed class RtcPeerConnectionController : IDisposable
         {
             var description = RtcSdp.Parse(sdp);
             description.Type = type;
+            var transport = description.TransportMedia();
             if (type == "answer")
             {
-                Dtls.IsClient = description.TransportSetup switch
+                Dtls.IsClient = (transport?.Setup ?? description.Setup) switch
                 {
                     "active" => true,
                     "passive" => false,
