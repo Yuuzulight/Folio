@@ -117,6 +117,15 @@ public sealed class DiagramRendererTests
         Assert.Contains("39.5", svg);
     }
 
+    [Fact]
+    public void PieWithOneSliceRendersAFullCircleAndPreservesTheLabel()
+    {
+        Assert.True(DiagramRenderer.TryRender("pie\ntitle FY: 2026\n\"North: East\" : 60", out var svg));
+        Assert.Single(Regex.Matches(svg, "folio-diagram-slice"));
+        Assert.Equal(2, Regex.Matches(svg, " A 130 130").Count);
+        Assert.Contains("data-label=\"North: East\"", svg);
+    }
+
     [Theory]
     [InlineData("flowchart LR\nA --> B")]
     [InlineData("sequenceDiagram\nAlice->>Bob: Hello")]
