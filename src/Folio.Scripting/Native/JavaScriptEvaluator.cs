@@ -2097,9 +2097,25 @@ internal sealed class JavaScriptEvaluator
                 if (start > end) (start, end) = (end, start);
                 return value[start..end];
             }),
+            "substr" => (Func<IReadOnlyList<object?>, object?>)(args => Substr(value, args)),
             _ => null,
         };
         return method is not null;
+    }
+
+    internal static string Substr(string value, IReadOnlyList<object?> args)
+    {
+        static double ToInteger(object? value)
+        {
+            var number = Number(value);
+            return double.IsNaN(number) ? 0 : Math.Truncate(number);
+        }
+
+        var offset = args.Count == 0 ? 0 : ToInteger(args[0]);
+        var start = (int)Math.Clamp(offset < 0 ? value.Length + offset : offset, 0, value.Length);
+        var remaining = value.Length - start;
+        var length = args.Count < 2 || args[1] is UndefinedValue ? remaining : ToInteger(args[1]);
+        return value.Substring(start, (int)Math.Clamp(length, 0, remaining));
     }
 
     private static int RelativeStringIndex(object? value, int length, int fallback)
