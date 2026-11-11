@@ -53,4 +53,25 @@ public sealed class NativeJavaScriptLexerTests
         Assert.Equal("c", lexer.Next().Text);
         Assert.Equal("=>", lexer.Next().Text);
     }
+
+    [Fact]
+    public void RecognizesRegexStatementsAndSlashInsideCharacterClasses()
+    {
+        var lexer = new JavaScriptLexer("a; /[/]/.test(a); a / 2");
+        Assert.Equal("a", lexer.Next().Text);
+        Assert.Equal(";", lexer.Next().Text);
+        var pattern = lexer.Next();
+        Assert.Equal(JavaScriptTokenKind.Regex, pattern.Kind);
+        Assert.Equal("/[/]/", pattern.Text);
+        for (var i = 0; i < 7; i++) lexer.Next();
+        var division = lexer.Next();
+        Assert.Equal(JavaScriptTokenKind.Punctuation, division.Kind);
+        Assert.Equal("/", division.Text);
+    }
+
+    [Theory]
+    [InlineData("/[/")]
+    [InlineData("/line\\\n/")]
+    public void RejectsUnterminatedOrMultilineRegexLiterals(string source) =>
+        Assert.Throws<InvalidDataException>(() => new JavaScriptLexer(source).Next());
 }
