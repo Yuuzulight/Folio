@@ -4,7 +4,6 @@ using Folio.Painting;
 using Folio.RenderTests;
 using Folio.Skia;
 using Folio.Typography;
-using SkiaSharp;
 
 namespace Folio.Benchmarks;
 
@@ -20,6 +19,8 @@ internal static class FrameBenchmark
     public static readonly TimeSpan Target = TimeSpan.FromMilliseconds(8);
     public static readonly TimeSpan HoverTarget = TimeSpan.FromMilliseconds(4);
     public static readonly TimeSpan ScrollTarget = TimeSpan.FromMilliseconds(8);
+    private static readonly RectF Viewport = new(0, 0, 800, 600);
+    private static readonly Paint Background = new(new Rgba(1, 1, 1, 1));
 
     private static readonly FolioOptions Options = new()
     {
@@ -73,12 +74,11 @@ internal static class FrameBenchmark
     public static (TimeSpan Median, TimeSpan P95, bool PaintOnly) Measure(string html, int frames)
     {
         using var document = Document.Parse(html, Options);
-        document.Paint(800, 600, 1, new HybridShaper(), 0);
-        using var bitmap = new SKBitmap(new SKImageInfo(800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
-        using var canvas = new SKCanvas(bitmap);
-        canvas.Clear(SKColors.White);
-        DisplayListPlayer.Replay(document.DisplayList!, new SkiaCanvas(canvas, false));
-        canvas.Flush();
+        var shaper = SoftwareRasterBackend.Instance.TextShaper;
+        document.Paint(800, 600, 1, shaper, 0);
+        using var surface = new SoftwareRasterSurface(800, 600);
+        var canvas = surface.Canvas;
+        Replay(canvas, document.DisplayList!, Viewport);
         var paintOnly = true;
         var times = new List<TimeSpan>();
         for (var i = -10; i < frames; i++) // ten warm-up frames
@@ -87,13 +87,12 @@ internal static class FrameBenchmark
             var time = (i + 10) / 60.0;
             var list = document.PaintFrame(time);
             paintOnly &= list is not null;
-            list ??= document.Paint(800, 600, 1, new HybridShaper(), time).List;
+            list ??= document.Paint(800, 600, 1, shaper, time).List;
             if (document.LastDamage is { } damage && damage.Width > 0 && damage.Height > 0)
             {
                 canvas.Save();
-                canvas.ClipRect(SKRect.Create(damage.X, damage.Y, damage.Width, damage.Height));
-                canvas.Clear(SKColors.White);
-                DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false), damage);
+                canvas.ClipRoundedRect(new RoundedRect(damage, default));
+                Replay(canvas, list, damage);
                 canvas.Restore();
             }
             else if (document.LastDamage is { Width: <= 0, Height: <= 0 })
@@ -102,10 +101,8 @@ internal static class FrameBenchmark
             }
             else
             {
-                canvas.Clear(SKColors.White);
-                DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false));
+                Replay(canvas, list, Viewport);
             }
-            canvas.Flush();
             if (i >= 0)
                 times.Add(Stopwatch.GetElapsedTime(start));
         }
@@ -148,9 +145,10 @@ internal static class FrameBenchmark
     public static (TimeSpan Median, TimeSpan P95) MeasureHover(string html, int steps)
     {
         using var document = Document.Parse(html, Options);
-        document.Paint(800, 600, 1, new HybridShaper(), 0);
-        using var bitmap = new SKBitmap(new SKImageInfo(800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
-        using var canvas = new SKCanvas(bitmap);
+        document.Paint(800, 600, 1, SoftwareRasterBackend.Instance.TextShaper, 0);
+        using var surface = new SoftwareRasterSurface(800, 600);
+        var canvas = surface.Canvas;
+        Replay(canvas, document.DisplayList!, Viewport);
         var times = new List<TimeSpan>();
         for (var i = -10; i < steps; i++)
         {
@@ -167,18 +165,15 @@ internal static class FrameBenchmark
                 if (damage is { } rect && rect.Width > 0 && rect.Height > 0)
                 {
                     canvas.Save();
-                    canvas.ClipRect(SKRect.Create(rect.X, rect.Y, rect.Width, rect.Height));
-                    canvas.Clear(SKColors.White);
-                    DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false), rect);
+                    canvas.ClipRoundedRect(new RoundedRect(rect, default));
+                    Replay(canvas, list, rect);
                     canvas.Restore();
                 }
-                else
+                else if (damage is not { Width: <= 0, Height: <= 0 })
                 {
-                    canvas.Clear(SKColors.White);
-                    DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false));
+                    Replay(canvas, list, Viewport);
                 }
             }
-            canvas.Flush();
             if (i >= 0)
                 times.Add(Stopwatch.GetElapsedTime(start));
         }
@@ -193,24 +188,28 @@ internal static class FrameBenchmark
     public static (TimeSpan Median, TimeSpan P95) MeasureScroll(string html, int steps)
     {
         using var document = Document.Parse(html, Options);
-        var (list, contentHeight) = document.Paint(800, 600, 1, new HybridShaper(), 0);
-        using var bitmap = new SKBitmap(new SKImageInfo(800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
-        using var canvas = new SKCanvas(bitmap);
+        var (list, contentHeight) = document.Paint(800, 600, 1, SoftwareRasterBackend.Instance.TextShaper, 0);
+        using var surface = new SoftwareRasterSurface(800, 600);
+        var canvas = surface.Canvas;
         var times = new List<TimeSpan>();
         for (var i = -10; i < steps; i++)
         {
             var start = Stopwatch.GetTimestamp();
             var scrollTop = Math.Clamp(i * 10f, 0, Math.Max(0, contentHeight - 600));
-            canvas.Clear(SKColors.White);
             canvas.Save();
-            canvas.Translate(0, -scrollTop);
-            DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false), new Folio.Painting.RectF(0, scrollTop, 800, 600));
+            canvas.Transform(System.Numerics.Matrix3x2.CreateTranslation(0, -scrollTop));
+            Replay(canvas, list, new RectF(0, scrollTop, 800, 600));
             canvas.Restore();
-            canvas.Flush();
             if (i >= 0)
                 times.Add(Stopwatch.GetElapsedTime(start));
         }
         times.Sort();
         return (times[times.Count / 2], times[Math.Min(times.Count - 1, (int)(times.Count * 0.95))]);
+    }
+
+    private static void Replay(ICanvas canvas, DisplayList list, RectF area)
+    {
+        canvas.FillRoundedRect(new RoundedRect(area, default), Background);
+        DisplayListPlayer.Replay(list, canvas, area);
     }
 }
