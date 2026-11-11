@@ -62,7 +62,7 @@ public static class Program
                 warnings.Add($"{m.Name} is over a typical-artifact target: {Ms(m.Total)} ms, {Mb(m.Retained)} MB retained");
         }
 
-        table.AppendLine().AppendLine($"Paint-only animation frames, {frames} frames each: restyle + display list + raster at 800x600; target {Ms(FrameBenchmark.Target)} ms for the typical dashboard.")
+        table.AppendLine().AppendLine($"Paint-only animation frames, {frames} frames each: restyle + display list + Folio software raster at 800x600; target {Ms(FrameBenchmark.Target)} ms for the typical dashboard.")
             .AppendLine().AppendLine("| Document | Median ms | p95 ms | Paint-only |").AppendLine("|---|--:|--:|---|");
         foreach (var (name, html, held) in new[] { ("typical dashboard", FrameBenchmark.Typical, true), ("busy dashboard", FrameBenchmark.Busy, false) })
         {
@@ -72,21 +72,21 @@ public static class Program
                 warnings.Add($"Paint-only animation frames of the {name} are over the target or not paint-only: median {Ms(result.Median)} ms");
         }
 
-        table.AppendLine().AppendLine($"Hover restyle and repaint, {frames} steps: update + raster at 800x600; target {Ms(FrameBenchmark.HoverTarget)} ms.")
+        table.AppendLine().AppendLine($"Hover restyle and repaint, {frames} steps: update + Folio software raster at 800x600; target {Ms(FrameBenchmark.HoverTarget)} ms.")
             .AppendLine().AppendLine("| Interaction | Median ms | p95 ms |").AppendLine("|---|--:|--:|");
         var hover = FrameBenchmark.MeasureHover(FrameBenchmark.HoverHtml, frames);
         table.AppendLine($"| card hover restyle | {Ms(hover.Median)} | {Ms(hover.P95)} |");
         if (hover.Median > FrameBenchmark.HoverTarget)
             warnings.Add($"Hover restyle of the dashboard is over the target: median {Ms(hover.Median)} ms (target {Ms(FrameBenchmark.HoverTarget)} ms)");
 
-        table.AppendLine().AppendLine($"Scroll frame, {frames} steps: replay display list + raster at 800x600; target {Ms(FrameBenchmark.ScrollTarget)} ms.")
+        table.AppendLine().AppendLine($"Scroll frame, {frames} steps: replay display list + Folio software raster at 800x600; target {Ms(FrameBenchmark.ScrollTarget)} ms.")
             .AppendLine().AppendLine("| Interaction | Median ms | p95 ms |").AppendLine("|---|--:|--:|");
         var scroll = FrameBenchmark.MeasureScroll(FrameBenchmark.ScrollHtml, frames);
         table.AppendLine($"| viewport scroll frame | {Ms(scroll.Median)} | {Ms(scroll.P95)} |");
         if (scroll.Median > FrameBenchmark.ScrollTarget)
             warnings.Add($"Viewport scroll frame is over the target: median {Ms(scroll.Median)} ms (target {Ms(FrameBenchmark.ScrollTarget)} ms)");
 
-        table.AppendLine().AppendLine($"Raster backends, median of {frames} replays of the typical dashboard's display list; informational, the software backend is not the default.")
+        table.AppendLine().AppendLine($"Raster backends, median of {frames} replays of the typical dashboard's display list; informational comparison with the Skia oracle.")
             .AppendLine().AppendLine("| Viewport | Skia ms | Software ms | Software / Skia |").AppendLine("|---|--:|--:|--:|");
         foreach (var (width, height) in new[] { (800, 600), (1920, 1080) })
         {
