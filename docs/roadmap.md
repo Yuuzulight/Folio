@@ -84,9 +84,13 @@ Current audit note: the interaction behavior, accessibility tree, incremental-eq
 **Current audit:** The M4 recovery implementation is complete: the twelve-artifact D1
 corpus, fail-closed classifier routing, scripted process benchmark, standards URL parser,
 artifact-scoped persistent storage, and the `elementsFromPoint`, `scrollIntoView`, and
-`setCustomValidity` bindings are wired and covered by executable checks. The milestone
-remains open because the current scripted-process benchmark misses the cold/warm startup
-and working-set targets; #484/#677 track that performance gate.
+`setCustomValidity` bindings are wired and covered by executable checks.
+The 2026-11-11 Release recheck passed D1 12/12 on the Folio engine and ran 851,074
+IPC fuzz mutations with zero failures. The
+[published Windows host run](https://github.com/Yuuzulight/Folio/actions/runs/42987284200/job/130411361779)
+passed the production-host regressions and the scripted process budget, with
+238.8 ms cold first frame, 48.6 ms maximum warm first frame and 57.0 MiB maximum
+D1 working set. The limits are 400 ms, 50 ms and 80 MiB respectively.
 
 ## 5. Scripted parity
 
@@ -102,6 +106,13 @@ and working-set targets; #484/#677 track that performance gate.
 
 **Audit result (2026-10-30):** The dependency-backed D2–D7 corpus still passes 60/60, and the focused scripting, canvas, fetch, CSSOM, observer, library and JSX checks pass. The production Folio engine's native D5/D7 frame gate passes every artifact below the 16.7 ms total p95 limit (local heaviest samples: D5/canvas-animated-bars 5.31 ms and D7/canvas-snake-game 9.84 ms). The compatibility engine remains a differential oracle only; its slower canvas-animated-bars result is retained as optimization evidence, not a production failure. The software raster backend is still materially slower than Skia, so issue #575 remains open. Results vary materially between runs, so benchmark stability and optimization still need work. Diagram tests pass through `Folio.Diagrams`, and the pinned library cache/integrity tests pass. The scripted-parity milestone remains open for the mandatory Folio-owned replacement gates.
 An 80-frame follow-up after the unclipped-solid-paint fast path measured 69.8 ms and 84.9 ms for software replay at the same viewports, with typical paint-only p95 at 8.6 ms; the variance reinforces that #575 needs a stabilized benchmark before a backend switch.
+
+Release recheck (2026-11-11): D2–D7 passed all 60 strict conformance cases on the
+Folio engine. The native D5/D7 frame check passed all 20 artifacts, with 10.11 ms
+total p95 for animated bars and 1.74 ms for snake in the local Release run.
+Published-host startup for pinned library artifacts still needs qualification.
+The D1-only process benchmark does not measure that path.
+[#733](https://github.com/Yuuzulight/Folio/issues/733) tracks the remaining evidence and any misses.
 
 ## 6. Beyond artifacts
 
