@@ -19,6 +19,8 @@ public static class Program
             return OpenSslDtlsProbe.Run(serverOpenSsl, folioServer: true);
         if (args is ["worker-thread-pool-probe"])
             return WorkerThreadPoolProbe();
+        if (args is ["service-worker-load-deadline-probe"])
+            return ServiceWorkerSafetyLifecycleTests.RunLoadDeadlineProbe();
         if (args is ["rtc-thread-pool-probe"])
             return RtcThreadPoolProbe.Run();
         if (args is ["gpu-thread-pool-probe"])
