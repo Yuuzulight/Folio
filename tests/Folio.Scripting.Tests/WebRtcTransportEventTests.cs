@@ -263,10 +263,37 @@ public sealed class WebRtcTransportEventTests
         using var state = WebRtcBindings.Install(engine, context);
         try
         {
-            engine.Evaluate("var peer=new RTCPeerConnection(),states=[];peer.onicegatheringstatechange=function(){states.push(peer.iceGatheringState);};peer.createOffer();");
+            engine.Evaluate("""
+                var peer=new RTCPeerConnection(),events=[],candidates=[],offer=null;
+                peer.onicegatheringstatechange=function(){events.push(peer.iceGatheringState);};
+                peer.onicecandidate=function(e){events.push(e.candidate===null?'end':'candidate');if(e.candidate)candidates.push(e.candidate);};
+                peer.createDataChannel('gather');
+                peer.createOffer().then(function(value){offer=value;});
+                """);
+            engine.PerformMicrotaskCheckpoint();
+            loop.SpinUntilIdle();
+            Assert.Equal("new", engine.Evaluate("peer.iceGatheringState").AsString());
+            Assert.Equal(0, engine.Evaluate("events.length").AsNumber());
+            engine.Evaluate("peer.setLocalDescription(offer);");
             loop.SpinUntilIdle();
             Assert.Equal("complete", engine.Evaluate("peer.iceGatheringState").AsString());
-            Assert.Equal("gathering,complete", engine.Evaluate("states.join(',')").AsString());
+            var count = (int)engine.Evaluate("candidates.length").AsNumber();
+            Assert.True(count > 0);
+            Assert.Equal(string.Join(',', new[] { "gathering" }.Concat(Enumerable.Repeat("candidate", count)).Concat(["complete", "end"])),
+                engine.Evaluate("events.join(',')").AsString());
+            var sdp = engine.Evaluate("offer.sdp").AsString();
+            for (var index = 0; index < count; index++)
+            {
+                var candidate = $"candidates[{index}]";
+                Assert.True(engine.Evaluate($"{candidate} instanceof RTCIceCandidate").AsBoolean());
+                Assert.Equal("0", engine.Evaluate($"{candidate}.sdpMid").AsString());
+                Assert.Equal(0, engine.Evaluate($"{candidate}.sdpMLineIndex").AsNumber());
+                Assert.Contains($"a=ice-ufrag:{engine.Evaluate($"{candidate}.usernameFragment").AsString()}\r\n", sdp);
+                Assert.Contains($"a={engine.Evaluate($"{candidate}.candidate").AsString()}\r\n", sdp);
+            }
+            engine.Evaluate("peer.setLocalDescription(offer);");
+            loop.SpinUntilIdle();
+            Assert.Equal(count + 3, engine.Evaluate("events.length").AsNumber());
             engine.Evaluate("peer.setRemoteDescription({type:'answer',sdp:'v=0\\r\\na=setup:active\\r\\n'});peer.addIceCandidate(null);");
             loop.SpinUntilIdle();
             Assert.Equal("new", engine.Evaluate("peer.connectionState").AsString());

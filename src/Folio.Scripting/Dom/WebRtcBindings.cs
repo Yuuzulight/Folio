@@ -98,12 +98,12 @@ internal sealed class WebRtcBindingState : IDisposable
             lease.TransportRegistered = true;
             lease.TransportCallback = callback;
         }
-        void Queue(string kind, string state) => QueuePeer(lease, () =>
-            _engine.Call(lease.TransportCallback, ScriptValue.Undefined,
-                [ScriptValue.FromString(kind), ScriptValue.FromString(state)]), 2 * (kind.Length + state.Length));
-        lease.Controller.OnConnectionStateChange += state => Queue("connectionState", state);
-        lease.Controller.OnIceConnectionStateChange += state => Queue("iceConnectionState", state);
-        lease.Controller.OnIceGatheringStateChange += state => Queue("iceGatheringState", state);
+        lease.Controller.OnConnectionStateChange += state => QueueTransportState(lease, "connectionState", state);
+        lease.Controller.OnIceConnectionStateChange += state => QueueTransportState(lease, "iceConnectionState", state);
+        lease.Controller.OnIceGatheringStateChange += state =>
+        {
+            if (state == "complete") PublishLocalCandidates(lease);
+        };
         lease.Controller.OnDataChannel += channel =>
         {
             var wrapped = new ChannelLease(this, lease, channel);
@@ -111,6 +111,41 @@ internal sealed class WebRtcBindingState : IDisposable
                 [ScriptValue.FromString("datachannel"), _engine.CreateHostObject(ChannelTemplate, wrapped)]),
                 2 * (channel.Label.Length + channel.Protocol.Length));
         };
+    }
+
+    private void QueueTransportState(PeerLease lease, string kind, string state) => QueuePeer(lease, () =>
+        _engine.Call(lease.TransportCallback, ScriptValue.Undefined,
+            [ScriptValue.FromString(kind), ScriptValue.FromString(state)]), 2 * (kind.Length + state.Length));
+
+    private void PublishLocalCandidates(PeerLease lease)
+    {
+        if (_context.OwnerEventLoop is null) return;
+        lock (_gate)
+        {
+            // Offer/answer creation can finish gathering before a local description selects the transport.
+            if (!IsDeliverable(lease) || lease.LocalCandidatesPublished ||
+                lease.Controller.IceGatheringState != "complete" ||
+                lease.Controller.LocalDescription is not { Type: "offer" or "answer" } description ||
+                description.TransportMedia() is not { } media)
+                return;
+
+            lease.LocalCandidatesPublished = true;
+            var mid = media.Mid;
+            var index = description.Media.IndexOf(media);
+            QueueTransportState(lease, "iceGatheringState", "gathering");
+            foreach (var candidate in lease.Controller.Ice.LocalCandidates)
+            {
+                var sdp = candidate.ToSdp();
+                var usernameFragment = candidate.UsernameFragment;
+                QueuePeer(lease, () => _engine.Call(lease.TransportCallback, ScriptValue.Undefined,
+                    [ScriptValue.FromString("icecandidate"), ScriptValue.FromString(sdp), ScriptValue.FromString(mid),
+                        ScriptValue.FromNumber(index), ScriptValue.FromString(usernameFragment)]),
+                    2 * (sdp.Length + (mid?.Length ?? 0) + (usernameFragment?.Length ?? 0)));
+            }
+            QueueTransportState(lease, "iceGatheringState", "complete");
+            QueuePeer(lease, () => _engine.Call(lease.TransportCallback, ScriptValue.Undefined,
+                [ScriptValue.FromString("icecandidate"), ScriptValue.Null]));
+        }
     }
 
     private bool IsDeliverable(PeerLease peer) => PermissionGranted() && !_deliveryStopped &&
@@ -329,7 +364,10 @@ internal sealed class WebRtcBindingState : IDisposable
     internal void SetLocalDescription(ScriptValue value, string type, string sdp)
     {
         if (_engine.TryGetHostTarget(value, out var target) && target is PeerLease lease && ReferenceEquals(lease.Owner, this))
+        {
             lease.Controller.SetLocalDescription(type, sdp);
+            PublishLocalCandidates(lease);
+        }
     }
 
     internal void SetRemoteDescription(ScriptValue value, string type, string sdp)
@@ -379,6 +417,7 @@ internal sealed class WebRtcBindingState : IDisposable
         internal bool DeliveryOverflow { get; set; }
         internal ScriptValue CloseCallback { get; set; } = ScriptValue.Undefined;
         internal bool TransportRegistered { get; set; }
+        internal bool LocalCandidatesPublished { get; set; }
         internal ScriptValue TransportCallback { get; set; } = ScriptValue.Undefined;
         internal RtcPeerConnectionController Controller { get; } = new(servers);
 
@@ -466,9 +505,14 @@ internal sealed class WebRtcBindingState : IDisposable
   var __folio_webrtc_peers=[];
 
 globalThis.RTCPeerConnection = function(configuration) { var connection=this; var endpoints=[]; configuration=validate(configuration,endpoints); var lease=apply(host.acquire,host,endpoints); apply(weakSet,peers,[this,lease]); apply(weakSet,channelLists,[this,[]]); __folio_webrtc_peers.push(this); try { host.register(lease,function(){retire(connection,true);});
-    host.registerTransport(lease,function(property,value) {
+    host.registerTransport(lease,function(property,value,mid,index,usernameFragment) {
         token(connection);
         if(property==='datachannel') { var incoming=transportChannel(connection,value); connection._dispatch('datachannel',{channel:incoming}); return; }
+        if(property==='icecandidate') {
+            var candidate=value===null?null:new RTCIceCandidate({candidate:value,sdpMid:mid,sdpMLineIndex:index,usernameFragment:usernameFragment});
+            connection._dispatch('icecandidate',{candidate:candidate});
+            return;
+        }
         if(connection[property]===value)return;
         connection[property]=value;
         var eventName=property==='connectionState'?'connectionstatechange':property==='iceConnectionState'?'iceconnectionstatechange':'icegatheringstatechange';
@@ -493,7 +537,22 @@ RTCSessionDescription.prototype.toJSON = function() { return { type: this.type, 
 function __folio_sdp(connection, type) { var kinds=[]; connection._senders.forEach(function(sender){ if(sender.track && kinds.indexOf(sender.track.kind)<0) kinds.push(sender.track.kind); }); connection._transceivers.forEach(function(transceiver){ if(transceiver.kind && kinds.indexOf(transceiver.kind)<0) kinds.push(transceiver.kind); }); var sdp='v=0\\r\\n'+'o=- 0 0 IN IP4 127.0.0.1\\r\\n'+'s=-\\r\\n'+'t=0 0\\r\\n'; if(type==='offer' && connection._dataChannels.length) sdp+='m=application 9 DTLS/SCTP webrtc-datachannel\\r\\n'; kinds.forEach(function(kind,index){ sdp+='m='+kind+' 9 UDP/TLS/RTP/SAVPF 96\\r\\n'+'a=mid:'+index+'\\r\\n'+'a=sendrecv\\r\\n'; }); return sdp; }
 RTCPeerConnection.prototype.createOffer = function() { var dead=asyncDead(this); if(dead)return dead; var lease=token(this); var offerSdp=host.createOffer(lease, this._dataChannels.length > 0, this._senders.filter(function(s){return s.track&&s.track.kind==='audio';}).length, this._senders.filter(function(s){return s.track&&s.track.kind==='video';}).length); if(typeof offerSdp!=='string'||!offerSdp) offerSdp=__folio_sdp(this,'offer'); return Promise.resolve(new RTCSessionDescription({ type: 'offer', sdp: offerSdp })); };
 RTCPeerConnection.prototype.createAnswer = function() { var dead=asyncDead(this); if(dead)return dead; var lease=token(this); var answerSdp=host.createAnswer(lease, this._dataChannels.length > 0, this._senders.filter(function(s){return s.track&&s.track.kind==='audio';}).length, this._senders.filter(function(s){return s.track&&s.track.kind==='video';}).length); if(typeof answerSdp!=='string'||!answerSdp) answerSdp=__folio_sdp(this,'answer'); return Promise.resolve(new RTCSessionDescription({ type: 'answer', sdp: answerSdp })); };
-RTCPeerConnection.prototype.setLocalDescription = function(description) { var dead=asyncDead(this); if(dead)return dead; if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); if (!description || (description.type !== 'offer' && description.type !== 'answer' && description.type !== 'rollback')) return Promise.reject(new TypeError('The session description type is invalid.')); var lease=token(this); this.localDescription = description; host.setLocalDescription(lease, description.type, description.sdp || ''); if (this.localDescription.type === 'offer') { this.signalingState = 'have-local-offer'; this._dispatch('signalingstatechange', {}); } this.iceGatheringState = 'complete'; this._dispatch('icegatheringstatechange', {}); this._dispatch('icecandidate', { candidate: null }); return Promise.resolve(); };
+RTCPeerConnection.prototype.setLocalDescription = function(description) {
+    var dead=asyncDead(this); if(dead)return dead;
+    if(this.connectionState==='closed')return Promise.reject(new DOMException('The connection is closed.','InvalidStateError'));
+    if(!description||(description.type!=='offer'&&description.type!=='answer'&&description.type!=='rollback'))
+        return Promise.reject(new TypeError('The session description type is invalid.'));
+    try { host.setLocalDescription(token(this),description.type,description.sdp||''); }
+    catch(error) { return Promise.reject(error); }
+    this.localDescription=description;
+    if(description.type==='offer') { this.signalingState='have-local-offer'; this._dispatch('signalingstatechange',{}); }
+    if(!host.transportEnabled()) {
+        this.iceGatheringState='complete';
+        this._dispatch('icegatheringstatechange',{});
+        this._dispatch('icecandidate',{candidate:null});
+    }
+    return Promise.resolve();
+};
 RTCPeerConnection.prototype.setRemoteDescription = function(description) { var dead=asyncDead(this); if(dead)return dead; if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); if (!description || (description.type !== 'offer' && description.type !== 'answer' && description.type !== 'rollback')) return Promise.reject(new TypeError('The session description type is invalid.')); var lease=token(this); this.remoteDescription = description; host.setRemoteDescription(lease, description.type, description.sdp || ''); if (this.remoteDescription.type === 'answer') { this.signalingState = 'stable'; this._dispatch('signalingstatechange', {}); this.iceConnectionState = 'connected'; this._dispatch('iceconnectionstatechange', {}); this.connectionState = 'connected'; this._dispatch('connectionstatechange', {}); var peer = null; for (var peerIndex = 0; peerIndex < __folio_webrtc_peers.length; peerIndex++) { var candidate = __folio_webrtc_peers[peerIndex]; if (candidate !== this && candidate.connectionState !== 'closed' && ((this.localDescription && this.localDescription.type === 'offer' && candidate.remoteDescription && candidate.remoteDescription.type === 'offer') || (this.remoteDescription && this.remoteDescription.type === 'offer' && candidate.localDescription && candidate.localDescription.type === 'offer'))) { peer = candidate; break; } } if (peer) { this._peer = peer; peer._peer = this; __folio_pair_channels(this, peer); __folio_pair_channels(peer, this); peer._senders.forEach(function(sender) { if (sender.track && this.ontrack) this._dispatch('track', { type: 'track', target: this, track: sender.track, transceiver: null, streams: [new MediaStream([sender.track])] }); }, this); } if (this.ontrack) this._transceivers.forEach(function(transceiver) { if (transceiver.stopped) return; var track = transceiver.receiver.track; this._dispatch('track', { type: 'track', target: this, track: track, transceiver: transceiver, streams: [new MediaStream([track])] }); }, this); } return Promise.resolve(); };
 RTCPeerConnection.prototype.addIceCandidate = function(candidate) { var dead=asyncDead(this); if(dead)return dead; if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); if (candidate !== null && candidate !== undefined && typeof candidate !== 'string' && (!candidate || candidate.candidate === undefined || typeof candidate.candidate !== 'string')) return Promise.reject(new TypeError('The ICE candidate is invalid.')); var lease=token(this); var candStr = typeof candidate === 'string' ? candidate : (candidate && candidate.candidate ? candidate.candidate : ''); host.addIceCandidate(lease, candStr); this.iceConnectionState = 'connected'; this._dispatch('iceconnectionstatechange', {}); if (this.connectionState === 'new') { this.connectionState = 'connected'; this._dispatch('connectionstatechange', {}); } return Promise.resolve(); };
 RTCPeerConnection.prototype.addTrack = function(track) { token(this); if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); if (!track || typeof track !== 'object' || (track.kind !== 'audio' && track.kind !== 'video')) throw new TypeError('The track is invalid.'); for (var i = 0; i < this._senders.length; i++) if (this._senders[i].track === track) throw new DOMException('The track is already attached to this connection.', 'InvalidAccessError'); var connection = this; var sender = { track: track, _parameters: { encodings: [] }, replaceTrack: function(next) { var dead=asyncDead(connection); if(dead)return dead; if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); sender.track = next; return Promise.resolve(); }, getParameters: function() { token(connection); return sender._parameters; }, setParameters: function(parameters) { var dead=asyncDead(connection); if(dead)return dead; sender._parameters = parameters || { encodings: [] }; return Promise.resolve(sender._parameters); } }; this._senders.push(sender); this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); if (this._peer && typeof this._peer.ontrack === 'function') this._peer._dispatch('track', { type: 'track', target: this._peer, track: track, transceiver: null, streams: [new MediaStream([track])] }); return sender; };

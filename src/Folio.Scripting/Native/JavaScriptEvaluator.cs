@@ -814,7 +814,9 @@ internal sealed class JavaScriptEvaluator
             case JavaScriptBinaryOp.InstanceOf:
             {
                 var leftVal = Evaluate(binary.Left);
-                return IsInstanceOf(leftVal, binary.Right is JavaScriptIdentifierExpression constructor ? constructor.Name : Evaluate(binary.Right));
+                var constructor = Evaluate(binary.Right);
+                return IsInstanceOf(leftVal, constructor) ||
+                    binary.Right is JavaScriptIdentifierExpression identifier && IsInstanceOf(leftVal, identifier.Name);
             }
             case JavaScriptBinaryOp.In:
             {
