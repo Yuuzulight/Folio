@@ -386,24 +386,29 @@ RTCPeerConnection.prototype.createDataChannel=function(label,options) {
     var channel=transportChannel(this,host.createChannel(token(this),String(label||''),String(options.protocol||'')));
     this._dataChannels.push(channel);return channel;
 };
-// Empty descriptions remain solely for the legacy in-page fixtures. Real SDP
-// must derive connectivity from transport events, never from accepting an answer.
+// The loopless compatibility mode still accepts empty descriptions.
+// Document peers derive connectivity from transport events.
 var legacyRemoteDescription=RTCPeerConnection.prototype.setRemoteDescription;
 var legacyIceCandidate=RTCPeerConnection.prototype.addIceCandidate;
 RTCPeerConnection.prototype.setRemoteDescription=function(description) {
-    if(description && description.sdp==='')return legacyRemoteDescription.call(this,description);
     var dead=asyncDead(this);if(dead)return dead;
-    if(!description || (description.type!=='offer' && description.type!=='answer'))return Promise.reject(new TypeError('Invalid remote description.'));
     try {
-        host.setRemoteDescription(token(this),description.type,String(description.sdp||''));
-        this.remoteDescription=new RTCSessionDescription(description);
-        this.signalingState=description.type==='offer'?'have-remote-offer':'stable';
+        if(!description)throw new TypeError('Invalid remote description.');
+        var type=description.type;
+        if(type!=='offer' && type!=='answer')throw new TypeError('Invalid remote description.');
+        var value=description.sdp;
+        if(!host.transportEnabled() && value==='')return legacyRemoteDescription.call(this,{type:type,sdp:value});
+        var sdp=String(value||'');
+        if(!sdp.trim())throw new TypeError('Remote SDP is empty.');
+        host.setRemoteDescription(token(this),type,sdp);
+        this.remoteDescription=new RTCSessionDescription({type:type,sdp:sdp});
+        this.signalingState=type==='offer'?'have-remote-offer':'stable';
         this._dispatch('signalingstatechange',{});
         return Promise.resolve();
     } catch(error) { return Promise.reject(error); }
 };
 RTCPeerConnection.prototype.addIceCandidate=function(candidate) {
-    if(this.remoteDescription && this.remoteDescription.sdp==='')return legacyIceCandidate.call(this,candidate);
+    if(!host.transportEnabled() && this.remoteDescription && this.remoteDescription.sdp==='')return legacyIceCandidate.call(this,candidate);
     var dead=asyncDead(this);if(dead)return dead;
     if(candidate!==null && candidate!==undefined && typeof candidate!=='string' && typeof candidate.candidate!=='string')return Promise.reject(new TypeError('Invalid ICE candidate.'));
     try {

@@ -7,6 +7,34 @@ namespace Folio.Scripting.Tests;
 public sealed class WebRtcTransportEventTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EmptyRemoteAnswerCannotPublishConnectedStateOnDocumentLoop(bool native)
+    {
+        using IScriptEngine engine = native ? new NativeJavaScriptEngine() : new JintScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions { Capabilities = new FeatureCapabilities { WebRtc = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        try
+        {
+            engine.Evaluate("""
+                var peer=new RTCPeerConnection(), connected=0, rejected='';
+                peer.onconnectionstatechange=function(){if(peer.connectionState==='connected')connected++;};
+                peer.setRemoteDescription({type:'answer',sdp:''}).catch(function(error){rejected=error.name;});
+                peer.addIceCandidate(null);
+                """);
+            engine.PerformMicrotaskCheckpoint();
+            loop.SpinUntilIdle();
+            Assert.Equal("TypeError", engine.Evaluate("rejected").AsString());
+            Assert.True(engine.Evaluate("peer.remoteDescription === null").AsBoolean());
+            Assert.Equal("new", engine.Evaluate("peer.connectionState").AsString());
+            Assert.Equal("new", engine.Evaluate("peer.iceConnectionState").AsString());
+            Assert.Equal(0, engine.Evaluate("connected").AsNumber());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Theory]
     [InlineData(false, 65536)]
     [InlineData(true, 65536)]
     [InlineData(false, 262144)]
