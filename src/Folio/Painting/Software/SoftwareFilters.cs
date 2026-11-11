@@ -166,26 +166,28 @@ internal static class SoftwareFilters
     // ---- primitives ----
 
     private static PixelSurface Blur(PixelSurface s, float sigmaX, float sigmaY) =>
-        sigmaX <= 0 && sigmaY <= 0 ? s : Wrap(s, GaussianBlur.Apply(s.Data, s.Width, s.Height, 4, Math.Max(sigmaX, 0), Math.Max(sigmaY, 0)));
-
-    private static PixelSurface Wrap(PixelSurface like, byte[] data)
-    {
-        var o = new PixelSurface(like.Width, like.Height);
-        Array.Copy(data, o.Data, data.Length);
-        return o;
-    }
+        sigmaX <= 0 && sigmaY <= 0 ? s :
+        new PixelSurface(s.Width, s.Height, GaussianBlur.Apply(s.Data, s.Width, s.Height, 4, Math.Max(sigmaX, 0), Math.Max(sigmaY, 0)));
 
     private static Frame ColorMatrix(Frame s, IReadOnlyList<float>? m)
     {
         if (m is not { Count: 20 })
             return s;
-        return s.Then(p =>
+        // Hoist coefficient reads out of the pixel loop. Each vector computes all four output channels.
+        Vector4 Column(int i) => new(m[i], m[i + 5], m[i + 10], m[i + 15]);
+        var red = Column(0);
+        var green = Column(1);
+        var blue = Column(2);
+        var alpha = Column(3);
+        var bias = Column(4);
+        Vector4 Transform(Vector4 c)
         {
-            var c = Straight(p);
-            float Row(int r) => m[r * 5] * c.X + m[r * 5 + 1] * c.Y + m[r * 5 + 2] * c.Z + m[r * 5 + 3] * c.W + m[r * 5 + 4];
-            var result = new Vector4(Math.Clamp(Row(0), 0, 1), Math.Clamp(Row(1), 0, 1), Math.Clamp(Row(2), 0, 1), Math.Clamp(Row(3), 0, 1));
-            return Premultiply(result);
-        });
+            var result = red * c.X + green * c.Y + blue * c.Z + alpha * c.W + bias;
+            return Premultiply(new Vector4(Math.Clamp(result.X, 0, 1), Math.Clamp(result.Y, 0, 1),
+                Math.Clamp(result.Z, 0, 1), Math.Clamp(result.W, 0, 1)));
+        }
+        var transparent = Transform(Vector4.Zero);
+        return s.Then(p => p.W > 0 ? Transform(Straight(p)) : transparent);
     }
 
     private static PixelSurface Offset(PixelSurface s, float dx, float dy)

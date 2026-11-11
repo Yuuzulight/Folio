@@ -3,13 +3,24 @@ using System.Numerics;
 namespace Folio.Painting.Software;
 
 /// <summary>A bitmap of premultiplied RGBA, one byte per channel.</summary>
-internal sealed class PixelSurface(int width, int height)
+internal sealed class PixelSurface
 {
-    public int Width { get; } = width;
+    public PixelSurface(int width, int height) : this(width, height, new byte[checked(width * height * 4)]) { }
 
-    public int Height { get; } = height;
+    internal PixelSurface(int width, int height, byte[] data)
+    {
+        if (data.Length != checked(width * height * 4))
+            throw new ArgumentException("The pixel buffer does not match the surface dimensions.", nameof(data));
+        Width = width;
+        Height = height;
+        Data = data;
+    }
 
-    public byte[] Data { get; } = new byte[checked(width * height * 4)];
+    public int Width { get; }
+
+    public int Height { get; }
+
+    public byte[] Data { get; }
 
     public PixelSurface Clone()
     {

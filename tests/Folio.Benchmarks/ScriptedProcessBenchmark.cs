@@ -92,6 +92,9 @@ public static class ScriptedProcessBenchmark
             return 1;
         }
 
+        if (args?.Contains("--libraries", StringComparer.Ordinal) == true)
+            return await MeasureLibrariesAsync(host);
+
         var table = new StringBuilder()
             .AppendLine("### Scripted Start-up, First Paint, and Content-Process Memory")
             .AppendLine()
@@ -386,10 +389,107 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
     private static bool IsLoadResponse(ContentMessage message) => message.Kind == ContentMessageKind.Diagnostic ||
         (message.Kind == ContentMessageKind.Frame && message.Payload.TryGetProperty("sequence", out var sequence) && sequence.GetInt64() > 0);
 
-    private static void ValidateFrame(ContentMessage message, ContentProcessClient client)
+    private static async Task<int> MeasureLibrariesAsync(string host)
+    {
+        var problems = ConformanceCache.Problems();
+        if (problems.Count != 0) throw new InvalidDataException(string.Join(Environment.NewLine, problems));
+        var cache = ConformanceCache.Entries().ToDictionary(entry => entry.Url, StringComparer.Ordinal);
+        var globals = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["chart.umd.min.js"] = "Chart", ["phaser.min.js"] = "Phaser", ["twind-shim.min.js"] = "twind",
+            ["babel.min.js"] = "Babel", ["d3.min.js"] = "d3", ["react-dom.production.min.js"] = "ReactDOM",
+            ["react.production.min.js"] = "React",
+        };
+        var policy = new ContentResourcePolicy
+        {
+            AllowedOrigins = cache.Values.Select(entry => new Uri(entry.Url).GetLeftPart(UriPartial.Authority))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+        };
+        await using var client = ContentProcessClient.Start(host, resourceLoader: ConformanceCache.Loader, resourcePolicy: policy);
+        async Task<ContentMessage> Load(string html, string script)
+        {
+            var response = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+            ValueTask OnMessage(ContentMessage message, CancellationToken cancellationToken)
+            {
+                if (IsLoadResponse(message)) response.TrySetResult(message);
+                return ValueTask.CompletedTask;
+            }
+            client.MessageReceived += OnMessage;
+            try
+            {
+                await client.SendAsync(ContentMessageKind.Load, new { html, script });
+                return await response.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            }
+            finally { client.MessageReceived -= OnMessage; }
+        }
+
+        ValidateFrame(await Load("<!doctype html><p>Warm up the content process.</p>", ""), client);
+        Console.WriteLine("| Artifact | First frame ms | Working set MiB | Result |");
+        Console.WriteLine("|---|---:|---:|---|");
+        var measured = 0;
+        var failed = 0;
+        var unqualified = 0;
+        for (var category = 2; category <= 7; category++)
+        {
+            var directory = Path.Combine(RepoPaths.Tests, "conformance", $"D{category}");
+            foreach (var path in Directory.EnumerateFiles(directory, "index.html", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+            {
+                var html = await File.ReadAllTextAsync(path);
+                using var document = Document.Parse(html);
+                var urls = document.QuerySelectorAll("script[src]").Select(script => script.GetAttribute("src")!).Distinct(StringComparer.Ordinal).ToArray();
+                if (urls.Length == 0) continue;
+                var id = $"D{category}/{Path.GetFileName(Path.GetDirectoryName(path))}";
+                if (urls.Any(url => !cache.ContainsKey(url)))
+                {
+                    Console.WriteLine($"| {id} | — | — | Unavailable in the pinned cache |");
+                    unqualified++;
+                    continue;
+                }
+                var libraries = urls.Select(url => cache[url].File).ToArray();
+                if (libraries.Contains("mermaid.min.js", StringComparer.Ordinal))
+                {
+                    Console.WriteLine($"| {id} | — | — | Diagram stand-in qualification pending |");
+                    unqualified++;
+                    continue;
+                }
+                if (libraries.Any(file => !globals.ContainsKey(file)))
+                    throw new InvalidDataException($"{id} has a pinned library without an execution probe.");
+
+                var probe = string.Join(" && ", libraries.Select(file => $"typeof globalThis.{globals[file]} !== 'undefined'"));
+                var start = Stopwatch.GetTimestamp();
+                var frame = await Load(html, probe);
+                var elapsed = Stopwatch.GetElapsedTime(start);
+                client.Process.Refresh();
+                var workingSet = client.Process.WorkingSet64;
+                measured++;
+                try
+                {
+                    var chart = libraries.Contains("chart.umd.min.js", StringComparer.Ordinal);
+                    ValidateFrame(frame, client, chart);
+                    if (frame.Payload.GetProperty("value").GetString() != "true")
+                        throw new InvalidDataException("A pinned library did not initialize.");
+                    if (chart && frame.Payload.GetProperty("canvasCommands").GetInt32() == 0)
+                        throw new InvalidDataException("The chart did not create a canvas surface.");
+                    var within = elapsed <= TargetWarmFirstPaint && workingSet <= TargetWorkingSet;
+                    if (!within) failed++;
+                    Console.WriteLine(FormattableString.Invariant($"| {id} | {elapsed.TotalMilliseconds:F1} | {workingSet / (1024.0 * 1024):F1} | {(within ? "Pass" : "Over budget")} |"));
+                }
+                catch (InvalidDataException error)
+                {
+                    failed++;
+                    Console.WriteLine($"| {id} | — | — | {error.Message.Replace('|', '/').Replace('\r', ' ').Replace('\n', ' ')} |");
+                }
+            }
+        }
+        Console.WriteLine($"Measured {measured} pinned-library artifacts. Failures: {failed}. Unqualified: {unqualified}.");
+        return measured > 0 && failed == 0 && unqualified == 0 ? 0 : 1;
+    }
+
+    private static void ValidateFrame(ContentMessage message, ContentProcessClient client, bool allowChartBridge = false)
     {
         if (message.Kind != ContentMessageKind.Frame) throw new InvalidDataException($"Content host failed: {message.Payload}");
-        if (message.Payload.TryGetProperty("diagnostics", out var diagnostics) && diagnostics.GetArrayLength() != 0)
+        if (message.Payload.TryGetProperty("diagnostics", out var diagnostics) && diagnostics.EnumerateArray().Any(diagnostic =>
+            !allowChartBridge || diagnostic.GetString() != "Replaced the configured chart library with Folio's native canvas chart bridge."))
             throw new InvalidDataException($"Content diagnostics: {diagnostics}");
         using var store = new CanvasFrameStore(client.FramePath, 1280, 720, 1280 * 4);
         var pixels = store.ReadLatest(out var sequence);

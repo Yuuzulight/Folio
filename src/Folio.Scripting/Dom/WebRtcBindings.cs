@@ -1,5 +1,6 @@
 using Folio;
 using Folio.Scripting.Rtc;
+using Folio.Scripting.Ipc;
 
 namespace Folio.Scripting.Dom;
 
@@ -30,18 +31,48 @@ internal sealed class WebRtcBindingState : IDisposable
     private bool PermissionGranted() => !_disposed && _context.Capabilities.WebRtc && !_context.ScriptFeaturesDisposed;
     private void EnsurePermission() { if (!PermissionGranted()) { _context.CheckCapability("WebRTC", false); throw WebIdlException.DomException("NotSupportedError", "WebRTC is disabled by the host."); } }
 
-    internal ScriptValue Acquire()
+    internal ScriptValue Acquire(ReadOnlySpan<ScriptValue> endpoints)
     {
         EnsurePermission();
+        var servers = ValidateIceServers(endpoints);
         lock (_gate)
         {
             if (_disposed || _deliveryStopped) throw WebIdlException.DomException("InvalidStateError", "The document is closed.");
             if (_peers.Count >= _context.MaxWebRtcConnections) throw WebIdlException.DomException("QuotaExceededError", "The WebRTC peer connection limit has been exceeded.");
-            var lease = new PeerLease(this, ++_nextId);
+            var lease = new PeerLease(this, ++_nextId, servers);
             _peers.Add(lease.Id, lease);
             try { return _engine.CreateHostObject(PeerTemplate, lease); }
             catch { _peers.Remove(lease.Id); lease.Dispose(); throw; }
         }
+    }
+
+    private string[] ValidateIceServers(ReadOnlySpan<ScriptValue> endpoints)
+    {
+        if (endpoints.Length > ContentHostPolicy.MaxOrigins)
+            throw WebIdlException.DomException("QuotaExceededError", "Too many ICE servers.");
+        var servers = new List<string>(endpoints.Length);
+        var totalLength = 0;
+        foreach (var value in endpoints)
+        {
+            var endpoint = value.AsString() ?? "";
+            if (endpoint.Length > ContentHostPolicy.MaxOriginLength ||
+                (totalLength += endpoint.Length) > ContentHostPolicy.MaxOriginsLength)
+                throw WebIdlException.DomException("QuotaExceededError", "The ICE server list exceeds its size limit.");
+            if (!_context.WebRtcAllowedOrigins.Any(origin => string.Equals(origin.TrimEnd('/'), endpoint, StringComparison.OrdinalIgnoreCase)))
+                throw WebIdlException.DomException("SecurityError", "The ICE server is not allowed by the host.");
+            if (!IceAgent.TryParseStunServer(endpoint, out _, out _))
+                throw WebIdlException.DomException("NotSupportedError", "Only IPv4 UDP STUN servers are supported by the document transport.");
+            if (!servers.Contains(endpoint, StringComparer.OrdinalIgnoreCase)) servers.Add(endpoint);
+        }
+        return servers.ToArray();
+    }
+
+    private void ConfigureIceServers(ScriptValue value, ReadOnlySpan<ScriptValue> endpoints)
+    {
+        if (!IsLive(value) || !_engine.TryGetHostTarget(value, out var target) || target is not PeerLease peer)
+            throw WebIdlException.DomException("InvalidStateError", "The WebRTC connection is closed.");
+        if (!peer.Controller.Ice.TrySetIceServers(ValidateIceServers(endpoints)))
+            throw WebIdlException.DomException("InvalidModificationError", "Changing ICE servers after gathering requires an ICE restart.");
     }
 
     internal bool IsLive(ScriptValue value)
@@ -378,7 +409,7 @@ internal sealed class WebRtcBindingState : IDisposable
     public void Dispose() { lock (_gate) _disposed = true; CloseAll(); }
 
     private static readonly HostObjectTemplate PeerTemplate = new("RTCPeerConnectionLease");
-    private sealed class PeerLease(WebRtcBindingState owner, long id) : IDisposable
+    private sealed class PeerLease(WebRtcBindingState owner, long id, string[] servers) : IDisposable
     {
         internal WebRtcBindingState Owner { get; } = owner;
         internal long Id { get; } = id;
@@ -388,7 +419,7 @@ internal sealed class WebRtcBindingState : IDisposable
         internal bool TransportRegistered { get; set; }
         internal bool LocalCandidatesPublished { get; set; }
         internal ScriptValue TransportCallback { get; set; } = ScriptValue.Undefined;
-        internal RtcPeerConnectionController Controller { get; } = new(owner._context.WebRtcAllowedOrigins?.ToArray());
+        internal RtcPeerConnectionController Controller { get; } = new(servers);
 
         public void Dispose()
         {
@@ -403,7 +434,12 @@ internal sealed class WebRtcBindingState : IDisposable
     {
         var state = new WebRtcBindingState(engine, context);
         var authority = new HostObjectTemplate("WebRtcAuthority")
-            .DefineMethod("acquire", (_, _, _) => state.Acquire())
+            .DefineMethod("acquire", (_, _, args) => state.Acquire(args))
+            .DefineMethod("configureIceServers", (_, _, args) =>
+            {
+                if (args.Length > 0) state.ConfigureIceServers(args[0], args[1..]);
+                return ScriptValue.Undefined;
+            })
             .DefineMethod("live", (_, _, a) => ScriptValue.FromBoolean(a.Length > 0 && state.IsLive(a[0])))
             .DefineMethod("register", (_, _, a) => { if (a.Length > 1) state.Register(a[0], a[1]); return ScriptValue.Undefined; })
             .DefineMethod("registerTransport", (_, _, a) => { if (a.Length > 1) state.RegisterTransport(a[0], a[1]); return ScriptValue.Undefined; })
@@ -432,16 +468,43 @@ internal sealed class WebRtcBindingState : IDisposable
   var transportClosers = new WeakMap();
   function closeOwnedChannel(channel) { var nativeClose=apply(weakGet,transportClosers,[channel]);if(nativeClose){nativeClose();return;}try{channel.close();}finally{channel.readyState='closed';} }
   var channelOwners = new WeakMap(), channelClosed = new WeakMap(), channelRetiring = new WeakMap(), channelLists = new WeakMap(), channelPartners = new WeakMap();
-  var apply = Reflect.apply, weakGet = WeakMap.prototype.get, weakSet = WeakMap.prototype.set, weakDelete = WeakMap.prototype.delete;
+  var apply = Reflect.apply, weakGet = WeakMap.prototype.get, weakSet = WeakMap.prototype.set, weakDelete = WeakMap.prototype.delete, arrayPush = Array.prototype.push;
   function denied() { throw new DOMException('The WebRTC connection is closed or disabled by the host.', 'InvalidStateError'); }
   function asyncDead(self) { try { token(self); return null; } catch (error) { return Promise.reject(error); } }
   function token(self) { var value=apply(weakGet,peers,[self]); if(!value || !host.live(value)) denied(); return value; }
   function dispatch(self,type,extra) { var event=extra||{}; event.type=type; if(event.target===undefined)event.target=self; var handler=self['on'+type]; if(typeof handler==='function')handler.call(self,event); (self._listeners[type]||[]).slice().forEach(function(listener){listener.call(self,event);}); }
   function retire(self,fromHost) { if(apply(weakGet,retired,[self]))return; apply(weakSet,retired,[self,true]); var channels=[]; try { channels=apply(weakGet,channelLists,[self]).slice(); } catch (_) {} channels.forEach(function(c){ apply(weakSet,channelRetiring,[c,true]); }); try { self._folioReleased=true; self.connectionState='closed'; } catch (_) {} channels.forEach(function(c){ try { closeOwnedChannel(c); } catch (_) {} apply(weakSet,channelClosed,[c,true]); apply(weakSet,channelRetiring,[c,false]); }); var lease=apply(weakGet,peers,[self]); if(!fromHost) try { host.release(lease); } catch (_) {} apply(weakDelete,peers,[self]); var retiredIndex=__folio_webrtc_peers.indexOf(self); if(retiredIndex>=0)__folio_webrtc_peers.splice(retiredIndex,1); try { dispatch(self,'connectionstatechange',{}); } catch (_) {} }
-  function validate(configuration) { configuration=configuration||{}; var iceTransportPolicy=configuration.iceTransportPolicy===undefined?'all':String(configuration.iceTransportPolicy), bundlePolicy=configuration.bundlePolicy===undefined?'balanced':String(configuration.bundlePolicy), rtcpMuxPolicy=configuration.rtcpMuxPolicy===undefined?'require':String(configuration.rtcpMuxPolicy); if(iceTransportPolicy!=='all'&&iceTransportPolicy!=='relay')throw new TypeError('Invalid iceTransportPolicy.'); if(bundlePolicy!=='balanced'&&bundlePolicy!=='max-compat'&&bundlePolicy!=='max-bundle')throw new TypeError('Invalid bundlePolicy.'); if(rtcpMuxPolicy!=='require'&&rtcpMuxPolicy!=='negotiate')throw new TypeError('Invalid rtcpMuxPolicy.'); var servers=configuration.iceServers||[]; if(!Array.isArray(servers))throw new TypeError('iceServers must be an array.'); for(var i=0;i<servers.length;i++){var urls=servers[i]&&servers[i].urls!==undefined?servers[i].urls:[]; urls=Array.isArray(urls)?urls:[urls]; for(var j=0;j<urls.length;j++){var endpoint=String(urls[j]); if(!/^(stun|stuns|turn|turns):/i.test(endpoint)||!host.allowOrigin(endpoint))throw new DOMException('The WebRTC server URL is invalid or not allowed.','SecurityError');}} return configuration; }
+  function validate(configuration, endpoints) {
+    configuration=configuration||{};
+    var policy=configuration.iceTransportPolicy, bundle=configuration.bundlePolicy, mux=configuration.rtcpMuxPolicy;
+    var iceTransportPolicy=policy===undefined?'all':String(policy);
+    var bundlePolicy=bundle===undefined?'balanced':String(bundle);
+    var rtcpMuxPolicy=mux===undefined?'require':String(mux);
+    var documentTransport=host.transportEnabled();
+    if(iceTransportPolicy!=='all'&&iceTransportPolicy!=='relay')throw new TypeError('Invalid iceTransportPolicy.');
+    if(documentTransport&&iceTransportPolicy==='relay')throw new DOMException('TURN relay is not implemented.','NotSupportedError');
+    if(bundlePolicy!=='balanced'&&bundlePolicy!=='max-compat'&&bundlePolicy!=='max-bundle')throw new TypeError('Invalid bundlePolicy.');
+    if(rtcpMuxPolicy!=='require'&&rtcpMuxPolicy!=='negotiate')throw new TypeError('Invalid rtcpMuxPolicy.');
+    var servers=configuration.iceServers||[];
+    if(!Array.isArray(servers))throw new TypeError('iceServers must be an array.');
+    for(var i=0;i<servers.length;i++) {
+        var server=servers[i], urls=server?server.urls:undefined;
+        urls=urls===undefined?[]:Array.isArray(urls)?urls:[urls];
+        for(var j=0;j<urls.length;j++) {
+            var endpoint=String(urls[j]);
+            if(documentTransport) {
+                if(endpoints.length>=65)throw new DOMException('Too many ICE servers.','QuotaExceededError');
+                apply(arrayPush,endpoints,[endpoint]);
+            } else if(!/^(stun|stuns|turn|turns):/i.test(endpoint)||!host.allowOrigin(endpoint)) {
+                throw new DOMException('The WebRTC server URL is invalid or not allowed.','SecurityError');
+            }
+        }
+    }
+    return configuration;
+  }
   var __folio_webrtc_peers=[];
 
-globalThis.RTCPeerConnection = function(configuration) { var connection=this; configuration=validate(configuration); var lease=host.acquire(); apply(weakSet,peers,[this,lease]); apply(weakSet,channelLists,[this,[]]); __folio_webrtc_peers.push(this); try { host.register(lease,function(){retire(connection,true);});
+globalThis.RTCPeerConnection = function(configuration) { var connection=this; var endpoints=[]; configuration=validate(configuration,endpoints); var lease=apply(host.acquire,host,endpoints); apply(weakSet,peers,[this,lease]); apply(weakSet,channelLists,[this,[]]); __folio_webrtc_peers.push(this); try { host.register(lease,function(){retire(connection,true);});
     host.registerTransport(lease,function(property,value,mid,index,usernameFragment) {
         token(connection);
         if(property==='datachannel') { var incoming=transportChannel(connection,value); connection._dispatch('datachannel',{channel:incoming}); return; }
@@ -499,7 +562,12 @@ RTCPeerConnection.prototype.getReceivers = function() { token(this); return this
 RTCPeerConnection.prototype.addTransceiver = function(kindOrTrack, init) { token(this); var connection = this; var kind = typeof kindOrTrack === 'string' ? kindOrTrack : (kindOrTrack && kindOrTrack.kind) || ''; if (kind !== 'audio' && kind !== 'video') throw new TypeError('The transceiver kind must be audio or video.'); if (typeof kindOrTrack === 'object' && (!kindOrTrack || kindOrTrack.kind !== kind)) throw new TypeError('The transceiver track is invalid.'); init = init || {}; var direction = init.direction === undefined ? 'sendrecv' : String(init.direction); if (direction !== 'sendrecv' && direction !== 'sendonly' && direction !== 'recvonly' && direction !== 'inactive') throw new TypeError('The transceiver direction is invalid.'); var transceiver = { mid: null, kind: String(kind), sender: { track: typeof kindOrTrack === 'object' ? kindOrTrack : null, _parameters: { encodings: [] } }, receiver: { track: new MediaStreamTrack(kind) }, direction: direction, currentDirection: null, stopped: false, _codecs: [], stop: function() { token(connection); transceiver.stopped = true; transceiver.direction = 'inactive'; transceiver.currentDirection = null; }, setCodecPreferences: function(codecs) { token(connection); if (!Array.isArray(codecs)) throw new TypeError('The codec preferences must be an array.'); for (var i = 0; i < codecs.length; i++) { var mimeType = codecs[i] && codecs[i].mimeType; if (typeof mimeType !== 'string' || mimeType.toLowerCase().indexOf(kind + '/') !== 0) throw new TypeError('The codec preference does not match the transceiver kind.'); } transceiver._codecs = codecs.slice(); }, get codecPreferences() { return transceiver._codecs.slice(); } }; transceiver.sender.replaceTrack = function(next) { var dead=asyncDead(connection); if(dead)return dead; if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); transceiver.sender.track = next; return Promise.resolve(); }; transceiver.sender.getParameters = function() { token(connection); return transceiver.sender._parameters; }; transceiver.sender.setParameters = function(parameters) { var dead=asyncDead(connection); if(dead)return dead; transceiver.sender._parameters = parameters || { encodings: [] }; return Promise.resolve(transceiver.sender._parameters); }; connection._transceivers.push(transceiver); this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); return transceiver; };
 RTCPeerConnection.prototype.getTransceivers = function() { token(this); return this._transceivers.slice(); };
 RTCPeerConnection.prototype.getConfiguration = function() { token(this); return this.configuration; };
-RTCPeerConnection.prototype.setConfiguration = function(configuration) { token(this); if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); this.configuration = validate(configuration); };
+RTCPeerConnection.prototype.setConfiguration = function(configuration) {
+    var endpoints=[token(this)];
+    var accepted=validate(configuration,endpoints);
+    if(host.transportEnabled())apply(host.configureIceServers,host,endpoints);
+    this.configuration=accepted;
+};
 RTCPeerConnection.prototype.getStats = function() { var dead=asyncDead(this); if(dead)return dead; var report = new Map(); report.set('pc', { type: 'peer-connection', id: 'pc', connectionState: this.connectionState, iceConnectionState: this.iceConnectionState, signalingState: this.signalingState }); report.set('data-channels', { type: 'data-channel', id: 'data-channels', dataChannelsOpened: this._dataChannels.length, dataChannelsClosed: this._dataChannels.filter(function(channel) { return channel.readyState === 'closed'; }).length }); this._senders.forEach(function(sender, index) { report.set('outbound-' + index, { type: 'outbound-rtp', id: 'outbound-' + index, kind: sender.track && sender.track.kind ? sender.track.kind : '' }); }); this._transceivers.forEach(function(transceiver, index) { report.set('inbound-' + index, { type: 'inbound-rtp', id: 'inbound-' + index, kind: transceiver.receiver && transceiver.receiver.track ? transceiver.receiver.track.kind : transceiver.kind }); }); return Promise.resolve(report); };
 RTCPeerConnection.prototype.restartIce = function() { token(this); this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; this._dispatch('icegatheringstatechange', {}); this._dispatch('iceconnectionstatechange', {}); };
 function __folio_pair_channels(owner, recipient) { owner._dataChannels.forEach(function(channel) { if (channel._remote) return; channel._remote = __folio_make_remote_channel(recipient, channel); if (typeof recipient.ondatachannel === 'function') recipient.ondatachannel({ type: 'datachannel', target: recipient, channel: channel._remote }); }); }
@@ -539,24 +607,29 @@ RTCPeerConnection.prototype.createDataChannel=function(label,options) {
     var channel=transportChannel(this,host.createChannel(token(this),String(label||''),String(options.protocol||'')));
     this._dataChannels.push(channel);return channel;
 };
-// Empty descriptions remain solely for the legacy in-page fixtures. Real SDP
-// must derive connectivity from transport events, never from accepting an answer.
+// The loopless compatibility mode still accepts empty descriptions.
+// Document peers derive connectivity from transport events.
 var legacyRemoteDescription=RTCPeerConnection.prototype.setRemoteDescription;
 var legacyIceCandidate=RTCPeerConnection.prototype.addIceCandidate;
 RTCPeerConnection.prototype.setRemoteDescription=function(description) {
-    if(description && description.sdp==='')return legacyRemoteDescription.call(this,description);
     var dead=asyncDead(this);if(dead)return dead;
-    if(!description || (description.type!=='offer' && description.type!=='answer'))return Promise.reject(new TypeError('Invalid remote description.'));
     try {
-        host.setRemoteDescription(token(this),description.type,String(description.sdp||''));
-        this.remoteDescription=new RTCSessionDescription(description);
-        this.signalingState=description.type==='offer'?'have-remote-offer':'stable';
+        if(!description)throw new TypeError('Invalid remote description.');
+        var type=description.type;
+        if(type!=='offer' && type!=='answer')throw new TypeError('Invalid remote description.');
+        var value=description.sdp;
+        if(!host.transportEnabled() && value==='')return legacyRemoteDescription.call(this,{type:type,sdp:value});
+        var sdp=String(value||'');
+        if(host.transportEnabled() && !sdp.trim())throw new TypeError('Remote SDP is empty.');
+        host.setRemoteDescription(token(this),type,sdp);
+        this.remoteDescription=new RTCSessionDescription({type:type,sdp:sdp});
+        this.signalingState=type==='offer'?'have-remote-offer':'stable';
         this._dispatch('signalingstatechange',{});
         return Promise.resolve();
     } catch(error) { return Promise.reject(error); }
 };
 RTCPeerConnection.prototype.addIceCandidate=function(candidate) {
-    if(this.remoteDescription && this.remoteDescription.sdp==='')return legacyIceCandidate.call(this,candidate);
+    if(!host.transportEnabled() && this.remoteDescription && this.remoteDescription.sdp==='')return legacyIceCandidate.call(this,candidate);
     var dead=asyncDead(this);if(dead)return dead;
     if(candidate!==null && candidate!==undefined && typeof candidate!=='string' && typeof candidate.candidate!=='string')return Promise.reject(new TypeError('Invalid ICE candidate.'));
     try {
