@@ -694,6 +694,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         return bytes;
     }
 
+    private const int MaxCachedProgramCharacters = 320 * 1024;
     private static readonly BoundedScriptCache<string, IReadOnlyList<JavaScriptStatement>> AstCache = new(256, 1024 * 1024);
 
     public static void Prime()
@@ -703,7 +704,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     internal static IReadOnlyList<JavaScriptStatement> GetOrParseProgram(string source)
     {
-        if (source.Length <= 65536)
+        if (source.Length <= MaxCachedProgramCharacters)
             return AstCache.GetOrAdd(source, source.Length, static text => new JavaScriptParser(text).ParseProgram());
         return new JavaScriptParser(source).ParseProgram();
     }
