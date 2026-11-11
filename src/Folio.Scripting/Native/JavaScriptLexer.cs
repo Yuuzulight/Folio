@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace Folio.Scripting.Native;
 
 /// <summary>Token kinds used by the Folio-owned JavaScript front end.</summary>
@@ -25,6 +27,8 @@ internal sealed class JavaScriptLexer
     private const int TokenTextCacheThreshold = 16 * 1024;
     private const int MaxCachedTokenTexts = 4096;
     private const int MaxCachedTokenLength = 64;
+    private static readonly SearchValues<char> SingleQuoteStops = SearchValues.Create("'\\\r\n");
+    private static readonly SearchValues<char> DoubleQuoteStops = SearchValues.Create("\"\\\r\n");
 
     private readonly string _source;
     private readonly int _maxTokens;
@@ -63,57 +67,27 @@ internal sealed class JavaScriptLexer
         if (c == '/' && IsRegexStart()) return ReadRegex(offset, line, column);
 
         var rem = _source.AsSpan(_index);
-        if (rem.StartsWith(">>>="))
+        var longOperator = c switch
         {
-            Advance(); Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, ">>>=", offset, line, column);
-        }
-        if (rem.StartsWith(">>>"))
+            '>' when rem.StartsWith(">>>=") => ">>>=",
+            '>' when rem.StartsWith(">>>") => ">>>",
+            '>' when rem.StartsWith(">>=") => ">>=",
+            '<' when rem.StartsWith("<<=") => "<<=",
+            '=' when rem.StartsWith("===") => "===",
+            '!' when rem.StartsWith("!==") => "!==",
+            '.' when rem.StartsWith("...") => "...",
+            '&' when rem.StartsWith("&&=") => "&&=",
+            '|' when rem.StartsWith("||=") => "||=",
+            '?' when rem.StartsWith("??=") => "??=",
+            _ => null,
+        };
+        if (longOperator is not null)
         {
-            Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, ">>>", offset, line, column);
+            _index += longOperator.Length;
+            _column += longOperator.Length;
+            return new(JavaScriptTokenKind.Punctuation, longOperator, offset, line, column);
         }
-        if (rem.StartsWith("==="))
-        {
-            Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, "===", offset, line, column);
-        }
-        if (rem.StartsWith("!=="))
-        {
-            Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, "!==", offset, line, column);
-        }
-        if (rem.StartsWith("..."))
-        {
-            Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, "...", offset, line, column);
-        }
-        if (rem.StartsWith("&&="))
-        {
-            Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, "&&=", offset, line, column);
-        }
-        if (rem.StartsWith("||="))
-        {
-            Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, "||=", offset, line, column);
-        }
-        if (rem.StartsWith("??="))
-        {
-            Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, "??=", offset, line, column);
-        }
-        if (rem.StartsWith("<<="))
-        {
-            Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, "<<=", offset, line, column);
-        }
-        if (rem.StartsWith(">>="))
-        {
-            Advance(); Advance(); Advance();
-            return new(JavaScriptTokenKind.Punctuation, ">>=", offset, line, column);
-        }
-        var optionalChain = rem.StartsWith("?.") && !(rem.Length > 2 && char.IsDigit(rem[2]));
+        var optionalChain = c == '?' && rem.StartsWith("?.") && !(rem.Length > 2 && char.IsDigit(rem[2]));
         if (optionalChain)
         {
             Advance(); Advance();
@@ -284,7 +258,25 @@ internal sealed class JavaScriptLexer
     private JavaScriptToken ReadString(int offset, int line, int column, char quote)
     {
         Advance();
+        var remaining = _source.AsSpan(_index);
+        var length = remaining.IndexOfAny(quote == '\'' ? SingleQuoteStops : DoubleQuoteStops);
+        if (length < 0)
+        {
+            _index += remaining.Length;
+            _column += remaining.Length;
+            throw Error("The string literal is unterminated.");
+        }
+        _index += length;
+        _column += length;
+        if (remaining[length] == quote)
+        {
+            Advance();
+            return new(JavaScriptTokenKind.String, ReadTokenText(remaining[..length]), offset, line, column);
+        }
+        if (remaining[length] is '\r' or '\n')
+            throw Error("A string literal cannot contain an unescaped line break.");
         var value = new System.Text.StringBuilder();
+        value.Append(remaining[..length]);
         while (_index < _source.Length)
         {
             var c = _source[_index];
