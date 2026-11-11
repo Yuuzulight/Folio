@@ -220,7 +220,7 @@ internal static class GaussianBlur
         var b = pool.Rent(count);
         try
         {
-            for (var i = 0; i < count; i++) a[i] = source[i];
+            ExpandSamples(source.AsSpan(0, count), a.AsSpan(0, count));
             var plan = BoxPlan(sigma);
             void ProcessColumns(int first, int last)
             {
@@ -237,14 +237,57 @@ internal static class GaussianBlur
                 ProcessColumns(0, rowLength);
             else
                 Parallel.ForEach(Partitioner.Create(0, rowLength, Math.Max(64, rowLength / Environment.ProcessorCount)), range => ProcessColumns(range.Item1, range.Item2));
-            for (var i = 0; i < count; i++)
-                output[i] = (byte)Math.Clamp((int)(b[i] + 0.5f), 0, 255);
+            RoundSamples(b.AsSpan(0, count), output.AsSpan(0, count));
         }
         finally
         {
             pool.Return(a);
             pool.Return(b);
         }
+    }
+
+    private static void ExpandSamples(ReadOnlySpan<byte> source, Span<float> destination)
+    {
+        var i = 0;
+        if (Vector.IsHardwareAccelerated)
+        {
+            var groups = MemoryMarshal.Cast<byte, Vector<byte>>(source);
+            var output = MemoryMarshal.Cast<float, Vector<float>>(destination);
+            foreach (var group in groups)
+            {
+                Vector.Widen(group, out Vector<ushort> lower, out Vector<ushort> upper);
+                Vector.Widen(lower, out Vector<uint> first, out Vector<uint> second);
+                Vector.Widen(upper, out Vector<uint> third, out Vector<uint> fourth);
+                output[i++] = Vector.ConvertToSingle(first);
+                output[i++] = Vector.ConvertToSingle(second);
+                output[i++] = Vector.ConvertToSingle(third);
+                output[i++] = Vector.ConvertToSingle(fourth);
+            }
+            i *= Vector<float>.Count;
+        }
+        for (; i < source.Length; i++) destination[i] = source[i];
+    }
+
+    private static void RoundSamples(ReadOnlySpan<float> source, Span<byte> destination)
+    {
+        var i = 0;
+        if (Vector.IsHardwareAccelerated)
+        {
+            var input = MemoryMarshal.Cast<float, Vector<float>>(source);
+            var groups = MemoryMarshal.Cast<byte, Vector<byte>>(destination);
+            for (var group = 0; group < groups.Length; group++)
+            {
+                var lower = Vector.Narrow(Round(input[i++]), Round(input[i++]));
+                var upper = Vector.Narrow(Round(input[i++]), Round(input[i++]));
+                groups[group] = Vector.Narrow(lower, upper);
+            }
+            i *= Vector<float>.Count;
+        }
+        for (; i < source.Length; i++)
+            destination[i] = (byte)Math.Clamp((int)(source[i] + 0.5f), 0, 255);
+
+        static Vector<uint> Round(Vector<float> values) => Vector.ConvertToUInt32(
+            Vector.Min(Vector.Max(values + new Vector<float>(0.5f), Vector<float>.Zero), new Vector<float>(255)));
     }
 
     // Pixel (x, y) of a width x height image to (y, x) of a height x width one, channels kept together.
