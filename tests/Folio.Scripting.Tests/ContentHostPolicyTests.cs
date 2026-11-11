@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text.Json;
 using Folio.Resources;
 using Folio.Scripting.Ipc;
+using Folio.Scripting.Rtc;
 
 namespace Folio.Scripting.Tests;
 
@@ -12,6 +13,79 @@ public sealed class ContentHostPolicyTests
 {
     private static readonly FeatureCapabilities Grants = new() { Iframes = true, WebRtc = true };
     private const string IceScript = "function probe(url){try{var p=new RTCPeerConnection({iceServers:[{urls:url}]});p.close();return 'allowed';}catch(e){return e.name;}} probe('stun:allowed.example')+'|'+probe('stun:blocked.example')";
+
+    public static bool HasPublishedWindowsHost => OperatingSystem.IsWindows() &&
+        Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST") is { } path &&
+        string.Equals(Path.GetExtension(path), ".exe", StringComparison.OrdinalIgnoreCase);
+
+    [Fact(Skip = "Requires the published Windows content host.", SkipUnless = nameof(HasPublishedWindowsHost), Timeout = 60000)]
+    public async Task PublishedHostExchangesRtcDataWithAnIndependentLocalPeer()
+    {
+        await using var client = Start(new FolioOptions());
+        WorkerIsolationCapabilityMatrixTests.AssertRestricted(client.Process);
+        using var remote = new RtcPeerConnectionController();
+        var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        remote.OnDataChannel += channel => channel.OnMessage += payload =>
+        {
+            if (payload is not string text) return;
+            channel.Send("reply:" + text);
+            received.TrySetResult(text);
+        };
+
+        await Exchange(client, new
+        {
+            html = "<body></body>",
+            capabilities = new FeatureCapabilities { WebRtc = true },
+            script = """
+                var offer='', error='', reply='';
+                var pc=new RTCPeerConnection(), channel=pc.createDataChannel('published-host');
+                channel.onopen=function(){channel.send('folio');};
+                channel.onmessage=function(event){reply=event.data;};
+                pc.createOffer().then(function(description){
+                    return pc.setLocalDescription(description).then(function(){offer=description.sdp;});
+                }).catch(function(e){error=String(e);});
+                'started'
+                """
+        }, "started");
+        var description = Value(await Exchange(client, new { script = "error?'ERROR:'+error:offer" }));
+        Assert.NotNull(description);
+        Assert.StartsWith("v=0", description);
+        Assert.NotEmpty(RtcSdp.Parse(description).TransportCandidates);
+        remote.SetRemoteDescription("offer", description);
+        var answer = await remote.CreateAnswerAsync(true, 0, 0);
+        remote.SetLocalDescription("answer", answer);
+        await Exchange(client, new
+        {
+            script = "pc.setRemoteDescription({type:'answer',sdp:" + JsonSerializer.Serialize(answer) +
+                "}).catch(function(e){error=String(e);});'answer queued'"
+        }, "answer queued");
+
+        var cancellation = TestContext.Current.CancellationToken;
+        Assert.Equal("folio", await received.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellation));
+        var watch = Stopwatch.StartNew();
+        string? state;
+        do
+        {
+            state = Value(await Exchange(client, new { script = "error?'ERROR:'+error:reply" }));
+            if (!string.IsNullOrEmpty(state)) break;
+            await Task.Delay(25, cancellation);
+        } while (watch.Elapsed < TimeSpan.FromSeconds(10));
+        Assert.Equal("reply:folio", state);
+        Assert.Equal("connected", remote.Dtls.State);
+
+        await client.UpdateCapabilitiesAsync(FeatureCapabilities.Default, cancellation);
+        var revoked = await Exchange(client, new
+        {
+            script = """
+                (function(){
+                    var result='sent';
+                    try { channel.send('after-revoke'); } catch(e) { result=e.name; }
+                    return [pc.connectionState, channel.readyState, result].join(':');
+                })()
+                """
+        });
+        Assert.Equal("closed:closed:InvalidStateError", Value(revoked));
+    }
 
     [Fact]
     public async Task RealChildUsesSnapshotOfHostOriginsAndIgnoresForgedLoadPolicy()
