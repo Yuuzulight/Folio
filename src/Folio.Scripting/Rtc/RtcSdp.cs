@@ -16,6 +16,30 @@ internal sealed class RtcSdp
     public int SctpPort { get; set; } = 5000;
     public List<IceCandidate> Candidates { get; } = [];
     public List<RtcMediaDescription> Media { get; } = [];
+    public List<string> BundleMids { get; } = [];
+
+    internal RtcMediaDescription? TransportMedia()
+    {
+        var active = Media.Where(media => media.Port != 0).ToArray();
+        if (active.Length == 0) return null;
+        if (BundleMids.Count == 0)
+        {
+            if (active.Length > 1) throw new NotSupportedException("Multiple unbundled ICE transports are not implemented.");
+            return active[0];
+        }
+        if (active.Any(media => media.Mid is null || !BundleMids.Contains(media.Mid)))
+            throw new NotSupportedException("Separate ICE transports outside the BUNDLE group are not implemented.");
+        return BundleMids.Select(mid => active.FirstOrDefault(media => media.Mid == mid)).FirstOrDefault(media => media is not null)
+            ?? throw new InvalidOperationException("The BUNDLE group has no active transport.");
+    }
+
+    internal string TransportSetup => TransportMedia()?.Setup ?? Setup;
+    internal string? TransportIceUfrag => TransportMedia()?.IceUfrag ?? IceUfrag;
+    internal string? TransportIcePassword => TransportMedia()?.IcePassword ?? IcePassword;
+    internal string? TransportFingerprint => TransportMedia()?.FingerprintValue ?? FingerprintValue;
+    internal IReadOnlyList<IceCandidate> TransportCandidates => TransportMedia() is { Candidates.Count: > 0 } media ? media.Candidates : Candidates;
+    internal ulong RemoteMaximumMessageSize => Media.FirstOrDefault(media => media.Kind == "application" && media.Port != 0)?.MaximumMessageSize ?? 65536;
+    internal int RemoteSctpPort => Media.FirstOrDefault(media => media.Kind == "application" && media.Port != 0)?.SctpPort ?? SctpPort;
 
     public static RtcSdp Parse(string sdp)
     {
@@ -51,7 +75,12 @@ internal sealed class RtcSdp
                 var attrName = colon >= 0 ? value[..colon].Trim() : value;
                 var attrValue = colon >= 0 ? value[(colon + 1)..].Trim() : "";
 
-                if (attrName.Equals("ice-ufrag", StringComparison.OrdinalIgnoreCase))
+                if (attrName.Equals("group", StringComparison.OrdinalIgnoreCase) && currentMedia is null && attrValue.StartsWith("BUNDLE ", StringComparison.Ordinal))
+                {
+                    if (result.BundleMids.Count != 0) throw new NotSupportedException("Multiple BUNDLE groups are not implemented.");
+                    result.BundleMids.AddRange(attrValue.Split(' ', StringSplitOptions.RemoveEmptyEntries).Skip(1));
+                }
+                else if (attrName.Equals("ice-ufrag", StringComparison.OrdinalIgnoreCase))
                 {
                     if (currentMedia != null) currentMedia.IceUfrag = attrValue;
                     else result.IceUfrag = attrValue;
@@ -90,6 +119,13 @@ internal sealed class RtcSdp
                         if (currentMedia != null) currentMedia.SctpPort = port;
                         result.SctpPort = port;
                     }
+                }
+                else if (attrName.Equals("max-message-size", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (currentMedia is null || currentMedia.Kind != "application" || currentMedia.MaximumMessageSize is not null ||
+                        !ulong.TryParse(attrValue, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var maximum))
+                        throw new InvalidDataException("Invalid SCTP max-message-size attribute.");
+                    currentMedia.MaximumMessageSize = maximum;
                 }
                 else if (attrName.Equals("candidate", StringComparison.OrdinalIgnoreCase))
                 {
@@ -151,6 +187,7 @@ internal sealed class RtcSdp
             if (m.Kind == "application")
             {
                 sb.Append("a=sctp-port:").Append(m.SctpPort > 0 ? m.SctpPort : SctpPort).Append("\r\n");
+                if (m.MaximumMessageSize is { } maximum) sb.Append("a=max-message-size:").Append(maximum).Append("\r\n");
             }
             else
             {
@@ -162,6 +199,9 @@ internal sealed class RtcSdp
             var mediaPwd = m.IcePassword ?? IcePassword;
             if (!string.IsNullOrEmpty(mediaUfrag)) sb.Append("a=ice-ufrag:").Append(mediaUfrag).Append("\r\n");
             if (!string.IsNullOrEmpty(mediaPwd)) sb.Append("a=ice-pwd:").Append(mediaPwd).Append("\r\n");
+            if (!string.IsNullOrEmpty(m.Setup)) sb.Append("a=setup:").Append(m.Setup).Append("\r\n");
+            if (!string.IsNullOrEmpty(m.FingerprintValue))
+                sb.Append("a=fingerprint:").Append(m.FingerprintAlgorithm ?? "sha-256").Append(' ').Append(m.FingerprintValue).Append("\r\n");
 
             var candidates = m.Candidates.Count > 0 ? m.Candidates : Candidates;
             foreach (var candidate in candidates)
@@ -186,5 +226,6 @@ internal sealed class RtcMediaDescription
     public string? FingerprintValue { get; set; }
     public string? Setup { get; set; }
     public int SctpPort { get; set; } = 5000;
+    public ulong? MaximumMessageSize { get; set; }
     public List<IceCandidate> Candidates { get; } = [];
 }

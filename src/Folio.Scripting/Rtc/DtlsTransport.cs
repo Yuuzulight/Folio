@@ -17,14 +17,17 @@ internal sealed class DtlsTransport : IDisposable
     private const byte ContentTypeApplicationData = 23;
 
     private const byte HandshakeClientHello = 1;
+    private const byte HandshakeHelloVerifyRequest = 3;
     private const byte HandshakeServerHello = 2;
     private const byte HandshakeCertificate = 11;
     private const byte HandshakeServerKeyExchange = 12;
+    private const byte HandshakeCertificateRequest = 13;
+    private const byte HandshakeCertificateVerify = 15;
     private const byte HandshakeServerHelloDone = 14;
     private const byte HandshakeClientKeyExchange = 16;
     private const byte HandshakeFinished = 20;
 
-    private const ushort DtlsVersion12 = 0xFEFF;
+    private const ushort DtlsVersion12 = 0xFEFD;
 
     public string Fingerprint { get; }
     public string? RemoteFingerprint { get; set; }
@@ -38,15 +41,14 @@ internal sealed class DtlsTransport : IDisposable
     private readonly ECDsa _localEcdsa;
     private readonly X509Certificate2 _localCert;
     private readonly ECDiffieHellman _localEcdh;
+    private ECDsa? _remoteSigningKey;
+    private DtlsRecordCipher? _handshakeWriter;
+    private DtlsRecordCipher? _handshakeReader;
 
     private readonly byte[] _localRandom = new byte[32];
     private byte[]? _remoteRandom;
     private byte[]? _masterSecret;
 
-    private AesGcm? _localGcm;
-    private AesGcm? _remoteGcm;
-    private byte[]? _localImplicitIv;
-    private byte[]? _remoteImplicitIv;
 
     public byte[]? SrtpLocalMasterKey { get; private set; }
     public byte[]? SrtpRemoteMasterKey { get; private set; }
@@ -56,13 +58,28 @@ internal sealed class DtlsTransport : IDisposable
     private ushort _localEpoch = 0;
     private ulong _localSequenceNumber = 0;
     private ushort _handshakeSeq = 0;
+    private ushort _nextRemoteHandshake;
+    private readonly DtlsHandshakeFragments _fragments = new();
+    private bool _remoteCipherSpec;
+    private bool _clientCertificateRequested;
+    private bool _peerCertificateProof;
+    private byte[] _cookie = [];
 
     private readonly List<byte> _handshakeMessages = [];
     private readonly object _gate = new();
     private bool _disposed;
+    private readonly TimeProvider _clock;
+    private readonly ITimer? _retryTimer;
+    private readonly List<byte[]> _flight = [];
+    private int _flightBytes;
+    private int _retryCount;
+    private DateTimeOffset _nextRetry;
 
-    public DtlsTransport()
+    public DtlsTransport() : this(TimeProvider.System, true) { }
+
+    internal DtlsTransport(TimeProvider clock, bool enableRetryTimer)
     {
+        _clock = clock;
         _localEcdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var request = new CertificateRequest("CN=FolioWebRTC", _localEcdsa, HashAlgorithmName.SHA256);
         _localCert = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
@@ -80,6 +97,55 @@ internal sealed class DtlsTransport : IDisposable
             sb.Append(certHash[i].ToString("X2"));
         }
         Fingerprint = sb.ToString();
+        if (enableRetryTimer)
+            _retryTimer = clock.CreateTimer(_ =>
+            {
+                try { RetryDueFlight(); }
+                catch (Exception)
+                {
+                    lock (_gate) { StopFlight(); if (!_disposed) State = "failed"; }
+                }
+            }, null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
+    }
+
+    private void BeginFlight()
+    {
+        StopFlight();
+        _nextRetry = _clock.GetUtcNow() + TimeSpan.FromSeconds(1);
+    }
+
+    private void StopFlight() { _flight.Clear(); _flightBytes = 0; _retryCount = 0; }
+
+    private void EmitRecord(byte type, byte[] record)
+    {
+        if (type is ContentTypeHandshake or ContentTypeChangeCipherSpec)
+        {
+            if (_flight.Count >= 64 || record.Length > 1024 * 1024 - _flightBytes)
+                throw new CryptographicException("DTLS retransmission flight limit exceeded.");
+            _flight.Add((byte[])record.Clone()); _flightBytes += record.Length;
+        }
+        OnDatagramToSend?.Invoke(record);
+    }
+
+    internal void RetryDueFlight()
+    {
+        lock (_gate)
+        {
+            if (_disposed || _flight.Count == 0 || _clock.GetUtcNow() < _nextRetry) return;
+            if (_retryCount >= 6)
+            {
+                StopFlight();
+                if (State == "connecting") { State = "failed"; OnStateChanged?.Invoke(State); }
+                return;
+            }
+            _retryCount++;
+            _nextRetry = _clock.GetUtcNow() + TimeSpan.FromSeconds(Math.Min(8, 1 << _retryCount));
+            foreach (var record in _flight.ToArray())
+            {
+                if (_disposed) break;
+                OnDatagramToSend?.Invoke((byte[])record.Clone());
+            }
+        }
     }
 
     public void StartHandshake()
@@ -99,7 +165,7 @@ internal sealed class DtlsTransport : IDisposable
 
     private void SendClientHello()
     {
-        var ecdhPub = _localEcdh.ExportSubjectPublicKeyInfo();
+        BeginFlight();
         using var ms = new MemoryStream();
 
         // ClientHello body
@@ -107,8 +173,8 @@ internal sealed class DtlsTransport : IDisposable
         ms.Write(_localRandom); // 32 bytes random
         ms.WriteByte(0); // Session ID length
 
-        // Cookie (empty initially)
-        ms.WriteByte(0);
+        ms.WriteByte((byte)_cookie.Length);
+        ms.Write(_cookie);
 
         // Cipher suites (TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 = 0xC02B)
         ms.WriteByte(0); ms.WriteByte(2); // 2 bytes length
@@ -125,6 +191,10 @@ internal sealed class DtlsTransport : IDisposable
         extMs.WriteByte(0x00); extMs.WriteByte(0x04); // ext length
         extMs.WriteByte(0x00); extMs.WriteByte(0x02); // list length
         extMs.WriteByte(0x00); extMs.WriteByte(0x17); // secp256r1
+
+        // signature_algorithms: SHA-256/ECDSA. Without this TLS 1.2 peers
+        // can apply legacy SHA-1 defaults that do not match our certificate path.
+        extMs.Write(new byte[] { 0x00, 0x0d, 0x00, 0x04, 0x00, 0x02, 0x04, 0x03 });
 
         // Use SRTP extension (RFC 5764)
         extMs.WriteByte(0x00); extMs.WriteByte(0x0E); // use_srtp
@@ -165,6 +235,12 @@ internal sealed class DtlsTransport : IDisposable
 
     private void SendRecord(byte contentType, byte[] payload)
     {
+        if (_localEpoch == 1)
+        {
+            if (_handshakeWriter is null) throw new InvalidOperationException("DTLS handshake keys are unavailable.");
+            EmitRecord(contentType, _handshakeWriter.Protect(contentType, _localEpoch, _localSequenceNumber++, payload));
+            return;
+        }
         var record = new byte[13 + payload.Length];
         record[0] = contentType;
         BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(1), DtlsVersion12);
@@ -181,39 +257,97 @@ internal sealed class DtlsTransport : IDisposable
         BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(11), (ushort)payload.Length);
         payload.CopyTo(record.AsSpan(13));
 
-        OnDatagramToSend?.Invoke(record);
+        EmitRecord(contentType, record);
     }
 
     public void ProcessIncomingDatagram(byte[] datagram)
+    {
+        ArgumentNullException.ThrowIfNull(datagram);
+        lock (_gate)
+        {
+            var offset = 0;
+            while (offset < datagram.Length)
+            {
+                if (datagram.Length - offset < 13) return;
+                var length = BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(offset + 11));
+                if (length > datagram.Length - offset - 13) return;
+                ProcessIncomingRecord(datagram.AsSpan(offset, 13 + length));
+                offset += 13 + length;
+            }
+        }
+    }
+
+    private void ProcessIncomingRecord(ReadOnlySpan<byte> datagram)
     {
         lock (_gate)
         {
             if (_disposed || datagram.Length < 13) return;
 
             var contentType = datagram[0];
-            var version = BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(1));
-            var epoch = BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(3));
-            var length = BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(11));
+            var version = BinaryPrimitives.ReadUInt16BigEndian(datagram[1..]);
+            var epoch = BinaryPrimitives.ReadUInt16BigEndian(datagram[3..]);
+            var length = BinaryPrimitives.ReadUInt16BigEndian(datagram[11..]);
 
-            if (datagram.Length < 13 + length) return;
-            var payload = datagram.AsSpan(13, length);
+            // DTLS servers may use the DTLS 1.0 record version for the stateless
+            // cookie challenge, even when DTLS 1.2 was requested.
+            var legacyChallenge = IsClient && epoch == 0 && contentType == ContentTypeHandshake &&
+                length >= 12 && datagram.Length >= 25 && datagram[13] == HandshakeHelloVerifyRequest && version == 0xfeff;
+            var legacyClientHello = !IsClient && _remoteRandom is null && epoch == 0 && contentType == ContentTypeHandshake &&
+                length >= 12 && datagram.Length >= 25 && datagram[13] == HandshakeClientHello && version == 0xfeff;
+            if ((version != DtlsVersion12 && !legacyChallenge && !legacyClientHello) || datagram.Length != 13 + length) return;
+            var payload = datagram.Slice(13, length);
 
             switch (contentType)
             {
                 case ContentTypeHandshake:
-                    ProcessHandshakeRecord(payload);
+                    if (epoch == 1)
+                    {
+                        if (_handshakeReader is not null && _handshakeReader.TryUnprotect(datagram, out var clear))
+                            ProcessHandshakeRecord(clear, protectedRecord: true);
+                    }
+                    else if (epoch == 0 && State != "connected")
+                    {
+                        // Finished is never valid in the plaintext epoch.
+                        if (payload.Length >= 1 && payload[0] == HandshakeFinished) return;
+                        ProcessHandshakeRecord(payload);
+                    }
                     break;
                 case ContentTypeChangeCipherSpec:
-                    // Change cipher spec received
+                    if (epoch == 0 && _masterSecret is not null && payload.SequenceEqual(new byte[] { 1 }))
+                        _remoteCipherSpec = true;
                     break;
                 case ContentTypeApplicationData:
-                    ProcessApplicationDataRecord(epoch, payload);
+                    if (State == "connected" && epoch == 1 && _handshakeReader is not null &&
+                        _handshakeReader.TryUnprotect(datagram, out var applicationData))
+                    {
+                        StopFlight();
+                        OnApplicationDataReceived?.Invoke(applicationData);
+                    }
                     break;
             }
         }
     }
 
-    private void ProcessHandshakeRecord(ReadOnlySpan<byte> payload)
+    private void ProcessHandshakeRecord(ReadOnlySpan<byte> payload, bool protectedRecord = false)
+    {
+        while (!payload.IsEmpty)
+        {
+            if (payload.Length < 12) throw new CryptographicException("Truncated DTLS handshake header.");
+            if (payload[0] == HandshakeFinished && !protectedRecord) return;
+            var count = DtlsHandshakeFragments.Read24(payload[9..]);
+            if (count > payload.Length - 12) throw new CryptographicException("Truncated DTLS handshake fragment.");
+            _fragments.Add(payload[..(12 + count)], _nextRemoteHandshake);
+            payload = payload[(12 + count)..];
+            while (_fragments.TryTake(_nextRemoteHandshake, out var complete))
+            {
+                var previous = _nextRemoteHandshake;
+                ProcessCompleteHandshake(complete);
+                if (_nextRemoteHandshake == previous) break;
+            }
+        }
+    }
+
+    private void ProcessCompleteHandshake(ReadOnlySpan<byte> payload)
     {
         while (payload.Length >= 12)
         {
@@ -223,9 +357,57 @@ internal sealed class DtlsTransport : IDisposable
             var fragOffset = (payload[6] << 16) | (payload[7] << 8) | payload[8];
             var fragLength = (payload[9] << 16) | (payload[10] << 8) | payload[11];
 
-            if (payload.Length < 12 + fragLength) break;
+            if (fragOffset != 0 || fragLength != length || payload.Length < 12 + fragLength ||
+                msgSeq != _nextRemoteHandshake) return;
             var body = payload.Slice(12, fragLength);
 
+            if (type == HandshakeHelloVerifyRequest)
+            {
+                if (!IsClient || State != "connecting" || _remoteRandom is not null || body.Length < 3 ||
+                    body[0] != 0xfe || body[1] is not (0xfd or 0xff) || body[2] != body.Length - 3)
+                    throw new CryptographicException("Invalid DTLS cookie challenge.");
+                _cookie = body[3..].ToArray();
+                _nextRemoteHandshake++;
+                // Initial ClientHello and HelloVerifyRequest are excluded from
+                // the transcript authenticated by Finished (RFC 6347).
+                _handshakeMessages.Clear();
+                SendClientHello();
+                payload = payload[(12 + fragLength)..];
+                continue;
+            }
+
+            if (type == HandshakeCertificateVerify)
+            {
+                if (IsClient || _remoteSigningKey is null || _masterSecret is null ||
+                    body.Length < 4 || body[0] != 4 || body[1] != 3 ||
+                    BinaryPrimitives.ReadUInt16BigEndian(body[2..]) != body.Length - 4 ||
+                    !_remoteSigningKey.VerifyData(_handshakeMessages.ToArray(), body[4..],
+                        HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
+                    throw new CryptographicException("DTLS client certificate proof is invalid.");
+                _peerCertificateProof = true;
+            }
+
+            // Finished authenticates the preceding transcript, not itself.
+            if (type == HandshakeFinished)
+            {
+                if (!_remoteCipherSpec || !VerifyFinished(body)) return;
+                _nextRemoteHandshake++;
+                _handshakeMessages.AddRange(payload.Slice(0, 12 + fragLength).ToArray());
+                if (!IsClient)
+                {
+                    BeginFlight();
+                    SendRecord(ContentTypeChangeCipherSpec, [1]);
+                    _localEpoch = 1;
+                    _localSequenceNumber = 0;
+                    SendHandshakeMessage(HandshakeFinished, ComputeVerifyData("server finished"));
+                }
+                else StopFlight();
+                State = "connected";
+                OnStateChanged?.Invoke(State);
+                payload = payload[(12 + fragLength)..];
+                continue;
+            }
+            _nextRemoteHandshake++;
             _handshakeMessages.AddRange(payload.Slice(0, 12 + fragLength).ToArray());
 
             switch (type)
@@ -242,14 +424,16 @@ internal sealed class DtlsTransport : IDisposable
                 case HandshakeServerKeyExchange:
                     HandleServerKeyExchange(body);
                     break;
+                case HandshakeCertificateRequest:
+                    if (!IsClient || !SupportsCertificateRequest(body))
+                        throw new CryptographicException("Unsupported DTLS client certificate request.");
+                    _clientCertificateRequested = true;
+                    break;
                 case HandshakeServerHelloDone:
                     HandleServerHelloDone();
                     break;
                 case HandshakeClientKeyExchange:
                     HandleClientKeyExchange(body);
-                    break;
-                case HandshakeFinished:
-                    HandleFinished();
                     break;
             }
 
@@ -260,6 +444,7 @@ internal sealed class DtlsTransport : IDisposable
     private void HandleClientHello(ReadOnlySpan<byte> body)
     {
         if (body.Length < 34) return;
+        BeginFlight();
         _remoteRandom = body.Slice(2, 32).ToArray();
 
         // Send ServerHello
@@ -277,6 +462,8 @@ internal sealed class DtlsTransport : IDisposable
         extMs.WriteByte(0x00); extMs.WriteByte(0x02);
         extMs.WriteByte(0x00); extMs.WriteByte(0x07);
         extMs.WriteByte(0x00);
+        if (OffersSecureRenegotiation(body))
+            extMs.Write(new byte[] { 0xff, 0x01, 0x00, 0x01, 0x00 });
         var extBytes = extMs.ToArray();
         shMs.WriteByte((byte)(extBytes.Length >> 8));
         shMs.WriteByte((byte)extBytes.Length);
@@ -298,7 +485,7 @@ internal sealed class DtlsTransport : IDisposable
         SendHandshakeMessage(HandshakeCertificate, certMs.ToArray());
 
         // Send ServerKeyExchange (ECDH pubkey + signature)
-        var ecdhPub = _localEcdh.ExportSubjectPublicKeyInfo();
+        var ecdhPub = ExportKeyExchangePoint(_localEcdh);
         using var skeMs = new MemoryStream();
         skeMs.WriteByte(3); // named_curve
         skeMs.WriteByte(0x00); skeMs.WriteByte(0x17); // secp256r1
@@ -310,7 +497,7 @@ internal sealed class DtlsTransport : IDisposable
         sigParams.Write(_remoteRandom!);
         sigParams.Write(_localRandom);
         sigParams.Write(skeMs.ToArray());
-        var signature = _localEcdsa.SignData(sigParams.ToArray(), HashAlgorithmName.SHA256);
+        var signature = _localEcdsa.SignData(sigParams.ToArray(), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
 
         skeMs.WriteByte(0x04); skeMs.WriteByte(0x03); // ecdsa_secp256r1_sha256
         skeMs.WriteByte((byte)(signature.Length >> 8));
@@ -318,6 +505,8 @@ internal sealed class DtlsTransport : IDisposable
         skeMs.Write(signature);
 
         SendHandshakeMessage(HandshakeServerKeyExchange, skeMs.ToArray());
+        // TLS 1.2 CertificateRequest: ECDSA signing, SHA-256/ECDSA, no CA list.
+        SendHandshakeMessage(HandshakeCertificateRequest, [1, 64, 0, 2, 4, 3, 0, 0]);
         SendHandshakeMessage(HandshakeServerHelloDone, []);
     }
 
@@ -327,13 +516,44 @@ internal sealed class DtlsTransport : IDisposable
         _remoteRandom = body.Slice(2, 32).ToArray();
     }
 
+    internal static bool OffersSecureRenegotiation(ReadOnlySpan<byte> hello)
+    {
+        if (hello.Length < 35) return false;
+        var offset = 35 + hello[34];
+        if (offset >= hello.Length) return false;
+        offset += 1 + hello[offset]; // cookie
+        if (hello.Length - offset < 2) return false;
+        var suites = BinaryPrimitives.ReadUInt16BigEndian(hello[offset..]); offset += 2;
+        if ((suites & 1) != 0 || suites > hello.Length - offset) return false;
+        var signaled = false;
+        for (var i = 0; i < suites; i += 2)
+            signaled |= hello[offset + i] == 0 && hello[offset + i + 1] == 0xff;
+        offset += suites;
+        if (offset >= hello.Length) return false;
+        offset += 1 + hello[offset]; // compression methods
+        if (offset == hello.Length) return signaled;
+        if (hello.Length - offset < 2) return false;
+        var extensions = BinaryPrimitives.ReadUInt16BigEndian(hello[offset..]); offset += 2;
+        if (extensions != hello.Length - offset) return false;
+        while (offset < hello.Length)
+        {
+            if (hello.Length - offset < 4) return false;
+            var type = BinaryPrimitives.ReadUInt16BigEndian(hello[offset..]);
+            var length = BinaryPrimitives.ReadUInt16BigEndian(hello[(offset + 2)..]); offset += 4;
+            if (length > hello.Length - offset) return false;
+            if (type == 0xff01) signaled |= length == 1 && hello[offset] == 0;
+            offset += length;
+        }
+        return signaled;
+    }
+
     private void HandleCertificate(ReadOnlySpan<byte> body)
     {
         if (body.Length < 6) return;
         var certLen = (body[3] << 16) | (body[4] << 8) | body[5];
         if (body.Length < 6 + certLen) return;
         var certBytes = body.Slice(6, certLen).ToArray();
-        var cert = X509CertificateLoader.LoadCertificate(certBytes);
+        using var cert = X509CertificateLoader.LoadCertificate(certBytes);
 
         var certHash = SHA256.HashData(cert.RawData);
         var sb = new StringBuilder();
@@ -344,37 +564,50 @@ internal sealed class DtlsTransport : IDisposable
         }
         var computedFingerprint = sb.ToString();
 
-        // Verify fingerprint against expected RemoteFingerprint if set
-        if (!string.IsNullOrEmpty(RemoteFingerprint))
-        {
-            var expected = RemoteFingerprint.Trim().Replace(" ", "");
-            if (!string.Equals(computedFingerprint, expected, StringComparison.OrdinalIgnoreCase))
-                throw new CryptographicException("DTLS remote certificate fingerprint mismatch.");
-        }
+        var expected = RemoteFingerprint?.Trim().Replace(" ", "");
+        if (string.IsNullOrEmpty(expected) || !string.Equals(computedFingerprint, expected, StringComparison.OrdinalIgnoreCase))
+            throw new CryptographicException("DTLS remote certificate fingerprint mismatch or missing pin.");
+        var signingKey = cert.GetECDsaPublicKey()
+            ?? throw new CryptographicException("DTLS requires an ECDSA peer certificate.");
+        _remoteSigningKey?.Dispose();
+        _remoteSigningKey = signingKey;
     }
 
     private void HandleServerKeyExchange(ReadOnlySpan<byte> body)
     {
-        if (body.Length < 4) return;
-        var pubLen = body[3];
-        if (body.Length < 4 + pubLen) return;
-        var peerPub = body.Slice(4, pubLen).ToArray();
-
-        using var peerEcdh = ECDiffieHellman.Create();
-        peerEcdh.ImportSubjectPublicKeyInfo(peerPub, out _);
-        var preMasterSecret = _localEcdh.DeriveKeyMaterial(peerEcdh.PublicKey);
+        if (_remoteSigningKey is null || _remoteRandom is null)
+            throw new CryptographicException("DTLS server key exchange requires a pinned certificate and server random.");
+        using var peerEcdh = VerifyServerKeyExchange(body, _remoteSigningKey, _localRandom, _remoteRandom);
+        _peerCertificateProof = true;
+        var preMasterSecret = _localEcdh.DeriveRawSecretAgreement(peerEcdh.PublicKey);
 
         DeriveKeys(preMasterSecret);
     }
 
     private void HandleServerHelloDone()
     {
-        // Client responds with ClientKeyExchange, ChangeCipherSpec, Finished
-        var ecdhPub = _localEcdh.ExportSubjectPublicKeyInfo();
+        if (!_clientCertificateRequested || !_peerCertificateProof)
+            throw new CryptographicException("DTLS requires mutual certificate authentication.");
+        BeginFlight();
+        var certificate = _localCert.RawData;
+        var certificateBody = new byte[6 + certificate.Length];
+        var listLength = certificate.Length + 3;
+        certificateBody[0] = (byte)(listLength >> 16); certificateBody[1] = (byte)(listLength >> 8); certificateBody[2] = (byte)listLength;
+        certificateBody[3] = (byte)(certificate.Length >> 16); certificateBody[4] = (byte)(certificate.Length >> 8); certificateBody[5] = (byte)certificate.Length;
+        certificate.CopyTo(certificateBody, 6);
+        SendHandshakeMessage(HandshakeCertificate, certificateBody);
+        var ecdhPub = ExportKeyExchangePoint(_localEcdh);
         using var ckeMs = new MemoryStream();
         ckeMs.WriteByte((byte)ecdhPub.Length);
         ckeMs.Write(ecdhPub);
         SendHandshakeMessage(HandshakeClientKeyExchange, ckeMs.ToArray());
+
+        var signature = _localEcdsa.SignData(_handshakeMessages.ToArray(), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        var proof = new byte[4 + signature.Length];
+        proof[0] = 4; proof[1] = 3;
+        BinaryPrimitives.WriteUInt16BigEndian(proof.AsSpan(2), (ushort)signature.Length);
+        signature.CopyTo(proof, 4);
+        SendHandshakeMessage(HandshakeCertificateVerify, proof);
 
         // Send ChangeCipherSpec
         SendRecord(ContentTypeChangeCipherSpec, [1]);
@@ -386,6 +619,30 @@ internal sealed class DtlsTransport : IDisposable
         SendHandshakeMessage(HandshakeFinished, verifyData);
     }
 
+    internal static bool SupportsCertificateRequest(ReadOnlySpan<byte> body)
+    {
+        if (body.Length < 1) return false;
+        var types = body[0];
+        if (body.Length < 1 + types + 2 || !body.Slice(1, types).Contains((byte)64)) return false;
+        var offset = 1 + types;
+        var algorithms = BinaryPrimitives.ReadUInt16BigEndian(body[offset..]); offset += 2;
+        if (algorithms == 0 || algorithms % 2 != 0 || algorithms > body.Length - offset - 2) return false;
+        var supported = false;
+        for (var i = 0; i < algorithms; i += 2)
+            supported |= body[offset + i] == 4 && body[offset + i + 1] == 3;
+        offset += algorithms;
+        var authorities = BinaryPrimitives.ReadUInt16BigEndian(body[offset..]); offset += 2;
+        if (authorities != body.Length - offset) return false;
+        while (offset < body.Length)
+        {
+            if (body.Length - offset < 2) return false;
+            var nameLength = BinaryPrimitives.ReadUInt16BigEndian(body[offset..]); offset += 2;
+            if (nameLength == 0 || nameLength > body.Length - offset) return false;
+            offset += nameLength;
+        }
+        return supported;
+    }
+
     private void HandleClientKeyExchange(ReadOnlySpan<byte> body)
     {
         if (body.Length < 2) return;
@@ -393,25 +650,66 @@ internal sealed class DtlsTransport : IDisposable
         if (body.Length < 1 + pubLen) return;
         var peerPub = body.Slice(1, pubLen).ToArray();
 
-        using var peerEcdh = ECDiffieHellman.Create();
-        peerEcdh.ImportSubjectPublicKeyInfo(peerPub, out _);
-        var preMasterSecret = _localEcdh.DeriveKeyMaterial(peerEcdh.PublicKey);
+        using var peerEcdh = ImportKeyExchangePoint(peerPub);
+        var preMasterSecret = _localEcdh.DeriveRawSecretAgreement(peerEcdh.PublicKey);
 
         DeriveKeys(preMasterSecret);
 
-        // Server sends ChangeCipherSpec, Finished
-        SendRecord(ContentTypeChangeCipherSpec, [1]);
-        _localEpoch = 1;
-        _localSequenceNumber = 0;
-
-        var verifyData = ComputeVerifyData("server finished");
-        SendHandshakeMessage(HandshakeFinished, verifyData);
+        // The server waits for the client's authenticated Finished before
+        // sending its own final flight.
     }
 
-    private void HandleFinished()
+    private bool VerifyFinished(ReadOnlySpan<byte> verifyData)
     {
-        State = "connected";
-        OnStateChanged?.Invoke(State);
+        if (State != "connecting" || !_peerCertificateProof || _masterSecret is null || verifyData.Length != 12)
+            return false;
+        var expected = ComputeVerifyData(IsClient ? "server finished" : "client finished");
+        return CryptographicOperations.FixedTimeEquals(expected, verifyData);
+    }
+
+    // RFC 8422: ECPoint is an uncompressed curve point, not a DER SPKI blob.
+    internal static byte[] ExportKeyExchangePoint(ECDiffieHellman key)
+    {
+        var parameters = key.ExportParameters(false);
+        if (parameters.Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value ||
+            parameters.Q.X?.Length != 32 || parameters.Q.Y?.Length != 32)
+            throw new CryptographicException("DTLS requires a P-256 key.");
+        var point = new byte[65];
+        point[0] = 4;
+        parameters.Q.X.CopyTo(point, 1);
+        parameters.Q.Y.CopyTo(point, 33);
+        return point;
+    }
+
+    internal static ECDiffieHellman ImportKeyExchangePoint(ReadOnlySpan<byte> point)
+    {
+        if (point.Length != 65 || point[0] != 4)
+            throw new CryptographicException("Invalid DTLS P-256 point.");
+        return ECDiffieHellman.Create(new ECParameters
+        {
+            Curve = ECCurve.NamedCurves.nistP256,
+            Q = new ECPoint { X = point.Slice(1, 32).ToArray(), Y = point.Slice(33, 32).ToArray() }
+        });
+    }
+
+    internal static ECDiffieHellman VerifyServerKeyExchange(ReadOnlySpan<byte> body, ECDsa signingKey,
+        ReadOnlySpan<byte> clientRandom, ReadOnlySpan<byte> serverRandom)
+    {
+        const int parameterLength = 69; // named P-256 + length-prefixed point
+        if (clientRandom.Length != 32 || serverRandom.Length != 32 || body.Length < parameterLength + 4 ||
+            body[0] != 3 || body[1] != 0 || body[2] != 23 || body[3] != 65 ||
+            body[69] != 4 || body[70] != 3)
+            throw new CryptographicException("Invalid DTLS server key exchange parameters.");
+        var signatureLength = BinaryPrimitives.ReadUInt16BigEndian(body.Slice(71, 2));
+        if (signatureLength == 0 || body.Length != 73 + signatureLength)
+            throw new CryptographicException("Invalid DTLS server key exchange signature length.");
+        var signed = new byte[64 + parameterLength];
+        clientRandom.CopyTo(signed);
+        serverRandom.CopyTo(signed.AsSpan(32));
+        body[..parameterLength].CopyTo(signed.AsSpan(64));
+        if (!signingKey.VerifyData(signed, body[73..], HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
+            throw new CryptographicException("DTLS server key exchange signature mismatch.");
+        return ImportKeyExchangePoint(body.Slice(4, 65));
     }
 
     private void DeriveKeys(byte[] preMasterSecret)
@@ -432,8 +730,8 @@ internal sealed class DtlsTransport : IDisposable
 
         // Key expansion
         var keyBlockSeed = new byte[64];
-        _remoteRandom!.CopyTo(keyBlockSeed.AsSpan(0, 32));
-        _localRandom.CopyTo(keyBlockSeed.AsSpan(32, 32));
+        (IsClient ? _remoteRandom! : _localRandom).CopyTo(keyBlockSeed.AsSpan(0, 32));
+        (IsClient ? _localRandom : _remoteRandom!).CopyTo(keyBlockSeed.AsSpan(32, 32));
         var keyBlock = Prf(_masterSecret, "key expansion"u8, keyBlockSeed, 40);
 
         var clientWriteKey = keyBlock[0..16];
@@ -441,26 +739,15 @@ internal sealed class DtlsTransport : IDisposable
         var clientWriteIv = keyBlock[32..36];
         var serverWriteIv = keyBlock[36..40];
 
-        if (IsClient)
-        {
-            _localGcm = new AesGcm(clientWriteKey, 16);
-            _remoteGcm = new AesGcm(serverWriteKey, 16);
-            _localImplicitIv = clientWriteIv;
-            _remoteImplicitIv = serverWriteIv;
-        }
-        else
-        {
-            _localGcm = new AesGcm(serverWriteKey, 16);
-            _remoteGcm = new AesGcm(clientWriteKey, 16);
-            _localImplicitIv = serverWriteIv;
-            _remoteImplicitIv = clientWriteIv;
-        }
+        _handshakeWriter?.Dispose(); _handshakeReader?.Dispose();
+        _handshakeWriter = new DtlsRecordCipher(IsClient ? clientWriteKey : serverWriteKey, IsClient ? clientWriteIv : serverWriteIv);
+        _handshakeReader = new DtlsRecordCipher(IsClient ? serverWriteKey : clientWriteKey, IsClient ? serverWriteIv : clientWriteIv);
 
         // RFC 5764 DTLS-SRTP Key Exporter:
         // Extract 2 * (16 + 14) = 60 bytes of key material
         var srtpSeed = new byte[64];
-        _localRandom.CopyTo(srtpSeed.AsSpan(0, 32));
-        _remoteRandom!.CopyTo(srtpSeed.AsSpan(32, 32));
+        (IsClient ? _localRandom : _remoteRandom!).CopyTo(srtpSeed.AsSpan(0, 32));
+        (IsClient ? _remoteRandom! : _localRandom).CopyTo(srtpSeed.AsSpan(32, 32));
         var srtpBlock = Prf(_masterSecret, "EXTRACTOR-dtls_srtp"u8, srtpSeed, 60);
 
         if (IsClient)
@@ -516,82 +803,12 @@ internal sealed class DtlsTransport : IDisposable
     {
         lock (_gate)
         {
-            if (_localGcm is null || _localImplicitIv is null)
-            {
-                // Unencrypted application data (e.g. before handshake completes)
-                SendRecord(ContentTypeApplicationData, data);
-                return;
-            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (State != "connected" || _localEpoch != 1 || _handshakeWriter is null)
+                throw new InvalidOperationException("DTLS application data requires an authenticated connection.");
 
-            var seq = _localSequenceNumber;
-            var nonce = new byte[12];
-            _localImplicitIv.CopyTo(nonce.AsSpan(0, 4));
-            BinaryPrimitives.WriteUInt64BigEndian(nonce.AsSpan(4), seq);
-
-            // AAD: 8 bytes epoch + seq + 1 byte content type + 2 bytes version + 2 bytes length
-            var aad = new byte[13];
-            BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(0), _localEpoch);
-            aad[2] = (byte)(seq >> 40);
-            aad[3] = (byte)(seq >> 32);
-            aad[4] = (byte)(seq >> 24);
-            aad[5] = (byte)(seq >> 16);
-            aad[6] = (byte)(seq >> 8);
-            aad[7] = (byte)seq;
-            aad[8] = ContentTypeApplicationData;
-            BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(9), DtlsVersion12);
-            BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(11), (ushort)data.Length);
-
-            var ciphertext = new byte[data.Length];
-            var tag = new byte[16];
-            _localGcm.Encrypt(nonce, data, ciphertext, tag, aad);
-
-            // DTLS 1.2 record with explicit nonce (8 bytes) + ciphertext + tag
-            var payload = new byte[8 + ciphertext.Length + 16];
-            BinaryPrimitives.WriteUInt64BigEndian(payload.AsSpan(0), seq);
-            ciphertext.CopyTo(payload.AsSpan(8));
-            tag.CopyTo(payload.AsSpan(8 + ciphertext.Length));
-
-            SendRecord(ContentTypeApplicationData, payload);
+            SendRecord(ContentTypeApplicationData, data);
         }
-    }
-
-    private void ProcessApplicationDataRecord(ushort epoch, ReadOnlySpan<byte> payload)
-    {
-        if (_remoteGcm is null || _remoteImplicitIv is null || epoch == 0)
-        {
-            OnApplicationDataReceived?.Invoke(payload.ToArray());
-            return;
-        }
-
-        if (payload.Length < 8 + 16) return;
-        var explicitNonce = payload.Slice(0, 8);
-        var ciphertext = payload.Slice(8, payload.Length - 8 - 16);
-        var tag = payload[^16..];
-
-        var nonce = new byte[12];
-        _remoteImplicitIv.CopyTo(nonce.AsSpan(0, 4));
-        explicitNonce.CopyTo(nonce.AsSpan(4));
-
-        var seq = BinaryPrimitives.ReadUInt64BigEndian(explicitNonce);
-        var aad = new byte[13];
-        BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(0), epoch);
-        aad[2] = (byte)(seq >> 40);
-        aad[3] = (byte)(seq >> 32);
-        aad[4] = (byte)(seq >> 24);
-        aad[5] = (byte)(seq >> 16);
-        aad[6] = (byte)(seq >> 8);
-        aad[7] = (byte)seq;
-        aad[8] = ContentTypeApplicationData;
-        BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(9), DtlsVersion12);
-        BinaryPrimitives.WriteUInt16BigEndian(aad.AsSpan(11), (ushort)ciphertext.Length);
-
-        var plaintext = new byte[ciphertext.Length];
-        try
-        {
-            _remoteGcm.Decrypt(nonce, ciphertext, tag, plaintext, aad);
-            OnApplicationDataReceived?.Invoke(plaintext);
-        }
-        catch (CryptographicException) { }
     }
 
     public void Close() => Dispose();
@@ -602,13 +819,16 @@ internal sealed class DtlsTransport : IDisposable
         {
             if (_disposed) return;
             _disposed = true;
+            StopFlight();
+            _retryTimer?.Dispose();
             State = "closed";
         }
         _localEcdsa.Dispose();
         _localCert.Dispose();
         _localEcdh.Dispose();
-        _localGcm?.Dispose();
-        _remoteGcm?.Dispose();
+        _remoteSigningKey?.Dispose();
+        _handshakeWriter?.Dispose();
+        _handshakeReader?.Dispose();
         OnStateChanged?.Invoke("closed");
     }
 }

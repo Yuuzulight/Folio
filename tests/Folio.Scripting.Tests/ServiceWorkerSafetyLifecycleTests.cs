@@ -263,12 +263,20 @@ public sealed class ServiceWorkerSafetyLifecycleTests
         var loader = new PendingLoader();
         var testCancellation = TestContext.Current.CancellationToken;
         var generationCancellation = authority.LoadCancellation;
-        var pending = Task.Run(() => ServiceWorkerBindings.LoadScript(loader, Origin + "sw.js", generationCancellation, TimeSpan.FromSeconds(30)), testCancellation);
+        long finishedAt = 0;
+        var pending = Task.Factory.StartNew(() =>
+        {
+            try { return ServiceWorkerBindings.LoadScript(loader, Origin + "sw.js", generationCancellation, TimeSpan.FromSeconds(30)); }
+            finally { Volatile.Write(ref finishedAt, Stopwatch.GetTimestamp()); }
+        }, testCancellation, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         await loader.Started.Task.WaitAsync(TimeSpan.FromSeconds(2), testCancellation);
-        var watch = Stopwatch.StartNew();
+        var canceledAt = Stopwatch.GetTimestamp();
         if (close) authority.Dispose(); else authority.UpdateCapabilities(false);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => { await pending.WaitAsync(TimeSpan.FromSeconds(2), testCancellation); });
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2));
+        // Measure the blocked load's actual exit, not the delay before xUnit
+        // schedules this continuation again under full-suite thread contention.
+        var retirement = Stopwatch.GetElapsedTime(canceledAt, Volatile.Read(ref finishedAt));
+        Assert.True(retirement >= TimeSpan.Zero && retirement < TimeSpan.FromSeconds(2), $"Load retirement took {retirement}.");
         Assert.True(loader.Token.IsCancellationRequested);
     }
 

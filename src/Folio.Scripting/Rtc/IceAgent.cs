@@ -4,6 +4,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Diagnostics;
 
 namespace Folio.Scripting.Rtc;
 
@@ -27,6 +28,7 @@ internal sealed class IceAgent : IDisposable
     public event Action<string>? OnGatheringStateChanged;
     public event Action<string>? OnConnectionStateChanged;
     public event Action<byte[]>? OnDatagramReceived;
+    internal event Action? OnMaintenance;
 
     private readonly List<IceCandidate> _localCandidates = [];
     private readonly List<IceCandidate> _remoteCandidates = [];
@@ -39,6 +41,9 @@ internal sealed class IceAgent : IDisposable
     private readonly object _gate = new();
     private bool _disposed;
     private readonly IReadOnlyList<string> _iceServers;
+    private readonly SemaphoreSlim _checkSerial = new(1, 1);
+    private Thread? _receiveThread;
+    internal bool IsReceivePumpAlive => _receiveThread?.IsAlive == true;
 
     public IReadOnlyList<IceCandidate> LocalCandidates { get { lock (_gate) return _localCandidates.ToArray(); } }
 
@@ -78,8 +83,12 @@ internal sealed class IceAgent : IDisposable
         lock (_gate)
         {
             GatheringState = "complete";
+            // Remote SDP may arrive before local gathering. Rebuild pairs
+            // now instead of requiring a duplicate trickled candidate.
+            FormPairs();
         }
         OnGatheringStateChanged?.Invoke("complete");
+        _ = CheckConnectivityAsync();
     }
 
     private void BindSocket()
@@ -90,7 +99,8 @@ internal sealed class IceAgent : IDisposable
             _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             _socket.Bind(new IPEndPoint(IPAddress.Any, 0));
             _localPort = ((IPEndPoint)_socket.LocalEndPoint!).Port;
-            _ = Task.Run(ReceiveLoopAsync);
+            _receiveThread = new Thread(ReceiveLoop) { IsBackground = true, Name = "Folio ICE receive" };
+            _receiveThread.Start();
         }
     }
 
@@ -180,27 +190,59 @@ internal sealed class IceAgent : IDisposable
     }
 
     private async Task<(StunMessage? Message, EndPoint? From)> SendStunRequestAsync(
-        byte[] request, byte[] transactionId, IPEndPoint destination, TimeSpan timeout)
+        byte[] request, byte[] transactionId, IPEndPoint destination, TimeSpan timeout, byte[]? integrityKey = null,
+        Action<StunMessage>? validatedResponse = null)
     {
         if (_socket is null) return (null, null);
         var tcs = new TaskCompletionSource<(StunMessage, EndPoint)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var responseAccepted = 0;
 
         void Handler(StunMessage msg, EndPoint from)
         {
-            if (msg.TransactionId.Span.SequenceEqual(transactionId))
-                tcs.TrySetResult((msg, from));
+            if (from.Equals(destination) && msg.Type is StunMessage.BindingResponse or StunMessage.BindingErrorResponse &&
+                msg.TransactionId.Span.SequenceEqual(transactionId) &&
+                (integrityKey is null || (msg.VerifyIntegritySha1(integrityKey) && msg.VerifyFingerprint())) &&
+                Interlocked.CompareExchange(ref responseAccepted, 1, 0) == 0)
+            {
+                // Commit authenticated transport state before the receive loop
+                // can encounter DTLS immediately following this STUN response.
+                try { validatedResponse?.Invoke(msg); }
+                finally { tcs.TrySetResult((msg, from)); }
+            }
         }
 
-        _pendingStunRequests.Add(Handler);
+        lock (_gate)
+        {
+            if (_disposed || _pendingStunRequests.Count >= 64) return (null, null);
+            _pendingStunRequests.Add(Handler);
+        }
         try
         {
-            await _socket.SendToAsync(request, SocketFlags.None, destination, _cts.Token).ConfigureAwait(false);
-            using var timeoutCts = new CancellationTokenSource(timeout);
+            var attempts = integrityKey is null ? 1 : 3;
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * ((1 << attempts) - 1)));
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, timeoutCts.Token);
-            using (linked.Token.Register(() => tcs.TrySetCanceled()))
+            using (linked.Token.Register(() =>
             {
-                var result = await tcs.Task.ConfigureAwait(false);
-                return (result.Item1, result.Item2);
+                // A response and timeout compete for the same transaction.
+                // A late authenticated response cannot revive an expired check.
+                if (Interlocked.CompareExchange(ref responseAccepted, 2, 0) == 0)
+                    tcs.TrySetCanceled(linked.Token);
+            }))
+            {
+                for (var attempt = 0; attempt < attempts; attempt++)
+                {
+                    await _socket.SendToAsync(request, SocketFlags.None, destination, linked.Token).ConfigureAwait(false);
+                    var retry = Task.Delay(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * (1 << attempt)), linked.Token);
+                    if (await Task.WhenAny(tcs.Task, retry).ConfigureAwait(false) == tcs.Task)
+                    {
+                        var result = await tcs.Task.ConfigureAwait(false);
+                        return (result.Item1, result.Item2);
+                    }
+                    await retry.ConfigureAwait(false);
+                }
+                if (Interlocked.CompareExchange(ref responseAccepted, 2, 0) == 0) tcs.TrySetCanceled();
+                var final = await tcs.Task.ConfigureAwait(false);
+                return (final.Item1, final.Item2);
             }
         }
         catch
@@ -209,7 +251,7 @@ internal sealed class IceAgent : IDisposable
         }
         finally
         {
-            _pendingStunRequests.Remove(Handler);
+            lock (_gate) _pendingStunRequests.Remove(Handler);
         }
     }
 
@@ -220,10 +262,13 @@ internal sealed class IceAgent : IDisposable
         lock (_gate)
         {
             if (_disposed) return;
+            if (candidate.Component != 1 || !candidate.Protocol.Equals("udp", StringComparison.OrdinalIgnoreCase) ||
+                candidate.Port is < 1 or > 65535 || _remoteCandidates.Count >= 256 ||
+                _remoteCandidates.Any(existing => existing.Address == candidate.Address && existing.Port == candidate.Port)) return;
             _remoteCandidates.Add(candidate);
             FormPairs();
         }
-        _ = Task.Run(CheckConnectivityAsync);
+        _ = CheckConnectivityAsync();
     }
 
     private void FormPairs()
@@ -239,6 +284,7 @@ internal sealed class IceAgent : IDisposable
                 if (_pairs.Any(p => p.Local == local && p.RemoteEndPoint.Equals(remoteEp))) continue;
 
                 var pair = new CandidatePair(local, remoteEp, local.Priority, remote.Priority, IsControlling);
+                if (_pairs.Count >= 512) return;
                 _pairs.Add(pair);
             }
         }
@@ -247,9 +293,22 @@ internal sealed class IceAgent : IDisposable
 
     private async Task CheckConnectivityAsync()
     {
+        try
+        {
+            await _checkSerial.WaitAsync(_cts.Token).ConfigureAwait(false);
+            try { await CheckConnectivityCoreAsync().ConfigureAwait(false); }
+            finally { _checkSerial.Release(); }
+        }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
+    }
+
+    private async Task CheckConnectivityCoreAsync()
+    {
         if (string.IsNullOrEmpty(RemoteUfrag) || string.IsNullOrEmpty(RemotePassword)) return;
         lock (_gate)
         {
+            if (_disposed || ConnectionState == "connected") return;
             if (ConnectionState == "new")
             {
                 ConnectionState = "checking";
@@ -296,46 +355,64 @@ internal sealed class IceAgent : IDisposable
                 var key = Encoding.UTF8.GetBytes(RemotePassword);
                 var request = StunMessage.Encode(StunMessage.BindingRequest, transactionId, attributes, key);
 
-                var (response, _) = await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint, TimeSpan.FromMilliseconds(500)).ConfigureAwait(false);
+                var (response, _) = await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint,
+                    TimeSpan.FromMilliseconds(500), key, message => AcceptConnectivityResponse(pair, message)).ConfigureAwait(false);
                 if (response is not null && response.Type == StunMessage.BindingResponse)
                 {
-                    lock (_gate)
-                    {
-                        pair.State = CandidatePairState.Succeeded;
-                        if (_selectedPair is null || pair.Priority > _selectedPair.Priority)
-                        {
-                            _selectedPair = pair;
-                            ConnectionState = "connected";
-                        }
-                    }
-                    OnConnectionStateChanged?.Invoke("connected");
-                    return;
+                    if (ConnectionState == "connected") return;
                 }
             }
             catch { }
         }
     }
 
-    private async Task ReceiveLoopAsync()
+    private void AcceptConnectivityResponse(CandidatePair pair, StunMessage response)
+    {
+        if (response.Type != StunMessage.BindingResponse) return;
+        var newlyConnected = false;
+        lock (_gate)
+        {
+            if (_disposed) return;
+            pair.State = CandidatePairState.Succeeded;
+            if (IsControlling && (_selectedPair is null || pair.Priority > _selectedPair.Priority))
+            {
+                _selectedPair = pair;
+                newlyConnected = ConnectionState != "connected";
+                ConnectionState = "connected";
+            }
+        }
+        if (newlyConnected) OnConnectionStateChanged?.Invoke("connected");
+    }
+
+    private void ReceiveLoop()
     {
         var buffer = new byte[65536];
         EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
+        var maintenance = Stopwatch.GetTimestamp();
 
         while (!_cts.IsCancellationRequested)
         {
             try
             {
-                if (_socket is null) break;
-                var result = await _socket.ReceiveFromAsync(buffer, SocketFlags.None, remoteEp, _cts.Token).ConfigureAwait(false);
-                var bytes = buffer.AsSpan(0, result.ReceivedBytes);
+                var socket = _socket;
+                if (socket is null) break;
+                if (Stopwatch.GetElapsedTime(maintenance) >= TimeSpan.FromMilliseconds(250))
+                { maintenance = Stopwatch.GetTimestamp(); OnMaintenance?.Invoke(); }
+                // Socket completions and transport retry timers must not wait
+                // behind synchronous page work on the shared CLR thread pool.
+                if (!socket.Poll(250000, SelectMode.SelectRead)) continue;
+                var received = socket.ReceiveFrom(buffer, SocketFlags.None, ref remoteEp);
+                var bytes = buffer.AsSpan(0, received);
 
                 if (StunMessage.TryParse(bytes, out var stun))
                 {
-                    HandleStunMessage(stun, result.RemoteEndPoint);
+                    HandleStunMessage(stun, remoteEp);
                 }
                 else
                 {
                     // Non-STUN datagram: DTLS or SRTP packet
+                    lock (_gate)
+                        if (_selectedPair is null || !_selectedPair.RemoteEndPoint.Equals(remoteEp)) continue;
                     var copy = bytes.ToArray();
                     OnDatagramReceived?.Invoke(copy);
                 }
@@ -349,13 +426,18 @@ internal sealed class IceAgent : IDisposable
     private void HandleStunMessage(StunMessage msg, EndPoint from)
     {
         // Notify any pending request waiters
-        var handlers = _pendingStunRequests.ToArray();
+        Action<StunMessage, EndPoint>[] handlers;
+        lock (_gate) handlers = _pendingStunRequests.ToArray();
         foreach (var handler in handlers) handler(msg, from);
 
         if (msg.Type == StunMessage.BindingRequest)
         {
             // Verify and respond to incoming STUN check
-            if (!string.IsNullOrEmpty(LocalPassword) && msg.VerifyIntegritySha1(Encoding.UTF8.GetBytes(LocalPassword)))
+            if (!string.IsNullOrEmpty(LocalPassword) && !string.IsNullOrEmpty(RemoteUfrag) &&
+                msg.TryAttribute(StunMessage.Username, out var username) &&
+                username.Span.SequenceEqual(Encoding.UTF8.GetBytes($"{LocalUfrag}:{RemoteUfrag}")) &&
+                msg.TryAttribute(StunMessage.Priority, out var priority) && priority.Length == 4 &&
+                msg.VerifyFingerprint() && msg.VerifyIntegritySha1(Encoding.UTF8.GetBytes(LocalPassword)))
             {
                 if (from is IPEndPoint ep)
                 {
@@ -372,6 +454,30 @@ internal sealed class IceAgent : IDisposable
 
                     var resp = StunMessage.Encode(StunMessage.BindingResponse, msg.TransactionId.Span, attrs, Encoding.UTF8.GetBytes(LocalPassword));
                     _socket?.SendTo(resp, ep);
+                    // An authenticated check proves the peer's source address,
+                    // including when SDP deliberately hides it behind mDNS.
+                    AddRemoteCandidate(new IceCandidate
+                    {
+                        Foundation = "peer-reflexive",
+                        Component = 1,
+                        Protocol = "udp",
+                        Priority = BinaryPrimitives.ReadUInt32BigEndian(priority.Span),
+                        Address = ep.Address.ToString(),
+                        Port = ep.Port,
+                        Type = "prflx"
+                    });
+                    var nominated = false;
+                    lock (_gate)
+                    {
+                        var pair = _pairs.FirstOrDefault(candidate => candidate.RemoteEndPoint.Equals(ep));
+                        if (!_disposed && !IsControlling && pair is not null &&
+                            msg.TryAttribute(StunMessage.UseCandidate, out var useCandidate) && useCandidate.IsEmpty && _selectedPair is null)
+                        {
+                            pair.State = CandidatePairState.Succeeded;
+                            _selectedPair = pair; ConnectionState = "connected"; nominated = true;
+                        }
+                    }
+                    if (nominated) OnConnectionStateChanged?.Invoke("connected");
                 }
             }
         }

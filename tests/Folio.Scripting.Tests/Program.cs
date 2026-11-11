@@ -9,8 +9,20 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        if (args is ["rtc-chrome-probe", var chrome])
+            return ChromeRtcProbe.Run(chrome);
+        if (args is ["rtc-chrome-probe", var answeringChrome, "folio-answerer"])
+            return ChromeRtcProbe.Run(answeringChrome, folioAnswerer: true);
+        if (args is ["dtls-openssl-probe", var openssl])
+            return OpenSslDtlsProbe.Run(openssl);
+        if (args is ["dtls-openssl-probe", var serverOpenSsl, "folio-server"])
+            return OpenSslDtlsProbe.Run(serverOpenSsl, folioServer: true);
         if (args is ["worker-thread-pool-probe"])
             return WorkerThreadPoolProbe();
+        if (args is ["rtc-thread-pool-probe"])
+            return RtcThreadPoolProbe.Run();
+        if (args is ["gpu-thread-pool-probe"])
+            return GpuThreadPoolProbe.Run();
         // Mirror xUnit's generated entry point for ordinary test runs.
         if (args.Any(arg => arg is "--server" or "--internal-msbuild-node"))
             return TestPlatformTestFramework.RunAsync(args, SelfRegisteredExtensions.AddSelfRegisteredExtensions).GetAwaiter().GetResult();

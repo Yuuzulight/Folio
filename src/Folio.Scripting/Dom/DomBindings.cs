@@ -246,6 +246,10 @@ public static class DomBindings
         return true;
     }
 
+    /// <summary>Trusted transport diagnostics; never exposed to page script.</summary>
+    internal static string GetWebRtcDiagnostics(IScriptEngine engine)
+        => Contexts.TryGetValue(engine, out var context) ? context.WebRtcState?.GetDiagnostics() ?? "No WebRTC state." : "No document.";
+
     /// <summary>Stops background work owned by the document before its content process closes.</summary>
     public static bool Dispose(IScriptEngine engine)
     {

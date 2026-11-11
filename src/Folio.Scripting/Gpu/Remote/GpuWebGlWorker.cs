@@ -51,7 +51,11 @@ internal sealed class GpuWebGlWorker : IDisposable
             worker = new GpuWebGlWorker(launch, leasePath);
             worker.Connect(deviceBudget);
             // Drain stderr with a fixed buffer; worker diagnostics are never accumulated.
-            _ = Task.Run(async () => { try { var buffer = new byte[1024]; while (await launch.Error.ReadAsync(buffer) != 0) { } } catch (IOException) { } catch (ObjectDisposedException) { } });
+            new Thread(() =>
+            {
+                try { var buffer = new byte[1024]; while (launch.Error.Read(buffer) != 0) { } }
+                catch (IOException) { } catch (ObjectDisposedException) { }
+            }) { IsBackground = true, Name = "Folio WebGL diagnostics" }.Start();
             return worker;
         }
         catch

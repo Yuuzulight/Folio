@@ -6,6 +6,8 @@ Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal 
 
 **Status:** The Windows production content host uses Folio-owned rendering, shaping, scripting and WebAssembly implementations. Optional Skia, HarfBuzz, Jint and Wasmtime paths are compatibility or differential-test tools, not requirements of the production package graph. Folio is not a general-purpose browser. Repository test results do not establish that every originally planned web-platform feature is complete: see the [consumer readiness audit](docs/consumer-readiness-audit.md) for integration evidence and remaining feature blockers.
 
+**1.0 release:** Blocked pending the [current release audit](docs/release-1.0-audit.md). M6 is reopened with [#704](https://github.com/Yuuzulight/Folio/issues/704) and [#706](https://github.com/Yuuzulight/Folio/issues/706); the original milestone requirements and mandatory Folio-owned replacement gates still require final verification.
+
 ## Goal
 Render and run AI-written HTML artifacts as well as a modern browser does: pages that use modern CSS, web fonts, SVG charts and diagrams, and, in later milestones, the scripts, UI libraries and canvas graphics those artifacts rely on.
 

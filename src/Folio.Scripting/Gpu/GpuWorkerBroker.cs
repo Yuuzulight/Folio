@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Folio.Scripting.Ipc;
 
 namespace Folio.Scripting.Gpu;
@@ -10,7 +11,10 @@ internal sealed class GpuWorkerBroker : IDisposable
     private readonly IDisposable? _owner;
     private readonly SemaphoreSlim _gate = new(1);
     private readonly TimeSpan _deadline;
-    private int _lost, _sequence;
+    private int _lost, _sequence, _disposed;
+    private readonly BlockingCollection<ExchangeWork> _requests = new(1);
+    private readonly Thread _ioThread;
+    internal bool IsIoThreadAlive => _ioThread.IsAlive;
     internal bool IsLost => Volatile.Read(ref _lost) != 0;
 
     // Test seam supports a stalled stream without invoking any native GPU API.
@@ -18,6 +22,8 @@ internal sealed class GpuWorkerBroker : IDisposable
     {
         if (deadline <= TimeSpan.Zero || deadline > TimeSpan.FromSeconds(30)) throw new ArgumentOutOfRangeException(nameof(deadline));
         _input = input; _output = output; _terminate = terminate; _deadline = deadline; _owner = owner;
+        _ioThread = new Thread(RunIo) { IsBackground = true, Name = "Folio GPU pipe" };
+        _ioThread.Start();
     }
 
     internal static GpuWorkerBroker Start(string publishedContentHost, TimeSpan deadline)
@@ -40,16 +46,17 @@ internal sealed class GpuWorkerBroker : IDisposable
             var owned = new WorkerLease(launch, leasePath);
             var broker = new GpuWorkerBroker(launch.Input, launch.Output, () => launch.Job!.Terminate(), deadline, owned);
             // Drain stderr with a fixed buffer; never accumulate worker-controlled diagnostics.
-            _ = Task.Run(async () => { try { var buffer = new byte[1024]; while (await launch.Error.ReadAsync(buffer) != 0) { } } catch (IOException) { } catch (ObjectDisposedException) { } });
+            new Thread(() =>
+            {
+                try { var buffer = new byte[1024]; while (launch.Error.Read(buffer) != 0) { } }
+                catch (IOException) { } catch (ObjectDisposedException) { }
+            }) { IsBackground = true, Name = "Folio GPU diagnostics" }.Start();
             return broker;
         }
         catch { launch?.Dispose(); Directory.Delete(leaseDirectory, recursive: true); throw; }
     }
 
     internal byte[] Exchange(byte[] request, CancellationToken cancellationToken = default)
-        => ExchangeAsync(request, cancellationToken).GetAwaiter().GetResult();
-
-    private async Task<byte[]> ExchangeAsync(byte[] request, CancellationToken cancellationToken)
     {
         if (request.Length != GpuWorkerProtocol.RequestBytes || GpuWorkerProtocol.Get(request, 0) != GpuWorkerProtocol.Magic)
             throw new ArgumentException("Invalid GPU request.", nameof(request));
@@ -62,36 +69,72 @@ internal sealed class GpuWorkerBroker : IDisposable
             var packet = (byte[])request.Clone();
             var sequence = checked(++_sequence);
             GpuWorkerProtocol.Put(packet, 2, sequence);
-            // Anonymous Windows pipes are synchronous. Isolate their blocking IO; the deadline
-            // terminates the job to break pending IO, rather than relying on stream cancellation.
-            var operation = Task.Run(() =>
+            var work = new ExchangeWork(packet, sequence);
+            _requests.Add(work);
+            // A synchronous wait enforces deadline/cancellation even when all shared
+            // pool threads are occupied. One persistent owned thread handles the
+            // anonymous pipes; no per-command thread or unbounded work queue.
+            try
             {
-                _input.Write(packet); _input.Flush();
-                var header = new byte[GpuWorkerProtocol.HeaderBytes];
-                _output.ReadExactly(header);
-                var length = GpuWorkerProtocol.Get(header, 4);
-                if (GpuWorkerProtocol.Get(header, 0) != GpuWorkerProtocol.Magic ||
-                    GpuWorkerProtocol.Get(header, 1) != (GpuWorkerProtocol.Get(packet, 1) | 0x40000000) ||
-                    GpuWorkerProtocol.Get(header, 2) != sequence || length < 0 || length > GpuWorkerProtocol.MaxPayloadBytes ||
-                    GpuWorkerProtocol.Get(header, 3) is < 0 or > 1)
-                    throw new InvalidDataException("Invalid GPU worker reply.");
-                var response = new byte[GpuWorkerProtocol.HeaderBytes + length];
-                header.CopyTo(response, 0);
-                _output.ReadExactly(response.AsSpan(GpuWorkerProtocol.HeaderBytes));
-                return response;
-            });
-            // Observe a late failure even after the caller has timed out.
-            _ = operation.ContinueWith(t => { _ = t.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-            var reply = await operation.WaitAsync(_deadline, cancellationToken).ConfigureAwait(false);
-            if (GpuWorkerProtocol.Get(reply, 3) != 0) throw new IOException("GPU worker rejected the command.");
-            return reply;
+                if (!work.Completion.Task.Wait(_deadline, cancellationToken))
+                    throw new TimeoutException("GPU worker reply deadline expired.");
+            }
+            catch (AggregateException) { return work.Completion.Task.GetAwaiter().GetResult(); }
+            return work.Completion.Task.GetAwaiter().GetResult();
         }
         catch { Lose(); throw; }
         finally { _gate.Release(); }
     }
 
-    private void Lose() { if (Interlocked.Exchange(ref _lost, 1) == 0) _terminate(); }
-    public void Dispose() { Lose(); _owner?.Dispose(); }
+    private void RunIo()
+    {
+        foreach (var work in _requests.GetConsumingEnumerable())
+        {
+            try
+            {
+                if (IsLost) throw new IOException("GPU context lost.");
+                _input.Write(work.Packet); _input.Flush();
+                var header = new byte[GpuWorkerProtocol.HeaderBytes];
+                _output.ReadExactly(header);
+                var length = GpuWorkerProtocol.Get(header, 4);
+                if (GpuWorkerProtocol.Get(header, 0) != GpuWorkerProtocol.Magic ||
+                    GpuWorkerProtocol.Get(header, 1) != (GpuWorkerProtocol.Get(work.Packet, 1) | 0x40000000) ||
+                    GpuWorkerProtocol.Get(header, 2) != work.Sequence || length < 0 || length > GpuWorkerProtocol.MaxPayloadBytes ||
+                    GpuWorkerProtocol.Get(header, 3) is < 0 or > 1)
+                    throw new InvalidDataException("Invalid GPU worker reply.");
+                var response = new byte[GpuWorkerProtocol.HeaderBytes + length];
+                header.CopyTo(response, 0);
+                _output.ReadExactly(response.AsSpan(GpuWorkerProtocol.HeaderBytes));
+                if (GpuWorkerProtocol.Get(response, 3) != 0) throw new IOException("GPU worker rejected the command.");
+                work.Completion.TrySetResult(response);
+            }
+            catch (Exception error)
+            {
+                work.Completion.TrySetException(error);
+                // Observe failures even if the caller has already timed out.
+                _ = work.Completion.Task.Exception;
+            }
+        }
+    }
+
+    private sealed class ExchangeWork(byte[] packet, int sequence)
+    {
+        internal byte[] Packet { get; } = packet;
+        internal int Sequence { get; } = sequence;
+        internal TaskCompletionSource<byte[]> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private void Lose()
+    {
+        if (Interlocked.Exchange(ref _lost, 1) != 0) return;
+        _requests.CompleteAdding();
+        _terminate(); // Closing the worker job breaks a blocked synchronous pipe operation.
+    }
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { Lose(); } finally { _owner?.Dispose(); }
+    }
 
     private sealed class WorkerLease(WindowsContentLaunch launch, string path) : IDisposable
     {

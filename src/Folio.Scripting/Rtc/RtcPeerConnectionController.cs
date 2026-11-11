@@ -31,8 +31,12 @@ internal sealed class RtcPeerConnectionController : IDisposable
     public RtcPeerConnectionController(IReadOnlyList<string>? iceServers = null)
     {
         Ice = new IceAgent(iceServers);
-        Dtls = new DtlsTransport();
-        Sctp = new SctpDataChannel();
+        Dtls = new DtlsTransport(TimeProvider.System, enableRetryTimer: false);
+        Sctp = new SctpDataChannel(TimeProvider.System, enableRetryTimer: false);
+        Ice.OnMaintenance += () =>
+        {
+            Dtls.RetryDueFlight(); Sctp.RetryDueHandshake(); Sctp.RetryDueData();
+        };
 
         Ice.OnCandidateGathered += candidate => OnIceCandidate?.Invoke(candidate);
         Ice.OnGatheringStateChanged += state =>
@@ -113,7 +117,8 @@ internal sealed class RtcPeerConnectionController : IDisposable
                 Port = 9,
                 Protocol = "UDP/DTLS/SCTP",
                 Mid = "0",
-                SctpPort = 5000
+                SctpPort = 5000,
+                MaximumMessageSize = SctpDataChannel.MaxMessageBytes
             });
         }
 
@@ -148,13 +153,16 @@ internal sealed class RtcPeerConnectionController : IDisposable
 
     public async Task<string> CreateAnswerAsync(bool hasDataChannels, int audioSenders, int videoSenders)
     {
+        // An answer must retain the offered data m-line even when this peer
+        // has not created a local channel of its own.
+        hasDataChannels |= RemoteDescription?.Media.Any(media => media.Kind == "application") == true;
         var sdp = new RtcSdp
         {
             Type = "answer",
             IceUfrag = Ice.LocalUfrag,
             IcePassword = Ice.LocalPassword,
             FingerprintValue = Dtls.Fingerprint,
-            Setup = "active"
+            Setup = RemoteDescription?.TransportSetup == "active" ? "passive" : "active"
         };
 
         if (hasDataChannels)
@@ -165,7 +173,8 @@ internal sealed class RtcPeerConnectionController : IDisposable
                 Port = 9,
                 Protocol = "UDP/DTLS/SCTP",
                 Mid = "0",
-                SctpPort = 5000
+                SctpPort = 5000,
+                MaximumMessageSize = SctpDataChannel.MaxMessageBytes
             });
         }
 
@@ -207,11 +216,21 @@ internal sealed class RtcPeerConnectionController : IDisposable
 
             if (type == "offer")
             {
+                Ice.IsControlling = true;
                 SignalingState = "have-local-offer";
                 OnSignalingStateChange?.Invoke(SignalingState);
             }
             else if (type == "answer")
             {
+                Dtls.IsClient = LocalDescription.TransportSetup switch
+                {
+                    "active" => true,
+                    "passive" => false,
+                    // Empty descriptions are retained only by the old in-page
+                    // loopback fixture; they contain no remote credentials or candidates.
+                    _ when string.IsNullOrWhiteSpace(sdp) => Dtls.IsClient,
+                    _ => throw new InvalidOperationException("A DTLS answer must select active or passive setup.")
+                };
                 SignalingState = "stable";
                 OnSignalingStateChange?.Invoke(SignalingState);
             }
@@ -226,28 +245,42 @@ internal sealed class RtcPeerConnectionController : IDisposable
         {
             RemoteDescription = RtcSdp.Parse(sdp);
             RemoteDescription.Type = type;
+            Sctp.ConfigureRemote(RemoteDescription.RemoteMaximumMessageSize, RemoteDescription.RemoteSctpPort);
 
             if (type == "offer")
             {
+                Ice.IsControlling = false;
                 SignalingState = "have-remote-offer";
                 OnSignalingStateChange?.Invoke(SignalingState);
-                Dtls.IsClient = false; // Remote made offer, we answer -> we are DTLS server
+                // Our generated answer selects active, so we initiate DTLS.
+                Dtls.IsClient = RemoteDescription.TransportSetup switch
+                {
+                    "actpass" or "passive" => true,
+                    "active" => false,
+                    _ => throw new InvalidOperationException("Unsupported remote DTLS setup.")
+                };
             }
             else if (type == "answer")
             {
                 SignalingState = "stable";
                 OnSignalingStateChange?.Invoke(SignalingState);
-                Dtls.IsClient = true; // We made offer, remote answered -> we are DTLS client
+                Dtls.IsClient = RemoteDescription.TransportSetup switch
+                {
+                    "active" => false,
+                    "passive" => true,
+                    _ when string.IsNullOrWhiteSpace(sdp) => Dtls.IsClient,
+                    _ => throw new InvalidOperationException("A remote DTLS answer must select active or passive setup.")
+                };
             }
 
-            if (!string.IsNullOrEmpty(RemoteDescription.IceUfrag))
-                Ice.RemoteUfrag = RemoteDescription.IceUfrag;
-            if (!string.IsNullOrEmpty(RemoteDescription.IcePassword))
-                Ice.RemotePassword = RemoteDescription.IcePassword;
-            if (!string.IsNullOrEmpty(RemoteDescription.FingerprintValue))
-                Dtls.RemoteFingerprint = RemoteDescription.FingerprintValue;
+            if (!string.IsNullOrEmpty(RemoteDescription.TransportIceUfrag))
+                Ice.RemoteUfrag = RemoteDescription.TransportIceUfrag;
+            if (!string.IsNullOrEmpty(RemoteDescription.TransportIcePassword))
+                Ice.RemotePassword = RemoteDescription.TransportIcePassword;
+            if (!string.IsNullOrEmpty(RemoteDescription.TransportFingerprint))
+                Dtls.RemoteFingerprint = RemoteDescription.TransportFingerprint;
 
-            foreach (var candidate in RemoteDescription.Candidates)
+            foreach (var candidate in RemoteDescription.TransportCandidates)
             {
                 Ice.AddRemoteCandidate(candidate);
             }
