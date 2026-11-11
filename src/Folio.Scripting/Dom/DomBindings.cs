@@ -397,6 +397,18 @@ public static class DomBindings
         // 3. Bind document to global scope
         var docWrapper = context.Wrap(document);
         engine.SetGlobalProperty("document", docWrapper);
+        engine.EvaluateHostScript("""
+            (function(ownerDocument) {
+                function Image(width, height) {
+                    var image = ownerDocument.createElement('img');
+                    if (width !== undefined) image.width = width;
+                    if (height !== undefined) image.height = height;
+                    return image;
+                }
+                Image.prototype = HTMLImageElement.prototype;
+                globalThis.Image = Image;
+            })(document);
+            """, "folio:image-constructor");
         var styleHost = new HostObjectTemplate("StyleHost")
             .DefineMethod("getComputedStyle", (target, _, args) =>
             {

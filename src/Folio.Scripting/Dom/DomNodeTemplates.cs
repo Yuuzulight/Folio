@@ -3007,7 +3007,7 @@ internal sealed class DomNodeTemplates
             (target, _) =>
             {
                 var val = ((ElementNode)target).GetAttribute("width");
-                return ScriptValue.FromNumber(val is not null && int.TryParse(val, out var w) ? w : 0);
+                return ScriptValue.FromNumber(uint.TryParse(val, out var w) ? w : 0);
             },
             (target, _, val) =>
             {
@@ -3019,7 +3019,7 @@ internal sealed class DomNodeTemplates
             (target, _) =>
             {
                 var val = ((ElementNode)target).GetAttribute("height");
-                return ScriptValue.FromNumber(val is not null && int.TryParse(val, out var h) ? h : 0);
+                return ScriptValue.FromNumber(uint.TryParse(val, out var h) ? h : 0);
             },
             (target, _, val) =>
             {

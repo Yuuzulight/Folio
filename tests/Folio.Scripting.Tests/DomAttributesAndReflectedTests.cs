@@ -7,6 +7,36 @@ namespace Folio.Scripting.Tests;
 
 public class DomAttributesAndReflectedTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ImageConstructorCreatesAnOrdinaryDetachedImage(bool native)
+    {
+        using IScriptEngine engine = native ? new Native.NativeJavaScriptEngine() : new JintScriptEngine();
+        DomBindings.Install(engine, TreeBuilder.Parse("<!doctype html><body></body>"));
+        try
+        {
+            Assert.True(engine.Evaluate("""
+                var image = new Image(32, 48);
+                image.id = 'constructed';
+                image instanceof HTMLImageElement &&
+                    Image.prototype === HTMLImageElement.prototype &&
+                    image.ownerDocument === document && image.parentNode === null &&
+                    image.width === 32 && image.height === 48 &&
+                    image.getAttribute('width') === '32' && image.getAttribute('height') === '48'
+                """).AsBoolean());
+            Assert.True(engine.Evaluate("""
+                document.body.appendChild(image);
+                var empty = new Image();
+                var wrapped = new Image(-1);
+                document.getElementById('constructed') === image &&
+                    empty.getAttribute('width') === null && empty.getAttribute('height') === null &&
+                    wrapped.width === 4294967295
+                """).AsBoolean());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
     private sealed class DomSession : IDisposable
     {
         public required JintScriptEngine Engine { get; init; }
