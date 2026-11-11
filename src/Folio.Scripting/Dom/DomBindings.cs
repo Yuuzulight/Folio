@@ -674,6 +674,7 @@ public static class DomBindings
                     'HTMLInputElement',
                     'HTMLButtonElement',
                     'HTMLImageElement',
+                    'HTMLCanvasElement',
                     'HTMLOptionElement',
                     'HTMLSelectElement',
                     'HTMLTextAreaElement',
