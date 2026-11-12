@@ -16,6 +16,8 @@ public static class DomBindings
             // actual global object so browser libraries see the same methods and globals through both names.
             globalThis.window = globalThis;
             globalThis.self = globalThis;
+            globalThis.parent = globalThis;
+            globalThis.top = globalThis;
             // Some libraries call the Window method rather than the global alias. Keep both views identical even
             // when an embedding host supplied a distinct window proxy.
             if (globalThis.window && typeof globalThis.window.getComputedStyle !== 'function' && typeof globalThis.getComputedStyle === 'function')

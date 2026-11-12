@@ -5,6 +5,15 @@ namespace Folio.Scripting.Tests;
 public sealed class BoundedScriptCacheTests
 {
     [Fact]
+    public void MediumProgramsAreReusedAndOversizedProgramsAreNotRetained()
+    {
+        var medium = "42;" + new string(' ', 128 * 1024);
+        var oversized = "42;" + new string(' ', 330 * 1024);
+        Assert.Same(NativeJavaScriptEngine.GetOrParseProgram(medium), NativeJavaScriptEngine.GetOrParseProgram(medium));
+        Assert.NotSame(NativeJavaScriptEngine.GetOrParseProgram(oversized), NativeJavaScriptEngine.GetOrParseProgram(oversized));
+    }
+
+    [Fact]
     public void ConcurrentMissesShareOneFactoryAndFailedKeysCanRetry()
     {
         var cache = new BoundedScriptCache<int, int>(8, 32);

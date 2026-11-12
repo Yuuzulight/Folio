@@ -37,6 +37,11 @@ internal sealed class JavaScriptLexer
     private int _line = 1;
     private int _column = 1;
     private int _tokens;
+    private Stack<bool>? _parentheses;
+    private bool _afterMemberAccess;
+    private bool _controlHead;
+    private bool _closedControlHead;
+    private bool _expressionKeyword;
 
     internal JavaScriptLexer(string source, int maxTokens = 1_000_000)
     {
@@ -48,6 +53,24 @@ internal sealed class JavaScriptLexer
     }
 
     internal JavaScriptToken Next()
+    {
+        var token = ReadNext();
+        _closedControlHead = false;
+        if (token.Kind == JavaScriptTokenKind.Punctuation)
+        {
+            if (token.Text == "(")
+                (_parentheses ??= new()).Push(_controlHead);
+            else if (token.Text == ")" && _parentheses is { } parentheses && parentheses.TryPop(out var control))
+                _closedControlHead = control;
+        }
+        var keyword = token.Kind == JavaScriptTokenKind.Identifier && !_afterMemberAccess;
+        _controlHead = keyword && token.Text is ("if" or "while" or "for" or "with");
+        _expressionKeyword = keyword && token.Text is ("return" or "throw" or "case" or "else" or "do");
+        _afterMemberAccess = token.Kind == JavaScriptTokenKind.Punctuation && token.Text is ("." or "?.");
+        return token;
+    }
+
+    private JavaScriptToken ReadNext()
     {
         SkipTrivia();
         if (++_tokens > _maxTokens)
@@ -340,6 +363,7 @@ internal sealed class JavaScriptLexer
 
     private bool IsRegexStart()
     {
+        if (_closedControlHead || _expressionKeyword) return true;
         var previous = _index - 1;
         while (previous >= 0 && char.IsWhiteSpace(_source[previous])) previous--;
         return previous < 0 || "=(:,[!&|?{;".Contains(_source[previous]);

@@ -127,14 +127,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 }
                 return JavaScriptEvaluator.UndefinedValue.Instance;
             }),
-            ["Symbol.iterator"] = new NativeReceiverFunction((receiver, _) => receiver switch
-            {
-                IReadOnlyList<object?> list => list.ToArray(),
-                IReadOnlyDictionary<string, object?> properties when properties.TryGetValue("length", out var length)
-                    => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length)))
-                        .Select(index => properties.TryGetValue(index.ToString(CultureInfo.InvariantCulture), out var stored) ? stored : JavaScriptEvaluator.UndefinedValue.Instance).ToArray(),
-                _ => Array.Empty<object?>(),
-            }),
+            ["Symbol.iterator"] = ArrayValuesIterator,
+            ["values"] = ArrayValuesIterator,
+            ["keys"] = new NativeReceiverFunction((receiver, _) => CreateArrayIterator(receiver, ArrayIteratorKind.Keys)),
+            ["entries"] = new NativeReceiverFunction((receiver, _) => CreateArrayIterator(receiver, ArrayIteratorKind.Entries)),
             ["slice"] = new NativeReceiverFunction((receiver, args) =>
             {
                 var values = receiver switch
@@ -214,12 +210,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         };
         arrayConstructor.SetProperty("prototype", arrayPrototype);
         _bindings["Array"] = arrayConstructor;
+        var hasOwnProperty = new NativeReceiverFunction((receiver, args) =>
+            HasOwnProperty(receiver ?? _bindings, StringValue(args.Count > 0 ? args[0] : JavaScriptEvaluator.UndefinedValue.Instance)));
         var objectPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["hasOwnProperty"] = new NativeReceiverFunction((receiver, args) =>
-                receiver is IReadOnlyDictionary<string, object?> properties
-                    && args.Count > 0
-                    && properties.ContainsKey(StringValue(args[0]))),
+            ["hasOwnProperty"] = hasOwnProperty,
             ["toString"] = new NativeReceiverFunction((receiver, _) => receiver switch
             {
                 null => "[object Null]",
@@ -228,6 +223,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 _ => "[object Object]",
             }),
         };
+        _bindings["hasOwnProperty"] = hasOwnProperty;
         var objectBindings = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["prototype"] = objectPrototype,
@@ -302,7 +298,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 if (args.Count > 2 && args[1] is not null)
                 {
                     var name = StringValue(args[1]);
-                    object? value = null;
+                    object? value = JavaScriptEvaluator.UndefinedValue.Instance;
                     if (args[2] is IReadOnlyDictionary<string, object?> descriptor)
                     {
                         var hasGetter = descriptor.TryGetValue("get", out var getter) && IsCallable(getter);
@@ -312,6 +308,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                                 hasGetter ? receiver => JavaScriptEvaluator.InvokeWithReceiver(getter!, receiver, []) : null,
                                 hasSetter ? (receiver, assigned) => JavaScriptEvaluator.InvokeWithReceiver(setter!, receiver, [assigned]) : null);
                         else if (descriptor.TryGetValue("value", out var descriptorValue)) value = descriptorValue;
+                        else if (TryReadOwnProperty(args[0], name, out _)) return args[0];
                     }
                     if (args[0] is IDictionary<string, object?> target)
                         target[name] = value;
@@ -323,11 +320,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                         JavaScriptEvaluator.SetCallableProperty(callable, name, value);
                     else if (args[0] is INativeHostObject host)
                         host.TrySetSetValue(name, value);
-                    else if (args[0] is IList<object?> values && int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var index) && index >= 0)
-                    {
-                        while (values.Count <= index) values.Add(JavaScriptEvaluator.UndefinedValue.Instance);
-                        values[index] = value;
-                    }
+                    else if (args[0] is IList<object?> values)
+                        JavaScriptEvaluator.SetArrayProperty(values, name, value);
                 }
                 return args.Count > 0 ? args[0] : null;
             }),
@@ -361,25 +355,14 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     return prototype;
                 return null;
             }),
-            ["hasOwn"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && args[0] is IReadOnlyDictionary<string, object?> own && own.ContainsKey(StringValue(args[1]))),
+            ["hasOwn"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && HasOwnProperty(args[0], StringValue(args[1]))),
             ["is"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && SameValue(args[0], args[1])),
             ["freeze"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? args[0] : null),
             ["getOwnPropertyDescriptor"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count < 2 || args[0] is null || args[0] is JavaScriptEvaluator.UndefinedValue) return null;
                 var name = StringValue(args[1]);
-                object? value;
-                var found = args[0] switch
-                {
-                    IReadOnlyDictionary<string, object?> target => target.TryGetValue(name, out value),
-                    INativeHostObject host => host.TryGetValue(name, out value),
-                    INativeCallable callable => callable.TryGetProperty(name, out value),
-                    INativeBuffer buffer => buffer.TryGetProperty(name, out value),
-                    IList<object?> values when name == "length" => (value = (double)values.Count) is not null,
-                    IList<object?> values when int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var index) && index >= 0 && index < values.Count
-                        => (value = values[index]) is not null,
-                    _ => (value = null) is not null,
-                };
+                var found = TryReadOwnProperty(args[0], name, out var value);
                 return found ? new Dictionary<string, object?> { ["value"] = value, ["writable"] = true, ["enumerable"] = name != "length", ["configurable"] = true } : null;
             }),
             ["prototype"] = new Dictionary<string, object?>(StringComparer.Ordinal),
@@ -701,6 +684,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         return bytes;
     }
 
+    private const int MaxCachedProgramCharacters = 320 * 1024;
     private static readonly BoundedScriptCache<string, IReadOnlyList<JavaScriptStatement>> AstCache = new(256, 1024 * 1024);
 
     public static void Prime()
@@ -710,7 +694,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     internal static IReadOnlyList<JavaScriptStatement> GetOrParseProgram(string source)
     {
-        if (source.Length <= 65536)
+        if (source.Length <= MaxCachedProgramCharacters)
             return AstCache.GetOrAdd(source, source.Length, static text => new JavaScriptParser(text).ParseProgram());
         return new JavaScriptParser(source).ParseProgram();
     }
@@ -1004,7 +988,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
         if (target.Raw is INativeBuffer buffer && buffer.TryGetProperty(name, out var bufferValue))
             return ToScriptValue(bufferValue);
-        if (target.Raw is IReadOnlyList<object?> array && name == "length") return ScriptValue.FromNumber(array.Count);
+        if (target.Raw is IList<object?> array && JavaScriptEvaluator.TryGetArrayProperty(array, name, out var arrayValue))
+            return ToScriptValue(arrayValue);
         if (target.Raw is string text && name == "length") return ScriptValue.FromNumber(text.Length);
         if (target.Raw is IReadOnlyDictionary<string, object?> properties && properties.TryGetValue(name, out var item))
             return ToScriptValue(ReadProperty(item));
@@ -1019,6 +1004,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
         if (target.Raw is NativeHostValue host)
             return host.TrySetSetValue(name, ToObject(value)) || host.TrySetPrototypeValue(name, ToObject(value));
+        if (target.Raw is IList<object?> array)
+        {
+            JavaScriptEvaluator.SetArrayProperty(array, name, ToObject(value));
+            return true;
+        }
         if (target.Raw is IDictionary<string, object?> properties)
         {
             var assigned = ToObject(value);
@@ -1030,6 +1020,19 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
         return false;
     }
+
+    private static bool TryReadOwnProperty(object? target, string name, out object? value) => target switch
+    {
+        IReadOnlyDictionary<string, object?> properties => properties.TryGetValue(name, out value),
+        INativeHostObject host => host.TryGetValue(name, out value),
+        INativeCallable callable => callable.TryGetProperty(name, out value),
+        Func<IReadOnlyList<object?>, object?> callable => JavaScriptEvaluator.TryGetCallableProperty(callable, name, out value),
+        INativeBuffer buffer => buffer.TryGetProperty(name, out value),
+        IList<object?> array => JavaScriptEvaluator.TryGetArrayProperty(array, name, out value),
+        _ => (value = null) is not null,
+    };
+
+    private static bool HasOwnProperty(object? target, string name) => TryReadOwnProperty(target, name, out _);
 
     internal static object? ReadProperty(object? value) => value switch
     {
@@ -1045,8 +1048,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     internal sealed class NativePropertyAccessor(Func<object?, object?>? getter, Func<object?, object?, object?>? setter)
     {
-        internal object? Get(object? receiver = null) => getter?.Invoke(receiver);
+        internal object? Get(object? receiver = null) => getter is null ? JavaScriptEvaluator.UndefinedValue.Instance : getter(receiver);
         internal bool Set(object? receiver, object? value) { if (setter is null) return false; setter(receiver, value); return true; }
+        internal NativePropertyAccessor WithGetter(Func<object?, object?> next) => new(next, setter);
+        internal NativePropertyAccessor WithSetter(Func<object?, object?, object?> next) => new(getter, next);
     }
     public void SetGlobalProperty(string name, ScriptValue value) { EnsureLive(); _bindings[name] = ToObject(value); }
     public ScriptValue GetGlobalProperty(string name) => _bindings.TryGetValue(name, out var value) ? ToScriptValue(value) : ScriptValue.Undefined;
@@ -1463,6 +1468,75 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     }
 
     private static double Number(IReadOnlyList<object?> args, int index) => index < args.Count && args[index] is double number ? number : 0;
+    internal enum ArrayIteratorKind { Values, Keys, Entries }
+
+    private static readonly NativeReceiverFunction ArrayValuesIterator = new((receiver, _) => CreateArrayIterator(receiver));
+
+    internal static NativeArrayIterator CreateArrayIterator(object? receiver, ArrayIteratorKind kind = ArrayIteratorKind.Values)
+    {
+        var undefined = JavaScriptEvaluator.UndefinedValue.Instance;
+        return receiver switch
+        {
+            IReadOnlyList<object?> list => new(() => list.Count, index => list[index], kind),
+            INativeHostObject host => new(
+                () => host.TryGetValue("length", out var length) ? (int)NumberValue(length) : 0,
+                index => host.TryGetIndex(index, out var value) ? value : undefined, kind),
+            IReadOnlyDictionary<string, object?> properties => new(
+                () => properties.TryGetValue("length", out var length) ? (int)NumberValue(length) : 0,
+                index => properties.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), undefined), kind),
+            _ => throw WebIdlException.TypeError("Array iterator requires an array-like receiver."),
+        };
+    }
+
+    internal sealed class NativeArrayIterator : Dictionary<string, object?>, IEnumerable<object?>
+    {
+        private readonly Func<int> _length;
+        private readonly Func<int, object?> _read;
+        private readonly ArrayIteratorKind _kind;
+        private int _index;
+        private bool _done;
+
+        internal NativeArrayIterator(Func<int> length, Func<int, object?> read, ArrayIteratorKind kind) : base(StringComparer.Ordinal)
+        {
+            _length = length;
+            _read = read;
+            _kind = kind;
+            this["next"] = new NativeReceiverFunction((receiver, _) => receiver is NativeArrayIterator iterator
+                ? iterator.Next() : throw WebIdlException.TypeError("Array iterator next requires an array iterator."));
+            this["Symbol.iterator"] = (Func<IReadOnlyList<object?>, object?>)(_ => this);
+        }
+
+        private bool TryMoveNext(out object? value)
+        {
+            if (_done || _index >= _length())
+            {
+                _done = true;
+                value = JavaScriptEvaluator.UndefinedValue.Instance;
+                return false;
+            }
+            var index = _index++;
+            value = _kind switch
+            {
+                ArrayIteratorKind.Keys => (double)index,
+                ArrayIteratorKind.Entries => new object?[] { (double)index, _read(index) },
+                _ => _read(index),
+            };
+            return true;
+        }
+
+        private object Next()
+        {
+            var done = !TryMoveNext(out var value);
+            return new Dictionary<string, object?> { ["value"] = value, ["done"] = done };
+        }
+
+        IEnumerator<object?> IEnumerable<object?>.GetEnumerator()
+        {
+            while (TryMoveNext(out var value))
+                yield return value;
+        }
+    }
+
     private static double NumberValue(object? value) => value switch
     {
         null => 0,

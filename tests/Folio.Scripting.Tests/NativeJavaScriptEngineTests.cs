@@ -10,6 +10,100 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void DefiningAttributesWithoutAValuePreservesAnExistingProperty()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            function Widget() {}
+            Widget.prototype = {ready: true};
+            Object.defineProperty(Widget, 'prototype', {writable: false});
+            var array = [1];
+            array.raw = 'source';
+            Object.defineProperty(array, 'raw', {enumerable: false});
+            var obj = {value: 1, get live() { return this.value; }};
+            Object.defineProperty(obj, 'live', {configurable: false});
+            Object.defineProperty(obj, 'missing', {});
+            Object.defineProperty(obj, 'value', {value: null});
+            Widget.prototype.ready && array.raw === 'source' && obj.live === null &&
+                Object.hasOwn(obj, 'missing') && obj.missing === undefined
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void ArraysKeepNamedPropertiesOutsideTheirIndexedElements()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var template = ['cooked'];
+            template.raw = ['raw'];
+            template['01'] = 'named';
+            Object.defineProperty(template, 'tag', {value: 'extra'});
+            hasOwnProperty.call(template, 'raw') && Object.hasOwn(template, '01') &&
+                template['raw'][0] === 'raw' && template['01'] === 'named' &&
+                template.tag === 'extra' && template.length === 1 &&
+                Object.getOwnPropertyDescriptor(template, 'raw').value[0] === 'raw'
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void ArrayIteratorsYieldLiveValuesAndRemainExhausted()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var list = [3, 5];
+            var iterator = list[Symbol.iterator]();
+            var next = iterator.next.bind(iterator);
+            var first = next();
+            list[1] = 7;
+            list.push(9);
+            var rest = Array.from(iterator);
+            var done = next();
+            list.push(11);
+            var pair = list.entries().next().value;
+            var keys = [...list.keys()];
+            iterator[Symbol.iterator]() === iterator && first.value === 3 && !first.done &&
+                rest.join(',') === '7,9' && done.done && done.value === undefined && next().done &&
+                pair[0] === 0 && pair[1] === 3 && keys.join(',') === '0,1,2,3' &&
+                Array.prototype.values.call({0:'item', length:1}).next().value === 'item'
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectLiteralAccessorsShareTheReceiverAndCombineByKey()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var key = 'value';
+            var item = {
+                stored: 2,
+                set [key](next) { this.stored = next * 2; },
+                get 'value'() { return this.stored; },
+                set sink(next) { this.stored = next; },
+                get() { return 'ordinary method'; }
+            };
+            item['value'] = 4;
+            var spread = {...item};
+            item.sink = 3;
+            spread.value === 8 && item['value'] === 3 && item.value === 3 &&
+                item.sink === undefined && item.get() === 'ordinary method'
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void RecognizesRegexStatementsAfterControlHeadsAndDivisionAfterCalls()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var output = [];
+            var obj = { if: function(value) { return value; }, return: 6 };
+            function matcher() { return /b/; }
+            for (var i = 0; i < 2; i++) /[ab]/.test('b') && output.push(i);
+            if ((output.length === 2)) /* body */ /b/.test('b') && output.push(obj.if(8) / 2);
+            output.join(',') === '0,1,4' && matcher().test('b') && obj.return / 2 === 3
+            """).AsBoolean());
+    }
+
+    [Fact]
     public void FunctionConstructorUsesItsPrototypeDuringAndAfterConstruction()
     {
         using var engine = new NativeJavaScriptEngine();
