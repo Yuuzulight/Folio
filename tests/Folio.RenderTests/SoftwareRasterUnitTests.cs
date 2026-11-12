@@ -239,6 +239,16 @@ public class SoftwareRasterUnitTests
         Assert.InRange(Green(pixels, 4, 0, 1), 148, 152);
     }
 
+    [Fact]
+    public void AnImageAtHalfDoesNotBlendHiddenColorIntoItsMip()
+    {
+        using var surface = Surface(1);
+        var image = new DecodedImage(2, 2,
+            [255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 255, 0, 0]);
+        surface.Canvas.DrawImage(image, new RectF(0, 0, 1, 1), ImageSampling.Smooth);
+        Assert.Equal(new byte[] { 255, 0, 0, 64 }, Read(surface));
+    }
+
     // ---- blend modes ----
 
     private static double Lum(double[] c) => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
