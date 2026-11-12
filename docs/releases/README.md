@@ -23,7 +23,7 @@ on that commit and the release, with the notes from `docs/releases/<version>.md`
 
 ## What is attached
 
-- `Folio.<package>.<version>.nupkg` and `.snupkg` for `Folio`, `Folio.Diagrams`, `Folio.Scripting` and `Folio.WinForms`
+- `Folio.<package>.<version>.nupkg` for `Folio`, `Folio.Diagrams`, `Folio.Scripting` and `Folio.WinForms`
 - `Folio.ContentHost-<version>-win-x64.zip`: the whole content host directory, to be extracted and deployed as one
   directory, including `fonts`
 - `SHA256SUMS.txt`
