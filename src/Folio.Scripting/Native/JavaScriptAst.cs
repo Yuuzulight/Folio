@@ -111,13 +111,15 @@ internal sealed record JavaScriptSpreadExpression(JavaScriptExpression Operand) 
 internal sealed record JavaScriptIndexExpression(JavaScriptExpression Target, JavaScriptExpression Index) : JavaScriptExpression;
 internal sealed record JavaScriptObjectExpression(IReadOnlyList<(string Name, JavaScriptExpression Value)> Properties) : JavaScriptExpression;
 internal sealed record JavaScriptFunctionExpression(IReadOnlyList<string> Parameters, IReadOnlyList<JavaScriptStatement> Body,
-    IReadOnlyList<JavaScriptExpression?>? DefaultValues = null, bool IsGenerator = false, string? Name = null, bool IsAsync = false, bool IsArrow = false) : JavaScriptExpression;
+    IReadOnlyList<JavaScriptExpression?>? DefaultValues = null, bool IsGenerator = false, string? Name = null, bool IsAsync = false, bool IsArrow = false,
+    IReadOnlyDictionary<string, JavaScriptExpression>? BindingDefaults = null) : JavaScriptExpression;
 internal sealed record JavaScriptClassMethod(string Name, bool Getter, bool Setter, bool Static, JavaScriptFunctionExpression Function);
 internal sealed record JavaScriptClassExpression(string? Name, string? Parent, IReadOnlyList<JavaScriptClassMethod> Methods) : JavaScriptExpression;
 
 internal abstract record JavaScriptStatement;
 internal sealed record JavaScriptExpressionStatement(JavaScriptExpression Expression) : JavaScriptStatement;
-internal sealed record JavaScriptVariableStatement(string Name, JavaScriptExpression? Initializer, bool Lexical = false) : JavaScriptStatement;
+internal sealed record JavaScriptVariableStatement(string Name, JavaScriptExpression? Initializer, bool Lexical = false,
+    IReadOnlyDictionary<string, JavaScriptExpression>? BindingDefaults = null) : JavaScriptStatement;
 internal sealed record JavaScriptFunctionDeclarationStatement(string Name, JavaScriptFunctionExpression Function) : JavaScriptStatement;
 internal sealed record JavaScriptClassDeclarationStatement(string Name, JavaScriptClassExpression Class) : JavaScriptStatement;
 internal sealed record JavaScriptReturnStatement(JavaScriptExpression? Expression) : JavaScriptStatement;

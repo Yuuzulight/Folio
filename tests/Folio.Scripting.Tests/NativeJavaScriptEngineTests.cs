@@ -32,6 +32,20 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void RecognizesRegexStatementsAfterControlHeadsAndDivisionAfterCalls()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var output = [];
+            var obj = { if: function(value) { return value; }, return: 6 };
+            function matcher() { return /b/; }
+            for (var i = 0; i < 2; i++) /[ab]/.test('b') && output.push(i);
+            if ((output.length === 2)) /* body */ /b/.test('b') && output.push(obj.if(8) / 2);
+            output.join(',') === '0,1,4' && matcher().test('b') && obj.return / 2 === 3
+            """).AsBoolean());
+    }
+
+    [Fact]
     public void FunctionConstructorUsesItsPrototypeDuringAndAfterConstruction()
     {
         using var engine = new NativeJavaScriptEngine();
@@ -1146,6 +1160,60 @@ public sealed class NativeJavaScriptEngineTests
             var modules = { 96e3: function() { return 'module'; }, 0x20: 2, 1_000: 3, [5e2]: 4, '96e3': 5 };
             modules[96e3]() === 'module' && modules[32] === 2 &&
                 modules[1000] === 3 && modules[500] === 4 && modules['96e3'] === 5
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void ArrowObjectParametersBindShorthandNestedAndRestProperties()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var read = ({name, child: {value}, ...rest} = {name:'default', child:{value:4}}, suffix = '!') =>
+                name + value + suffix + ':' + Object.keys(rest).join(',');
+            read({name:'test', child:{value:7}, extra:true}, '?') === 'test7?:extra' &&
+                read() === 'default4!:'
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectParameterDefaultsAreEvaluatedInBindingOrder()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var count = 0;
+            var read = (initial, {target:e = initial, next = e + (++count), ...rest} = {}) =>
+                [e, next, Object.keys(rest).join(',')].join('|');
+            function ordinary({value = 7}) { return value; }
+            read(4) === '4|5|' && read(2, {target:9, next:11, extra:true}) === '9|11|extra' &&
+                read(4, {target:null, next:0}) === '|0|' && count === 1 && ordinary({}) === 7
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectDeclarationDefaultsRunInOrderAndPreserveExplicitValues()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var calls = 0;
+            const {first: a = 5, child: {value = a + ++calls}, keep = 9, ...rest} =
+                {child:{}, keep:null, extra:10};
+            let {b = ++calls} = {b:0};
+            a === 5 && value === 6 && keep === null && rest.extra === 10 &&
+                Object.keys(rest).join(',') === 'extra' && b === 0 && calls === 1
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectAssignmentUpdatesExistingTargetsAndReturnsItsSource()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            let process, init, rest;
+            const holder = {};
+            const source = {process: 6, nested: {value: 8}, extra: 4};
+            const result = ({process, init: init = process + 1, nested: {value: holder.value}, ...rest} = source);
+            result === source && process === 6 && init === 7 && holder.value === 8 &&
+                rest.extra === 4 && Object.keys(rest).join(',') === 'extra'
             """).AsBoolean());
     }
 
