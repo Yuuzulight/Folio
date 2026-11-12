@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using Folio.Dom;
 using Folio.Resources;
 using Folio.Scripting.Gpu;
@@ -369,7 +370,16 @@ internal sealed class DomContext : IFetchContext
     public Uri? BaseUri { get; }
     public Folio.Painting.IRasterBackend? RasterBackend { get; }
     private readonly Func<Folio.Hosting.CanvasStyleEngine?>? _canvasStyles;
-    private readonly Dictionary<ElementNode, (string Source, Folio.Imaging.IImageHandle? Image)> _images = new(ReferenceEqualityComparer.Instance);
+    private sealed class ImageState
+    {
+        internal string? Source;
+        internal Folio.Imaging.IImageHandle? Image;
+        internal bool Decoded;
+        internal bool Queued;
+        internal string? RequestedSource;
+    }
+
+    private readonly ConditionalWeakTable<ElementNode, ImageState> _images = new();
     public DomNodeTemplates Templates { get; }
     private ElementNode? _focusedElement;
     internal InputRouter? InputRouter { get; set; }
@@ -504,30 +514,87 @@ internal sealed class DomContext : IFetchContext
     /// <summary>The pixels an <c>img</c> element shows, decoded from its <c>src</c> (a data: URL, or what the host's loader gives); null while it has none.</summary>
     public Folio.Imaging.IImageHandle? ImageOf(ElementNode image)
     {
-        var source = image.GetAttribute("src")?.Trim() ?? "";
-        if (_images.TryGetValue(image, out var known) && known.Source == source)
-            return known.Image;
+        var state = _images.GetValue(image, static _ => new ImageState());
+        var source = image.GetAttribute("src")?.Trim();
+        if (state.Source != source)
+        {
+            state.Source = source;
+            state.Decoded = false;
+            state.Image = null;
+        }
+        if (!state.Decoded)
+        {
+            var decoded = DecodeImage(source);
+            if (state.Source == source)
+            {
+                state.Image = decoded;
+                state.Decoded = true;
+            }
+        }
+        return state.Image;
+    }
+
+    internal bool IsImageComplete(ElementNode image) =>
+        !_images.TryGetValue(image, out var state) || !state.Queued || image.GetAttribute("src") is null;
+
+    internal void QueueImagesIn(Node root)
+    {
+        if (OwnerEventLoop is null)
+            return;
+        for (Node? node = root; node is not null; node = node.NextInTree(root))
+            if (node is ElementNode { Name.Namespace: var ns, LocalName: "img" } image && ns == Namespaces.Html)
+                QueueImageLoad(image);
+    }
+
+    internal void QueueImageLoad(ElementNode image)
+    {
+        if (OwnerEventLoop is not { } loop || ScriptFeaturesDisposed)
+            return;
+        var source = image.GetAttribute("src")?.Trim();
+        var state = _images.GetValue(image, static _ => new ImageState());
+        if (state.RequestedSource == source)
+            return;
+        state.RequestedSource = source;
+        if (state.Queued || source is null)
+            return;
+        state.Queued = true;
+        loop.QueueTask(TaskSource.Networking, () =>
+        {
+            state.Queued = false;
+            if (ScriptFeaturesDisposed || image.OwnerDocument != Document || image.GetAttribute("src") is null)
+                return;
+            var requestedSource = state.RequestedSource;
+            Folio.Imaging.IImageHandle? decoded;
+            try { decoded = ImageOf(image); }
+            catch (Exception error) when (error is IOException or HttpRequestException or OperationCanceledException)
+            {
+                decoded = null;
+            }
+            if (state.RequestedSource == requestedSource && !state.Queued)
+                Document.EventDispatcher?.Invoke(image, decoded is null ? "error" : "load", new EventDispatchArgs());
+        }, "image load");
+    }
+
+    private Folio.Imaging.IImageHandle? DecodeImage(string? source)
+    {
         Folio.Imaging.IImageHandle? decoded = null;
-        if (source.Length > 0)
+        if (!string.IsNullOrEmpty(source))
         {
             byte[]? bytes = null;
             if (source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-            {
-                if (Folio.Resources.DataUrl.TryParse(source, out var data, out _))
-                    bytes = data;
-            }
+                bytes = Folio.Resources.ResourceLoader.DataUrlsOnly.Load(new ResourceRequest(source, ResourceKind.Image)).Data;
             else if (ResourceLoader is { } loader)
             {
                 var url = BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved) ? resolved.AbsoluteUri : source;
                 if (Uri.TryCreate(url, UriKind.Absolute, out var absolute))
                 {
                     bytes = TryServiceWorkerResource(absolute.AbsoluteUri)?.Data ??
-                        loader.LoadAsync(new ResourceRequest(absolute.AbsoluteUri, ResourceKind.Image), CancellationToken.None).GetAwaiter().GetResult()?.Data;
+                        new Folio.Resources.ResourceLoader(host: loader).Load(new ResourceRequest(absolute.AbsoluteUri, ResourceKind.Image)).Data;
                 }
             }
-            decoded = bytes is null ? null : Folio.Imaging.ImageLoader.Decode(bytes);
+            if (bytes is { Length: <= Folio.Resources.ResourceLoader.MaxResourceBytes })
+                decoded = Folio.Imaging.ImageLoader.Decode(bytes);
         }
-        _images[image] = (source, decoded);
         return decoded;
     }
 

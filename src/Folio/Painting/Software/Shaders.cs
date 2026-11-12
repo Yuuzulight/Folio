@@ -223,7 +223,7 @@ internal sealed class GradientShader : Shader
 /// </summary>
 internal sealed class ImageShader : Shader
 {
-    private sealed record Level(int Width, int Height, byte[] Pixels);
+    private sealed record Level(int Width, int Height, ReadOnlyMemory<byte> Pixels);
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IImageHandle, List<Level>> MipCache = new();
 
@@ -235,7 +235,7 @@ internal sealed class ImageShader : Shader
 
     private ImageShader(IImageHandle image, Matrix33 inverse, bool repeatX, bool repeatY, bool smooth)
     {
-        _levels = MipCache.GetValue(image, i => [new Level(i.Width, i.Height, i.Pixels.ToArray())]);
+        _levels = MipCache.GetValue(image, i => [new Level(i.Width, i.Height, i.Pixels)]);
         _inverse = inverse;
         _repeatX = repeatX;
         _repeatY = repeatY;
@@ -259,23 +259,37 @@ internal sealed class ImageShader : Shader
         var w = Math.Max(1, from.Width / 2);
         var h = Math.Max(1, from.Height / 2);
         var pixels = new byte[w * h * 4];
+        var source = from.Pixels.Span;
         for (var y = 0; y < h; y++)
         {
+            var top = 2 * y * from.Width * 4;
+            var bottom = Math.Min(2 * y + 1, from.Height - 1) * from.Width * 4;
             for (var x = 0; x < w; x++)
             {
+                var left = 2 * x * 4;
+                var right = Math.Min(2 * x + 1, from.Width - 1) * 4;
+                var tl = top + left;
+                var tr = top + right;
+                var bl = bottom + left;
+                var br = bottom + right;
+                var o = (y * w + x) * 4;
+                if ((source[tl + 3] & source[tr + 3] & source[bl + 3] & source[br + 3]) == 255)
+                {
+                    for (var channel = 0; channel < 3; channel++)
+                        pixels[o + channel] = (byte)((source[tl + channel] + source[tr + channel] + source[bl + channel] + source[br + channel] + 2) / 4);
+                    pixels[o + 3] = 255;
+                    continue;
+                }
                 float r = 0, g = 0, b = 0, a = 0;
                 for (var k = 0; k < 4; k++)
                 {
-                    var sx = Math.Min(2 * x + (k & 1), from.Width - 1);
-                    var sy = Math.Min(2 * y + (k >> 1), from.Height - 1);
-                    var i = (sy * from.Width + sx) * 4;
-                    var alpha = from.Pixels[i + 3] / 255f;
-                    r += from.Pixels[i] * alpha;
-                    g += from.Pixels[i + 1] * alpha;
-                    b += from.Pixels[i + 2] * alpha;
+                    var i = (k < 2 ? top : bottom) + ((k & 1) == 0 ? left : right);
+                    var alpha = source[i + 3] / 255f;
+                    r += source[i] * alpha;
+                    g += source[i + 1] * alpha;
+                    b += source[i + 2] * alpha;
                     a += alpha;
                 }
-                var o = (y * w + x) * 4;
                 if (a > 0)
                 {
                     pixels[o] = (byte)Math.Clamp((int)(r / a + 0.5f), 0, 255);
@@ -342,6 +356,18 @@ internal sealed class ImageShader : Shader
         var y0 = (int)MathF.Floor(v);
         var fx = u - x0;
         var fy = v - y0;
+        if (_clamp)
+        {
+            var image = _levels[level];
+            var pixels = image.Pixels.Span;
+            var left = Math.Clamp(x0, 0, image.Width - 1);
+            var right = Math.Clamp(x0 + 1, 0, image.Width - 1);
+            var topRow = Math.Clamp(y0, 0, image.Height - 1) * image.Width;
+            var bottomRow = Math.Clamp(y0 + 1, 0, image.Height - 1) * image.Width;
+            var topColor = Vector4.Lerp(ReadPixel(pixels, topRow + left), ReadPixel(pixels, topRow + right), fx);
+            var bottomColor = Vector4.Lerp(ReadPixel(pixels, bottomRow + left), ReadPixel(pixels, bottomRow + right), fx);
+            return Vector4.Lerp(topColor, bottomColor, fy);
+        }
         var top = Vector4.Lerp(Fetch(level, x0, y0), Fetch(level, x0 + 1, y0), fx);
         var bottom = Vector4.Lerp(Fetch(level, x0, y0 + 1), Fetch(level, x0 + 1, y0 + 1), fx);
         return Vector4.Lerp(top, bottom, fy);
@@ -368,7 +394,12 @@ internal sealed class ImageShader : Shader
             else if (y < 0 || y >= h)
                 return Vector4.Zero;
         }
-        var i = (y * w + x) * 4;
-        return new Vector4(l.Pixels[i], l.Pixels[i + 1], l.Pixels[i + 2], l.Pixels[i + 3]) / 255f;
+        return ReadPixel(l.Pixels.Span, y * w + x);
+    }
+
+    private static Vector4 ReadPixel(ReadOnlySpan<byte> pixels, int index)
+    {
+        var i = index * 4;
+        return new Vector4(pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]) / 255f;
     }
 }

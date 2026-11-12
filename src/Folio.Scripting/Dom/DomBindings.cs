@@ -16,6 +16,8 @@ public static class DomBindings
             // actual global object so browser libraries see the same methods and globals through both names.
             globalThis.window = globalThis;
             globalThis.self = globalThis;
+            globalThis.parent = globalThis;
+            globalThis.top = globalThis;
             // Some libraries call the Window method rather than the global alias. Keep both views identical even
             // when an embedding host supplied a distinct window proxy.
             if (globalThis.window && typeof globalThis.window.getComputedStyle !== 'function' && typeof globalThis.getComputedStyle === 'function')
@@ -285,6 +287,7 @@ public static class DomBindings
         context.ScriptFeaturesDisposed = true;
         context.Document.SetFeatureAvailability(false, false, false, false);
         context.Document.EventDispatcher = null;
+        context.Document.ImageSourceChanged = null;
         Action[] retire =
         [
             () => context.DisposeCacheStorage?.Invoke(), context.LoseCanvasContexts, context.DisposeIframes,
@@ -463,7 +466,11 @@ public static class DomBindings
         // 4. Event handler content attributes (#457): the parsed ones now, later ones as they change or are inserted.
         handlers.Scan(document, context);
         document.HandlerAttributeChanged += (element, name, value) => handlers.Changed(context.Wrap(element), name, value);
-        document.NodeInserted += node => handlers.Scan(node, context);
+        document.NodeInserted += node =>
+        {
+            handlers.Scan(node, context);
+            context.QueueImagesIn(node);
+        };
 
         // 5. Trusted event dispatcher bridge (#458)
         document.EventDispatcher = (targetNode, eventType, args) =>
@@ -514,6 +521,8 @@ public static class DomBindings
             return result.IsBoolean ? result.AsBoolean() : true;
         };
 
+        document.ImageSourceChanged = context.QueueImageLoad;
+        context.QueueImagesIn(document);
         return context.WrapperCache;
         }
         catch
@@ -674,6 +683,7 @@ public static class DomBindings
                     'HTMLInputElement',
                     'HTMLButtonElement',
                     'HTMLImageElement',
+                    'HTMLCanvasElement',
                     'HTMLOptionElement',
                     'HTMLSelectElement',
                     'HTMLTextAreaElement',

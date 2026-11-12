@@ -133,7 +133,6 @@ internal static class Rasterizer
         {
             for (var y = bounds.Top; y < bounds.Bottom; y++)
             {
-                var touched = false;
                 var minTouch = width;
                 var maxTouch = -1;
                 var lastSample = y + (Samples - 0.5f) / Samples;
@@ -183,17 +182,20 @@ internal static class Rasterizer
 
                     if (crossings.Count == 2)
                     {
-                        if (crossings[0].X > crossings[1].X)
+                        var first = crossings[0];
+                        var second = crossings[1];
+                        if (rule == FillRule.EvenOdd || first.Direction != second.Direction)
                         {
-                            var temp = crossings[0];
-                            crossings[0] = crossings[1];
-                            crossings[1] = temp;
+                            var left = Math.Min(first.X, second.X);
+                            var right = Math.Max(first.X, second.X);
+                            for (var walk = 0; walk < walks; walk++)
+                                AddSpan(row, runs, width, left, right, ref minTouch, ref maxTouch);
                         }
+                        if (walks > 1)
+                            break;
+                        continue;
                     }
-                    else
-                    {
-                        crossings.Sort(static (p, q) => p.X.CompareTo(q.X));
-                    }
+                    crossings.Sort(static (p, q) => p.X.CompareTo(q.X));
 
                     for (var walk = 0; walk < walks; walk++)
                     {
@@ -208,12 +210,7 @@ internal static class Rasterizer
                                 spanStart = x;
                             else if (!nowInside && inside)
                             {
-                                AddSpan(row, runs, width, spanStart, x, 1f / Samples);
-                                touched = true;
-                                var iFrom = Math.Max(0, (int)spanStart);
-                                var iTo = Math.Min(width, (int)MathF.Ceiling(x));
-                                if (iFrom < minTouch) minTouch = iFrom;
-                                if (iTo > maxTouch) maxTouch = iTo;
+                                AddSpan(row, runs, width, spanStart, x, ref minTouch, ref maxTouch);
                             }
                             inside = nowInside;
                         }
@@ -222,22 +219,14 @@ internal static class Rasterizer
                         break;
                 }
 
-                if (!touched)
+                if (maxTouch < minTouch)
                     continue;
 
                 var running = 0f;
                 var offset = (y - bounds.Top) * width;
-                var startX = Math.Max(0, minTouch);
                 var endX = Math.Min(width, maxTouch + 1);
 
-                for (var x = 0; x < startX; x++)
-                {
-                    running += runs[x];
-                    runs[x] = 0;
-                    row[x] = 0;
-                }
-
-                for (var x = startX; x < endX; x++)
+                for (var x = minTouch; x < endX; x++)
                 {
                     // Most wide shape interiors have no edge deltas. Probe one
                     // hardware vector (not a variable-length scan) and preserve
@@ -258,12 +247,9 @@ internal static class Rasterizer
                     runs[x] = 0;
                 }
 
-                for (var x = endX; x < width + 2; x++)
-                {
-                    running += runs[x];
-                    runs[x] = 0;
-                    row[x] = 0;
-                }
+                // A span can place its closing delta at the right edge of the mask.
+                runs[width] = 0;
+                row[width] = 0;
             }
             return new Coverage(bounds, data);
         }
@@ -392,16 +378,19 @@ internal static class Rasterizer
         return true;
     }
 
-    private static void AddSpan(float[] row, float[] runs, int width, float from, float to, float weight)
+    private static void AddSpan(float[] row, float[] runs, int width, float from, float to, ref int minTouch, ref int maxTouch)
     {
         if (from < 0)
             from = 0;
         if (to > width)
             to = width;
-        if (to <= from)
+        if (!(to > from))
             return;
         var a = (int)from;
         var b = (int)to;
+        minTouch = Math.Min(minTouch, a);
+        maxTouch = Math.Max(maxTouch, b);
+        const float weight = 1f / Samples;
         if (a == b)
         {
             row[a] += (to - from) * weight;

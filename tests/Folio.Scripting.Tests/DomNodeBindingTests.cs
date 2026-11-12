@@ -2,6 +2,7 @@ using Folio.Dom;
 using Folio.Html;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 
 namespace Folio.Scripting.Tests;
 
@@ -32,11 +33,39 @@ public class DomNodeBindingTests
 
         Assert.Equal("Test", engine.Evaluate("document.title").AsString());
         Assert.True(engine.Evaluate("window === globalThis").AsBoolean());
+        Assert.True(engine.Evaluate("window.top === window && window.parent === window").AsBoolean());
         Assert.True(engine.Evaluate("window.document === document").AsBoolean());
         Assert.True(engine.Evaluate("document.documentElement !== null").AsBoolean());
         Assert.Equal("HTML", engine.Evaluate("document.documentElement.tagName").AsString());
         Assert.Equal("HEAD", engine.Evaluate("document.head.tagName").AsString());
         Assert.Equal("BODY", engine.Evaluate("document.body.tagName").AsString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CanvasElementsUseTheHtmlCanvasElementPrototype(bool native)
+    {
+        using IScriptEngine engine = native ? new NativeJavaScriptEngine() : new JintScriptEngine();
+        DomBindings.Install(engine, TreeBuilder.Parse("<!doctype html><canvas></canvas>"));
+        Assert.True(engine.Evaluate("""
+            document.querySelector('canvas') instanceof HTMLCanvasElement &&
+            document.createElement('canvas') instanceof HTMLCanvasElement &&
+            document.createElement('canvas') instanceof HTMLElement
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void NativeTopLevelWindowAliasesShareTheWindowEventTarget()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        DomBindings.Install(engine, TreeBuilder.Parse("<!doctype html><p>Window</p>"));
+        Assert.True(engine.Evaluate("""
+            var calls = 0;
+            window.top.addEventListener('folio-test', () => calls++);
+            window.dispatchEvent(new Event('folio-test'));
+            window.top === window && window.parent === window && calls === 1
+            """).AsBoolean());
     }
 
     [Fact]
