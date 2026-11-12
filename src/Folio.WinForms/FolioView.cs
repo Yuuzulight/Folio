@@ -878,8 +878,9 @@ public class FolioView : Control
                 canvas.FillRoundedRect(new RoundedRect(new RectF(0, ScrollTop, width / PixelScale, height / PixelScale), default), background);
                 DisplayListPlayer.Replay(_list!, canvas, new RectF(0, ScrollTop, width / PixelScale, height / PixelScale));
             }
-            else if (_pendingDamage is { } damage && damage.Width > 0 && damage.Height > 0)
+            else if (_pendingDamage is { } pending && pending.Width > 0 && pending.Height > 0)
             {
+                var damage = DisplayListPlayer.SnapToDevicePixels(pending, PixelScale, ScrollTop);
                 rasterChanged = true;
                 canvas.Save();
                 canvas.ClipRoundedRect(new RoundedRect(damage, default));

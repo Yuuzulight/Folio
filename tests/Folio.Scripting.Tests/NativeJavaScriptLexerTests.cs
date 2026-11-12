@@ -27,6 +27,16 @@ public sealed class NativeJavaScriptLexerTests
     }
 
     [Fact]
+    public void ReadsUnescapedStringsWithoutMovingTheNextTokenLocation()
+    {
+        var lexer = new JavaScriptLexer("'a\"b' \"c'd\" next");
+        Assert.Equal("a\"b", lexer.Next().Text);
+        Assert.Equal("c'd", lexer.Next().Text);
+        var next = lexer.Next();
+        Assert.Equal(("next", 12, 1, 13), (next.Text, next.Offset, next.Line, next.Column));
+    }
+
+    [Fact]
     public void RejectsUnterminatedStringsAndComments()
     {
         Assert.Throws<InvalidDataException>(() => new JavaScriptLexer("'unterminated").Next());
@@ -52,6 +62,15 @@ public sealed class NativeJavaScriptLexerTests
         Assert.Equal("&&", lexer.Next().Text);
         Assert.Equal("c", lexer.Next().Text);
         Assert.Equal("=>", lexer.Next().Text);
+    }
+
+    [Fact]
+    public void RecognizesLongOperatorsBeforeTheirShorterPrefixes()
+    {
+        string[] expected = [">>>=", ">>>", ">>=", "<<=", "===", "!==", "...", "&&=", "||=", "??=", "?.", "?", ".5"];
+        var lexer = new JavaScriptLexer(">>>= >>> >>= <<= === !== ... &&= ||= ??= ?. ?.5");
+        Assert.Equal(expected, expected.Select(_ => lexer.Next().Text).ToArray());
+        Assert.Equal(JavaScriptTokenKind.End, lexer.Next().Kind);
     }
 
     [Fact]

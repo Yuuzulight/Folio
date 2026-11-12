@@ -92,8 +92,9 @@ internal static class FrameBenchmark
             var list = document.PaintFrame(time);
             paintOnly &= list is not null;
             list ??= document.Paint(800, 600, 1, shaper, time).List;
-            if (document.LastDamage is { } damage && damage.Width > 0 && damage.Height > 0)
+            if (document.LastDamage is { } changed && changed.Width > 0 && changed.Height > 0)
             {
+                var damage = DisplayListPlayer.SnapToDevicePixels(changed, 1);
                 canvas.Save();
                 canvas.ClipRoundedRect(new RoundedRect(damage, default));
                 Replay(canvas, list, damage);

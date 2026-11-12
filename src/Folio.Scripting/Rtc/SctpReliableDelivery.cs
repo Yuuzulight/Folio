@@ -46,6 +46,10 @@ internal sealed class SctpReliableDelivery(uint initialLocalTsn = 1)
     internal uint HighestEmittedTsn => _highestEmitted;
     internal string Diagnostics => $"assigned={_highestAssigned},emitted={_highestEmitted},ack={_lastAck},queued={_unsent.Count},retransmitQueued={_outgoing.Values.Count(p => p.TimeoutQueued && !p.GapAcknowledged)},pending={_outgoing.Count},flight={FlightBytes},cwnd={_congestionWindow},rwnd={_peerWindow},rto={_rtoSeconds:F3},rx={_cumulativeReceived},gaps={_received.Count},fragments={_fragments.Count},rxBytes={_receiveBytes}";
     internal uint NextTsn => unchecked(_highestAssigned + 1);
+    internal uint CumulativeReceived => _cumulativeReceived;
+    // RFC 6525: a reset stream's next message starts again at stream sequence number 0.
+    internal void ResetOutgoingStream(ushort stream) => _sendSequences.Remove(stream);
+    internal void ResetIncomingStream(ushort stream) => _receiveSequences.Remove(stream);
 
     internal readonly record struct Message(ushort Stream, uint Ppid, byte[] Data, long ReceivedAt = 0);
     private sealed record Fragment(uint Tsn, ushort Stream, ushort Sequence, uint Ppid, byte Flags, byte[] Data, long ReceivedAt)
