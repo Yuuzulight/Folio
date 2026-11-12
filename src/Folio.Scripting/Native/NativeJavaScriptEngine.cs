@@ -1766,7 +1766,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 "get" => new NativeReceiverFunction((_, args) => args.Count > 0 && args[0] is { } key ? Get(key) : JavaScriptEvaluator.UndefinedValue.Instance),
                 "has" => new NativeReceiverFunction((_, args) => args.Count > 0 && args[0] is { } key && Has(key)),
                 "delete" => new NativeReceiverFunction((_, args) => args.Count > 0 && args[0] is { } key && Delete(key)),
-                "entries" or "keys" or "values" => new NativeReceiverFunction((_, _) => name == "values" ? _values.Values.ToList() : name == "keys" ? _values.Keys.ToList() : Entries()),
+                "entries" or "keys" or "values" => new NativeReceiverFunction((_, _) => name == "values" ? _values.Values.ToList() : name == "keys" ? _values.Keys.Cast<object?>().ToList() : Entries()),
                 "Symbol.iterator" => new NativeReceiverFunction((_, _) => CreateArrayIterator(Entries())),
                 "clear" => new NativeReceiverFunction((_, _) => { _values.Clear(); return JavaScriptEvaluator.UndefinedValue.Instance; }),
                 "forEach" => new NativeReceiverFunction((_, args) => { if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Map callback must be callable."); foreach (var pair in _values) InvokeCallable(args[0], [pair.Value, pair.Key, this]); return JavaScriptEvaluator.UndefinedValue.Instance; }),
