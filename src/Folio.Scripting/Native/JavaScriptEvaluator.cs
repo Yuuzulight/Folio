@@ -480,6 +480,7 @@ internal sealed class JavaScriptEvaluator
                 var source = Evaluate(each.Iterable);
                 var items = each.Keys && source is IReadOnlyDictionary<string, object?> dictionary
                     ? dictionary.Keys.Cast<object?>().ToArray()
+                    : source is NativeJavaScriptEngine.NativeArrayIterator iterator ? (IEnumerable<object?>)iterator
                     : source is IReadOnlyList<object?> array ? (each.Keys ? Enumerable.Range(0, array.Count).Cast<object?>().ToArray() : array.ToArray())
                     : source is NativeJavaScriptEngine.INativeHostObject host && host.TryGetValue("length", out var hostLength)
                         ? Enumerable.Range(0, Math.Max(0, (int)Number(hostLength)))
@@ -1117,7 +1118,7 @@ internal sealed class JavaScriptEvaluator
         if (target is IReadOnlyDictionary<string, object?> dictionary)
             return PrototypeMemberValue(dictionary, StringValue(key), target);
         if (target is IList<object?> iterable && StringValue(key) == "Symbol.iterator")
-            return (Func<IReadOnlyList<object?>, object?>)(_ => iterable.ToArray());
+            return (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(iterable));
         var position = (int)Number(key);
         return target switch
         {
@@ -1199,7 +1200,7 @@ internal sealed class JavaScriptEvaluator
         if (target is IList<object?> values)
         {
             if (name == "length") return (double)values.Count;
-            if (name == "Symbol.iterator") return (Func<IReadOnlyList<object?>, object?>)(_ => values.ToArray());
+            if (name == "Symbol.iterator") return (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(values));
             if (TryArrayMethod(values, name, out var arrayMethod)) return arrayMethod;
         }
         if (target is double or int or long)
@@ -1522,9 +1523,9 @@ internal sealed class JavaScriptEvaluator
         {
             "join" => (Func<IReadOnlyList<object?>, object?>)(args => ArrayJoin(values, args.Count > 0 ? StringValue(args[0]) : ",")),
             "toString" => (Func<IReadOnlyList<object?>, object?>)(_ => ArrayJoin(values, ",")),
-            "keys" => (Func<IReadOnlyList<object?>, object?>)(_ => Enumerable.Range(0, values.Count).Select(index => (object?)(double)index).ToArray()),
-            "values" => (Func<IReadOnlyList<object?>, object?>)(_ => values.ToArray()),
-            "entries" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Select((item, index) => (object?)new object?[] { (double)index, item }).ToArray()),
+            "keys" => (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(values, NativeJavaScriptEngine.ArrayIteratorKind.Keys)),
+            "values" => (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(values)),
+            "entries" => (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(values, NativeJavaScriptEngine.ArrayIteratorKind.Entries)),
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count == 0) return -1d;
