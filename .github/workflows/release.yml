@@ -1,0 +1,137 @@
+name: Release
+
+# Publishes a GitHub release (tag, packages, content host, checksums) for a commit whose CI run on main is green.
+# Nothing is pushed to NuGet.org. See docs/releases/README.md.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without the leading v, for example 0.9.0'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark the GitHub release as a pre-release'
+        required: true
+        type: boolean
+        default: true
+      commit:
+        description: 'Commit SHA to release (default: the dispatched ref)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: read # lists the CI runs of the released commit
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      PRERELEASE: ${{ inputs.prerelease }}
+      TARGET: ${{ inputs.commit || github.sha }}
+    steps:
+      - name: Check the commit input
+        shell: pwsh
+        env:
+          COMMIT_INPUT: ${{ inputs.commit }}
+        run: |
+          $commit = $env:COMMIT_INPUT
+          if ($commit -and $commit -cnotmatch '^[0-9a-f]{40}$') {
+            throw "The commit input must be empty or a full 40-character lowercase hex SHA; got '$commit'."
+          }
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+          fetch-depth: 0 # full history and tags: tools/pack.ps1 numbers the packages by the commit count
+
+      - name: Check the version, the tag and the release notes
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($env:VERSION -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$') {
+            throw "Version '$env:VERSION' is not a NuGet version such as 0.9.0 or 1.0.0-rc.1 (no leading v)."
+          }
+          $tag = "v$env:VERSION"
+          if (git tag --list $tag) { throw "Tag $tag already exists. A release is never replaced; choose a new version." }
+          if (git ls-remote --tags origin "refs/tags/$tag") { throw "Tag $tag already exists on origin. A release is never replaced; choose a new version." }
+          $notes = "docs/releases/$env:VERSION.md"
+          if (-not (Test-Path -LiteralPath $notes)) { throw "Release notes $notes do not exist at commit $(git rev-parse HEAD)." }
+          if (Select-String -LiteralPath $notes -Pattern 'TODO' -CaseSensitive -Quiet) { throw "$notes still contains TODO placeholders." }
+
+      - name: Verify the commit has a successful CI run on main
+        shell: pwsh
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'git rev-parse failed.' }
+          git fetch origin main --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Could not fetch origin/main.' }
+          git merge-base --is-ancestor $sha origin/main
+          if ($LASTEXITCODE -ne 0) { throw "Commit $sha is not on main." }
+          $json = gh api "repos/${{ github.repository }}/actions/runs?head_sha=$sha&event=push&branch=main&per_page=100" --jq '[.workflow_runs[] | select(.name == "CI") | {id, status, conclusion, html_url}] | tojson'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list workflow runs.' }
+          $runs = @(($json -join '') | ConvertFrom-Json)
+          $green = @($runs | Where-Object { $_.status -eq 'completed' -and $_.conclusion -eq 'success' })
+          if (-not $green) {
+            $seen = if ($runs) { ($runs | ForEach-Object { "$($_.html_url) [$($_.status)/$($_.conclusion)]" }) -join '; ' } else { 'none' }
+            throw "Commit $sha has no completed, successful CI run on main. CI runs seen: $seen"
+          }
+          Write-Host "CI run for ${sha}: $($green[0].html_url)"
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      # The same steps as the Windows CI job: the host packages, the NativeAOT content host, the consumer check.
+      - name: Pack the packages
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          pwsh -File tools/pack.ps1 -Version "$env:VERSION"
+
+      - name: Publish content host
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          pwsh -File tools/publish-content-host.ps1 -Version "$env:VERSION"
+
+      - name: Verify deployed package consumers
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          pwsh -File tools/test-package-consumers.ps1 -Feed artifacts/packages -Version "$env:VERSION" -ContentHostDirectory artifacts/content-host
+
+      - name: Collect release assets and checksums
+        shell: pwsh
+        run: |
+          $out = New-Item -ItemType Directory -Path artifacts/release -Force
+          $expected = 'Folio', 'Folio.Diagrams', 'Folio.Scripting', 'Folio.WinForms' | ForEach-Object { "$_.$env:VERSION.nupkg" }
+          $missing = @($expected | Where-Object { -not (Test-Path -LiteralPath "artifacts/packages/$_") })
+          if ($missing) { throw "Expected 4 packages in artifacts/packages; missing: $($missing -join ', ')" }
+          Copy-Item ($expected | ForEach-Object { "artifacts/packages/$_" }) -Destination $out
+          $zip = Join-Path $out "Folio.ContentHost-$env:VERSION-win-x64.zip"
+          $source = (Resolve-Path artifacts/content-host).Path
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::CreateFromDirectory($source, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
+          $lines = Get-ChildItem -LiteralPath $out -File | Sort-Object Name | ForEach-Object {
+            "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
+          }
+          [IO.File]::WriteAllText((Join-Path $out 'SHA256SUMS.txt'), (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+          Get-Content (Join-Path $out 'SHA256SUMS.txt')
+
+      - name: Create the tag and the GitHub release
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $ghArgs = @('release', 'create', "v$env:VERSION", '--target', (git rev-parse HEAD).Trim(), '--title', "Folio $env:VERSION", '--notes-file', "docs/releases/$env:VERSION.md")
+          if ($env:PRERELEASE -eq 'true') { $ghArgs += '--prerelease' }
+          $ghArgs += (Get-ChildItem artifacts/release -File | ForEach-Object FullName)
+          gh @ghArgs
+          if ($LASTEXITCODE -ne 0) { throw 'gh release create failed.' }
