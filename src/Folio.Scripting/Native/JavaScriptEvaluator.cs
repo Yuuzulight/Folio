@@ -910,6 +910,11 @@ internal sealed class JavaScriptEvaluator
                 AssignValue(target, rest);
                 return;
             }
+            if (target is JavaScriptComputedPropertyExpression computed)
+            {
+                name = StringValue(Evaluate(computed.Key));
+                target = computed.Value;
+            }
             excluded?.Add(name);
             var value = MemberValue(source, name);
             if (target is JavaScriptBinaryExpression { Op: JavaScriptBinaryOp.Assign } initializer)
@@ -1092,6 +1097,11 @@ internal sealed class JavaScriptEvaluator
             receiver = Evaluate(memberCallee.Target);
             target = MemberValue(receiver, memberCallee.Name);
         }
+        else if (call.Callee is JavaScriptIndexExpression indexCallee)
+        {
+            receiver = Evaluate(indexCallee.Target);
+            target = IndexValue(receiver, Evaluate(indexCallee.Index));
+        }
         else
         {
             target = call.Callee is JavaScriptIdentifierExpression identifier
@@ -1140,10 +1150,11 @@ internal sealed class JavaScriptEvaluator
         };
     }
 
-    private object? Index(JavaScriptIndexExpression index)
+    private object? Index(JavaScriptIndexExpression index) =>
+        IndexValue(Evaluate(index.Target), Evaluate(index.Index));
+
+    private object? IndexValue(object? target, object? key)
     {
-        var target = Evaluate(index.Target);
-        var key = Evaluate(index.Index);
         if (key is double keyNum && keyNum >= 0 && keyNum <= int.MaxValue && (double)(int)keyNum == keyNum)
         {
             var pos = (int)keyNum;
@@ -1352,6 +1363,14 @@ internal sealed class JavaScriptEvaluator
         var result = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var property in expression.Properties)
         {
+            if (property.Value is JavaScriptComputedPropertyExpression computed)
+            {
+                var key = StringValue(Evaluate(computed.Key));
+                result[key] = computed.Value is JavaScriptFunctionExpression function
+                    ? new NativeJavaScriptEngine.NativeReceiverFunction((receiver, args) => ExecuteFunctionWithThis(function, receiver, args))
+                    : Evaluate(computed.Value);
+                continue;
+            }
             if (property.Name == "...")
             {
                 var spread = Evaluate(property.Value);

@@ -1164,6 +1164,25 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ComputedObjectKeysUseRuntimeValuesInEvaluationOrder()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("1rem|4|4|key,value", engine.Evaluate("""
+            var prefix = 'padding';
+            var key = {name:'top'};
+            var calls = [];
+            var properties = {
+                [`${prefix}-${key.name}`]: '1rem',
+                [(calls.push('key'), '...')]: (calls.push('value'), 4),
+                [Symbol.iterator]() { return this['...']; }
+            };
+            var padding, remaining;
+            ({[prefix + '-top']: padding, ...remaining} = properties);
+            [padding, remaining['...'], properties[Symbol.iterator](), calls.join(',')].join('|')
+            """).AsString());
+    }
+
+    [Fact]
     public void ArrowObjectParametersBindShorthandNestedAndRestProperties()
     {
         using var engine = new NativeJavaScriptEngine();
