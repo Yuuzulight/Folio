@@ -485,6 +485,7 @@ internal sealed class JavaScriptEvaluator
                 var source = Evaluate(each.Iterable);
                 var items = each.Keys && source is IReadOnlyDictionary<string, object?> dictionary
                     ? dictionary.Keys.Cast<object?>().ToArray()
+                    : source is NativeJavaScriptEngine.NativeArrayIterator iterator ? (IEnumerable<object?>)iterator
                     : source is IReadOnlyList<object?> array ? (each.Keys ? Enumerable.Range(0, array.Count).Cast<object?>().ToArray() : array.ToArray())
                     : source is NativeJavaScriptEngine.INativeHostObject host && host.TryGetValue("length", out var hostLength)
                         ? Enumerable.Range(0, Math.Max(0, (int)Number(hostLength)))
@@ -1173,10 +1174,10 @@ internal sealed class JavaScriptEvaluator
         }
         if (target is NativeJavaScriptEngine.INativeHostObject namedHost
             && namedHost.TryGetValue(StringValue(key), out var namedValue)) return namedValue;
-        if (target is IReadOnlyDictionary<string, object?> dictionary
-            && dictionary.TryGetValue(StringValue(key), out var dictionaryValue)) return dictionaryValue;
+        if (target is IReadOnlyDictionary<string, object?> dictionary)
+            return PrototypeMemberValue(dictionary, StringValue(key), target);
         if (target is IList<object?> iterable && StringValue(key) == "Symbol.iterator")
-            return (Func<IReadOnlyList<object?>, object?>)(_ => iterable.ToArray());
+            return (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(iterable));
         var position = (int)Number(key);
         return target switch
         {
@@ -1258,7 +1259,7 @@ internal sealed class JavaScriptEvaluator
         if (target is IList<object?> values)
         {
             if (name == "length") return (double)values.Count;
-            if (name == "Symbol.iterator") return (Func<IReadOnlyList<object?>, object?>)(_ => values.ToArray());
+            if (name == "Symbol.iterator") return (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(values));
             if (TryArrayMethod(values, name, out var arrayMethod)) return arrayMethod;
         }
         if (target is double or int or long)
@@ -1375,12 +1376,20 @@ internal sealed class JavaScriptEvaluator
             {
                 var spread = Evaluate(property.Value);
                 if (spread is IReadOnlyDictionary<string, object?> spreadDictionary)
-                    foreach (var item in spreadDictionary) result[item.Key] = item.Value;
+                    foreach (var key in spreadDictionary.Keys.ToArray())
+                        if (spreadDictionary.TryGetValue(key, out var value))
+                            result[key] = value is NativeJavaScriptEngine.NativePropertyAccessor accessor
+                                ? accessor.Get(spread) : value;
                 continue;
             }
-            if (property.Name.StartsWith("__folio_getter__", StringComparison.Ordinal))
+            if (property.Value is JavaScriptObjectAccessorExpression declaration)
             {
-                result[property.Name[16..]] = new NativeJavaScriptEngine.NativePropertyGetter(() => Evaluate(property.Value) is Func<IReadOnlyList<object?>, object?> getter ? getter([]) : null);
+                var name = StringValue(Evaluate(declaration.Key));
+                var accessor = result.TryGetValue(name, out var existing) && existing is NativeJavaScriptEngine.NativePropertyAccessor previous
+                    ? previous : new NativeJavaScriptEngine.NativePropertyAccessor(null, null);
+                result[name] = declaration.IsSetter
+                    ? accessor.WithSetter((receiver, value) => ExecuteFunctionWithThis(declaration.Function, receiver, [value]))
+                    : accessor.WithGetter(receiver => ExecuteFunctionWithThis(declaration.Function, receiver, []));
             }
             else if (property.Name.StartsWith("__folio_method__", StringComparison.Ordinal) && property.Value is JavaScriptFunctionExpression method)
             {
@@ -1581,9 +1590,9 @@ internal sealed class JavaScriptEvaluator
         {
             "join" => (Func<IReadOnlyList<object?>, object?>)(args => ArrayJoin(values, args.Count > 0 ? StringValue(args[0]) : ",")),
             "toString" => (Func<IReadOnlyList<object?>, object?>)(_ => ArrayJoin(values, ",")),
-            "keys" => (Func<IReadOnlyList<object?>, object?>)(_ => Enumerable.Range(0, values.Count).Select(index => (object?)(double)index).ToArray()),
-            "values" => (Func<IReadOnlyList<object?>, object?>)(_ => values.ToArray()),
-            "entries" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Select((item, index) => (object?)new object?[] { (double)index, item }).ToArray()),
+            "keys" => (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(values, NativeJavaScriptEngine.ArrayIteratorKind.Keys)),
+            "values" => (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(values)),
+            "entries" => (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(values, NativeJavaScriptEngine.ArrayIteratorKind.Entries)),
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count == 0) return -1d;

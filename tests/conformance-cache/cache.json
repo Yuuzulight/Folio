@@ -22,11 +22,11 @@
       "licenceFile": "cdn.jsdelivr.net-phaser.min.js.LICENSE.txt"
     },
     {
-      "url": "https://cdn.jsdelivr.net/npm/twind@0.16.19/shim/shim.min.js",
-      "file": "twind-shim.min.js",
-      "integrity": "sha384-a/8dRj8PLZEa6GWiQ2ii0EQUBw3SOsK4NyzQYwAimYIM/oHu1TWw2bODlk7H+A07",
+      "url": "https://cdn.jsdelivr.net/npm/twind@0.16.19/twind.umd.js",
+      "file": "twind.umd.js",
+      "integrity": "sha384-5Xw5FpTmX0YJOkyS64+XVd4RbJQCK2S3lJj79kXWyVYZgzEsVOOpbdSJoPnPCCKC",
       "licence": "MIT",
-      "licenceFile": "cdn.jsdelivr.net-twind-shim.min.js.LICENSE.txt"
+      "licenceFile": "cdn.jsdelivr.net-twind.umd.js.LICENSE.txt"
     },
     {
       "url": "https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js",

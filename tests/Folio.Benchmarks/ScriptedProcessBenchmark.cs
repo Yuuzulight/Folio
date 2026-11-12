@@ -400,7 +400,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
         var cache = ConformanceCache.Entries().ToDictionary(entry => entry.Url, StringComparer.Ordinal);
         var globals = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["chart.umd.min.js"] = "Chart", ["phaser.min.js"] = "Phaser", ["twind-shim.min.js"] = "twind",
+            ["chart.umd.min.js"] = "Chart", ["phaser.min.js"] = "Phaser", ["twind.umd.js"] = "twind",
             ["babel.min.js"] = "Babel", ["d3.min.js"] = "d3", ["react-dom.production.min.js"] = "ReactDOM",
             ["react.production.min.js"] = "React",
         };
@@ -473,6 +473,13 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
 
                 var checks = externalLibraries.Select(file => $"typeof globalThis.{globals[file]} !== 'undefined'");
                 if (diagram) checks = checks.Append("document.querySelector('svg.folio-diagram') !== null");
+                if (libraries.Contains("twind.umd.js", StringComparer.Ordinal))
+                {
+                    checks = checks.Append("""
+                        Array.from(document.getElementById('__twind')?.sheet.cssRules ?? []).some(
+                            rule => rule.selectorText === '.p-4' && rule.style.getPropertyValue('padding') === '1rem')
+                        """);
+                }
                 var phaser = libraries.Contains("phaser.min.js", StringComparer.Ordinal);
                 if (phaser) checks = checks.Append("document.querySelector('canvas[data-scene-ready=true]') !== null");
                 var probe = string.Join(" && ", checks);
@@ -481,7 +488,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                 {
                     ValidateFrame(message, from, chart, diagram);
                     if (message.Payload.GetProperty("value").GetString() != "true")
-                        throw new InvalidDataException("A pinned library did not initialize.");
+                        throw new InvalidDataException("A pinned library did not initialize or produce its expected output.");
                     if (chart && message.Payload.GetProperty("canvasCommands").GetInt32() == 0)
                         throw new InvalidDataException("The chart did not create a canvas surface.");
                     if (phaser && message.Payload.GetProperty("canvasCommands").GetInt32() == 0)

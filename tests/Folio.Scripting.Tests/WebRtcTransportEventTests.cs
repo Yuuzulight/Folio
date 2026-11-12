@@ -216,8 +216,10 @@ public sealed class WebRtcTransportEventTests
             engine.SetGlobalProperty("binaryProbe", ScriptValue.FromBoolean(binary));
             engine.Evaluate("""
                 var a=new RTCPeerConnection(),b=new RTCPeerConnection(),received='',reply='',error='',lowEvents=0;
-                b.ondatachannel=function(e){e.channel.onmessage=function(m){received=binaryProbe?Array.from(new Uint8Array(m.data)).join(','):m.data;e.channel.send(binaryProbe?m.data:'echo:'+m.data);};};
+                var remoteChannel=null,remoteClosed=0,localClosed=0;
+                b.ondatachannel=function(e){remoteChannel=e.channel;e.channel.onclose=function(){remoteClosed++;};e.channel.onmessage=function(m){received=binaryProbe?Array.from(new Uint8Array(m.data)).join(','):m.data;e.channel.send(binaryProbe?m.data:'echo:'+m.data);};};
                 var channel=a.createDataChannel('public-udp');
+                channel.onclose=function(){localClosed++;};
                 channel.bufferedAmountLowThreshold=0;
                 channel.onbufferedamountlow=function(){lowEvents++;};
                 channel.onopen=function(){if(binaryProbe){var bytes=new Uint8Array([99,1,2,3,88]);channel.send(bytes.subarray(1,4));bytes.fill(0);}else channel.send('real transport');};
@@ -244,6 +246,25 @@ public sealed class WebRtcTransportEventTests
             Assert.True(engine.Evaluate("channel.bufferedAmount===0 && channel.bufferedAmountLowThreshold===0 && lowEvents>0").AsBoolean());
             Assert.ThrowsAny<Exception>(() => engine.Evaluate("channel.send(new Uint8Array(262145));"));
             Assert.Equal("open", engine.Evaluate("channel.readyState").AsString());
+
+            // binaryType: arraybuffer by default, unknown values ignored, blob wraps binary messages.
+            engine.Evaluate("var defaultType=channel.binaryType;channel.binaryType='nonsense';var keptType=channel.binaryType;channel.binaryType='blob';var blobReply=null;channel.onmessage=function(e){blobReply=e.data;};if(binaryProbe)channel.send(new Uint8Array([7,8,9]));");
+            Assert.Equal("arraybuffer,arraybuffer,blob", engine.Evaluate("[defaultType,keptType,channel.binaryType].join()").AsString());
+            if (binary)
+            {
+                var blobWait = System.Diagnostics.Stopwatch.StartNew();
+                while (blobWait.Elapsed < TimeSpan.FromSeconds(5) && !engine.Evaluate("blobReply!==null").AsBoolean())
+                { engine.PerformMicrotaskCheckpoint(); loop.RunOneTurn(); Thread.Sleep(10); }
+                // Byte-exact Blob contents wait for the document Blob to hold bytes (it is text-only today).
+                Assert.True(engine.Evaluate("blobReply instanceof Blob").AsBoolean());
+            }
+
+            // close() resets the stream, so the remote channel closes too; each side sees one close event.
+            engine.Evaluate("channel.close();");
+            var closeWait = System.Diagnostics.Stopwatch.StartNew();
+            while (closeWait.Elapsed < TimeSpan.FromSeconds(5) && !engine.Evaluate("localClosed===1&&remoteClosed===1").AsBoolean())
+            { engine.PerformMicrotaskCheckpoint(); loop.RunOneTurn(); Thread.Sleep(10); }
+            Assert.Equal("closed,closed,1,1", engine.Evaluate("[channel.readyState,remoteChannel.readyState,localClosed,remoteClosed].join()").AsString());
             engine.Evaluate("a.close();b.close();");
         }
         finally { DomBindings.Dispose(engine); }
