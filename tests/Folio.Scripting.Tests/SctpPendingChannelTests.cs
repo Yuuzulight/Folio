@@ -20,7 +20,8 @@ public sealed class SctpPendingChannelTests
         BinaryPrimitives.WriteUInt16BigEndian(padded.AsSpan(34), 6);
         padded[36] = 130; padded[37] = 192; Rechecksum(padded);
         server.ProcessIncomingPacket(padded);
-        var ack = responses.Dequeue();
+        // Drop the trailing Supported Extensions parameter so the cookie is the final parameter again.
+        var ack = responses.Dequeue()[..^8];
         // Opaque cookie with an odd length; clients must echo it verbatim.
         BinaryPrimitives.WriteUInt16BigEndian(ack.AsSpan(14), (ushort)(ack.Length - 13));
         BinaryPrimitives.WriteUInt16BigEndian(ack.AsSpan(34), 83);
