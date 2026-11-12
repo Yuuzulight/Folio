@@ -41,7 +41,10 @@ Push-Location -LiteralPath $repoRoot
 try {
     # Build separately, validate completely, then exchange directories. An incremental publish must not retain
     # framework-dependent DLLs or replace a working artifact with a partially compiled helper.
-    $versionArgs = if ($Version) { @("-p:Version=$Version") } else { @() }
+    # Built up as an array: an `if` expression would unwrap a one-element array to a string, and splatting a string
+    # passes it one character at a time.
+    $versionArgs = @()
+    if ($Version) { $versionArgs += "-p:Version=$Version" }
     dotnet publish (Join-Path $PSScriptRoot 'Folio.ContentHost/Folio.ContentHost.csproj') `
         -c Release -r $Runtime --self-contained true -warnaserror `
         -p:FolioOracleHost=false -p:FolioAngleOracle=false -p:FolioWasmOracle=false `
