@@ -286,8 +286,10 @@ internal static class GaussianBlur
         for (; i < source.Length; i++)
             destination[i] = (byte)Math.Clamp((int)(source[i] + 0.5f), 0, 255);
 
-        static Vector<uint> Round(Vector<float> values) => Vector.ConvertToUInt32(
-            Vector.Min(Vector.Max(values + new Vector<float>(0.5f), Vector<float>.Zero), new Vector<float>(255)));
+        // The clamp puts every lane in the signed conversion range as well. Using
+        // the signed instruction avoids emulating unsigned float conversion on x64.
+        static Vector<uint> Round(Vector<float> values) => Vector.AsVectorUInt32(Vector.ConvertToInt32(
+            Vector.Min(Vector.Max(values + new Vector<float>(0.5f), Vector<float>.Zero), new Vector<float>(255))));
     }
 
     // Pixel (x, y) of a width x height image to (y, x) of a height x width one, channels kept together.
