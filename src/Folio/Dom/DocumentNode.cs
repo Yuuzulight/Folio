@@ -50,6 +50,8 @@ internal sealed class DocumentNode : ContainerNode
     internal void NotifyHandlerAttributeChanged(ElementNode element, string name, string? value) =>
         HandlerAttributeChanged?.Invoke(element, name, value);
 
+    internal Action<ElementNode>? ImageSourceChanged { get; set; }
+
     /// <summary>Dispatches trusted input events to script listeners; null when scripting is disabled or not installed.</summary>
     internal DocumentEventDispatchDelegate? EventDispatcher { get; set; }
 
