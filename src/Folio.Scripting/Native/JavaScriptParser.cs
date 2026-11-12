@@ -663,9 +663,10 @@ internal sealed class JavaScriptParser
             var rest = parameter.StartsWith("...", StringComparison.Ordinal);
             if (rest) Expect("...");
             var expectedName = rest ? parameter[3..] : parameter;
+            var binding = expectedName;
             if (expectedName.StartsWith("[", StringComparison.Ordinal) || expectedName.StartsWith("{", StringComparison.Ordinal))
             {
-                if (ParseBindingName() != expectedName) throw Error("Expected an arrow binding parameter");
+                binding = ParseBindingName();
             }
             else
             {
@@ -674,7 +675,7 @@ internal sealed class JavaScriptParser
             }
             JavaScriptExpression? defaultValue = null;
             if (!rest && Match("=")) defaultValue = ParseBinary(0);
-            parsedParameters.Add(parameter);
+            parsedParameters.Add(rest ? "..." + binding : binding);
             defaults.Add(defaultValue);
             if (i + 1 < arrowParameters.Count) Expect(",");
         }
@@ -814,6 +815,11 @@ internal sealed class JavaScriptParser
                 while (true)
                 {
                     var defaultToken = Peek(offset++);
+                    if (depth == 0 && defaultToken.Kind == JavaScriptTokenKind.Punctuation && defaultToken.Text == ",")
+                    {
+                        separator = defaultToken;
+                        break;
+                    }
                     if (defaultToken.Text is "(" or "[" or "{") depth++;
                     else if (defaultToken.Text is ")" or "]" or "}")
                     {

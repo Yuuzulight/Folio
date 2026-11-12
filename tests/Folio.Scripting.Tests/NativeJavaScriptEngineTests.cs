@@ -1127,6 +1127,18 @@ public sealed class NativeJavaScriptEngineTests
             """).AsBoolean());
     }
 
+    [Fact]
+    public void ArrowObjectParametersBindShorthandNestedAndRestProperties()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var read = ({name, child: {value}, ...rest} = {name:'default', child:{value:4}}, suffix = '!') =>
+                name + value + suffix + ':' + Object.keys(rest).join(',');
+            read({name:'test', child:{value:7}, extra:true}, '?') === 'test7?:extra' &&
+                read() === 'default4!:'
+            """).AsBoolean());
+    }
+
     private sealed class HostState
     {
         public int Value { get; set; }
