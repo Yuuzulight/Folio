@@ -585,7 +585,8 @@ RTCPeerConnection.prototype.createDataChannel = function(label, options) {
 };
 RTCPeerConnection.prototype.close = function() { retire(this,false); };
 function transportChannel(owner, nativeChannel) {
-    var listeners={}, channel={label:nativeChannel.label,protocol:nativeChannel.protocol,ordered:true,binaryType:'arraybuffer'};
+    var listeners={}, binaryType='arraybuffer', channel={label:nativeChannel.label,protocol:nativeChannel.protocol,ordered:true};
+    Object.defineProperty(channel,'binaryType',{get:function(){return binaryType;},set:function(value){value=String(value);if(value==='blob'||value==='arraybuffer')binaryType=value;}});
     Object.defineProperty(channel,'id',{get:function(){return nativeChannel.id;}});
     Object.defineProperty(channel,'readyState',{get:function(){return nativeChannel.readyState;}});
     Object.defineProperty(channel,'bufferedAmount',{get:function(){return nativeChannel.bufferedAmount;}});
@@ -595,7 +596,7 @@ function transportChannel(owner, nativeChannel) {
     channel.send=function(data){token(owner);if(nativeChannel.readyState!=='open')throw new DOMException('Channel is not open.','InvalidStateError');nativeChannel.send(data);};
     channel.close=function(){nativeChannel.close();};
     apply(weakSet,transportClosers,[channel,function(){nativeChannel.close();}]);
-    nativeChannel.register(function(type,data){token(owner);var event={type:type,target:channel};if(type==='message')event.data=data;var handler=channel['on'+type];if(typeof handler==='function')handler.call(channel,event);(listeners[type]||[]).slice().forEach(function(fn){fn.call(channel,event);});});
+    nativeChannel.register(function(type,data){token(owner);var event={type:type,target:channel};if(type==='message')event.data=binaryType==='blob'&&data instanceof ArrayBuffer&&typeof Blob==='function'?new Blob([data]):data;var handler=channel['on'+type];if(typeof handler==='function')handler.call(channel,event);(listeners[type]||[]).slice().forEach(function(fn){fn.call(channel,event);});});
     apply(weakSet,channelOwners,[channel,owner]);apply(weakGet,channelLists,[owner]).push(channel);
     return channel;
 }
