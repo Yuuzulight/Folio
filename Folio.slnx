@@ -11,6 +11,7 @@
     <Project Path="tools/Folio.ContentHost/Folio.ContentHost.csproj" />
     <Project Path="tools/Folio.SandboxProbe/Folio.SandboxProbe.csproj" />
     <Project Path="tools/Folio.Gen/Folio.Gen.csproj" />
+    <Project Path="tools/Folio.CanvasFrameProbe/Folio.CanvasFrameProbe.csproj" />
     <Project Path="tools/Folio.RefCapture/Folio.RefCapture.csproj" />
     <Project Path="tools/Folio.WinForms.Benchmarks/Folio.WinForms.Benchmarks.csproj" />
   </Folder>
