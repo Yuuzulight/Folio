@@ -556,6 +556,32 @@ internal sealed class JavaScriptParser
                         properties.Add(("...", ParseBinary(0)));
                         continue;
                     }
+                    if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text is ("get" or "set") &&
+                        (Peek(0) is { Kind: JavaScriptTokenKind.Punctuation, Text: "[" } ||
+                         Peek(0).Kind is (JavaScriptTokenKind.Identifier or JavaScriptTokenKind.String or JavaScriptTokenKind.Number) &&
+                         Peek(1) is { Kind: JavaScriptTokenKind.Punctuation, Text: "(" }))
+                    {
+                        var setter = _current.Text == "set";
+                        Take();
+                        JavaScriptExpression key;
+                        if (Match("["))
+                        {
+                            key = ParseBinary(0);
+                            Expect("]");
+                        }
+                        else
+                        {
+                            var kind = _current.Kind == JavaScriptTokenKind.Number ? JavaScriptTokenKind.Number : JavaScriptTokenKind.String;
+                            key = Node(new JavaScriptLiteralExpression(_current.Text, kind));
+                            Take();
+                        }
+                        var function = ParseFunctionTail();
+                        if (function.Parameters.Count != (setter ? 1 : 0) ||
+                            setter && function.Parameters[0].StartsWith("...", StringComparison.Ordinal))
+                            throw Error("Invalid object accessor parameters");
+                        properties.Add((string.Empty, Node(new JavaScriptObjectAccessorExpression(key, function, setter))));
+                        continue;
+                    }
                     if (Match("["))
                     {
                         var key = ParseBinary(0);
@@ -569,12 +595,7 @@ internal sealed class JavaScriptParser
                         ? JavaScriptEvaluator.StringValue(new JavaScriptLiteralExpression(_current.Text, _current.Kind).CachedValue)
                         : _current.Text;
                     Take();
-                    if (name == "get" && _current.Kind == JavaScriptTokenKind.Identifier)
-                    {
-                        var getterName = _current.Text; Take();
-                        properties.Add(("__folio_getter__" + getterName, ParseFunctionTail()));
-                    }
-                    else if (_current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "(")
+                    if (_current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "(")
                     {
                         properties.Add(("__folio_method__" + name, ParseFunctionTail()));
                     }
