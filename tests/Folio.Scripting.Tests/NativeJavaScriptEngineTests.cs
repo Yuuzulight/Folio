@@ -27,6 +27,11 @@ public sealed class NativeJavaScriptEngineTests
             Widget.prototype.ready && array.raw === 'source' && obj.live === null &&
                 Object.hasOwn(obj, 'missing') && obj.missing === undefined
             """).AsBoolean());
+        Assert.True(engine.Evaluate("""
+            var Fresh = function () {};
+            Object.defineProperty(Fresh, 'prototype', {writable: false});
+            typeof Fresh.prototype === 'object' && Object.getOwnPropertyDescriptor(Fresh, 'prototype').value === Fresh.prototype
+            """).AsBoolean());
     }
 
     [Fact]
@@ -87,6 +92,61 @@ public sealed class NativeJavaScriptEngineTests
             spread.value === 8 && item['value'] === 3 && item.value === 3 &&
                 item.sink === undefined && item.get() === 'ordinary method'
             """).AsBoolean());
+    }
+
+    [Fact]
+    public void LibraryRuntimeIdiomsBehaveAsInBrowsers()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("true,[object Array],1,true,0,ab,,2,true,1", engine.Evaluate("""
+            var own = {}.hasOwnProperty, tag = {}.toString, out = [];
+            out.push(own.call({a: 1}, 'a'), tag.call([]));
+            var set = new Set([1]), map = new Map([[1, 2]]);
+            out.push([...set].length, typeof map[Symbol.iterator] === 'function');
+            set.clear(); map.clear(); out.push(set.size + map.size);
+            out.push([...'ab'].join(''), 'ab'['missing']);
+            var holder = {n: 0}; [1, 2].forEach(function () { this.n++; }, holder); out.push(holder.n);
+            var fn = Object.assign(function () {}, {extra: true}); out.push(fn.extra);
+            out.push([1].map(function () { return this.n; }, {n: 1})[0]);
+            out.join()
+            """).AsString());
+    }
+
+    [Fact]
+    public void ArraysReturnedByBuiltInsCanGrow()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(8d, engine.Evaluate("""
+            var grown = [[1].map(String), [1, 2].slice(1), [1].filter(Boolean), Object.keys({a: 1}),
+                JSON.parse('[1]'), Array.from(new Set([1])), 'a b'.split(' '), [[1]].flat()];
+            grown.forEach(function (array) { array.push(0); array.unshift(0); });
+            grown.filter(function (array) { return array.length >= 3; }).length
+            """).AsNumber());
+    }
+
+    [Fact]
+    public void ScriptsCatchTypeErrorsFromCallsAndBuiltIns()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("TypeError,TypeError", engine.Evaluate("""
+            var names = [];
+            try { ({}).missing.getItem('x'); } catch (e) { names.push(e.name); }
+            try { [].reduce(function (a, b) { return a + b; }); } catch (e) { names.push(e.name); }
+            names.join()
+            """).AsString());
+    }
+
+    [Theory]
+    [InlineData(@"/\/\*[^]*?\*\//.test('/* a\n b */')")]
+    [InlineData(@"!/a[]/.test('a') && /x|[]/.test('x')")]
+    [InlineData(@"/^a$/.test('a') && !/^a$/.test('a\n') && /^a$/m.test('a\nb')")]
+    [InlineData(@"/^\d+$/.test('42') && !/\d/.test('٣') && !/\w/.test('é') && /[\w-]+/.exec('a-b')[0] === 'a-b'")]
+    [InlineData(@"/\u{1F600}/u.test('😀') && /[\u{41}]/u.test('A')")]
+    [InlineData(@"/[[]/.test('[') && /[^\d]/.test('x')")]
+    public void TranslatesJavaScriptRegexSyntaxThatDotNetReadsDifferently(string source)
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate(source).AsBoolean());
     }
 
     [Fact]

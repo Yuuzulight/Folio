@@ -41,7 +41,7 @@ public sealed class NativeJavaScriptEvaluatorTests
     {
         var evaluator = new JavaScriptEvaluator(maxSteps: 1);
         Assert.Throws<InvalidOperationException>(() => evaluator.Evaluate(new JavaScriptParser("1 + 2").ParseExpression()));
-        Assert.Throws<NotSupportedException>(() => new JavaScriptEvaluator().Evaluate(new JavaScriptParser("alert(1)").ParseExpression()));
+        Assert.Equal("TypeError", Assert.Throws<WebIdlException>(() => new JavaScriptEvaluator().Evaluate(new JavaScriptParser("alert(1)").ParseExpression())).Name);
     }
 
     [Fact]
