@@ -10,6 +10,20 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void RecognizesRegexStatementsAfterControlHeadsAndDivisionAfterCalls()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var output = [];
+            var obj = { if: function(value) { return value; }, return: 6 };
+            function matcher() { return /b/; }
+            for (var i = 0; i < 2; i++) /[ab]/.test('b') && output.push(i);
+            if ((output.length === 2)) /* body */ /b/.test('b') && output.push(obj.if(8) / 2);
+            output.join(',') === '0,1,4' && matcher().test('b') && obj.return / 2 === 3
+            """).AsBoolean());
+    }
+
+    [Fact]
     public void FunctionConstructorUsesItsPrototypeDuringAndAfterConstruction()
     {
         using var engine = new NativeJavaScriptEngine();
