@@ -20,7 +20,7 @@ internal sealed class IceAgent : IDisposable
     public string? RemoteUfrag { get; set; }
     public string? RemotePassword { get; set; }
     public bool IsControlling { get; set; } = true;
-    public ulong TieBreaker { get; }
+    public ulong TieBreaker { get; internal init; }
 
     public string GatheringState { get; private set; } = "new";
     public string ConnectionState { get; private set; } = "new";
@@ -356,10 +356,22 @@ internal sealed class IceAgent : IDisposable
             if (_disposed) break;
             try
             {
-                var (request, transactionId, key) = BuildBindingRequest(pair, nominate: IsControlling);
-
-                var (response, _) = await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint,
-                    TimeSpan.FromMilliseconds(500), key, message => AcceptConnectivityResponse(pair, message)).ConfigureAwait(false);
+                StunMessage? response = null;
+                // One retry after an authenticated 487 flips our role.
+                for (var attempt = 0; attempt < 2; attempt++)
+                {
+                    var role = IsControlling;
+                    var (request, transactionId, key) = BuildBindingRequest(pair, nominate: role);
+                    (response, _) = await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint,
+                        TimeSpan.FromMilliseconds(500), key, message => AcceptConnectivityResponse(pair, message)).ConfigureAwait(false);
+                    if (response is null || !response.TryErrorCode(out var code) || code != 487) break;
+                    lock (_gate)
+                    {
+                        // Another check may already have switched; only flip if our role is still the one that conflicted.
+                        if (_disposed) return;
+                        if (IsControlling == role) SwitchRoleLocked(!role);
+                    }
+                }
                 if (response is not null && response.Type == StunMessage.BindingResponse)
                 {
                     if (ConnectionState == "connected") return;
@@ -367,6 +379,14 @@ internal sealed class IceAgent : IDisposable
             }
             catch { }
         }
+    }
+
+    // RFC 8445 7.3.1.1: pair priorities depend on the role, so a switch recomputes and re-sorts them. Caller holds _gate.
+    private void SwitchRoleLocked(bool controlling)
+    {
+        IsControlling = controlling;
+        foreach (var pair in _pairs) pair.Recompute(controlling);
+        _pairs.Sort((a, b) => b.Priority.CompareTo(a.Priority));
     }
 
     private (byte[] Request, byte[] TransactionId, byte[] Key) BuildBindingRequest(CandidatePair pair, bool nominate)
@@ -519,6 +539,29 @@ internal sealed class IceAgent : IDisposable
             {
                 if (from is IPEndPoint ep)
                 {
+                    var conflict = false;
+                    lock (_gate)
+                    {
+                        var peerControlling = msg.TryAttribute(StunMessage.IceControlling, out var cing) && cing.Length == 8;
+                        var peerControlled = msg.TryAttribute(StunMessage.IceControlled, out var ced) && ced.Length == 8;
+                        if (peerControlling && IsControlling)
+                        {
+                            if (TieBreaker >= BinaryPrimitives.ReadUInt64BigEndian(cing.Span)) conflict = true;
+                            else SwitchRoleLocked(false);
+                        }
+                        else if (peerControlled && !IsControlling)
+                        {
+                            if (TieBreaker >= BinaryPrimitives.ReadUInt64BigEndian(ced.Span)) SwitchRoleLocked(true);
+                            else conflict = true;
+                        }
+                    }
+                    if (conflict)
+                    {
+                        var err = StunMessage.Encode(StunMessage.BindingErrorResponse, msg.TransactionId.Span,
+                            [(StunMessage.ErrorCode, StunMessage.EncodeErrorCode(487, "Role Conflict"))], Encoding.UTF8.GetBytes(LocalPassword));
+                        _socket?.SendTo(err, ep);
+                        return;
+                    }
                     var xorAddr = new byte[8];
                     xorAddr[1] = 1; // IPv4
                     BinaryPrimitives.WriteUInt16BigEndian(xorAddr.AsSpan(2), (ushort)(ep.Port ^ 0x2112));
@@ -595,10 +638,11 @@ internal sealed class IceAgent : IDisposable
 
     private sealed class CandidatePair(IceCandidate local, IPEndPoint remoteEndPoint, long localPref, long remotePref, bool controlling)
     {
+        public void Recompute(bool controlling) => Priority = ComputePriority(localPref, remotePref, controlling);
         public IceCandidate Local { get; } = local;
         public IPEndPoint RemoteEndPoint { get; } = remoteEndPoint;
         public CandidatePairState State { get; set; } = CandidatePairState.Waiting;
-        public long Priority { get; } = ComputePriority(localPref, remotePref, controlling);
+        public long Priority { get; private set; } = ComputePriority(localPref, remotePref, controlling);
 
         private static long ComputePriority(long g, long d, bool controlling)
         {

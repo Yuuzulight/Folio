@@ -83,6 +83,24 @@ internal sealed class StunMessage
         return true;
     }
 
+    internal static byte[] EncodeErrorCode(int code, string reason)
+    {
+        var reasonBytes = System.Text.Encoding.UTF8.GetBytes(reason);
+        var value = new byte[4 + reasonBytes.Length];
+        value[2] = (byte)(code / 100 & 7);
+        value[3] = (byte)(code % 100);
+        reasonBytes.CopyTo(value, 4);
+        return value;
+    }
+
+    internal bool TryErrorCode(out int code)
+    {
+        code = 0;
+        if (!TryAttribute(ErrorCode, out var value) || value.Length < 4) return false;
+        code = (value.Span[2] & 7) * 100 + value.Span[3];
+        return true;
+    }
+
     internal bool TryXorMappedAddress(out IPEndPoint? endpoint) => TryDecodeXorAddress(XorMappedAddress, out endpoint);
     internal bool TryXorRelayedAddress(out IPEndPoint? endpoint) => TryDecodeXorAddress(XorRelayedAddress, out endpoint);
 

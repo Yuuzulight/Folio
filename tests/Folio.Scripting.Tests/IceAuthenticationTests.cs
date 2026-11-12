@@ -199,4 +199,87 @@ public sealed class IceAuthenticationTests
         stop.Cancel();
         await responder;
     }
+
+    private static byte[] RoleRequest(IceAgent agent, ushort roleAttribute, ulong tieBreaker)
+    {
+        var priority = new byte[4]; BinaryPrimitives.WriteUInt32BigEndian(priority, 1234);
+        var tie = new byte[8]; BinaryPrimitives.WriteUInt64BigEndian(tie, tieBreaker);
+        return StunMessage.Encode(StunMessage.BindingRequest, RandomNumberGenerator.GetBytes(12),
+            [(StunMessage.Username, Encoding.UTF8.GetBytes(agent.LocalUfrag + ":remote")), (StunMessage.Priority, priority), (roleAttribute, tie)],
+            Encoding.UTF8.GetBytes(agent.LocalPassword));
+    }
+
+    private static async Task<StunMessage> ReceiveStunAsync(Socket socket)
+    {
+        var bytes = new byte[2048];
+        var result = await socket.ReceiveFromAsync(bytes, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), TestContext.Current.CancellationToken)
+            .AsTask().WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        Assert.True(StunMessage.TryParse(bytes.AsSpan(0, result.ReceivedBytes), out var stun));
+        return stun;
+    }
+
+    [Theory]
+    [InlineData(200UL, false, StunMessage.BindingResponse)] // peer's tie-breaker is larger: we yield
+    [InlineData(50UL, true, StunMessage.BindingErrorResponse)] // ours is larger: peer must switch (487)
+    public async Task ControllingAgentResolvesRoleConflictByTieBreaker(ulong peerTieBreaker, bool stillControlling, ushort expectedType)
+    {
+        using var agent = new IceAgent { TieBreaker = 100, RemoteUfrag = "remote", RemotePassword = "remote-password" };
+        await agent.StartGatheringAsync();
+        using var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        await peer.SendToAsync(RoleRequest(agent, StunMessage.IceControlling, peerTieBreaker), SocketFlags.None,
+            new IPEndPoint(IPAddress.Loopback, agent.LocalCandidates[0].Port));
+        var reply = await ReceiveStunAsync(peer);
+        Assert.Equal(expectedType, reply.Type);
+        Assert.True(reply.VerifyIntegritySha1(Encoding.UTF8.GetBytes(agent.LocalPassword)) && reply.VerifyFingerprint());
+        if (expectedType == StunMessage.BindingErrorResponse) { Assert.True(reply.TryErrorCode(out var code)); Assert.Equal(487, code); }
+        Assert.Equal(stillControlling, agent.IsControlling);
+    }
+
+    [Fact]
+    public async Task AuthenticatedRoleConflictErrorFlipsTheRoleAndRetriesTheCheck()
+    {
+        using var agent = new IceAgent { RemoteUfrag = "remote", RemotePassword = "remote-password" };
+        await agent.StartGatheringAsync();
+        using var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        agent.AddRemoteCandidate(new IceCandidate
+        {
+            Foundation = "role", Component = 1, Protocol = "udp", Priority = 100,
+            Address = "127.0.0.1", Port = ((IPEndPoint)peer.LocalEndPoint!).Port, Type = "host"
+        });
+        var first = await ReceiveStunAsync(peer);
+        Assert.True(first.TryAttribute(StunMessage.IceControlling, out _));
+        Assert.True(first.TryAttribute(StunMessage.UseCandidate, out _));
+        var error = StunMessage.Encode(StunMessage.BindingErrorResponse, first.TransactionId.Span,
+            [(StunMessage.ErrorCode, StunMessage.EncodeErrorCode(487, "Role Conflict"))], Encoding.UTF8.GetBytes("remote-password"));
+        await peer.SendToAsync(error, SocketFlags.None, new IPEndPoint(IPAddress.Loopback, agent.LocalCandidates[0].Port));
+        var retry = await ReceiveStunAsync(peer);
+        Assert.False(retry.TransactionId.Span.SequenceEqual(first.TransactionId.Span));
+        Assert.True(retry.TryAttribute(StunMessage.IceControlled, out _));
+        Assert.False(retry.TryAttribute(StunMessage.UseCandidate, out _));
+        Assert.False(agent.IsControlling);
+    }
+
+    [Fact]
+    public async Task UnauthenticatedRoleConflictErrorDoesNotFlipTheRole()
+    {
+        using var agent = new IceAgent { RemoteUfrag = "remote", RemotePassword = "remote-password" };
+        await agent.StartGatheringAsync();
+        using var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        agent.AddRemoteCandidate(new IceCandidate
+        {
+            Foundation = "role", Component = 1, Protocol = "udp", Priority = 100,
+            Address = "127.0.0.1", Port = ((IPEndPoint)peer.LocalEndPoint!).Port, Type = "host"
+        });
+        var first = await ReceiveStunAsync(peer);
+        var error = StunMessage.Encode(StunMessage.BindingErrorResponse, first.TransactionId.Span,
+            [(StunMessage.ErrorCode, StunMessage.EncodeErrorCode(487, "Role Conflict"))], Encoding.UTF8.GetBytes("wrong-key"));
+        await peer.SendToAsync(error, SocketFlags.None, new IPEndPoint(IPAddress.Loopback, agent.LocalCandidates[0].Port));
+        var next = await ReceiveStunAsync(peer); // the original transaction's retransmission, still controlling
+        Assert.True(next.TransactionId.Span.SequenceEqual(first.TransactionId.Span));
+        Assert.True(next.TryAttribute(StunMessage.IceControlling, out _));
+        Assert.True(agent.IsControlling);
+    }
 }
