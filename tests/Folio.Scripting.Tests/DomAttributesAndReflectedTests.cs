@@ -37,6 +37,49 @@ public class DomAttributesAndReflectedTests
         finally { DomBindings.Dispose(engine); }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ImagesReportCompletionAndDimensionsForTheCurrentSource(bool native)
+    {
+        const string png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+        using IScriptEngine engine = native ? new Native.NativeJavaScriptEngine() : new JintScriptEngine();
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, TreeBuilder.Parse($"<!doctype html><img id='parsed' src='{png}'>"), eventLoop: loop);
+        try
+        {
+            Assert.True(engine.Evaluate($$"""
+                var events = [];
+                var parsed = document.getElementById('parsed');
+                parsed.addEventListener('load', () => events.push('parsed'));
+                var image = new Image();
+                var initiallyComplete = image.complete;
+                image.onload = () => events.push('load');
+                image.onerror = () => events.push('error');
+                image.src = 'data:image/png,invalid';
+                image.setAttribute('src', '{{png}}');
+                initiallyComplete && !image.complete && events.length === 0
+                """).AsBoolean());
+
+            while (loop.RunOneTurn()) { }
+            Assert.True(engine.Evaluate("""
+                image.complete && image.naturalWidth === 1 && image.naturalHeight === 1 &&
+                    image.width === 1 && image.height === 1 && events.join(',') === 'parsed,load'
+                """).AsBoolean());
+
+            engine.Evaluate("image.src = 'data:image/png,invalid'");
+            while (loop.RunOneTurn()) { }
+            Assert.True(engine.Evaluate("""
+                image.complete && image.naturalWidth === 0 && events.join(',') === 'parsed,load,error'
+                """).AsBoolean());
+
+            engine.Evaluate("image.src = parsed.src; image.removeAttribute('src');");
+            while (loop.RunOneTurn()) { }
+            Assert.True(engine.Evaluate("image.complete && events.length === 3").AsBoolean());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
     private sealed class DomSession : IDisposable
     {
         public required JintScriptEngine Engine { get; init; }

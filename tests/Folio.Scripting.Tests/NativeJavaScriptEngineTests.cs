@@ -54,6 +54,28 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void AssignmentInvokesInheritedAccessorsWithTheOriginalReceiver()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var prototype = {};
+            Object.defineProperty(prototype, 'value', {
+                get: function() { return this.stored; },
+                set: function(value) { this.stored = value * 2; }
+            });
+            var middle = Object.create(prototype);
+            middle.data = 1;
+            var item = Object.create(middle);
+            item.value = 3;
+            var first = item.stored;
+            item['value'] = 5;
+            item.data = 2;
+            first === 6 && item.stored === 10 && item.value === 10 &&
+                !Object.hasOwn(item, 'value') && item.data === 2 && middle.data === 1
+            """).AsBoolean());
+    }
+
+    [Fact]
     public void RecognizesRegexStatementsAfterControlHeadsAndDivisionAfterCalls()
     {
         using var engine = new NativeJavaScriptEngine();
@@ -1186,6 +1208,25 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ComputedObjectKeysUseRuntimeValuesInEvaluationOrder()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("1rem|4|4|key,value", engine.Evaluate("""
+            var prefix = 'padding';
+            var key = {name:'top'};
+            var calls = [];
+            var properties = {
+                [`${prefix}-${key.name}`]: '1rem',
+                [(calls.push('key'), '...')]: (calls.push('value'), 4),
+                [Symbol.iterator]() { return this['...']; }
+            };
+            var padding, remaining;
+            ({[prefix + '-top']: padding, ...remaining} = properties);
+            [padding, remaining['...'], properties[Symbol.iterator](), calls.join(',')].join('|')
+            """).AsString());
+    }
+
+    [Fact]
     public void ArrowObjectParametersBindShorthandNestedAndRestProperties()
     {
         using var engine = new NativeJavaScriptEngine();
@@ -1194,6 +1235,48 @@ public sealed class NativeJavaScriptEngineTests
                 name + value + suffix + ':' + Object.keys(rest).join(',');
             read({name:'test', child:{value:7}, extra:true}, '?') === 'test7?:extra' &&
                 read() === 'default4!:'
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectParameterDefaultsAreEvaluatedInBindingOrder()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var count = 0;
+            var read = (initial, {target:e = initial, next = e + (++count), ...rest} = {}) =>
+                [e, next, Object.keys(rest).join(',')].join('|');
+            function ordinary({value = 7}) { return value; }
+            read(4) === '4|5|' && read(2, {target:9, next:11, extra:true}) === '9|11|extra' &&
+                read(4, {target:null, next:0}) === '|0|' && count === 1 && ordinary({}) === 7
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectDeclarationDefaultsRunInOrderAndPreserveExplicitValues()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var calls = 0;
+            const {first: a = 5, child: {value = a + ++calls}, keep = 9, ...rest} =
+                {child:{}, keep:null, extra:10};
+            let {b = ++calls} = {b:0};
+            a === 5 && value === 6 && keep === null && rest.extra === 10 &&
+                Object.keys(rest).join(',') === 'extra' && b === 0 && calls === 1
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectAssignmentUpdatesExistingTargetsAndReturnsItsSource()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            let process, init, rest;
+            const holder = {};
+            const source = {process: 6, nested: {value: 8}, extra: 4};
+            const result = ({process, init: init = process + 1, nested: {value: holder.value}, ...rest} = source);
+            result === source && process === 6 && init === 7 && holder.value === 8 &&
+                rest.extra === 4 && Object.keys(rest).join(',') === 'extra'
             """).AsBoolean());
     }
 

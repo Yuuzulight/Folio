@@ -100,9 +100,11 @@ internal sealed class JavaScriptParser
             var declarations = new List<JavaScriptStatement>();
             do
             {
-                var name = ParseBindingName();
+                var bindingDefaults = _current.Text is "[" or "{" ? new Dictionary<string, JavaScriptExpression>(StringComparer.Ordinal) : null;
+                var name = ParseBindingName(bindingDefaults);
                 JavaScriptExpression? initializer = Match("=") ? ParseBinary(0) : null;
-                declarations.Add(new JavaScriptVariableStatement(name, initializer, lexical));
+                declarations.Add(new JavaScriptVariableStatement(name, initializer, lexical,
+                    bindingDefaults is { Count: > 0 } ? bindingDefaults : null));
             } while (Match(","));
             Match(";");
             return declarations.Count == 1 ? declarations[0] : new JavaScriptBlockStatement(declarations, CreatesScope: false);
@@ -259,7 +261,7 @@ internal sealed class JavaScriptParser
         var result = ParseSequenceExpression(); Match(";"); return new JavaScriptExpressionStatement(result);
     }
 
-    private string ParseBindingName()
+    private string ParseBindingName(Dictionary<string, JavaScriptExpression>? bindingDefaults = null)
     {
         if (_current.Kind == JavaScriptTokenKind.Identifier)
         {
@@ -281,7 +283,7 @@ internal sealed class JavaScriptParser
                     }
                     if (_current.Text is "[" or "{")
                     {
-                        names.Add(ParseBindingName());
+                        names.Add(ParseBindingName(bindingDefaults));
                     }
                     else
                     {
@@ -313,13 +315,15 @@ internal sealed class JavaScriptParser
                     var local = property;
                     if (Match(":"))
                     {
-                        if (_current.Text is "[" or "{") local = ParseBindingName();
+                        if (_current.Text is "[" or "{") local = ParseBindingName(bindingDefaults);
                         else
                         {
                             if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name");
                             local = _current.Text; Take();
                         }
                     }
+                    if (bindingDefaults is not null && local[0] is not ('[' or '{') && Match("="))
+                        bindingDefaults.Add(local, ParseBinary(0));
                     names.Add(property + ":" + local);
                 } while (Match(","));
                 Expect("}");
@@ -582,18 +586,8 @@ internal sealed class JavaScriptParser
                     {
                         var key = ParseBinary(0);
                         Expect("]");
-                        var computedName = key switch
-                        {
-                            JavaScriptMemberExpression member when member.Target is JavaScriptIdentifierExpression target => target.Name + "." + member.Name,
-                            JavaScriptIdentifierExpression identifier => identifier.Name,
-                            JavaScriptLiteralExpression { Kind: JavaScriptTokenKind.Number } literal =>
-                                JavaScriptEvaluator.StringValue(literal.CachedValue),
-                            JavaScriptLiteralExpression literal => literal.Text,
-                            _ => string.Empty,
-                        };
-                        if (Match(":")) properties.Add((computedName, ParseBinary(0)));
-                        else if (_current.Text == "(") properties.Add(("__folio_method__" + computedName, ParseFunctionTail()));
-                        else properties.Add((computedName, new JavaScriptIdentifierExpression(computedName)));
+                        var value = Match(":") ? ParseBinary(0) : ParseFunctionTail();
+                        properties.Add((string.Empty, Node(new JavaScriptComputedPropertyExpression(key, value))));
                         continue;
                     }
                     if (_current.Kind is not (JavaScriptTokenKind.Identifier or JavaScriptTokenKind.String or JavaScriptTokenKind.Number)) throw Error("Expected an object property name");
@@ -656,12 +650,14 @@ internal sealed class JavaScriptParser
         Expect("(");
         var parameters = new List<string>();
         var defaults = new List<JavaScriptExpression?>();
+        Dictionary<string, JavaScriptExpression>? bindingDefaults = null;
         if (!Match(")"))
         {
             do
             {
                 var rest = Match("...");
-                var name = ParseBindingName();
+                if (_current.Text is "[" or "{") bindingDefaults ??= new(StringComparer.Ordinal);
+                var name = ParseBindingName(bindingDefaults);
                 JavaScriptExpression? defaultValue = null;
                 if (!rest && Match("=")) defaultValue = ParseBinary(0);
                 parameters.Add(rest ? "..." + name : name);
@@ -670,7 +666,8 @@ internal sealed class JavaScriptParser
             Expect(")");
         }
         var body = ParseBlockStatement();
-        return new JavaScriptFunctionExpression(parameters, body.Statements, defaults, generator, functionName, asyncFunction);
+        return new JavaScriptFunctionExpression(parameters, body.Statements, defaults, generator, functionName, asyncFunction,
+            BindingDefaults: bindingDefaults is { Count: > 0 } ? bindingDefaults : null);
     }
 
     private JavaScriptFunctionExpression ParseArrowFunction(IReadOnlyList<string> arrowParameters, bool isAsync)
@@ -678,6 +675,7 @@ internal sealed class JavaScriptParser
         Expect("(");
         var parsedParameters = new List<string>();
         var defaults = new List<JavaScriptExpression?>();
+        Dictionary<string, JavaScriptExpression>? bindingDefaults = null;
         for (var i = 0; i < arrowParameters.Count; i++)
         {
             var parameter = arrowParameters[i];
@@ -687,7 +685,7 @@ internal sealed class JavaScriptParser
             var binding = expectedName;
             if (expectedName.StartsWith("[", StringComparison.Ordinal) || expectedName.StartsWith("{", StringComparison.Ordinal))
             {
-                binding = ParseBindingName();
+                binding = ParseBindingName(bindingDefaults ??= new(StringComparer.Ordinal));
             }
             else
             {
@@ -704,7 +702,8 @@ internal sealed class JavaScriptParser
         var body = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "{"
             ? ParseBlockStatement().Statements
             : [new JavaScriptReturnStatement(ParseBinary(0))];
-        return new JavaScriptFunctionExpression(parsedParameters, body, defaults, IsAsync: isAsync, IsArrow: true);
+        return new JavaScriptFunctionExpression(parsedParameters, body, defaults, IsAsync: isAsync, IsArrow: true,
+            BindingDefaults: bindingDefaults is { Count: > 0 } ? bindingDefaults : null);
     }
 
     private JavaScriptClassExpression ParseClassTail()

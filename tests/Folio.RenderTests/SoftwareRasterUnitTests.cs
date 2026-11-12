@@ -16,6 +16,36 @@ public class SoftwareRasterUnitTests
 
     private static int Alpha(byte[] pixels, int width, int x, int y) => pixels[(y * width + x) * 4 + 3];
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LayerOpacityMatchesRoundedSourceOverAcrossClippedRows(bool masked)
+    {
+        using var surface = Surface(11);
+        using var coverage = Surface(11);
+        var area = new RoundedRect(new RectF(0, 0, 11, 11), default);
+        surface.Canvas.FillRoundedRect(area, new Paint(new Rgba(0, 0, 1, 1)));
+        if (masked)
+        {
+            var clip = new RoundedRect(new RectF(0.25f, 0.5f, 10, 10), default);
+            surface.Canvas.ClipRoundedRect(clip);
+            coverage.Canvas.ClipRoundedRect(clip);
+        }
+        coverage.Canvas.FillRoundedRect(area, new Paint(new Rgba(1, 1, 1, 1)));
+        surface.Canvas.PushLayer(new LayerOptions(0.6f));
+        surface.Canvas.FillRoundedRect(area, new Paint(new Rgba(1, 0, 0, 0.8f)));
+        surface.Canvas.PopLayer();
+
+        var pixels = Read(surface);
+        var mask = Read(coverage);
+        for (var i = 0; i < pixels.Length; i += 4)
+        {
+            var opacity = (153 * mask[i + 3] + 127) / 255;
+            var red = (204 * opacity + 127) / 255;
+            Assert.Equal((red, 0, 255 - red, 255), ((int)pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]));
+        }
+    }
+
     private static void Fill(SoftwareRasterSurface surface, PathData path, FillRule rule = FillRule.NonZero) =>
         surface.Canvas.FillPath(path, rule, new Paint(new Rgba(0, 0, 0, 1)));
 
@@ -45,6 +75,22 @@ public class SoftwareRasterUnitTests
     }
 
     // ---- coverage ----
+
+    [Fact]
+    public void ReusedBlurCoverageMatchesFreshCoverageAtAnotherPosition()
+    {
+        using var cached = Surface(120);
+        using var fresh = Surface(120);
+        var paint = new Paint(new Rgba(0.4f, 0.2f, 0.8f, 0.7f), Blur: 4);
+        var original = new RoundedRect(new RectF(20.25f, 22.5f, 30, 25), default);
+        var moved = new RoundedRect(new RectF(55.25f, 50.5f, 30, 25), default);
+        cached.Canvas.FillRoundedRect(original, paint);
+        cached.Canvas.ClearRect(new RectF(0, 0, 120, 120));
+        cached.Canvas.FillRoundedRect(moved, paint);
+        fresh.Canvas.FillRoundedRect(moved, paint);
+        Assert.Contains(fresh.PremultipliedPixels, value => value != 0);
+        Assert.Equal(fresh.PremultipliedPixels, cached.PremultipliedPixels);
+    }
 
     [Fact]
     public void ARectangleOnWholePixelsCoversThemFullyAndNothingAround()
@@ -191,6 +237,16 @@ public class SoftwareRasterUnitTests
         Assert.InRange(Red(pixels, 4, 1, 0), 148, 152); // columns 2 and 3: (120 + 180) / 2
         Assert.InRange(Green(pixels, 4, 0, 0), 28, 32);
         Assert.InRange(Green(pixels, 4, 0, 1), 148, 152);
+    }
+
+    [Fact]
+    public void AnImageAtHalfDoesNotBlendHiddenColorIntoItsMip()
+    {
+        using var surface = Surface(1);
+        var image = new DecodedImage(2, 2,
+            [255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 255, 0, 0]);
+        surface.Canvas.DrawImage(image, new RectF(0, 0, 1, 1), ImageSampling.Smooth);
+        Assert.Equal(new byte[] { 255, 0, 0, 64 }, Read(surface));
     }
 
     // ---- blend modes ----

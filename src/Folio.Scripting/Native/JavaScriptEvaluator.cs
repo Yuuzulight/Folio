@@ -353,6 +353,11 @@ internal sealed class JavaScriptEvaluator
             {
                 var declarationBindings = variable.Lexical ? _bindings : _varBindings ?? _bindings;
                 var value = variable.Initializer is null ? UndefinedOrNull() : Evaluate(variable.Initializer);
+                if (variable.BindingDefaults is { } bindingDefaults)
+                {
+                    BindParameter(declarationBindings, variable.Name, value, bindingDefaults);
+                    break;
+                }
                 if (variable.Name.StartsWith("[", StringComparison.Ordinal) && variable.Name.EndsWith("]", StringComparison.Ordinal))
                 {
                     var names = SplitBindingItems(variable.Name[1..^1], keepEmpty: true);
@@ -794,7 +799,10 @@ internal sealed class JavaScriptEvaluator
             case JavaScriptBinaryOp.UshrAssign:
             {
                 var assigned = binary.Op == JavaScriptBinaryOp.Assign ? Evaluate(binary.Right) : ApplyCompound(binary.Operator, binary.Left, binary.Right);
-                AssignValue(binary.Left, assigned);
+                if (binary.Op == JavaScriptBinaryOp.Assign && binary.Left is JavaScriptObjectExpression pattern)
+                    AssignObjectPattern(pattern, assigned);
+                else
+                    AssignValue(binary.Left, assigned);
                 return assigned;
             }
             case JavaScriptBinaryOp.LogicalAnd:
@@ -882,6 +890,46 @@ internal sealed class JavaScriptEvaluator
         };
     }
 
+    private void AssignObjectPattern(JavaScriptObjectExpression pattern, object? source)
+    {
+        if (source is null or UndefinedValue)
+            throw WebIdlException.TypeError("Cannot destructure null or undefined.");
+        var entries = pattern.Properties;
+        var excluded = entries.Count > 0 && entries[^1].Name == "..." ? new HashSet<string>(StringComparer.Ordinal) : null;
+        for (var i = 0; i < entries.Count; i++)
+        {
+            var (name, target) = entries[i];
+            if (name == "...")
+            {
+                if (i != entries.Count - 1 || target is not (JavaScriptIdentifierExpression or JavaScriptMemberExpression or JavaScriptIndexExpression))
+                    throw new InvalidDataException("The object rest assignment requires a final assignment target.");
+                var rest = new Dictionary<string, object?>(StringComparer.Ordinal);
+                if (source is IReadOnlyDictionary<string, object?> own)
+                    foreach (var key in own.Keys)
+                        if (!excluded!.Contains(key) && key is not ("__proto__" or "__constructor"))
+                            rest[key] = MemberValue(source, key);
+                AssignValue(target, rest);
+                return;
+            }
+            if (target is JavaScriptComputedPropertyExpression computed)
+            {
+                name = StringValue(Evaluate(computed.Key));
+                target = computed.Value;
+            }
+            excluded?.Add(name);
+            var value = MemberValue(source, name);
+            if (target is JavaScriptBinaryExpression { Op: JavaScriptBinaryOp.Assign } initializer)
+            {
+                if (value is UndefinedValue) value = Evaluate(initializer.Right);
+                target = initializer.Left;
+            }
+            if (target is JavaScriptObjectExpression nested)
+                AssignObjectPattern(nested, value);
+            else
+                AssignValue(target, value);
+        }
+    }
+
     private void AssignValue(JavaScriptExpression target, object? assigned)
     {
         switch (target)
@@ -897,16 +945,7 @@ internal sealed class JavaScriptEvaluator
                 regex.LastIndex = Math.Max(0, (int)Number(assigned));
                 break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is IDictionary<string, object?> properties:
-                if (properties.TryGetValue(member.Name, out var existing)
-                    && existing is NativeJavaScriptEngine.NativePropertyAccessor accessor)
-                {
-                    if (!accessor.Set(properties, assigned))
-                        throw new InvalidDataException($"Property '{member.Name}' is read-only.");
-                }
-                else
-                {
-                    properties[member.Name] = assigned;
-                }
+                SetDictionaryProperty(properties, member.Name, assigned);
                 break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is IList<object?> values && member.Name == "length":
                 var length = (int)Number(assigned);
@@ -934,17 +973,7 @@ internal sealed class JavaScriptEvaluator
                 }
                 break;
             case JavaScriptIndexExpression index when Evaluate(index.Target) is IDictionary<string, object?> indexedProperties:
-                var indexName = StringValue(Evaluate(index.Index));
-                if (indexedProperties.TryGetValue(indexName, out var indexedExisting)
-                    && indexedExisting is NativeJavaScriptEngine.NativePropertyAccessor indexedAccessor)
-                {
-                    if (!indexedAccessor.Set(indexedProperties, assigned))
-                        throw new InvalidDataException($"Property '{indexName}' is read-only.");
-                }
-                else
-                {
-                    indexedProperties[indexName] = assigned;
-                }
+                SetDictionaryProperty(indexedProperties, StringValue(Evaluate(index.Index)), assigned);
                 break;
             case JavaScriptIndexExpression index when Evaluate(index.Target) is NativeJavaScriptEngine.INativeBuffer buffer:
                 var bufferPosition = (int)Number(Evaluate(index.Index));
@@ -966,6 +995,30 @@ internal sealed class JavaScriptEvaluator
             default:
                 throw new InvalidDataException($"Only lexical, object-property, and array-index assignment is supported (target: {target}).");
         }
+    }
+
+    private static void SetDictionaryProperty(IDictionary<string, object?> receiver, string name, object? assigned)
+    {
+        if (!receiver.TryGetValue(name, out var existing) &&
+            receiver.TryGetValue("__proto__", out var parent) && parent is IReadOnlyDictionary<string, object?> prototype &&
+            !prototype.TryGetValue(name, out existing) &&
+            prototype.TryGetValue("__proto__", out var ancestor) && ancestor is IReadOnlyDictionary<string, object?> inherited)
+        {
+            var visited = new HashSet<IReadOnlyDictionary<string, object?>>(ReferenceEqualityComparer.Instance) { prototype };
+            for (var current = inherited; current is not null && visited.Add(current);)
+            {
+                if (current.TryGetValue(name, out existing))
+                    break;
+                current = current.TryGetValue("__proto__", out var next) ? next as IReadOnlyDictionary<string, object?> : null;
+            }
+        }
+        if (existing is NativeJavaScriptEngine.NativePropertyAccessor accessor)
+        {
+            if (!accessor.Set(receiver, assigned))
+                throw new InvalidDataException($"Property '{name}' is read-only.");
+            return;
+        }
+        receiver[name] = assigned;
     }
 
     private object? ApplyCompound(string op, JavaScriptExpression leftExpression, JavaScriptExpression rightExpression)
@@ -1045,6 +1098,11 @@ internal sealed class JavaScriptEvaluator
             receiver = Evaluate(memberCallee.Target);
             target = MemberValue(receiver, memberCallee.Name);
         }
+        else if (call.Callee is JavaScriptIndexExpression indexCallee)
+        {
+            receiver = Evaluate(indexCallee.Target);
+            target = IndexValue(receiver, Evaluate(indexCallee.Index));
+        }
         else
         {
             target = call.Callee is JavaScriptIdentifierExpression identifier
@@ -1093,10 +1151,11 @@ internal sealed class JavaScriptEvaluator
         };
     }
 
-    private object? Index(JavaScriptIndexExpression index)
+    private object? Index(JavaScriptIndexExpression index) =>
+        IndexValue(Evaluate(index.Target), Evaluate(index.Index));
+
+    private object? IndexValue(object? target, object? key)
     {
-        var target = Evaluate(index.Target);
-        var key = Evaluate(index.Index);
         if (key is double keyNum && keyNum >= 0 && keyNum <= int.MaxValue && (double)(int)keyNum == keyNum)
         {
             var pos = (int)keyNum;
@@ -1305,6 +1364,14 @@ internal sealed class JavaScriptEvaluator
         var result = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var property in expression.Properties)
         {
+            if (property.Value is JavaScriptComputedPropertyExpression computed)
+            {
+                var key = StringValue(Evaluate(computed.Key));
+                result[key] = computed.Value is JavaScriptFunctionExpression function
+                    ? new NativeJavaScriptEngine.NativeReceiverFunction((receiver, args) => ExecuteFunctionWithThis(function, receiver, args))
+                    : Evaluate(computed.Value);
+                continue;
+            }
             if (property.Name == "...")
             {
                 var spread = Evaluate(property.Value);
@@ -1359,7 +1426,7 @@ internal sealed class JavaScriptEvaluator
             var value = i < arguments.Count ? arguments[i] : UndefinedOrNull();
             var defaultValue = function.DefaultValues is { } values && i < values.Count ? values[i] : null;
             if ((i >= arguments.Count || value is UndefinedValue) && defaultValue is not null) value = parameterEvaluator.Evaluate(defaultValue);
-            BindParameter(local, parameter, value);
+            parameterEvaluator.BindParameter(local, parameter, value, function.BindingDefaults);
         }
         if (function.IsGenerator)
         {
@@ -2171,7 +2238,12 @@ internal sealed class JavaScriptEvaluator
                     bodyEvaluator ??= new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded);
                     value = bodyEvaluator.Evaluate(defaultValue);
                 }
-                BindParameter(local, parameter, value);
+                if (function.BindingDefaults is { } bindingDefaults)
+                {
+                    bodyEvaluator ??= new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded);
+                    bodyEvaluator.BindParameter(local, parameter, value, bindingDefaults);
+                }
+                else BindParameter(local, parameter, value);
             }
             // Non-strict top-level/function calls receive the global object when
             // invoked without an explicit receiver. UMD libraries rely on this
@@ -2230,7 +2302,8 @@ internal sealed class JavaScriptEvaluator
         }
     }
 
-    private void BindParameter(IDictionary<string, object?> local, string parameter, object? value)
+    private void BindParameter(IDictionary<string, object?> local, string parameter, object? value,
+        IReadOnlyDictionary<string, JavaScriptExpression>? bindingDefaults = null)
     {
         if (parameter.StartsWith("{", StringComparison.Ordinal) && parameter.EndsWith("}", StringComparison.Ordinal))
         {
@@ -2251,7 +2324,7 @@ internal sealed class JavaScriptEvaluator
                 }
                 var parts = entry.Split(':', 2);
                 excluded?.Add(parts[0]);
-                BindParameter(local, parts.Length == 2 ? parts[1] : parts[0], MemberValue(value, parts[0]));
+                BindParameter(local, parts.Length == 2 ? parts[1] : parts[0], MemberValue(value, parts[0]), bindingDefaults);
             }
             return;
         }
@@ -2268,12 +2341,12 @@ internal sealed class JavaScriptEvaluator
                     break;
                 }
                 var item = values is not null && i < values.Count ? values[i] : UndefinedOrNull();
-                if (names[i].StartsWith("[", StringComparison.Ordinal) || names[i].StartsWith("{", StringComparison.Ordinal)) BindParameter(local, names[i], item);
-                else local[names[i]] = item;
+                BindParameter(local, names[i], item, bindingDefaults);
             }
             return;
         }
-        local[parameter] = value;
+        local[parameter] = value is UndefinedValue && bindingDefaults is not null &&
+            bindingDefaults.TryGetValue(parameter, out var initializer) ? Evaluate(initializer) : value;
     }
 
     private void BindPattern(string pattern, object? value)
@@ -2420,7 +2493,7 @@ internal sealed class JavaScriptEvaluator
                 var value = i < arguments.Count ? arguments[i] : UndefinedOrNull();
                 var defaultValue = function.DefaultValues is { } values && i < values.Count ? values[i] : null;
                 if ((i >= arguments.Count || value is UndefinedValue) && defaultValue is not null) value = parameterEvaluator.Evaluate(defaultValue);
-                BindParameter(local, parameter, value);
+                parameterEvaluator.BindParameter(local, parameter, value, function.BindingDefaults);
             }
         return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
     }
