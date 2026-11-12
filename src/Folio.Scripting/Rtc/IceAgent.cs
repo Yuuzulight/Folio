@@ -349,11 +349,13 @@ internal sealed class IceAgent : IDisposable
         }
 
         CandidatePair[] candidates;
-        lock (_gate) candidates = _pairs.ToArray();
+        int epoch;
+        lock (_gate) { candidates = _pairs.ToArray(); epoch = _roleEpoch; }
 
         foreach (var pair in candidates)
         {
-            if (_disposed) break;
+            // A role switch re-prioritised the pairs and queued a fresh pass; this snapshot is stale.
+            if (_disposed || Volatile.Read(ref _roleEpoch) != epoch) break;
             try
             {
                 StunMessage? response = null;
@@ -361,7 +363,7 @@ internal sealed class IceAgent : IDisposable
                 for (var attempt = 0; attempt < 2; attempt++)
                 {
                     var role = IsControlling;
-                    var (request, transactionId, key) = BuildBindingRequest(pair, nominate: role);
+                    var (request, transactionId, key) = BuildBindingRequest(pair, role, nominate: role);
                     (response, _) = await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint,
                         TimeSpan.FromMilliseconds(500), key, message => AcceptConnectivityResponse(pair, message)).ConfigureAwait(false);
                     if (response is null || !response.TryErrorCode(out var code) || code != 487) break;
@@ -370,6 +372,9 @@ internal sealed class IceAgent : IDisposable
                         // Another check may already have switched; only flip if our role is still the one that conflicted.
                         if (_disposed) return;
                         if (IsControlling == role) SwitchRoleLocked(!role);
+                        // Our own 487-driven switch retries inline and must not queue another pass (a peer that always
+                        // answers 487 would otherwise loop); only an inbound authenticated request triggers one.
+                        epoch = _roleEpoch;
                     }
                 }
                 if (response is not null && response.Type == StunMessage.BindingResponse)
@@ -382,14 +387,18 @@ internal sealed class IceAgent : IDisposable
     }
 
     // RFC 8445 7.3.1.1: pair priorities depend on the role, so a switch recomputes and re-sorts them. Caller holds _gate.
+    private readonly Dictionary<string, bool> _seenRequests = [];
+    private readonly Queue<string> _seenOrder = new();
+    private int _roleEpoch;
     private void SwitchRoleLocked(bool controlling)
     {
         IsControlling = controlling;
+        _roleEpoch++;
         foreach (var pair in _pairs) pair.Recompute(controlling);
         _pairs.Sort((a, b) => b.Priority.CompareTo(a.Priority));
     }
 
-    private (byte[] Request, byte[] TransactionId, byte[] Key) BuildBindingRequest(CandidatePair pair, bool nominate)
+    private (byte[] Request, byte[] TransactionId, byte[] Key) BuildBindingRequest(CandidatePair pair, bool controlling, bool nominate)
     {
         var transactionId = new byte[12];
         RandomNumberGenerator.Fill(transactionId);
@@ -401,7 +410,7 @@ internal sealed class IceAgent : IDisposable
         {
             (StunMessage.Username, Encoding.UTF8.GetBytes($"{RemoteUfrag}:{LocalUfrag}")),
             (StunMessage.Priority, priorityBytes),
-            (IsControlling ? StunMessage.IceControlling : StunMessage.IceControlled, tieBreakerBytes),
+            (controlling ? StunMessage.IceControlling : StunMessage.IceControlled, tieBreakerBytes),
         };
         if (nominate) attributes.Add((StunMessage.UseCandidate, []));
         var key = Encoding.UTF8.GetBytes(RemotePassword ?? "");
@@ -456,7 +465,7 @@ internal sealed class IceAgent : IDisposable
     {
         try
         {
-            var (request, transactionId, key) = BuildBindingRequest(pair, nominate: false);
+            var (request, transactionId, key) = BuildBindingRequest(pair, IsControlling, nominate: false);
             await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint, TimeSpan.FromMilliseconds(500), key,
                 response => { if (response.Type == StunMessage.BindingResponse) ConfirmConsent(); }).ConfigureAwait(false);
         }
@@ -540,8 +549,16 @@ internal sealed class IceAgent : IDisposable
                 if (from is IPEndPoint ep)
                 {
                     var conflict = false;
+                    var switched = false;
                     lock (_gate)
                     {
+                        // A repeated transaction id is a retransmission or a replay: repeat the earlier decision
+                        // without re-evaluating the role attributes.
+                        var txKey = Convert.ToHexString(msg.TransactionId.Span);
+                        if (_seenRequests.TryGetValue(txKey, out var earlier)) conflict = earlier;
+                        else
+                        {
+                        var roleBefore = IsControlling;
                         var peerControlling = msg.TryAttribute(StunMessage.IceControlling, out var cing) && cing.Length == 8;
                         var peerControlled = msg.TryAttribute(StunMessage.IceControlled, out var ced) && ced.Length == 8;
                         if (peerControlling && IsControlling)
@@ -554,7 +571,13 @@ internal sealed class IceAgent : IDisposable
                             if (TieBreaker >= BinaryPrimitives.ReadUInt64BigEndian(ced.Span)) SwitchRoleLocked(true);
                             else conflict = true;
                         }
+                        switched = IsControlling != roleBefore;
+                        if (_seenOrder.Count >= 256) _seenRequests.Remove(_seenOrder.Dequeue());
+                        _seenOrder.Enqueue(txKey);
+                        _seenRequests[txKey] = conflict;
+                        }
                     }
+                    if (switched) _ = CheckConnectivityAsync();
                     if (conflict)
                     {
                         var err = StunMessage.Encode(StunMessage.BindingErrorResponse, msg.TransactionId.Span,
@@ -624,6 +647,8 @@ internal sealed class IceAgent : IDisposable
         {
             if (_disposed) return;
             _disposed = true;
+            _seenRequests.Clear();
+            _seenOrder.Clear();
             ConnectionState = "closed";
             GatheringState = "complete";
         }
