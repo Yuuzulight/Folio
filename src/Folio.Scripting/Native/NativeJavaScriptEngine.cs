@@ -127,14 +127,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 }
                 return JavaScriptEvaluator.UndefinedValue.Instance;
             }),
-            ["Symbol.iterator"] = new NativeReceiverFunction((receiver, _) => receiver switch
-            {
-                IReadOnlyList<object?> list => list.ToArray(),
-                IReadOnlyDictionary<string, object?> properties when properties.TryGetValue("length", out var length)
-                    => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length)))
-                        .Select(index => properties.TryGetValue(index.ToString(CultureInfo.InvariantCulture), out var stored) ? stored : JavaScriptEvaluator.UndefinedValue.Instance).ToArray(),
-                _ => Array.Empty<object?>(),
-            }),
+            ["Symbol.iterator"] = ArrayValuesIterator,
+            ["values"] = ArrayValuesIterator,
+            ["keys"] = new NativeReceiverFunction((receiver, _) => CreateArrayIterator(receiver, ArrayIteratorKind.Keys)),
+            ["entries"] = new NativeReceiverFunction((receiver, _) => CreateArrayIterator(receiver, ArrayIteratorKind.Entries)),
             ["slice"] = new NativeReceiverFunction((receiver, args) =>
             {
                 var values = receiver switch
@@ -1466,6 +1462,75 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     }
 
     private static double Number(IReadOnlyList<object?> args, int index) => index < args.Count && args[index] is double number ? number : 0;
+    internal enum ArrayIteratorKind { Values, Keys, Entries }
+
+    private static readonly NativeReceiverFunction ArrayValuesIterator = new((receiver, _) => CreateArrayIterator(receiver));
+
+    internal static NativeArrayIterator CreateArrayIterator(object? receiver, ArrayIteratorKind kind = ArrayIteratorKind.Values)
+    {
+        var undefined = JavaScriptEvaluator.UndefinedValue.Instance;
+        return receiver switch
+        {
+            IReadOnlyList<object?> list => new(() => list.Count, index => list[index], kind),
+            INativeHostObject host => new(
+                () => host.TryGetValue("length", out var length) ? (int)NumberValue(length) : 0,
+                index => host.TryGetIndex(index, out var value) ? value : undefined, kind),
+            IReadOnlyDictionary<string, object?> properties => new(
+                () => properties.TryGetValue("length", out var length) ? (int)NumberValue(length) : 0,
+                index => properties.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), undefined), kind),
+            _ => throw WebIdlException.TypeError("Array iterator requires an array-like receiver."),
+        };
+    }
+
+    internal sealed class NativeArrayIterator : Dictionary<string, object?>, IEnumerable<object?>
+    {
+        private readonly Func<int> _length;
+        private readonly Func<int, object?> _read;
+        private readonly ArrayIteratorKind _kind;
+        private int _index;
+        private bool _done;
+
+        internal NativeArrayIterator(Func<int> length, Func<int, object?> read, ArrayIteratorKind kind) : base(StringComparer.Ordinal)
+        {
+            _length = length;
+            _read = read;
+            _kind = kind;
+            this["next"] = new NativeReceiverFunction((receiver, _) => receiver is NativeArrayIterator iterator
+                ? iterator.Next() : throw WebIdlException.TypeError("Array iterator next requires an array iterator."));
+            this["Symbol.iterator"] = (Func<IReadOnlyList<object?>, object?>)(_ => this);
+        }
+
+        private bool TryMoveNext(out object? value)
+        {
+            if (_done || _index >= _length())
+            {
+                _done = true;
+                value = JavaScriptEvaluator.UndefinedValue.Instance;
+                return false;
+            }
+            var index = _index++;
+            value = _kind switch
+            {
+                ArrayIteratorKind.Keys => (double)index,
+                ArrayIteratorKind.Entries => new object?[] { (double)index, _read(index) },
+                _ => _read(index),
+            };
+            return true;
+        }
+
+        private object Next()
+        {
+            var done = !TryMoveNext(out var value);
+            return new Dictionary<string, object?> { ["value"] = value, ["done"] = done };
+        }
+
+        IEnumerator<object?> IEnumerable<object?>.GetEnumerator()
+        {
+            while (TryMoveNext(out var value))
+                yield return value;
+        }
+    }
+
     private static double NumberValue(object? value) => value switch
     {
         null => 0,

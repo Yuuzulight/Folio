@@ -10,6 +10,29 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void ArrayIteratorsYieldLiveValuesAndRemainExhausted()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var list = [3, 5];
+            var iterator = list[Symbol.iterator]();
+            var next = iterator.next.bind(iterator);
+            var first = next();
+            list[1] = 7;
+            list.push(9);
+            var rest = Array.from(iterator);
+            var done = next();
+            list.push(11);
+            var pair = list.entries().next().value;
+            var keys = [...list.keys()];
+            iterator[Symbol.iterator]() === iterator && first.value === 3 && !first.done &&
+                rest.join(',') === '7,9' && done.done && done.value === undefined && next().done &&
+                pair[0] === 0 && pair[1] === 3 && keys.join(',') === '0,1,2,3' &&
+                Array.prototype.values.call({0:'item', length:1}).next().value === 'item'
+            """).AsBoolean());
+    }
+
+    [Fact]
     public void ObjectLiteralAccessorsShareTheReceiverAndCombineByKey()
     {
         using var engine = new NativeJavaScriptEngine();
