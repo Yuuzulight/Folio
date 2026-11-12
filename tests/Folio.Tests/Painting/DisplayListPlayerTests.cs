@@ -5,6 +5,19 @@ namespace Folio.Tests.Painting;
 
 public class DisplayListPlayerTests
 {
+    [Theory]
+    [InlineData(1f, 0f)]
+    [InlineData(1.5f, 0f)]
+    [InlineData(1.25f, 37.6f)]
+    public void DamageSnapsOutwardToWholeDevicePixels(float scale, float scrollTop)
+    {
+        var damage = new RectF(-1, 40.3f, 773.32404f, 263.76404f);
+        var snapped = DisplayListPlayer.SnapToDevicePixels(damage, scale, scrollTop);
+        Assert.True(snapped.X <= damage.X && snapped.Y <= damage.Y && snapped.Right >= damage.Right && snapped.Bottom >= damage.Bottom);
+        foreach (var edge in new[] { snapped.X * scale, (snapped.Y - scrollTop) * scale, snapped.Right * scale, (snapped.Bottom - scrollTop) * scale })
+            Assert.True(MathF.Abs(edge - MathF.Round(edge)) < 1e-4f, $"{edge} is not a whole device pixel");
+    }
+
     [Fact]
     public void ClipsAndLayersBecomeSaveRestoreAndLayerPairs()
     {

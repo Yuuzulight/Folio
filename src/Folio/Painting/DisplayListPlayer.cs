@@ -369,6 +369,20 @@ internal static class DisplayListPlayer
     }
 
     /// <summary>Returns the union of items whose paint changed between two lists.</summary>
+    /// <summary>
+    /// Grows a repaint region (CSS px, document coordinates) to whole device pixels for a canvas that scales by
+    /// <paramref name="scale"/> after scrolling by <paramref name="scrollTop"/>. A fractional clip would make the
+    /// canvas build an anti-aliased mask and blend the repainted background only partly over its edge pixels.
+    /// </summary>
+    internal static RectF SnapToDevicePixels(RectF damage, float scale, float scrollTop = 0)
+    {
+        var left = MathF.Floor(damage.X * scale) / scale;
+        var top = MathF.Floor((damage.Y - scrollTop) * scale) / scale + scrollTop;
+        var right = MathF.Ceiling(damage.Right * scale) / scale;
+        var bottom = MathF.Ceiling((damage.Bottom - scrollTop) * scale) / scale + scrollTop;
+        return new RectF(left, top, right - left, bottom - top);
+    }
+
     internal static RectF? Damage(DisplayList? previous, DisplayList current)
     {
         if (previous is null || previous.Items.Count != current.Items.Count)
