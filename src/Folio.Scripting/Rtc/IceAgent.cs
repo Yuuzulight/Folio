@@ -356,36 +356,7 @@ internal sealed class IceAgent : IDisposable
             if (_disposed) break;
             try
             {
-                var transactionId = new byte[12];
-                RandomNumberGenerator.Fill(transactionId);
-
-                var username = $"{RemoteUfrag}:{LocalUfrag}";
-                var usernameBytes = Encoding.UTF8.GetBytes(username);
-                var priorityBytes = new byte[4];
-                BinaryPrimitives.WriteUInt32BigEndian(priorityBytes, (uint)pair.Local.Priority);
-
-                var attributes = new List<(ushort Type, byte[] Value)>
-                {
-                    (StunMessage.Username, usernameBytes),
-                    (StunMessage.Priority, priorityBytes)
-                };
-
-                if (IsControlling)
-                {
-                    var tieBreakerBytes = new byte[8];
-                    BinaryPrimitives.WriteUInt64BigEndian(tieBreakerBytes, TieBreaker);
-                    attributes.Add((StunMessage.IceControlling, tieBreakerBytes));
-                    attributes.Add((StunMessage.UseCandidate, []));
-                }
-                else
-                {
-                    var tieBreakerBytes = new byte[8];
-                    BinaryPrimitives.WriteUInt64BigEndian(tieBreakerBytes, TieBreaker);
-                    attributes.Add((StunMessage.IceControlled, tieBreakerBytes));
-                }
-
-                var key = Encoding.UTF8.GetBytes(RemotePassword);
-                var request = StunMessage.Encode(StunMessage.BindingRequest, transactionId, attributes, key);
+                var (request, transactionId, key) = BuildBindingRequest(pair, nominate: IsControlling);
 
                 var (response, _) = await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint,
                     TimeSpan.FromMilliseconds(500), key, message => AcceptConnectivityResponse(pair, message)).ConfigureAwait(false);
@@ -396,6 +367,80 @@ internal sealed class IceAgent : IDisposable
             }
             catch { }
         }
+    }
+
+    private (byte[] Request, byte[] TransactionId, byte[] Key) BuildBindingRequest(CandidatePair pair, bool nominate)
+    {
+        var transactionId = new byte[12];
+        RandomNumberGenerator.Fill(transactionId);
+        var priorityBytes = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(priorityBytes, (uint)pair.Local.Priority);
+        var tieBreakerBytes = new byte[8];
+        BinaryPrimitives.WriteUInt64BigEndian(tieBreakerBytes, TieBreaker);
+        var attributes = new List<(ushort Type, byte[] Value)>
+        {
+            (StunMessage.Username, Encoding.UTF8.GetBytes($"{RemoteUfrag}:{LocalUfrag}")),
+            (StunMessage.Priority, priorityBytes),
+            (IsControlling ? StunMessage.IceControlling : StunMessage.IceControlled, tieBreakerBytes),
+        };
+        if (nominate) attributes.Add((StunMessage.UseCandidate, []));
+        var key = Encoding.UTF8.GetBytes(RemotePassword ?? "");
+        return (StunMessage.Encode(StunMessage.BindingRequest, transactionId, attributes, key), transactionId, key);
+    }
+
+    // RFC 7675: a connected agent keeps asking the selected peer for consent with authenticated checks every few
+    // seconds (randomised), and stops sending once no check has been answered for the consent timeout.
+    internal TimeSpan ConsentInterval { get; set; } = TimeSpan.FromSeconds(5);
+    internal TimeSpan ConsentTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    private long _consentConfirmed;
+    private long _consentNextCheck;
+    private int _consentInFlight;
+
+    private void ConfirmConsent()
+    {
+        var now = Stopwatch.GetTimestamp();
+        Volatile.Write(ref _consentConfirmed, now);
+        if (Volatile.Read(ref _consentNextCheck) == 0) Volatile.Write(ref _consentNextCheck, now + NextConsentDelay());
+    }
+
+    private long NextConsentDelay() =>
+        (long)(ConsentInterval.TotalSeconds * (0.8 + 0.4 * Random.Shared.NextDouble()) * Stopwatch.Frequency);
+
+    private void MaintainConsent()
+    {
+        CandidatePair? pair;
+        var expired = false;
+        var now = Stopwatch.GetTimestamp();
+        lock (_gate)
+        {
+            if (_disposed || ConnectionState != "connected" || _selectedPair is null) return;
+            pair = _selectedPair;
+            if (Stopwatch.GetElapsedTime(Volatile.Read(ref _consentConfirmed), now) > ConsentTimeout)
+            {
+                _selectedPair = null;
+                ConnectionState = "failed";
+                expired = true;
+            }
+        }
+        if (expired)
+        {
+            OnConnectionStateChanged?.Invoke("failed");
+            return;
+        }
+        if (now < Volatile.Read(ref _consentNextCheck) || Interlocked.Exchange(ref _consentInFlight, 1) != 0) return;
+        Volatile.Write(ref _consentNextCheck, now + NextConsentDelay());
+        _ = CheckConsentAsync(pair);
+    }
+
+    private async Task CheckConsentAsync(CandidatePair pair)
+    {
+        try
+        {
+            var (request, transactionId, key) = BuildBindingRequest(pair, nominate: false);
+            await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint, TimeSpan.FromMilliseconds(500), key,
+                response => { if (response.Type == StunMessage.BindingResponse) ConfirmConsent(); }).ConfigureAwait(false);
+        }
+        finally { Volatile.Write(ref _consentInFlight, 0); }
     }
 
     private void AcceptConnectivityResponse(CandidatePair pair, StunMessage response)
@@ -411,6 +456,7 @@ internal sealed class IceAgent : IDisposable
                 _selectedPair = pair;
                 newlyConnected = ConnectionState != "connected";
                 ConnectionState = "connected";
+                ConfirmConsent();
             }
         }
         if (newlyConnected) OnConnectionStateChanged?.Invoke("connected");
@@ -429,7 +475,7 @@ internal sealed class IceAgent : IDisposable
                 var socket = _socket;
                 if (socket is null) break;
                 if (Stopwatch.GetElapsedTime(maintenance) >= TimeSpan.FromMilliseconds(250))
-                { maintenance = Stopwatch.GetTimestamp(); OnMaintenance?.Invoke(); }
+                { maintenance = Stopwatch.GetTimestamp(); MaintainConsent(); OnMaintenance?.Invoke(); }
                 // Socket completions and transport retry timers must not wait
                 // behind synchronous page work on the shared CLR thread pool.
                 if (!socket.Poll(250000, SelectMode.SelectRead)) continue;
@@ -507,6 +553,7 @@ internal sealed class IceAgent : IDisposable
                         {
                             pair.State = CandidatePairState.Succeeded;
                             _selectedPair = pair; ConnectionState = "connected"; nominated = true;
+                            ConfirmConsent();
                         }
                     }
                     if (nominated) OnConnectionStateChanged?.Invoke("connected");
