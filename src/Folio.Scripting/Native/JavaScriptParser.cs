@@ -5,7 +5,8 @@ internal sealed class JavaScriptParser
 {
     private readonly JavaScriptLexer _lexer;
     private readonly int _maxNodes;
-    private readonly Queue<JavaScriptToken> _lookahead = new();
+    private readonly List<JavaScriptToken> _lookahead = new();
+    private int _lookaheadStart;
     private JavaScriptToken _current;
     private int _nodes;
 
@@ -478,8 +479,8 @@ internal sealed class JavaScriptParser
                         : [new JavaScriptReturnStatement(ParseBinary(0))];
                     return Node(new JavaScriptFunctionExpression([parameter], body, IsAsync: true, IsArrow: true));
                 }
-                if (IsArrowParameterList(out var asyncArrowParameters))
-                    return Node(ParseArrowFunction(asyncArrowParameters, isAsync: true));
+                if (IsArrowParameterList())
+                    return Node(ParseArrowFunction(isAsync: true));
                 // `async` is also a valid ordinary identifier.
                 return Node(new JavaScriptIdentifierExpression("async"));
             }
@@ -518,9 +519,9 @@ internal sealed class JavaScriptParser
                 return Node(new JavaScriptLiteralExpression(name, JavaScriptTokenKind.Identifier));
             return Node(new JavaScriptIdentifierExpression(name));
         }
-        if (IsArrowParameterList(out var arrowParameters))
+        if (IsArrowParameterList())
         {
-            return Node(ParseArrowFunction(arrowParameters, isAsync: false));
+            return Node(ParseArrowFunction(isAsync: false));
         }
         if (Match("("))
         {
@@ -556,22 +557,38 @@ internal sealed class JavaScriptParser
                         properties.Add(("...", ParseBinary(0)));
                         continue;
                     }
+                    if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text is ("get" or "set") &&
+                        (Peek(0) is { Kind: JavaScriptTokenKind.Punctuation, Text: "[" } ||
+                         Peek(0).Kind is (JavaScriptTokenKind.Identifier or JavaScriptTokenKind.String or JavaScriptTokenKind.Number) &&
+                         Peek(1) is { Kind: JavaScriptTokenKind.Punctuation, Text: "(" }))
+                    {
+                        var setter = _current.Text == "set";
+                        Take();
+                        JavaScriptExpression key;
+                        if (Match("["))
+                        {
+                            key = ParseBinary(0);
+                            Expect("]");
+                        }
+                        else
+                        {
+                            var kind = _current.Kind == JavaScriptTokenKind.Number ? JavaScriptTokenKind.Number : JavaScriptTokenKind.String;
+                            key = Node(new JavaScriptLiteralExpression(_current.Text, kind));
+                            Take();
+                        }
+                        var function = ParseFunctionTail();
+                        if (function.Parameters.Count != (setter ? 1 : 0) ||
+                            setter && function.Parameters[0].StartsWith("...", StringComparison.Ordinal))
+                            throw Error("Invalid object accessor parameters");
+                        properties.Add((string.Empty, Node(new JavaScriptObjectAccessorExpression(key, function, setter))));
+                        continue;
+                    }
                     if (Match("["))
                     {
                         var key = ParseBinary(0);
                         Expect("]");
-                        var computedName = key switch
-                        {
-                            JavaScriptMemberExpression member when member.Target is JavaScriptIdentifierExpression target => target.Name + "." + member.Name,
-                            JavaScriptIdentifierExpression identifier => identifier.Name,
-                            JavaScriptLiteralExpression { Kind: JavaScriptTokenKind.Number } literal =>
-                                JavaScriptEvaluator.StringValue(literal.CachedValue),
-                            JavaScriptLiteralExpression literal => literal.Text,
-                            _ => string.Empty,
-                        };
-                        if (Match(":")) properties.Add((computedName, ParseBinary(0)));
-                        else if (_current.Text == "(") properties.Add(("__folio_method__" + computedName, ParseFunctionTail()));
-                        else properties.Add((computedName, new JavaScriptIdentifierExpression(computedName)));
+                        var value = Match(":") ? ParseBinary(0) : ParseFunctionTail();
+                        properties.Add((string.Empty, Node(new JavaScriptComputedPropertyExpression(key, value))));
                         continue;
                     }
                     if (_current.Kind is not (JavaScriptTokenKind.Identifier or JavaScriptTokenKind.String or JavaScriptTokenKind.Number)) throw Error("Expected an object property name");
@@ -579,12 +596,7 @@ internal sealed class JavaScriptParser
                         ? JavaScriptEvaluator.StringValue(new JavaScriptLiteralExpression(_current.Text, _current.Kind).CachedValue)
                         : _current.Text;
                     Take();
-                    if (name == "get" && _current.Kind == JavaScriptTokenKind.Identifier)
-                    {
-                        var getterName = _current.Text; Take();
-                        properties.Add(("__folio_getter__" + getterName, ParseFunctionTail()));
-                    }
-                    else if (_current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "(")
+                    if (_current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "(")
                     {
                         properties.Add(("__folio_method__" + name, ParseFunctionTail()));
                     }
@@ -659,35 +671,26 @@ internal sealed class JavaScriptParser
             BindingDefaults: bindingDefaults is { Count: > 0 } ? bindingDefaults : null);
     }
 
-    private JavaScriptFunctionExpression ParseArrowFunction(IReadOnlyList<string> arrowParameters, bool isAsync)
+    private JavaScriptFunctionExpression ParseArrowFunction(bool isAsync)
     {
         Expect("(");
         var parsedParameters = new List<string>();
         var defaults = new List<JavaScriptExpression?>();
         Dictionary<string, JavaScriptExpression>? bindingDefaults = null;
-        for (var i = 0; i < arrowParameters.Count; i++)
+        if (!Match(")"))
         {
-            var parameter = arrowParameters[i];
-            var rest = parameter.StartsWith("...", StringComparison.Ordinal);
-            if (rest) Expect("...");
-            var expectedName = rest ? parameter[3..] : parameter;
-            var binding = expectedName;
-            if (expectedName.StartsWith("[", StringComparison.Ordinal) || expectedName.StartsWith("{", StringComparison.Ordinal))
+            do
             {
-                binding = ParseBindingName(bindingDefaults ??= new(StringComparer.Ordinal));
-            }
-            else
-            {
-                if (_current.Kind != JavaScriptTokenKind.Identifier || _current.Text != expectedName) throw Error("Expected an arrow parameter");
-                Take();
-            }
-            JavaScriptExpression? defaultValue = null;
-            if (!rest && Match("=")) defaultValue = ParseBinary(0);
-            parsedParameters.Add(rest ? "..." + binding : binding);
-            defaults.Add(defaultValue);
-            if (i + 1 < arrowParameters.Count) Expect(",");
+                var rest = Match("...");
+                if (_current.Text is "[" or "{")
+                    bindingDefaults ??= new(StringComparer.Ordinal);
+                var binding = ParseBindingName(bindingDefaults);
+                parsedParameters.Add(rest ? "..." + binding : binding);
+                defaults.Add(!rest && Match("=") ? ParseBinary(0) : null);
+            } while (Match(","));
+            Expect(")");
         }
-        Expect(")"); Expect("=>");
+        Expect("=>");
         var body = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "{"
             ? ParseBlockStatement().Statements
             : [new JavaScriptReturnStatement(ParseBinary(0))];
@@ -776,9 +779,8 @@ internal sealed class JavaScriptParser
         if (!Match(text)) throw Error($"Expected '{text}'");
     }
 
-    private bool IsArrowParameterList(out List<string> parameters)
+    private bool IsArrowParameterList()
     {
-        parameters = [];
         if (_current.Kind != JavaScriptTokenKind.Punctuation || _current.Text != "(") return false;
         var offset = 0;
         if (Peek(offset).Text == ")") return Peek(offset + 1).Text == "=>";
@@ -789,31 +791,21 @@ internal sealed class JavaScriptParser
             {
                 var restName = Peek(offset++);
                 if (restName.Kind != JavaScriptTokenKind.Identifier) return false;
-                parameters.Add("..." + restName.Text);
             }
-            else
+            else if (token.Kind != JavaScriptTokenKind.Identifier)
             {
-                if (token.Kind == JavaScriptTokenKind.Identifier)
+                if (token.Text is not ("[" or "{")) return false;
+                var open = token.Text;
+                var close = open == "[" ? "]" : "}";
+                var depth = 1;
+                while (depth > 0)
                 {
-                    parameters.Add(token.Text);
+                    var part = Peek(offset++);
+                    if (part.Kind == JavaScriptTokenKind.End) return false;
+                    if (part.Kind != JavaScriptTokenKind.Punctuation) continue;
+                    if (part.Text == open) depth++;
+                    else if (part.Text == close) depth--;
                 }
-                else if (token.Text is "[" or "{")
-                {
-                    var open = token.Text;
-                    var close = open == "[" ? "]" : "}";
-                    var depth = 1;
-                    var binding = open;
-                    while (depth > 0)
-                    {
-                        var part = Peek(offset++);
-                        if (part.Kind == JavaScriptTokenKind.End) return false;
-                        binding += part.Text;
-                        if (part.Text == open) depth++;
-                        else if (part.Text == close) depth--;
-                    }
-                    parameters.Add(binding);
-                }
-                else return false;
             }
             var separator = Peek(offset++);
             if (separator.Text == "=")
@@ -829,13 +821,14 @@ internal sealed class JavaScriptParser
                         separator = defaultToken;
                         break;
                     }
+                    if (defaultToken.Kind == JavaScriptTokenKind.End) return false;
+                    if (defaultToken.Kind != JavaScriptTokenKind.Punctuation) continue;
                     if (defaultToken.Text is "(" or "[" or "{") depth++;
                     else if (defaultToken.Text is ")" or "]" or "}")
                     {
                         if (depth == 0) { separator = defaultToken; break; }
                         depth--;
                     }
-                    if (defaultToken.Kind == JavaScriptTokenKind.End) return false;
                 }
             }
             if (separator.Text == ")") break;
@@ -846,11 +839,31 @@ internal sealed class JavaScriptParser
 
     private JavaScriptToken Peek(int offset)
     {
-        while (_lookahead.Count <= offset) _lookahead.Enqueue(_lexer.Next());
-        return _lookahead.ElementAt(offset);
+        var index = _lookaheadStart + offset;
+        while (_lookahead.Count <= index) _lookahead.Add(_lexer.Next());
+        return _lookahead[index];
     }
 
-    private void Take() => _current = _lookahead.Count > 0 ? _lookahead.Dequeue() : _lexer.Next();
+    private void Take()
+    {
+        if (_lookahead.Count == 0)
+        {
+            _current = _lexer.Next();
+            return;
+        }
+        _current = _lookahead[_lookaheadStart];
+        _lookahead[_lookaheadStart++] = default;
+        if (_lookaheadStart == _lookahead.Count)
+        {
+            _lookahead.Clear();
+            _lookaheadStart = 0;
+        }
+        else if (_lookaheadStart >= 1024 && _lookaheadStart >= _lookahead.Count / 2)
+        {
+            _lookahead.RemoveRange(0, _lookaheadStart);
+            _lookaheadStart = 0;
+        }
+    }
     private T Node<T>(T node) where T : JavaScriptExpression
     {
         if (++_nodes > _maxNodes) throw Error("The expression contains too many nodes");

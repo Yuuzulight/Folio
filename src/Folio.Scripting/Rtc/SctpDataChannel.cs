@@ -7,7 +7,7 @@ namespace Folio.Scripting.Rtc;
 /// <summary>
 /// Folio-owned SCTP data channel engine (RFC 4960 / RFC 8831 / RFC 8832) operating over DTLS.
 /// Implements DCEP negotiation and bounded reliable complete-DATA delivery.
-/// Congestion/flow control, fragmentation and stream reset remain unqualified.
+/// Congestion/flow control and fragmentation remain unqualified against independent stacks; stream reset is the RFC 6525 subset RFC 8831 uses to close channels.
 /// </summary>
 internal sealed class SctpDataChannel : IDisposable
 {
@@ -31,6 +31,13 @@ internal sealed class SctpDataChannel : IDisposable
     private const byte ChunkShutdown = 7;
     private const byte ChunkCookieEcho = 10;
     private const byte ChunkCookieAck = 11;
+    private const byte ChunkReconfig = 130;
+    private const ushort ParamOutgoingReset = 13;
+    private const ushort ParamReconfigResponse = 16;
+    private const ushort ParamSupportedExtensions = 0x8008;
+    private const uint ReconfigPerformed = 1;
+    private const uint ReconfigBadSequence = 5;
+    private const uint ReconfigInProgress = 6;
 
     private const uint PpidDcep = 50;
     private const uint PpidString = 51;
@@ -86,6 +93,13 @@ internal sealed class SctpDataChannel : IDisposable
     private TimeSpan _handshakeRetryDelay = TimeSpan.FromSeconds(1);
     private long _associationStartedAt;
     private readonly SctpReliableDelivery _reliable = new();
+    // RFC 6525 stream reset (RFC 8831 closes a data channel by resetting its stream both ways).
+    private bool _peerSupportsReconfig;
+    private uint _reconfigRequestSequence = 1;
+    private uint _peerReconfigSequence;
+    private uint _lastPeerReconfigResult = ReconfigPerformed;
+    private readonly List<ushort> _queuedResets = [];
+    private (uint Sequence, ushort[] Streams, byte[] Chunk, long SentAt)? _pendingReset;
     private readonly Queue<byte[]> _outboundPackets = [];
     private int _outboundPacketBytes;
     private bool _flushingPackets;
@@ -115,6 +129,11 @@ internal sealed class SctpDataChannel : IDisposable
                 if (_disposed || State != "connected") return;
                 var chunks = _reliable.DueRetransmissions(_clock, out fail);
                 foreach (var chunk in chunks) SendSctpPacket(RemoteVerificationTag, [chunk]);
+                if (_pendingReset is { } reset && _clock.GetElapsedTime(reset.SentAt) >= TimeSpan.FromSeconds(1))
+                {
+                    _pendingReset = reset with { SentAt = _clock.GetTimestamp() };
+                    SendSctpPacket(RemoteVerificationTag, [reset.Chunk]);
+                }
                 if (!fail) DrainSendWindow();
             }
         }
@@ -170,7 +189,7 @@ internal sealed class SctpDataChannel : IDisposable
         }
         foreach (var channel in channels)
         {
-            try { channel.Close(); } catch { /* Teardown must survive a consumer callback. */ }
+            try { channel.CloseLocally(); } catch { /* Teardown must survive a consumer callback. */ }
         }
     }
 
@@ -199,10 +218,11 @@ internal sealed class SctpDataChannel : IDisposable
     private void SendInit()
     {
         // INIT chunk: Initiate Tag, a_rwnd (131072), OS (1024), MIS (1024), Initial TSN
-        var chunk = new byte[20];
+        var chunk = new byte[28];
         chunk[0] = ChunkInit;
         chunk[1] = 0; // flags
-        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(2), 20); // length
+        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(2), 25); // length (padding excluded)
+        WriteSupportedExtensions(chunk.AsSpan(20));
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(4), LocalVerificationTag);
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(8), SctpReliableDelivery.MaxReceiveBytes); // a_rwnd
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(12), 1024); // OS
@@ -231,10 +251,11 @@ internal sealed class SctpDataChannel : IDisposable
             HMACSHA256.HashData(_cookieKey, _issuedCookie.AsSpan(0, 48), _issuedCookie.AsSpan(48));
             _cookieIssuedAt = _clock.GetTimestamp();
         }
-        var chunk = new byte[24 + _issuedCookie.Length];
+        // State Cookie, then Supported Extensions (5 bytes, padded to 8).
+        var chunk = new byte[24 + _issuedCookie.Length + 8];
         chunk[0] = ChunkInitAck;
         chunk[1] = 0;
-        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(2), (ushort)chunk.Length);
+        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(2), (ushort)(chunk.Length - 3));
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(4), LocalVerificationTag);
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(8), SctpReliableDelivery.MaxReceiveBytes);
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(12), 1024);
@@ -243,6 +264,7 @@ internal sealed class SctpDataChannel : IDisposable
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(20), 7); // State Cookie
         BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(22), (ushort)(4 + _issuedCookie.Length));
         _issuedCookie.CopyTo(chunk, 24);
+        WriteSupportedExtensions(chunk.AsSpan(24 + _issuedCookie.Length));
 
         SendSctpPacket(RemoteVerificationTag, [chunk]);
     }
@@ -305,6 +327,7 @@ internal sealed class SctpDataChannel : IDisposable
                     RemoteVerificationTag = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(0, 4));
                     _remoteTsn = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4));
                     _reliable.SetPeerWindow(BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(4, 4)), _clock);
+                    LearnPeerReconfig(payload);
                     SendInitAck();
                 }
                 break;
@@ -317,6 +340,7 @@ internal sealed class SctpDataChannel : IDisposable
                     RemoteVerificationTag = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(0, 4));
                     _remoteTsn = BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(12, 4));
                     _reliable.SetPeerWindow(BinaryPrimitives.ReadUInt32BigEndian(payload.Slice(4, 4)), _clock);
+                    LearnPeerReconfig(payload);
                     // Send CookieEcho
                     var echo = new byte[4 + cookie.Length];
                     echo[0] = ChunkCookieEcho;
@@ -355,6 +379,10 @@ internal sealed class SctpDataChannel : IDisposable
                 BinaryPrimitives.WriteUInt16BigEndian(hbAck.AsSpan(2), (ushort)hbAck.Length);
                 payload.CopyTo(hbAck.AsSpan(4));
                 SendSctpPacket(RemoteVerificationTag, [hbAck]);
+                break;
+
+            case ChunkReconfig:
+                if (State == "connected") ProcessReconfig(payload);
                 break;
 
             case ChunkData:
@@ -467,6 +495,148 @@ internal sealed class SctpDataChannel : IDisposable
         }
     }
 
+    private static void WriteSupportedExtensions(Span<byte> parameter)
+    {
+        BinaryPrimitives.WriteUInt16BigEndian(parameter, ParamSupportedExtensions);
+        BinaryPrimitives.WriteUInt16BigEndian(parameter[2..], 5);
+        parameter[4] = ChunkReconfig;
+    }
+
+    private void LearnPeerReconfig(ReadOnlySpan<byte> init)
+    {
+        _peerReconfigSequence = _remoteTsn;
+        _reconfigRequestSequence = _reliable.NextTsn;
+        for (var offset = 16; offset + 4 <= init.Length;)
+        {
+            var type = BinaryPrimitives.ReadUInt16BigEndian(init[offset..]);
+            var length = BinaryPrimitives.ReadUInt16BigEndian(init[(offset + 2)..]);
+            if (length < 4 || offset + length > init.Length) return;
+            if (type == ParamSupportedExtensions && init.Slice(offset + 4, length - 4).IndexOf(ChunkReconfig) >= 0)
+                _peerSupportsReconfig = true;
+            offset += (length + 3) & ~3;
+        }
+    }
+
+    // Close a channel the RFC 8831 way: reset our outgoing stream; the channel closes once the peer has reset its
+    // side too. A peer without RE-CONFIG support cannot be told, so the channel then closes locally.
+    internal void CloseChannel(ChannelState channel)
+    {
+        try
+        {
+            lock (_gate)
+            {
+                if (_disposed || State != "connected" || !_peerSupportsReconfig || channel.ReadyState is "closed" or "connecting")
+                {
+                    channel.CloseLocally();
+                    return;
+                }
+                if (channel.ReadyState == "closing") return;
+                channel.BeginClosing();
+                QueueOutgoingReset(channel.Id);
+            }
+        }
+        finally { FlushPackets(); }
+    }
+
+    private void QueueOutgoingReset(ushort stream)
+    {
+        if (!_queuedResets.Contains(stream) && _pendingReset?.Streams.Contains(stream) != true) _queuedResets.Add(stream);
+        SendNextReset();
+    }
+
+    private void SendNextReset()
+    {
+        if (_pendingReset is not null || _queuedResets.Count == 0) return;
+        var streams = _queuedResets.ToArray();
+        _queuedResets.Clear();
+        var parameterLength = 16 + 2 * streams.Length;
+        var chunk = new byte[4 + ((parameterLength + 3) & ~3)];
+        chunk[0] = ChunkReconfig;
+        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(2), (ushort)(4 + parameterLength));
+        var parameter = chunk.AsSpan(4);
+        BinaryPrimitives.WriteUInt16BigEndian(parameter, ParamOutgoingReset);
+        BinaryPrimitives.WriteUInt16BigEndian(parameter[2..], (ushort)parameterLength);
+        BinaryPrimitives.WriteUInt32BigEndian(parameter[4..], _reconfigRequestSequence);
+        BinaryPrimitives.WriteUInt32BigEndian(parameter[8..], unchecked(_peerReconfigSequence - 1));
+        BinaryPrimitives.WriteUInt32BigEndian(parameter[12..], unchecked(_reliable.NextTsn - 1));
+        for (var i = 0; i < streams.Length; i++) BinaryPrimitives.WriteUInt16BigEndian(parameter[(16 + 2 * i)..], streams[i]);
+        _pendingReset = (_reconfigRequestSequence, streams, chunk, _clock.GetTimestamp());
+        SendSctpPacket(RemoteVerificationTag, [chunk]);
+    }
+
+    private void ProcessReconfig(ReadOnlySpan<byte> payload)
+    {
+        for (var offset = 0; offset + 4 <= payload.Length;)
+        {
+            var type = BinaryPrimitives.ReadUInt16BigEndian(payload[offset..]);
+            var length = BinaryPrimitives.ReadUInt16BigEndian(payload[(offset + 2)..]);
+            if (length < 4 || offset + length > payload.Length) return;
+            var parameter = payload.Slice(offset, length);
+            if (type == ParamOutgoingReset && length >= 16 && (length - 16) % 2 == 0) ProcessPeerOutgoingReset(parameter);
+            else if (type == ParamReconfigResponse && length >= 12) ProcessResetResponse(parameter);
+            offset += (length + 3) & ~3;
+        }
+    }
+
+    private void ProcessPeerOutgoingReset(ReadOnlySpan<byte> parameter)
+    {
+        var sequence = BinaryPrimitives.ReadUInt32BigEndian(parameter[4..]);
+        var lastTsn = BinaryPrimitives.ReadUInt32BigEndian(parameter[12..]);
+        uint result;
+        if (sequence == unchecked(_peerReconfigSequence - 1)) result = _lastPeerReconfigResult; // a retransmission
+        else if (sequence != _peerReconfigSequence) result = ReconfigBadSequence;
+        else if (unchecked((int)(_reliable.CumulativeReceived - lastTsn)) < 0) result = ReconfigInProgress; // data still in flight
+        else
+        {
+            var streams = new List<ushort>();
+            for (var i = 16; i + 2 <= parameter.Length; i += 2) streams.Add(BinaryPrimitives.ReadUInt16BigEndian(parameter[i..]));
+            if (streams.Count == 0) streams.AddRange(_channels.Keys); // an empty list resets every stream
+            foreach (var stream in streams)
+            {
+                _reliable.ResetIncomingStream(stream);
+                if (!_channels.TryGetValue(stream, out var channel)) continue;
+                channel.IncomingReset = true;
+                if (channel.OutgoingReset) FinishClose(channel);
+                else if (channel.ReadyState != "closing") { channel.BeginClosing(); QueueOutgoingReset(stream); }
+            }
+            _peerReconfigSequence = unchecked(_peerReconfigSequence + 1);
+            result = ReconfigPerformed;
+            _lastPeerReconfigResult = result;
+        }
+        var chunk = new byte[16];
+        chunk[0] = ChunkReconfig;
+        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(2), 16);
+        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(4), ParamReconfigResponse);
+        BinaryPrimitives.WriteUInt16BigEndian(chunk.AsSpan(6), 12);
+        BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(8), sequence);
+        BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(12), result);
+        SendSctpPacket(RemoteVerificationTag, [chunk]);
+    }
+
+    private void ProcessResetResponse(ReadOnlySpan<byte> parameter)
+    {
+        if (_pendingReset is not { } reset || BinaryPrimitives.ReadUInt32BigEndian(parameter[4..]) != reset.Sequence) return;
+        var result = BinaryPrimitives.ReadUInt32BigEndian(parameter[8..]);
+        if (result == ReconfigInProgress) return; // the retry timer asks again
+        _pendingReset = null;
+        _reconfigRequestSequence = unchecked(_reconfigRequestSequence + 1);
+        foreach (var stream in reset.Streams)
+        {
+            if (!_channels.TryGetValue(stream, out var channel)) continue;
+            if (result != ReconfigPerformed) { FinishClose(channel); continue; } // the peer refused; stop waiting
+            _reliable.ResetOutgoingStream(stream);
+            channel.OutgoingReset = true;
+            if (channel.IncomingReset) FinishClose(channel);
+        }
+        SendNextReset();
+    }
+
+    private void FinishClose(ChannelState channel)
+    {
+        _channels.Remove(channel.Id);
+        channel.CloseLocally();
+    }
+
     private void SendDcepAck(ushort streamId)
     {
         var ack = new byte[1];
@@ -508,7 +678,7 @@ internal sealed class SctpDataChannel : IDisposable
                     catch
                     {
                         _channels.Remove(id); _channelMetadataBytes -= (int)metadataBytes;
-                        _nextStreamId = previousNextId; channel.Close();
+                        _nextStreamId = previousNextId; channel.CloseLocally();
                         throw;
                     }
                 }
@@ -535,7 +705,7 @@ internal sealed class SctpDataChannel : IDisposable
             {
                 // A smaller negotiated limit or exhausted send budget must not
                 // leave an unestablishable pending channel connecting forever.
-                channel.Close();
+                channel.CloseLocally();
             }
         }
     }
@@ -707,7 +877,7 @@ internal sealed class SctpDataChannel : IDisposable
         }
         foreach (var channel in channels)
         {
-            try { channel.Close(); } catch { /* Finish releasing other owned channels. */ }
+            try { channel.CloseLocally(); } catch { /* Finish releasing other owned channels. */ }
         }
     }
 
@@ -755,7 +925,20 @@ internal sealed class SctpDataChannel : IDisposable
             OnOpen?.Invoke();
         }
 
-        public void Close()
+        internal bool OutgoingReset { get; set; }
+        internal bool IncomingReset { get; set; }
+
+        /// <summary>Starts the RFC 8831 closing procedure; <see cref="OnClose"/> fires once both directions are reset.</summary>
+        public void Close() => owner.CloseChannel(this);
+
+        internal void BeginClosing()
+        {
+            if (ReadyState is "closing" or "closed") return;
+            ReadyState = "closing";
+        }
+
+        // Teardown and failure paths: nothing is signalled to the peer.
+        internal void CloseLocally()
         {
             if (ReadyState == "closed") return;
             ReadyState = "closed";

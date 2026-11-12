@@ -20,6 +20,50 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ArrayIteratorsYieldLiveValuesAndRemainExhausted()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var list = [3, 5];
+            var iterator = list[Symbol.iterator]();
+            var next = iterator.next.bind(iterator);
+            var first = next();
+            list[1] = 7;
+            list.push(9);
+            var rest = Array.from(iterator);
+            var done = next();
+            list.push(11);
+            var pair = list.entries().next().value;
+            var keys = [...list.keys()];
+            iterator[Symbol.iterator]() === iterator && first.value === 3 && !first.done &&
+                rest.join(',') === '7,9' && done.done && done.value === undefined && next().done &&
+                pair[0] === 0 && pair[1] === 3 && keys.join(',') === '0,1,2,3' &&
+                Array.prototype.values.call({0:'item', length:1}).next().value === 'item'
+            """).AsBoolean());
+    }
+
+    [Fact]
+    public void ObjectLiteralAccessorsShareTheReceiverAndCombineByKey()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var key = 'value';
+            var item = {
+                stored: 2,
+                set [key](next) { this.stored = next * 2; },
+                get 'value'() { return this.stored; },
+                set sink(next) { this.stored = next; },
+                get() { return 'ordinary method'; }
+            };
+            item['value'] = 4;
+            var spread = {...item};
+            item.sink = 3;
+            spread.value === 8 && item['value'] === 3 && item.value === 3 &&
+                item.sink === undefined && item.get() === 'ordinary method'
+            """).AsBoolean());
+    }
+
+    [Fact]
     public void AssignmentInvokesInheritedAccessorsWithTheOriginalReceiver()
     {
         using var engine = new NativeJavaScriptEngine();
@@ -1171,6 +1215,36 @@ public sealed class NativeJavaScriptEngineTests
             modules[96e3]() === 'module' && modules[32] === 2 &&
                 modules[1000] === 3 && modules[500] === 4 && modules['96e3'] === 5
             """).AsBoolean());
+    }
+
+    [Fact]
+    public void ArrowLookaheadKeepsLongDefaultsAndQuotedDelimitersIntact()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var items = string.Join(",", Enumerable.Repeat("1", 600));
+        Assert.Equal("600}", engine.Evaluate($$"""
+            var read = ({mark = '}'} = {}, values = [{{items}}]) => values.length + mark;
+            read()
+            """).AsString());
+    }
+
+    [Fact]
+    public void ComputedObjectKeysUseRuntimeValuesInEvaluationOrder()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("1rem|4|4|key,value", engine.Evaluate("""
+            var prefix = 'padding';
+            var key = {name:'top'};
+            var calls = [];
+            var properties = {
+                [`${prefix}-${key.name}`]: '1rem',
+                [(calls.push('key'), '...')]: (calls.push('value'), 4),
+                [Symbol.iterator]() { return this['...']; }
+            };
+            var padding, remaining;
+            ({[prefix + '-top']: padding, ...remaining} = properties);
+            [padding, remaining['...'], properties[Symbol.iterator](), calls.join(',')].join('|')
+            """).AsString());
     }
 
     [Fact]

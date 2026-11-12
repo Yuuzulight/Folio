@@ -110,6 +110,8 @@ internal sealed record JavaScriptArrayExpression(IReadOnlyList<JavaScriptExpress
 internal sealed record JavaScriptSpreadExpression(JavaScriptExpression Operand) : JavaScriptExpression;
 internal sealed record JavaScriptIndexExpression(JavaScriptExpression Target, JavaScriptExpression Index) : JavaScriptExpression;
 internal sealed record JavaScriptObjectExpression(IReadOnlyList<(string Name, JavaScriptExpression Value)> Properties) : JavaScriptExpression;
+internal sealed record JavaScriptObjectAccessorExpression(JavaScriptExpression Key, JavaScriptFunctionExpression Function, bool IsSetter) : JavaScriptExpression;
+internal sealed record JavaScriptComputedPropertyExpression(JavaScriptExpression Key, JavaScriptExpression Value) : JavaScriptExpression;
 internal sealed record JavaScriptFunctionExpression(IReadOnlyList<string> Parameters, IReadOnlyList<JavaScriptStatement> Body,
     IReadOnlyList<JavaScriptExpression?>? DefaultValues = null, bool IsGenerator = false, string? Name = null, bool IsAsync = false, bool IsArrow = false,
     IReadOnlyDictionary<string, JavaScriptExpression>? BindingDefaults = null) : JavaScriptExpression;
