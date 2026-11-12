@@ -10,6 +10,26 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void DefiningAttributesWithoutAValuePreservesAnExistingProperty()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            function Widget() {}
+            Widget.prototype = {ready: true};
+            Object.defineProperty(Widget, 'prototype', {writable: false});
+            var array = [1];
+            array.raw = 'source';
+            Object.defineProperty(array, 'raw', {enumerable: false});
+            var obj = {value: 1, get live() { return this.value; }};
+            Object.defineProperty(obj, 'live', {configurable: false});
+            Object.defineProperty(obj, 'missing', {});
+            Object.defineProperty(obj, 'value', {value: null});
+            Widget.prototype.ready && array.raw === 'source' && obj.live === null &&
+                Object.hasOwn(obj, 'missing') && obj.missing === undefined
+            """).AsBoolean());
+    }
+
+    [Fact]
     public void ArraysKeepNamedPropertiesOutsideTheirIndexedElements()
     {
         using var engine = new NativeJavaScriptEngine();

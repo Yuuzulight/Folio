@@ -298,7 +298,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 if (args.Count > 2 && args[1] is not null)
                 {
                     var name = StringValue(args[1]);
-                    object? value = null;
+                    object? value = JavaScriptEvaluator.UndefinedValue.Instance;
                     if (args[2] is IReadOnlyDictionary<string, object?> descriptor)
                     {
                         var hasGetter = descriptor.TryGetValue("get", out var getter) && IsCallable(getter);
@@ -308,6 +308,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                                 hasGetter ? receiver => JavaScriptEvaluator.InvokeWithReceiver(getter!, receiver, []) : null,
                                 hasSetter ? (receiver, assigned) => JavaScriptEvaluator.InvokeWithReceiver(setter!, receiver, [assigned]) : null);
                         else if (descriptor.TryGetValue("value", out var descriptorValue)) value = descriptorValue;
+                        else if (TryReadOwnProperty(args[0], name, out _)) return args[0];
                     }
                     if (args[0] is IDictionary<string, object?> target)
                         target[name] = value;
@@ -361,16 +362,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             {
                 if (args.Count < 2 || args[0] is null || args[0] is JavaScriptEvaluator.UndefinedValue) return null;
                 var name = StringValue(args[1]);
-                object? value;
-                var found = args[0] switch
-                {
-                    IReadOnlyDictionary<string, object?> target => target.TryGetValue(name, out value),
-                    INativeHostObject host => host.TryGetValue(name, out value),
-                    INativeCallable callable => callable.TryGetProperty(name, out value),
-                    INativeBuffer buffer => buffer.TryGetProperty(name, out value),
-                    IList<object?> values => JavaScriptEvaluator.TryGetArrayProperty(values, name, out value),
-                    _ => (value = null) is not null,
-                };
+                var found = TryReadOwnProperty(args[0], name, out var value);
                 return found ? new Dictionary<string, object?> { ["value"] = value, ["writable"] = true, ["enumerable"] = name != "length", ["configurable"] = true } : null;
             }),
             ["prototype"] = new Dictionary<string, object?>(StringComparer.Ordinal),
@@ -1029,12 +1021,18 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         return false;
     }
 
-    private static bool HasOwnProperty(object? target, string name) => target switch
+    private static bool TryReadOwnProperty(object? target, string name, out object? value) => target switch
     {
-        IReadOnlyDictionary<string, object?> properties => properties.ContainsKey(name),
-        IList<object?> array => JavaScriptEvaluator.TryGetArrayProperty(array, name, out _),
-        _ => false,
+        IReadOnlyDictionary<string, object?> properties => properties.TryGetValue(name, out value),
+        INativeHostObject host => host.TryGetValue(name, out value),
+        INativeCallable callable => callable.TryGetProperty(name, out value),
+        Func<IReadOnlyList<object?>, object?> callable => JavaScriptEvaluator.TryGetCallableProperty(callable, name, out value),
+        INativeBuffer buffer => buffer.TryGetProperty(name, out value),
+        IList<object?> array => JavaScriptEvaluator.TryGetArrayProperty(array, name, out value),
+        _ => (value = null) is not null,
     };
+
+    private static bool HasOwnProperty(object? target, string name) => TryReadOwnProperty(target, name, out _);
 
     internal static object? ReadProperty(object? value) => value switch
     {
