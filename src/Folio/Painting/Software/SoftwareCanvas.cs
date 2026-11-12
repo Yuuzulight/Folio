@@ -1,6 +1,8 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 using Folio.Imaging;
 using Folio.Typography;
 
@@ -1422,7 +1424,10 @@ internal sealed class SoftwareCanvas : ICanvas
                     {
                         var contentRow = ((y - layer.Bounds.Top) * cWidth + (clip.Left - layer.Bounds.Left)) * 4;
                         var parentRow = ((y - layer.ParentBounds.Top) * pWidth + (clip.Left - layer.ParentBounds.Left)) * 4;
-                        for (var x = 0; x < w; x++)
+                        var x = 0;
+                        if (Vector128.IsHardwareAccelerated)
+                            x = CompositeOpacityBlocks(cData.AsSpan(contentRow, w * 4), pData.AsSpan(parentRow, w * 4), op);
+                        for (; x < w; x++)
                         {
                             var i = contentRow + x * 4;
                             var a = cData[i + 3];
@@ -1453,7 +1458,10 @@ internal sealed class SoftwareCanvas : ICanvas
                 var contentRow = ((y - layer.Bounds.Top) * cWidth + (clip.Left - layer.Bounds.Left)) * 4;
                 var maskRow = (y - maskClip.Top) * mWidth + (clip.Left - maskClip.Left);
                 var parentRow = ((y - layer.ParentBounds.Top) * pWidth + (clip.Left - layer.ParentBounds.Left)) * 4;
-                for (var x = 0; x < w; x++)
+                var x = 0;
+                if (Vector128.IsHardwareAccelerated && BitConverter.IsLittleEndian)
+                    x = CompositeOpacityBlocks(cData.AsSpan(contentRow, w * 4), pData.AsSpan(parentRow, w * 4), op, mask.AsSpan(maskRow, w));
+                for (; x < w; x++)
                 {
                     var i = contentRow + x * 4;
                     var a = cData[i + 3];
@@ -1498,6 +1506,53 @@ internal sealed class SoftwareCanvas : ICanvas
             }
         }
         Restore();
+    }
+
+    private static int CompositeOpacityBlocks(ReadOnlySpan<byte> source, Span<byte> target, int opacity, ReadOnlySpan<byte> mask = default)
+    {
+        var opacityVector = Vector128.Create((ushort)opacity);
+        var alphaBytes = Vector128.Create((byte)3, 3, 3, 3, 7, 7, 7, 7, 11, 11, 11, 11, 15, 15, 15, 15);
+        var maskBytes = Vector128.Create((byte)0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
+        var end = source.Length & ~15;
+        ref var src = ref MemoryMarshal.GetReference(source);
+        ref var dst = ref MemoryMarshal.GetReference(target);
+        for (var offset = 0; offset < end; offset += 16)
+        {
+            var pixels = Vector128.LoadUnsafe(ref src, (nuint)offset);
+            if (pixels == Vector128<byte>.Zero)
+                continue;
+            var lowerOpacity = opacityVector;
+            var upperOpacity = opacityVector;
+            if (!mask.IsEmpty)
+            {
+                var coverage = BinaryPrimitives.ReadUInt32LittleEndian(mask[(offset / 4)..]);
+                if (coverage == 0)
+                    continue;
+                if (coverage != uint.MaxValue)
+                {
+                    var repeated = Vector128.Shuffle(Vector128.CreateScalar(coverage).AsByte(), maskBytes);
+                    lowerOpacity = DivideBy255(Vector128.WidenLower(repeated) * opacityVector);
+                    upperOpacity = DivideBy255(Vector128.WidenUpper(repeated) * opacityVector);
+                }
+            }
+            var scaled = Vector128.Narrow(
+                DivideBy255(Vector128.WidenLower(pixels) * lowerOpacity),
+                DivideBy255(Vector128.WidenUpper(pixels) * upperOpacity));
+            var inverseAlpha = Vector128.Create(byte.MaxValue) - Vector128.Shuffle(scaled, alphaBytes);
+            var background = Vector128.LoadUnsafe(ref dst, (nuint)offset);
+            var covered = Vector128.Narrow(
+                DivideBy255(Vector128.WidenLower(background) * Vector128.WidenLower(inverseAlpha)),
+                DivideBy255(Vector128.WidenUpper(background) * Vector128.WidenUpper(inverseAlpha)));
+            (scaled + covered).StoreUnsafe(ref dst, (nuint)offset);
+        }
+        return end / 4;
+
+        static Vector128<ushort> DivideBy255(Vector128<ushort> value)
+        {
+            // Exact rounded division for byte products, with all intermediates below 65536.
+            var biased = value + Vector128.Create((ushort)128);
+            return (biased + (biased >> 8)) >> 8;
+        }
     }
 
     // A backdrop-filter layer starts as what is behind it, filtered, inside the clip's rectangle (its edges mirrored outwards, so a

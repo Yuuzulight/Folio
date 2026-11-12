@@ -16,6 +16,36 @@ public class SoftwareRasterUnitTests
 
     private static int Alpha(byte[] pixels, int width, int x, int y) => pixels[(y * width + x) * 4 + 3];
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LayerOpacityMatchesRoundedSourceOverAcrossClippedRows(bool masked)
+    {
+        using var surface = Surface(11);
+        using var coverage = Surface(11);
+        var area = new RoundedRect(new RectF(0, 0, 11, 11), default);
+        surface.Canvas.FillRoundedRect(area, new Paint(new Rgba(0, 0, 1, 1)));
+        if (masked)
+        {
+            var clip = new RoundedRect(new RectF(0.25f, 0.5f, 10, 10), default);
+            surface.Canvas.ClipRoundedRect(clip);
+            coverage.Canvas.ClipRoundedRect(clip);
+        }
+        coverage.Canvas.FillRoundedRect(area, new Paint(new Rgba(1, 1, 1, 1)));
+        surface.Canvas.PushLayer(new LayerOptions(0.6f));
+        surface.Canvas.FillRoundedRect(area, new Paint(new Rgba(1, 0, 0, 0.8f)));
+        surface.Canvas.PopLayer();
+
+        var pixels = Read(surface);
+        var mask = Read(coverage);
+        for (var i = 0; i < pixels.Length; i += 4)
+        {
+            var opacity = (153 * mask[i + 3] + 127) / 255;
+            var red = (204 * opacity + 127) / 255;
+            Assert.Equal((red, 0, 255 - red, 255), ((int)pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]));
+        }
+    }
+
     private static void Fill(SoftwareRasterSurface surface, PathData path, FillRule rule = FillRule.NonZero) =>
         surface.Canvas.FillPath(path, rule, new Paint(new Rgba(0, 0, 0, 1)));
 
