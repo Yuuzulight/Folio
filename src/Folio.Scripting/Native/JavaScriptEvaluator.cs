@@ -798,7 +798,10 @@ internal sealed class JavaScriptEvaluator
             case JavaScriptBinaryOp.UshrAssign:
             {
                 var assigned = binary.Op == JavaScriptBinaryOp.Assign ? Evaluate(binary.Right) : ApplyCompound(binary.Operator, binary.Left, binary.Right);
-                AssignValue(binary.Left, assigned);
+                if (binary.Op == JavaScriptBinaryOp.Assign && binary.Left is JavaScriptObjectExpression pattern)
+                    AssignObjectPattern(pattern, assigned);
+                else
+                    AssignValue(binary.Left, assigned);
                 return assigned;
             }
             case JavaScriptBinaryOp.LogicalAnd:
@@ -884,6 +887,41 @@ internal sealed class JavaScriptEvaluator
             JavaScriptBinaryOp.BitwiseOr => (double)(ToInt32(l) | ToInt32(r)),
             _ => throw new NotSupportedException($"Unsupported binary operator '{binary.Operator}'."),
         };
+    }
+
+    private void AssignObjectPattern(JavaScriptObjectExpression pattern, object? source)
+    {
+        if (source is null or UndefinedValue)
+            throw WebIdlException.TypeError("Cannot destructure null or undefined.");
+        var entries = pattern.Properties;
+        var excluded = entries.Count > 0 && entries[^1].Name == "..." ? new HashSet<string>(StringComparer.Ordinal) : null;
+        for (var i = 0; i < entries.Count; i++)
+        {
+            var (name, target) = entries[i];
+            if (name == "...")
+            {
+                if (i != entries.Count - 1 || target is not (JavaScriptIdentifierExpression or JavaScriptMemberExpression or JavaScriptIndexExpression))
+                    throw new InvalidDataException("The object rest assignment requires a final assignment target.");
+                var rest = new Dictionary<string, object?>(StringComparer.Ordinal);
+                if (source is IReadOnlyDictionary<string, object?> own)
+                    foreach (var key in own.Keys)
+                        if (!excluded!.Contains(key) && key is not ("__proto__" or "__constructor"))
+                            rest[key] = MemberValue(source, key);
+                AssignValue(target, rest);
+                return;
+            }
+            excluded?.Add(name);
+            var value = MemberValue(source, name);
+            if (target is JavaScriptBinaryExpression { Op: JavaScriptBinaryOp.Assign } initializer)
+            {
+                if (value is UndefinedValue) value = Evaluate(initializer.Right);
+                target = initializer.Left;
+            }
+            if (target is JavaScriptObjectExpression nested)
+                AssignObjectPattern(nested, value);
+            else
+                AssignValue(target, value);
+        }
     }
 
     private void AssignValue(JavaScriptExpression target, object? assigned)
