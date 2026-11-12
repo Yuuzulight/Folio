@@ -287,6 +287,7 @@ public static class DomBindings
         context.ScriptFeaturesDisposed = true;
         context.Document.SetFeatureAvailability(false, false, false, false);
         context.Document.EventDispatcher = null;
+        context.Document.ImageSourceChanged = null;
         Action[] retire =
         [
             () => context.DisposeCacheStorage?.Invoke(), context.LoseCanvasContexts, context.DisposeIframes,
@@ -465,7 +466,11 @@ public static class DomBindings
         // 4. Event handler content attributes (#457): the parsed ones now, later ones as they change or are inserted.
         handlers.Scan(document, context);
         document.HandlerAttributeChanged += (element, name, value) => handlers.Changed(context.Wrap(element), name, value);
-        document.NodeInserted += node => handlers.Scan(node, context);
+        document.NodeInserted += node =>
+        {
+            handlers.Scan(node, context);
+            context.QueueImagesIn(node);
+        };
 
         // 5. Trusted event dispatcher bridge (#458)
         document.EventDispatcher = (targetNode, eventType, args) =>
@@ -516,6 +521,8 @@ public static class DomBindings
             return result.IsBoolean ? result.AsBoolean() : true;
         };
 
+        document.ImageSourceChanged = context.QueueImageLoad;
+        context.QueueImagesIn(document);
         return context.WrapperCache;
         }
         catch
@@ -676,6 +683,7 @@ public static class DomBindings
                     'HTMLInputElement',
                     'HTMLButtonElement',
                     'HTMLImageElement',
+                    'HTMLCanvasElement',
                     'HTMLOptionElement',
                     'HTMLSelectElement',
                     'HTMLTextAreaElement',

@@ -461,6 +461,8 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                             rule => rule.selectorText === '.p-4' && rule.style.getPropertyValue('padding') === '1rem')
                         """);
                 }
+                var phaser = libraries.Contains("phaser.min.js", StringComparer.Ordinal);
+                if (phaser) checks = checks.Append("document.querySelector('canvas[data-scene-ready=true]') !== null");
                 var probe = string.Join(" && ", checks);
                 var start = Stopwatch.GetTimestamp();
                 var frame = await Load(html, probe);
@@ -478,6 +480,8 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                         throw new InvalidDataException("A pinned library did not initialize or produce its expected output.");
                     if (chart && frame.Payload.GetProperty("canvasCommands").GetInt32() == 0)
                         throw new InvalidDataException("The chart did not create a canvas surface.");
+                    if (phaser && frame.Payload.GetProperty("canvasCommands").GetInt32() == 0)
+                        throw new InvalidDataException("The Phaser scene did not create a canvas surface.");
                     var within = elapsed <= TargetWarmFirstPaint && workingSet <= TargetWorkingSet;
                     if (!within) failed++;
                     Console.WriteLine(FormattableString.Invariant($"| {id} | {elapsed.TotalMilliseconds:F1} | {workingSet / (1024.0 * 1024):F1} | {(within ? "Pass" : "Over budget")} |"));

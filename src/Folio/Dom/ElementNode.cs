@@ -154,6 +154,8 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
         Reflect(name, value);
         OnMutated(MutationKind.Attributes);
         OwnerDocument.MutationRecorder?.Attribute(this, name, oldValue);
+        if (name == "src" && Name.Namespace == Namespaces.Html && LocalName == "img")
+            OwnerDocument.ImageSourceChanged?.Invoke(this);
         if (IsHandlerAttributeName(name))
             OwnerDocument.NotifyHandlerAttributeChanged(this, name, value);
     }
@@ -178,6 +180,8 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
         Reflect(name, "");
         OnMutated(MutationKind.Attributes);
         OwnerDocument.MutationRecorder?.Attribute(this, name, oldValue);
+        if (name == "src" && Name.Namespace == Namespaces.Html && LocalName == "img")
+            OwnerDocument.ImageSourceChanged?.Invoke(this);
         if (IsHandlerAttributeName(name))
             OwnerDocument.NotifyHandlerAttributeChanged(this, name, null);
         return true;
