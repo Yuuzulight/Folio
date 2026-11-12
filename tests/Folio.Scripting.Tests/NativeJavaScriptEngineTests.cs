@@ -10,6 +10,22 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void ArraysKeepNamedPropertiesOutsideTheirIndexedElements()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var template = ['cooked'];
+            template.raw = ['raw'];
+            template['01'] = 'named';
+            Object.defineProperty(template, 'tag', {value: 'extra'});
+            hasOwnProperty.call(template, 'raw') && Object.hasOwn(template, '01') &&
+                template['raw'][0] === 'raw' && template['01'] === 'named' &&
+                template.tag === 'extra' && template.length === 1 &&
+                Object.getOwnPropertyDescriptor(template, 'raw').value[0] === 'raw'
+            """).AsBoolean());
+    }
+
+    [Fact]
     public void ArrayIteratorsYieldLiveValuesAndRemainExhausted()
     {
         using var engine = new NativeJavaScriptEngine();

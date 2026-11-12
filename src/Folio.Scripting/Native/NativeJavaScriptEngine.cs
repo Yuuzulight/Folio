@@ -210,12 +210,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         };
         arrayConstructor.SetProperty("prototype", arrayPrototype);
         _bindings["Array"] = arrayConstructor;
+        var hasOwnProperty = new NativeReceiverFunction((receiver, args) =>
+            HasOwnProperty(receiver ?? _bindings, StringValue(args.Count > 0 ? args[0] : JavaScriptEvaluator.UndefinedValue.Instance)));
         var objectPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["hasOwnProperty"] = new NativeReceiverFunction((receiver, args) =>
-                receiver is IReadOnlyDictionary<string, object?> properties
-                    && args.Count > 0
-                    && properties.ContainsKey(StringValue(args[0]))),
+            ["hasOwnProperty"] = hasOwnProperty,
             ["toString"] = new NativeReceiverFunction((receiver, _) => receiver switch
             {
                 null => "[object Null]",
@@ -224,6 +223,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 _ => "[object Object]",
             }),
         };
+        _bindings["hasOwnProperty"] = hasOwnProperty;
         var objectBindings = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["prototype"] = objectPrototype,
@@ -319,11 +319,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                         JavaScriptEvaluator.SetCallableProperty(callable, name, value);
                     else if (args[0] is INativeHostObject host)
                         host.TrySetSetValue(name, value);
-                    else if (args[0] is IList<object?> values && int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var index) && index >= 0)
-                    {
-                        while (values.Count <= index) values.Add(JavaScriptEvaluator.UndefinedValue.Instance);
-                        values[index] = value;
-                    }
+                    else if (args[0] is IList<object?> values)
+                        JavaScriptEvaluator.SetArrayProperty(values, name, value);
                 }
                 return args.Count > 0 ? args[0] : null;
             }),
@@ -357,7 +354,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     return prototype;
                 return null;
             }),
-            ["hasOwn"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && args[0] is IReadOnlyDictionary<string, object?> own && own.ContainsKey(StringValue(args[1]))),
+            ["hasOwn"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && HasOwnProperty(args[0], StringValue(args[1]))),
             ["is"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && SameValue(args[0], args[1])),
             ["freeze"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? args[0] : null),
             ["getOwnPropertyDescriptor"] = (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -371,9 +368,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     INativeHostObject host => host.TryGetValue(name, out value),
                     INativeCallable callable => callable.TryGetProperty(name, out value),
                     INativeBuffer buffer => buffer.TryGetProperty(name, out value),
-                    IList<object?> values when name == "length" => (value = (double)values.Count) is not null,
-                    IList<object?> values when int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var index) && index >= 0 && index < values.Count
-                        => (value = values[index]) is not null,
+                    IList<object?> values => JavaScriptEvaluator.TryGetArrayProperty(values, name, out value),
                     _ => (value = null) is not null,
                 };
                 return found ? new Dictionary<string, object?> { ["value"] = value, ["writable"] = true, ["enumerable"] = name != "length", ["configurable"] = true } : null;
@@ -1001,7 +996,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
         if (target.Raw is INativeBuffer buffer && buffer.TryGetProperty(name, out var bufferValue))
             return ToScriptValue(bufferValue);
-        if (target.Raw is IReadOnlyList<object?> array && name == "length") return ScriptValue.FromNumber(array.Count);
+        if (target.Raw is IList<object?> array && JavaScriptEvaluator.TryGetArrayProperty(array, name, out var arrayValue))
+            return ToScriptValue(arrayValue);
         if (target.Raw is string text && name == "length") return ScriptValue.FromNumber(text.Length);
         if (target.Raw is IReadOnlyDictionary<string, object?> properties && properties.TryGetValue(name, out var item))
             return ToScriptValue(ReadProperty(item));
@@ -1016,6 +1012,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
         if (target.Raw is NativeHostValue host)
             return host.TrySetSetValue(name, ToObject(value)) || host.TrySetPrototypeValue(name, ToObject(value));
+        if (target.Raw is IList<object?> array)
+        {
+            JavaScriptEvaluator.SetArrayProperty(array, name, ToObject(value));
+            return true;
+        }
         if (target.Raw is IDictionary<string, object?> properties)
         {
             var assigned = ToObject(value);
@@ -1027,6 +1028,13 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
         return false;
     }
+
+    private static bool HasOwnProperty(object? target, string name) => target switch
+    {
+        IReadOnlyDictionary<string, object?> properties => properties.ContainsKey(name),
+        IList<object?> array => JavaScriptEvaluator.TryGetArrayProperty(array, name, out _),
+        _ => false,
+    };
 
     internal static object? ReadProperty(object? value) => value switch
     {
