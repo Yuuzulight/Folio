@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Text;
 using Folio.Painting;
 using Folio.RenderTests;
+#if !FOLIO_AOT_PROBE
 using Folio.Skia;
+#endif
 using Folio.Typography;
 
 namespace Folio.Benchmarks;
@@ -71,7 +73,9 @@ internal static class FrameBenchmark
     }
 
     /// <summary>The median and 95th percentile frame times, and whether every frame took the paint-only path.</summary>
-    public static (TimeSpan Median, TimeSpan P95, bool PaintOnly) Measure(string html, int frames)
+    public static (TimeSpan Median, TimeSpan P95, bool PaintOnly) Measure(string html, int frames) => Steady(() => MeasurePass(html, frames));
+
+    private static (TimeSpan Median, TimeSpan P95, bool PaintOnly) MeasurePass(string html, int frames)
     {
         using var document = Document.Parse(html, Options);
         var shaper = SoftwareRasterBackend.Instance.TextShaper;
@@ -110,6 +114,7 @@ internal static class FrameBenchmark
         return (times[times.Count / 2], times[Math.Min(times.Count - 1, (int)(times.Count * 0.95))], paintOnly);
     }
 
+#if !FOLIO_AOT_PROBE
     /// <summary>
     /// What replaying one display list into a surface costs on each raster backend (#568, #575): the median of
     /// <paramref name="frames"/> replays of the typical dashboard's list, Skia and Folio's own software backend.
@@ -137,12 +142,15 @@ internal static class FrameBenchmark
         }
         return (Median(new SkiaRasterBackend()), Median(SoftwareRasterBackend.Instance));
     }
+#endif
 
     /// <summary>
     /// Hover restyle + repaint frame time (docs/study/18-memory-and-performance.md, M3 target 4 ms):
     /// moving pointer between cards toggles :hover state, runs Update() and rasters the display list.
     /// </summary>
-    public static (TimeSpan Median, TimeSpan P95) MeasureHover(string html, int steps)
+    public static (TimeSpan Median, TimeSpan P95) MeasureHover(string html, int steps) => Steady(() => MeasureHoverPass(html, steps));
+
+    private static (TimeSpan Median, TimeSpan P95) MeasureHoverPass(string html, int steps)
     {
         using var document = Document.Parse(html, Options);
         document.Paint(800, 600, 1, SoftwareRasterBackend.Instance.TextShaper, 0);
@@ -185,7 +193,9 @@ internal static class FrameBenchmark
     /// Scroll frame time (docs/study/18-memory-and-performance.md, M3 target 8 ms):
     /// viewport scroll replays the display list with offset into viewport and rasters.
     /// </summary>
-    public static (TimeSpan Median, TimeSpan P95) MeasureScroll(string html, int steps)
+    public static (TimeSpan Median, TimeSpan P95) MeasureScroll(string html, int steps) => Steady(() => MeasureScrollPass(html, steps));
+
+    private static (TimeSpan Median, TimeSpan P95) MeasureScrollPass(string html, int steps)
     {
         using var document = Document.Parse(html, Options);
         var (list, contentHeight) = document.Paint(800, 600, 1, SoftwareRasterBackend.Instance.TextShaper, 0);
@@ -208,6 +218,18 @@ internal static class FrameBenchmark
         }
         times.Sort();
         return (times[times.Count / 2], times[Math.Min(times.Count - 1, (int)(times.Count * 0.95))]);
+    }
+
+    /// <summary>
+    /// Runs a measurement twice and discards it, then returns a third. Under .NET tiered compilation a short run mostly
+    /// times unoptimised first-tier code (the typical frame reads ~37 ms on a first pass, ~8 ms on the third); the app
+    /// hosting FolioView is a long-running JIT process, so steady state is what the budget is about.
+    /// </summary>
+    private static T Steady<T>(Func<T> pass)
+    {
+        pass();
+        pass();
+        return pass();
     }
 
     private static void Replay(ICanvas canvas, DisplayList list, RectF area)
