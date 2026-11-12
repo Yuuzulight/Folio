@@ -1153,6 +1153,20 @@ public sealed class NativeJavaScriptEngineTests
             """).AsBoolean());
     }
 
+    [Fact]
+    public void ObjectDeclarationDefaultsRunInOrderAndPreserveExplicitValues()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var calls = 0;
+            const {first: a = 5, child: {value = a + ++calls}, keep = 9, ...rest} =
+                {child:{}, keep:null, extra:10};
+            let {b = ++calls} = {b:0};
+            a === 5 && value === 6 && keep === null && rest.extra === 10 &&
+                Object.keys(rest).join(',') === 'extra' && b === 0 && calls === 1
+            """).AsBoolean());
+    }
+
     private sealed class HostState
     {
         public int Value { get; set; }

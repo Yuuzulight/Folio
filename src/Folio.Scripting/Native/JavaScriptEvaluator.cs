@@ -353,6 +353,11 @@ internal sealed class JavaScriptEvaluator
             {
                 var declarationBindings = variable.Lexical ? _bindings : _varBindings ?? _bindings;
                 var value = variable.Initializer is null ? UndefinedOrNull() : Evaluate(variable.Initializer);
+                if (variable.BindingDefaults is { } bindingDefaults)
+                {
+                    BindParameter(declarationBindings, variable.Name, value, bindingDefaults);
+                    break;
+                }
                 if (variable.Name.StartsWith("[", StringComparison.Ordinal) && variable.Name.EndsWith("]", StringComparison.Ordinal))
                 {
                     var names = SplitBindingItems(variable.Name[1..^1], keepEmpty: true);
