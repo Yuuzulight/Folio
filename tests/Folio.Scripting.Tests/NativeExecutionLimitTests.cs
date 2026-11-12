@@ -54,7 +54,7 @@ public sealed class NativeExecutionLimitTests
     public void DeepSyntaxFailsWithoutCrashingTheProcess()
     {
         using var engine = new NativeJavaScriptEngine();
-        var source = new string('(', 10000) + "1" + new string(')', 10000);
+        var source = new string('(', 200_000) + "1" + new string(')', 200_000);
         Assert.Equal("Recursion", Assert.Throws<ScriptLimitExceededException>(() => engine.Evaluate(source)).LimitName);
         Assert.Equal(2d, engine.Evaluate("1+1").AsNumber());
     }
