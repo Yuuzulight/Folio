@@ -1350,7 +1350,7 @@ internal sealed class JavaScriptEvaluator
             var value = i < arguments.Count ? arguments[i] : UndefinedOrNull();
             var defaultValue = function.DefaultValues is { } values && i < values.Count ? values[i] : null;
             if ((i >= arguments.Count || value is UndefinedValue) && defaultValue is not null) value = parameterEvaluator.Evaluate(defaultValue);
-            BindParameter(local, parameter, value);
+            parameterEvaluator.BindParameter(local, parameter, value, function.BindingDefaults);
         }
         if (function.IsGenerator)
         {
@@ -2162,7 +2162,12 @@ internal sealed class JavaScriptEvaluator
                     bodyEvaluator ??= new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded);
                     value = bodyEvaluator.Evaluate(defaultValue);
                 }
-                BindParameter(local, parameter, value);
+                if (function.BindingDefaults is { } bindingDefaults)
+                {
+                    bodyEvaluator ??= new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded);
+                    bodyEvaluator.BindParameter(local, parameter, value, bindingDefaults);
+                }
+                else BindParameter(local, parameter, value);
             }
             // Non-strict top-level/function calls receive the global object when
             // invoked without an explicit receiver. UMD libraries rely on this
@@ -2221,7 +2226,8 @@ internal sealed class JavaScriptEvaluator
         }
     }
 
-    private void BindParameter(IDictionary<string, object?> local, string parameter, object? value)
+    private void BindParameter(IDictionary<string, object?> local, string parameter, object? value,
+        IReadOnlyDictionary<string, JavaScriptExpression>? bindingDefaults = null)
     {
         if (parameter.StartsWith("{", StringComparison.Ordinal) && parameter.EndsWith("}", StringComparison.Ordinal))
         {
@@ -2242,7 +2248,7 @@ internal sealed class JavaScriptEvaluator
                 }
                 var parts = entry.Split(':', 2);
                 excluded?.Add(parts[0]);
-                BindParameter(local, parts.Length == 2 ? parts[1] : parts[0], MemberValue(value, parts[0]));
+                BindParameter(local, parts.Length == 2 ? parts[1] : parts[0], MemberValue(value, parts[0]), bindingDefaults);
             }
             return;
         }
@@ -2259,12 +2265,12 @@ internal sealed class JavaScriptEvaluator
                     break;
                 }
                 var item = values is not null && i < values.Count ? values[i] : UndefinedOrNull();
-                if (names[i].StartsWith("[", StringComparison.Ordinal) || names[i].StartsWith("{", StringComparison.Ordinal)) BindParameter(local, names[i], item);
-                else local[names[i]] = item;
+                BindParameter(local, names[i], item, bindingDefaults);
             }
             return;
         }
-        local[parameter] = value;
+        local[parameter] = value is UndefinedValue && bindingDefaults is not null &&
+            bindingDefaults.TryGetValue(parameter, out var initializer) ? Evaluate(initializer) : value;
     }
 
     private void BindPattern(string pattern, object? value)
@@ -2411,7 +2417,7 @@ internal sealed class JavaScriptEvaluator
                 var value = i < arguments.Count ? arguments[i] : UndefinedOrNull();
                 var defaultValue = function.DefaultValues is { } values && i < values.Count ? values[i] : null;
                 if ((i >= arguments.Count || value is UndefinedValue) && defaultValue is not null) value = parameterEvaluator.Evaluate(defaultValue);
-                BindParameter(local, parameter, value);
+                parameterEvaluator.BindParameter(local, parameter, value, function.BindingDefaults);
             }
         return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
     }
