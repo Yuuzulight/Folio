@@ -1114,8 +1114,8 @@ internal sealed class JavaScriptEvaluator
         }
         if (target is NativeJavaScriptEngine.INativeHostObject namedHost
             && namedHost.TryGetValue(StringValue(key), out var namedValue)) return namedValue;
-        if (target is IReadOnlyDictionary<string, object?> dictionary
-            && dictionary.TryGetValue(StringValue(key), out var dictionaryValue)) return dictionaryValue;
+        if (target is IReadOnlyDictionary<string, object?> dictionary)
+            return PrototypeMemberValue(dictionary, StringValue(key), target);
         if (target is IList<object?> iterable && StringValue(key) == "Symbol.iterator")
             return (Func<IReadOnlyList<object?>, object?>)(_ => iterable.ToArray());
         var position = (int)Number(key);
@@ -1308,12 +1308,20 @@ internal sealed class JavaScriptEvaluator
             {
                 var spread = Evaluate(property.Value);
                 if (spread is IReadOnlyDictionary<string, object?> spreadDictionary)
-                    foreach (var item in spreadDictionary) result[item.Key] = item.Value;
+                    foreach (var key in spreadDictionary.Keys.ToArray())
+                        if (spreadDictionary.TryGetValue(key, out var value))
+                            result[key] = value is NativeJavaScriptEngine.NativePropertyAccessor accessor
+                                ? accessor.Get(spread) : value;
                 continue;
             }
-            if (property.Name.StartsWith("__folio_getter__", StringComparison.Ordinal))
+            if (property.Value is JavaScriptObjectAccessorExpression declaration)
             {
-                result[property.Name[16..]] = new NativeJavaScriptEngine.NativePropertyGetter(() => Evaluate(property.Value) is Func<IReadOnlyList<object?>, object?> getter ? getter([]) : null);
+                var name = StringValue(Evaluate(declaration.Key));
+                var accessor = result.TryGetValue(name, out var existing) && existing is NativeJavaScriptEngine.NativePropertyAccessor previous
+                    ? previous : new NativeJavaScriptEngine.NativePropertyAccessor(null, null);
+                result[name] = declaration.IsSetter
+                    ? accessor.WithSetter((receiver, value) => ExecuteFunctionWithThis(declaration.Function, receiver, [value]))
+                    : accessor.WithGetter(receiver => ExecuteFunctionWithThis(declaration.Function, receiver, []));
             }
             else if (property.Name.StartsWith("__folio_method__", StringComparison.Ordinal) && property.Value is JavaScriptFunctionExpression method)
             {

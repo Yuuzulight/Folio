@@ -1046,8 +1046,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     internal sealed class NativePropertyAccessor(Func<object?, object?>? getter, Func<object?, object?, object?>? setter)
     {
-        internal object? Get(object? receiver = null) => getter?.Invoke(receiver);
+        internal object? Get(object? receiver = null) => getter is null ? JavaScriptEvaluator.UndefinedValue.Instance : getter(receiver);
         internal bool Set(object? receiver, object? value) { if (setter is null) return false; setter(receiver, value); return true; }
+        internal NativePropertyAccessor WithGetter(Func<object?, object?> next) => new(next, setter);
+        internal NativePropertyAccessor WithSetter(Func<object?, object?, object?> next) => new(getter, next);
     }
     public void SetGlobalProperty(string name, ScriptValue value) { EnsureLive(); _bindings[name] = ToObject(value); }
     public ScriptValue GetGlobalProperty(string name) => _bindings.TryGetValue(name, out var value) ? ToScriptValue(value) : ScriptValue.Undefined;

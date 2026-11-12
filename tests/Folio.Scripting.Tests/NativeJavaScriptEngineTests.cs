@@ -10,6 +10,27 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void ObjectLiteralAccessorsShareTheReceiverAndCombineByKey()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("""
+            var key = 'value';
+            var item = {
+                stored: 2,
+                set [key](next) { this.stored = next * 2; },
+                get 'value'() { return this.stored; },
+                set sink(next) { this.stored = next; },
+                get() { return 'ordinary method'; }
+            };
+            item['value'] = 4;
+            var spread = {...item};
+            item.sink = 3;
+            spread.value === 8 && item['value'] === 3 && item.value === 3 &&
+                item.sink === undefined && item.get() === 'ordinary method'
+            """).AsBoolean());
+    }
+
+    [Fact]
     public void RecognizesRegexStatementsAfterControlHeadsAndDivisionAfterCalls()
     {
         using var engine = new NativeJavaScriptEngine();
