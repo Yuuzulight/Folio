@@ -48,11 +48,12 @@ Host to child, `UdpEvent`:
 - `{op:"datagram", id, host, port, data}`.
 - `{op:"closed", id, reason}`: revoked, document replaced, closed by the child, or the broker was disposed.
 
-UDP frames are small. A `UdpCommand` or `UdpEvent` frame larger than 8 KiB closes the connection, and the check runs
-when the 4-byte header is read, before the payload is allocated. The kind is read from the start of the payload (our
-serializer writes it first), so any frame over 8 KiB that does not announce its kind that way is refused as well.
-Smaller frames of any kind still follow the general 16 MiB frame limit, and every command is charged to the rate
-limiter before it is decoded.
+UDP frames are small. A frame over 8 KiB is read only as far as a 32-byte prefix first: if the prefix says it is a
+`UdpCommand` or `UdpEvent` (our serializer writes the kind first), or does not announce its kind that way, the
+connection is closed before the payload is allocated. JSON allows a later duplicate `Kind` to override the first, so a
+frame can still pass that prefix check and be allocated (bounded by the general 16 MiB frame limit, like every other
+kind); after decoding, a UDP message over 8 KiB is refused whatever its framing. Every command is charged to the rate
+limiter before any of its fields are read, but after the frame has been read and parsed as JSON.
 
 The path of a packet: `IceAgent.SendDatagram` -> transport `SendTo` -> `UdpCommand` -> broker `Handle` -> per-socket
 bounded outgoing queue -> host socket -> network. The reverse path: host socket receive loop -> source policy check ->
@@ -87,7 +88,7 @@ quota below. A binary framing is a later optimisation.
 | Datagram | 1500 bytes; larger is dropped and counted |
 | Rate, each direction | 1 MiB/s with a 128 KiB burst, and 1000 packets/s with a 200-packet burst, taken together |
 | Socket opens | burst of 4, refilling at 1 per second |
-| Commands, any kind | burst of 500, 2000 per second, charged before decoding |
+| Commands, any kind | burst of 500, 2000 per second, charged before its fields are read |
 | Outgoing queue | 64 datagrams per socket; overflow drops and counts (the budget is refunded) |
 | Incoming datagram queue | 256 datagrams towards the child; overflow drops and counts |
 | All queued events | 512, control events included |
@@ -119,11 +120,17 @@ available to the host and tests.
 
 The content process is untrusted. With the capability on, the page can send UDP to any globally routable IPv4
 address, at up to the rates above (inherent to WebRTC: peer addresses come from remote SDP). It cannot reach private,
-loopback, link-local, multicast or reserved addresses, cannot choose a local bind, cannot receive from addresses it
-has not contacted or permitted, cannot grow host memory (every queue is bounded and a non-draining child is cut off),
+loopback, link-local, multicast or reserved addresses, cannot choose a local bind, cannot receive from IP addresses it
+has not contacted or permitted (see the next paragraph for what that does and does not guarantee), cannot grow host memory (every queue is bounded and a non-draining child is cut off),
 cannot keep a socket past revocation, document replacement or its own death, and cannot create anything with the
 capability off. Residual risk: UDP volume and reflection toward public hosts within the quotas, and the 16 MiB general
 frame limit for non-UDP kinds.
+
+Inbound filtering is by source IP only. The sent-to and permit sets are keyed by address, not port, and shared by all of
+a document's sockets, so a datagram from any port of a contacted or permitted IP is delivered. A third party that can
+spoof a source address of a permitted IP can inject datagrams (inherent to UDP; DTLS authenticates the content). A
+peer-reflexive or mDNS-hidden candidate is not permitted until the child sends to that IP, so a peer that can only
+reach us by initiating from an address we never learned stays unreachable, which is a functional limit of this stage.
 
 ## Remains for later stages
 

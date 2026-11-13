@@ -234,6 +234,8 @@ public sealed class ContentProcessClient : IAsyncDisposable
         broker?.Revoke();
     }
 
+    // If the Load then fails to send, the bump stands: the document still running in the child carries the old generation,
+    // so its UDP stays off. That fails closed, and the next successful Load starts a clean generation.
     // Called when the Load that replaces the document is about to be sent. A command the old document sends from
     // now on carries the previous generation and is refused, even if it races this call.
     private long BeginUdpDocument()

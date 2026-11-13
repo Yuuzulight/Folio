@@ -180,7 +180,7 @@ internal sealed class UdpBroker : IDisposable
     }
 
     /// <summary>Handles one child command. Never blocks on the network and never throws for hostile input.
-    /// The command-rate limit is applied before anything is decoded.</summary>
+    /// The command-rate limit is applied before any field of the command is read (the frame itself is already parsed).</summary>
     public void Handle(JsonElement command)
     {
         if (Dead) { Interlocked.Increment(ref Denied); return; }
@@ -219,7 +219,7 @@ internal sealed class UdpBroker : IDisposable
             generation = _generation;
             // Re-checked under the lock BeginDocument takes, so an old document's open can never land in the new one.
             if (requestedGeneration != generation) { refusal = "the document was replaced"; Interlocked.Increment(ref Denied); }
-            else if (_disposed || !_granted()) refusal = "WebRTC networking is not granted";
+            else if (_disposed || Dead || !_granted()) refusal = "WebRTC networking is not granted";
             else if (!_openLimit.TryTake(0)) { refusal = "socket open rate exceeded"; Interlocked.Increment(ref RateLimited); }
             else if (_sockets.Count >= _options.MaxSockets) refusal = "socket quota exceeded";
             else
@@ -227,7 +227,13 @@ internal sealed class UdpBroker : IDisposable
                 try
                 {
                     var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                    try { socket.Bind(new IPEndPoint(IPAddress.Any, 0)); } catch { socket.Dispose(); throw; }
+                    try
+                    {
+                        // Windows reports an ICMP port-unreachable as a receive error on the whole socket; a peer going away must not break it.
+                        if (OperatingSystem.IsWindows()) socket.IOControl(unchecked((int)0x9800000C), [0], null); // SIO_UDP_CONNRESET off
+                        socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+                    }
+                    catch { socket.Dispose(); throw; }
                     lease = new UdpSocketLease(++_nextId, socket, _options.OutgoingQueuePerSocket);
                     _sockets.Add(lease.Id, lease);
                 }
@@ -255,9 +261,10 @@ internal sealed class UdpBroker : IDisposable
 
     private void Send(JsonElement command)
     {
-        if (!TryInt64(command, "id", out var id) || !TryInt64(command, "port", out var port64) || port64 is < int.MinValue or > int.MaxValue
+        if (!TryInt64(command, "id", out var id) || !TryInt64(command, "port", out var port64)
             || !command.TryGetProperty("data", out var dataValue) || dataValue.ValueKind != JsonValueKind.String)
         { Interlocked.Increment(ref Malformed); return; }
+        if (port64 is < 1 or > 65535) { Interlocked.Increment(ref Denied); return; } // before any IPEndPoint is built
         var port = (int)port64;
         UdpSocketLease? lease;
         lock (_gate) _sockets.TryGetValue(id, out lease);
@@ -312,9 +319,10 @@ internal sealed class UdpBroker : IDisposable
                     result = await lease.Socket.ReceiveFromAsync(buffer, SocketFlags.None, any, lease.Cancellation.Token).ConfigureAwait(false);
                     errors = 0;
                 }
+                catch (SocketException error) when (error.SocketErrorCode == SocketError.ConnectionReset) { continue; } // ICMP unreachable from a vanished peer; not a fault of this socket
                 catch (SocketException)
                 {
-                    // e.g. ICMP port unreachable surfaced as a reset. Persistent errors back off, then close the socket.
+                    // Persistent errors back off, then close the socket.
                     if (++errors > _options.MaxSocketErrors) { Close(lease.Id, "socket error"); return; }
                     await Task.Delay(Math.Min(errors * 10, 200), lease.Cancellation.Token).ConfigureAwait(false);
                     continue;

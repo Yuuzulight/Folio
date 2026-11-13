@@ -33,6 +33,12 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
             case "opened" when TryNumber(evt, "token", out var token) && TryNumber(evt, "id", out var id)
                 && TryNumber(evt, "port", out var port64) && port64 is > 0 and <= 65535:
                 var port = (int)port64;
+                if (!_pendingOpens.ContainsKey(token))
+                {
+                    // The binder gave up (timeout) before this arrived: hand the socket back instead of leaking it.
+                    _ = Task.Run(() => Send(new Dictionary<string, object?> { ["op"] = "close", ["gen"] = Generation, ["id"] = id }));
+                    break;
+                }
                 if (_pendingOpens.TryGetValue(token, out var open))
                 {
                     // Map the id before the binder wakes so no later event can miss its transport.

@@ -164,6 +164,10 @@ public static class ContentTransport
         }
         header.CopyTo(frame, 0);
         if (!ContentProtocol.TryDecode(frame, out var message) || message is null) throw new InvalidDataException("Invalid content protocol frame.");
+        // The prefix check above cannot see a duplicate "Kind" later in the frame (the last one wins when decoding), so the
+        // decoded kind is the authority: a UDP message over the cap is refused however it was framed.
+        if (length > MaxUdpMessageBytes && message.Kind is ContentMessageKind.UdpCommand or ContentMessageKind.UdpEvent)
+            throw new InvalidDataException("Oversize UDP content frame.");
         return message;
     }
 

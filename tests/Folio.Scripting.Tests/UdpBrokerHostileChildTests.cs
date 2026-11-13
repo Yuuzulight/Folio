@@ -306,6 +306,79 @@ public sealed class UdpBrokerHostileChildTests
         Assert.Equal(0, client.UdpOpenSockets);
     }
 
+    [Fact]
+    public void DuplicateKindCannotSmuggleAnOversizeUdpFramePastTheCap()
+    {
+        var kind = (int)ContentMessageKind.UdpCommand;
+        // The first Kind passes the prefix check; System.Text.Json keeps the last one.
+        var json = $$"""{"Kind":0,"Sequence":0,"Payload":{"pad":"{{new string('x', 60_000)}}"},"Kind":{{kind}},"Version":1}""";
+        var payload = Encoding.UTF8.GetBytes(json);
+        var frame = new byte[4 + payload.Length];
+        BitConverter.TryWriteBytes(frame, payload.Length);
+        payload.CopyTo(frame, 4);
+        Assert.True(ContentProtocol.TryDecode(frame, out var decoded) && decoded!.Kind == ContentMessageKind.UdpCommand); // really decodes as UDP
+        using var stream = new MemoryStream(frame);
+        Assert.Throws<InvalidDataException>(() => ContentTransport.ReadAsync(stream).AsTask().GetAwaiter().GetResult());
+        // The same trick on a small frame is within the cap and harmless.
+        var small = Encoding.UTF8.GetBytes($$"""{"Kind":0,"Sequence":0,"Payload":{},"Kind":{{kind}},"Version":1}""");
+        var smallFrame = new byte[4 + small.Length];
+        BitConverter.TryWriteBytes(smallFrame, small.Length);
+        small.CopyTo(smallFrame, 4);
+        using var smallStream = new MemoryStream(smallFrame);
+        Assert.Equal(ContentMessageKind.UdpCommand, ContentTransport.ReadAsync(smallStream).AsTask().GetAwaiter().GetResult()!.Kind);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("65536")]
+    [InlineData("2147483648")]
+    [InlineData("99999999999")]
+    public async Task OutOfRangePortsAreDeniedWithoutThrowing(string port)
+    {
+        using var h = Harness(Open);
+        var (id, _) = await h.Open();
+        h.Run($$"""{"op":"send","id":{{id}},"host":"127.0.0.1","port":{{port}},"data":"AQID"}""");
+        Assert.Equal(1, h.Broker.Denied);
+        Assert.Equal(1, h.Broker.OpenSockets);
+    }
+
+    [Fact]
+    public async Task NoSocketSurvivesAKillEvenWhenOpensRaceIt()
+    {
+        var stalled = new ManualResetEventSlim();
+        using var h = Harness(Open with { MaxSockets = 10_000, MaxQueuedEvents = 8 });
+        h.Hook = _ => stalled.Wait(10_000);
+        var threads = Enumerable.Range(0, 4).Select(t => Task.Run(() =>
+        {
+            for (var i = 0; i < 300; i++) h.Run($$"""{"op":"open","token":{{t * 1000 + i}}}""");
+        })).ToArray();
+        await Task.WhenAll(threads);
+        Assert.True(h.Broker.Dead);
+        Assert.Equal(0, h.Broker.OpenSockets);
+        stalled.Set();
+    }
+
+    [Fact]
+    public async Task ARefusedPeerDoesNotBreakTheSocket()
+    {
+        // Sending to a closed local port provokes ICMP port-unreachable, which Windows surfaces as WSAECONNRESET on receive.
+        using var h = Harness(Open with { MaxSocketErrors = 2 });
+        var (id, port) = await h.Open();
+        h.Run(Permit);
+        int closedPort;
+        using (var gone = UdpBrokerTests.Peer()) closedPort = ((IPEndPoint)gone.LocalEndPoint!).Port;
+        for (var i = 0; i < 10; i++)
+        {
+            h.Send(id, new IPEndPoint(IPAddress.Loopback, closedPort), [1]);
+            await Task.Delay(20);
+        }
+        Assert.Equal(1, h.Broker.OpenSockets);
+        using var peer = UdpBrokerTests.Peer();
+        await peer.SendToAsync(new byte[] { 7 }, SocketFlags.None, new IPEndPoint(IPAddress.Loopback, port));
+        await h.WaitFor(e => e.GetProperty("op").GetString() == "datagram");
+    }
+
     private static byte[] Frame(int claimedLength, string prefix, int _)
     {
         prefix = prefix.PadRight(48);
