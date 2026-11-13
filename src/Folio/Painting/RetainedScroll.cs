@@ -22,6 +22,7 @@ internal static class RetainedScroll
     internal static bool Enabled { get; set; } = Environment.GetEnvironmentVariable("FOLIO_RETAINED_SCROLL") != "0";
 
     /// <summary>The transform a frame scrolled to <paramref name="top"/> device pixels is drawn with.</summary>
+    // (The control used translate(-top / scale) * scale: the same to within float noise of about 1e-4 px, which this form removes.)
     internal static Matrix3x2 Transform(float scale, int top) => Matrix3x2.CreateScale(scale) * Matrix3x2.CreateTranslation(0, -top);
 
     /// <summary>Draws the whole frame at <paramref name="top"/> device pixels of scroll.</summary>
@@ -57,9 +58,14 @@ internal static class RetainedScroll
         canvas.ClipRoundedRect(rows);
         canvas.FillRoundedRect(rows, background);
         canvas.Transform(Transform(scale, top));
-        DisplayListPlayer.Replay(list, canvas, new RectF(0, (from + top) / scale, surface.Width / scale, (to - from) / scale));
+        // Items are culled by estimated bounds (glyph ink is a guess), and the full repaint culls against the whole viewport:
+        // look a little beyond the rows too, so ink the estimate misses is not dropped here when the full repaint draws it.
+        var reach = CullMargin / scale;
+        DisplayListPlayer.Replay(list, canvas, new RectF(-reach, (from + top) / scale - reach, surface.Width / scale + 2 * reach, (to - from) / scale + 2 * reach));
         canvas.Restore();
     }
+
+    private const float CullMargin = 96; // device pixels
 
     private static bool ShiftSafe(DisplayList list)
     {

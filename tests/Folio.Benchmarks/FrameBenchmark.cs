@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Text;
 using Folio.Painting;
 using Folio.RenderTests;
+#if !FOLIO_AOT_PROBE
 using Folio.Skia;
+#endif
 using Folio.Typography;
 
 namespace Folio.Benchmarks;
@@ -71,7 +73,9 @@ internal static class FrameBenchmark
     }
 
     /// <summary>The median and 95th percentile frame times, and whether every frame took the paint-only path.</summary>
-    public static (TimeSpan Median, TimeSpan P95, bool PaintOnly) Measure(string html, int frames)
+    public static (TimeSpan Median, TimeSpan P95, bool PaintOnly) Measure(string html, int frames) => Steady(() => MeasurePass(html, frames));
+
+    private static (TimeSpan Median, TimeSpan P95, bool PaintOnly) MeasurePass(string html, int frames)
     {
         using var document = Document.Parse(html, Options);
         var shaper = SoftwareRasterBackend.Instance.TextShaper;
@@ -111,6 +115,7 @@ internal static class FrameBenchmark
         return (times[times.Count / 2], times[Math.Min(times.Count - 1, (int)(times.Count * 0.95))], paintOnly);
     }
 
+#if !FOLIO_AOT_PROBE
     /// <summary>
     /// What replaying one display list into a surface costs on each raster backend (#568, #575): the median of
     /// <paramref name="frames"/> replays of the typical dashboard's list, Skia and Folio's own software backend.
@@ -138,12 +143,15 @@ internal static class FrameBenchmark
         }
         return (Median(new SkiaRasterBackend()), Median(SoftwareRasterBackend.Instance));
     }
+#endif
 
     /// <summary>
     /// Hover restyle + repaint frame time (docs/study/18-memory-and-performance.md, M3 target 4 ms):
     /// moving pointer between cards toggles :hover state, runs Update() and rasters the display list.
     /// </summary>
-    public static (TimeSpan Median, TimeSpan P95) MeasureHover(string html, int steps)
+    public static (TimeSpan Median, TimeSpan P95) MeasureHover(string html, int steps) => Steady(() => MeasureHoverPass(html, steps));
+
+    private static (TimeSpan Median, TimeSpan P95) MeasureHoverPass(string html, int steps)
     {
         using var document = Document.Parse(html, Options);
         document.Paint(800, 600, 1, SoftwareRasterBackend.Instance.TextShaper, 0);
@@ -185,9 +193,9 @@ internal static class FrameBenchmark
     /// <summary>
     /// Scroll frame time (docs/study/18-memory-and-performance.md, M3 target 8 ms): a step of the scroll bar, 1 to 60
     /// device pixels, as <c>FolioView</c> does it. With <paramref name="retained"/> that is <see cref="RetainedScroll"/>:
-    /// the rendered rows move and only the exposed ones are painted; without, the whole viewport is repainted.
+    /// the rendered rows move and only the exposed ones are painted; without, the whole viewport is repainted (background fill included, as FolioView does; the row before this one filled none). Both rows include the surface-to-bitmap copy FolioView does after every changed frame.
     /// </summary>
-    public static (TimeSpan Median, TimeSpan P95) MeasureScroll(string html, int steps, bool retained = true) => MeasureScrollPass(html, steps, retained);
+    public static (TimeSpan Median, TimeSpan P95) MeasureScroll(string html, int steps, bool retained = true) => Steady(() => MeasureScrollPass(html, steps, retained));
 
     private static (TimeSpan Median, TimeSpan P95) MeasureScrollPass(string html, int steps, bool retained)
     {
@@ -199,6 +207,7 @@ internal static class FrameBenchmark
         using var surface = new SoftwareRasterSurface(800, 600);
         RetainedScroll.Repaint(list!, surface, 1, 0, Background);
         var times = new List<TimeSpan>();
+        var (rowBuffer, frame) = (new byte[800 * 4], new byte[800 * 4 * 600]);
         var (top, direction) = (0, 1);
         for (var i = -10; i < steps; i++)
         {
@@ -210,14 +219,34 @@ internal static class FrameBenchmark
                 next = top + direction * step;
             }
             var start = Stopwatch.GetTimestamp();
-            if (!retained || !RetainedScroll.TryScroll(list!, surface, 1, top, next, Background))
+            if (!retained)
                 RetainedScroll.Repaint(list!, surface, 1, next, Background);
+            else if (!RetainedScroll.TryScroll(list!, surface, 1, top, next, Background))
+                throw new InvalidOperationException($"The scroll fixture no longer takes the retained path (step {top} -> {next}); the row would time a full repaint.");
+            // FolioView then copies the surface into the bitmap it draws, swizzling every row.
+            foreach (var row in Enumerable.Range(0, surface.Height))
+            {
+                surface.ReadBgraRow(row, rowBuffer);
+                Buffer.BlockCopy(rowBuffer, 0, frame, row * rowBuffer.Length, rowBuffer.Length);
+            }
             if (i >= 0)
                 times.Add(Stopwatch.GetElapsedTime(start));
             top = next;
         }
         times.Sort();
         return (times[times.Count / 2], times[Math.Min(times.Count - 1, (int)(times.Count * 0.95))]);
+    }
+
+    /// <summary>
+    /// Runs a measurement twice and discards it, then returns a third. Under .NET tiered compilation a short run mostly
+    /// times unoptimised first-tier code (the typical frame reads ~37 ms on a first pass, ~8 ms on the third); the app
+    /// hosting FolioView is a long-running JIT process, so steady state is what the budget is about.
+    /// </summary>
+    private static T Steady<T>(Func<T> pass)
+    {
+        pass();
+        pass();
+        return pass();
     }
 
     private static void Replay(ICanvas canvas, DisplayList list, RectF area)

@@ -887,7 +887,7 @@ public class FolioView : Control
             }
             else if (_pendingDamage is { } pending && pending.Width > 0 && pending.Height > 0)
             {
-                var damage = DisplayListPlayer.SnapToDevicePixels(pending, PixelScale, ScrollTop);
+                var damage = DisplayListPlayer.SnapToDevicePixels(pending, PixelScale); // whole device pixels: the integer scroll offset leaves them whole
                 rasterChanged = true;
                 var canvas = _renderSurface.Canvas;
                 canvas.Save();
@@ -915,34 +915,15 @@ public class FolioView : Control
 
     private static void CopySurfaceToBitmap(SoftwareRasterSurface surface, Bitmap bitmap)
     {
-        var src = surface.PremultipliedPixels;
         var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
         var data = bitmap.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
         try
         {
-            var rowBytes = bitmap.Width * 4;
-            var rowBuffer = new byte[rowBytes];
-            var bgraOrder = Vector128.Create((byte)2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
+            var rowBuffer = new byte[bitmap.Width * 4];
             for (var y = 0; y < bitmap.Height; y++)
             {
-                var srcRow = src.AsSpan(y * rowBytes, rowBytes);
-                var x = 0;
-                if (Vector128.IsHardwareAccelerated)
-                {
-                    for (; x <= rowBytes - Vector128<byte>.Count; x += Vector128<byte>.Count)
-                    {
-                        var rgba = Vector128.LoadUnsafe(ref MemoryMarshal.GetReference(srcRow), (nuint)x);
-                        Vector128.Shuffle(rgba, bgraOrder).StoreUnsafe(ref rowBuffer[0], (nuint)x);
-                    }
-                }
-                for (; x < rowBytes; x += 4)
-                {
-                    rowBuffer[x] = srcRow[x + 2];
-                    rowBuffer[x + 1] = srcRow[x + 1];
-                    rowBuffer[x + 2] = srcRow[x];
-                    rowBuffer[x + 3] = srcRow[x + 3];
-                }
-                Marshal.Copy(rowBuffer, 0, IntPtr.Add(data.Scan0, y * data.Stride), rowBytes);
+                surface.ReadBgraRow(y, rowBuffer);
+                Marshal.Copy(rowBuffer, 0, IntPtr.Add(data.Scan0, y * data.Stride), rowBuffer.Length);
             }
         }
         finally

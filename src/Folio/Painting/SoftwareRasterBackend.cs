@@ -44,6 +44,30 @@ public sealed class SoftwareRasterSurface : IRasterSurface
     /// <summary>The bitmap as it is held: premultiplied RGBA, row-major.</summary>
     public byte[] PremultipliedPixels => _pixels.Data;
 
+    /// <summary>Row <paramref name="row"/> as BGRA bytes (what a 32bpp premultiplied Windows bitmap holds), into <paramref name="destination"/>.</summary>
+    internal void ReadBgraRow(int row, byte[] destination)
+    {
+        var stride = Width * 4;
+        var source = _pixels.Data.AsSpan(row * stride, stride);
+        var x = 0;
+        if (System.Runtime.Intrinsics.Vector128.IsHardwareAccelerated)
+        {
+            var order = System.Runtime.Intrinsics.Vector128.Create((byte)2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
+            for (; x <= stride - 16; x += 16)
+            {
+                var rgba = System.Runtime.Intrinsics.Vector128.LoadUnsafe(ref System.Runtime.InteropServices.MemoryMarshal.GetReference(source), (nuint)x);
+                System.Runtime.Intrinsics.Vector128.Shuffle(rgba, order).StoreUnsafe(ref destination[0], (nuint)x);
+            }
+        }
+        for (; x < stride; x += 4)
+        {
+            destination[x] = source[x + 2];
+            destination[x + 1] = source[x + 1];
+            destination[x + 2] = source[x];
+            destination[x + 3] = source[x + 3];
+        }
+    }
+
     /// <summary>
     /// Moves the picture up by <paramref name="rows"/> rows (down when negative), in place: the rows that stay on the
     /// surface move, the rows that are left over keep what they held. Overlap is handled (a memmove).
