@@ -87,8 +87,7 @@ I did not overclaim these:
   is created and its packets are counted and reported in RTCP, but nothing is depacketized or decoded and no frame is
   produced. There is no VP8/H.264 decoder or encoder behind `IMediaDecoder` (which decodes whole bounded resources, not
   streams).
-- **Opus.** Browsers prefer Opus; Folio only speaks G.711. A browser offer always lists PCMU/PCMA too, so negotiation
-  succeeds at 8 kHz, but it is narrowband.
+- **Opus.** Added in stage 3 ([`webrtc-opus.md`](webrtc-opus.md)): 48 kHz Opus is preferred and G.711 remains the fallback.
 - **Browser interoperability is untested.** The SRTP packet format matches the RFC 7714 vectors and the DTLS key layout
   follows RFC 5764, but I have only run Folio against Folio end to end. The first run against a browser may expose a
   mismatch. The client-side `use_srtp` validation has no negative test yet.
