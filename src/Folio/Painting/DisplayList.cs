@@ -149,6 +149,15 @@ internal sealed class DisplayList
 {
     public List<DisplayItem> Items { get; } = [];
 
+    /// <summary>
+    /// Whether some box in the list is positioned against the viewport rather than the page (position: fixed or sticky), so
+    /// that what it paints may depend on where the page is scrolled to. Set by the builder; see <see cref="RetainedScroll"/>.
+    /// </summary>
+    internal bool ViewportAnchored { get; set; }
+
+    // Cached by RetainedScroll: whether shifting a rendered frame by whole rows can be exact for this list.
+    internal bool? ShiftSafeCache { get; set; }
+
     // Replay metadata is immutable for the lifetime of a list. Keeping the scan result here avoids walking every
     // item and rebuilding layer bounds on every animation, hover, or scroll repaint.
     internal RectF[]? ItemBoundsCache { get; set; }

@@ -50,6 +50,9 @@ public class FolioView : Control
     private Bitmap? _renderBitmap;
     private bool _renderNeedsFull = true;
     private RectF? _pendingDamage;
+    // What the render surface shows: the device scroll offset and scale of its last frame (see RetainedScroll).
+    private int _renderedTop;
+    private float _renderedScale;
     private float _contentHeight;
     private float _laidOutWidth = -1;
     private float _zoom = 1f;
@@ -88,7 +91,7 @@ public class FolioView : Control
     public FolioView()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-        _scrollBar.ValueChanged += (_, _) => { _renderNeedsFull = true; _pendingDamage = null; Invalidate(); };
+        _scrollBar.ValueChanged += (_, _) => Invalidate(); // OnPaint shifts the rendered frame or repaints it in full
         Controls.Add(_scrollBar);
         Controls.Add(_mediaCaptureIndicator);
         _mediaCaptureIndicator.BringToFront();
@@ -868,27 +871,34 @@ public class FolioView : Control
                 _pendingDamage = null;
             }
             var background = _document.Options.ColorScheme == ColorScheme.Dark ? new Paint(new Rgba(18 / 255f, 18 / 255f, 18 / 255f, 1f)) : new Paint(new Rgba(1f, 1f, 1f, 1f));
-            var canvas = _renderSurface.Canvas;
-            canvas.Save();
-            canvas.Transform(System.Numerics.Matrix3x2.CreateTranslation(0, -ScrollTop) * System.Numerics.Matrix3x2.CreateScale(PixelScale));
-
+            var top = _scrollBar.Visible ? _scrollBar.Value : 0; // device pixels, whole
             var rasterChanged = _renderNeedsFull;
-            if (_renderNeedsFull)
+            if (_renderNeedsFull || _renderedScale != PixelScale)
             {
-                canvas.FillRoundedRect(new RoundedRect(new RectF(0, ScrollTop, width / PixelScale, height / PixelScale), default), background);
-                DisplayListPlayer.Replay(_list!, canvas, new RectF(0, ScrollTop, width / PixelScale, height / PixelScale));
+                rasterChanged = true;
+                RetainedScroll.Repaint(_list!, _renderSurface, PixelScale, top, background);
+            }
+            else if (top != _renderedTop)
+            {
+                // Only the page scrolled, unless damage is waiting too: then the frame is not the one the damage is for.
+                rasterChanged = true;
+                if (_pendingDamage is not null || !RetainedScroll.TryScroll(_list!, _renderSurface, PixelScale, _renderedTop, top, background))
+                    RetainedScroll.Repaint(_list!, _renderSurface, PixelScale, top, background);
             }
             else if (_pendingDamage is { } pending && pending.Width > 0 && pending.Height > 0)
             {
                 var damage = DisplayListPlayer.SnapToDevicePixels(pending, PixelScale, ScrollTop);
                 rasterChanged = true;
+                var canvas = _renderSurface.Canvas;
                 canvas.Save();
+                canvas.Transform(RetainedScroll.Transform(PixelScale, top));
                 canvas.ClipRoundedRect(new RoundedRect(damage, default));
                 canvas.FillRoundedRect(new RoundedRect(damage, default), background);
                 DisplayListPlayer.Replay(_list!, canvas, damage);
                 canvas.Restore();
             }
-            canvas.Restore();
+            _renderedTop = top;
+            _renderedScale = PixelScale;
             if (rasterChanged)
                 CopySurfaceToBitmap(_renderSurface, _renderBitmap);
             _renderNeedsFull = false;

@@ -44,6 +44,22 @@ public sealed class SoftwareRasterSurface : IRasterSurface
     /// <summary>The bitmap as it is held: premultiplied RGBA, row-major.</summary>
     public byte[] PremultipliedPixels => _pixels.Data;
 
+    /// <summary>
+    /// Moves the picture up by <paramref name="rows"/> rows (down when negative), in place: the rows that stay on the
+    /// surface move, the rows that are left over keep what they held. Overlap is handled (a memmove).
+    /// </summary>
+    internal void ShiftRows(int rows)
+    {
+        var stride = Width * 4;
+        var kept = Height - Math.Abs(rows);
+        if (rows == 0 || kept <= 0)
+            return;
+        if (rows > 0)
+            Array.Copy(_pixels.Data, rows * stride, _pixels.Data, 0, kept * stride);
+        else
+            Array.Copy(_pixels.Data, 0, _pixels.Data, -rows * stride, kept * stride);
+    }
+
 
     public byte[] ReadPixels(int x, int y, int width, int height)
     {

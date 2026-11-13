@@ -162,7 +162,12 @@ internal static class DisplayListBuilder
             _floor = group.Floor;
         }
 
-        public void VisitBackground(PaintBox box, List<PaintBox> text) => PaintBackground(box, text);
+        public void VisitBackground(PaintBox box, List<PaintBox> text)
+        {
+            if (box.Box.Style.Box.Position is Position.Fixed or Position.Sticky)
+                list.ViewportAnchored = true;
+            PaintBackground(box, text);
+        }
 
         public void VisitCollapsedBorders(PaintBox table, List<PaintBox> cells) => PaintCollapsedBorders(cells);
 
