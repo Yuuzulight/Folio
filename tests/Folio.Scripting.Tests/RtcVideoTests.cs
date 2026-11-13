@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
-using Folio.Imaging;
 using Folio.Scripting.Rtc;
 using Folio.Scripting.Rtc.Vp8;
 
@@ -153,12 +152,12 @@ public sealed class RtcVideoTests
         var frames = Frames();
         var expected = Reference(frames);
         using var link = new VideoLink();
-        link.Send(link.Packetize(frames[0], 300)); link.Send(link.Packetize(frames[1], 300));
-        var third = link.Packetize(frames[2], 300);
+        link.Send(link.Packetize(frames[0], 100)); link.Send(link.Packetize(frames[1], 100));
+        var third = link.Packetize(frames[2], 100);
         Assert.True(third.Count >= 3);
         var lost = third[1];
         link.Send(third, drop: s => s == lost.Sequence);
-        link.Send(link.Packetize(frames[3], 300));
+        link.Send(link.Packetize(frames[3], 100));
         Assert.Equal(2, link.Delivered.Count); // the hole blocks frame 2 and everything behind it
         link.Advance(30);
         var nack = Assert.Single(link.Feedback(), p => p.Kind == RtcpKind.Nack);
