@@ -42,10 +42,14 @@ internal sealed class RtcSdp
     internal ulong RemoteMaximumMessageSize => Media.FirstOrDefault(media => media.Kind == "application" && media.Port != 0)?.MaximumMessageSize ?? 65536;
     internal int RemoteSctpPort => Media.FirstOrDefault(media => media.Kind == "application" && media.Port != 0)?.SctpPort ?? SctpPort;
 
+    internal const int MaxSdpChars = 64 * 1024;
+    internal const int MaxCandidates = 64;
+
     public static RtcSdp Parse(string sdp)
     {
         var result = new RtcSdp();
         if (string.IsNullOrWhiteSpace(sdp)) return result;
+        if (sdp.Length > MaxSdpChars) throw new InvalidDataException("The session description is too large.");
 
         var lines = sdp.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         RtcMediaDescription? currentMedia = null;
@@ -135,6 +139,7 @@ internal sealed class RtcSdp
                 }
                 else if (attrName.Equals("candidate", StringComparison.OrdinalIgnoreCase))
                 {
+                    if (result.Candidates.Count >= MaxCandidates) throw new InvalidDataException("Too many ICE candidates.");
                     if (IceCandidate.TryParse("candidate:" + attrValue, out var candidate))
                     {
                         if (currentMedia != null) currentMedia.Candidates.Add(candidate);
@@ -299,4 +304,8 @@ internal sealed class RtcMediaDescription
     internal bool Receives => Direction is "sendrecv" or "recvonly";
 }
 
-internal sealed record RtcCodec(int PayloadType, string Name, int ClockRate, int Channels);
+internal sealed record RtcCodec(int PayloadType, string Name, int ClockRate, int Channels)
+{
+    /// <summary>PCMU or PCMA at exactly 8000 Hz mono. A peer's rtpmap claiming another clock rate is not G.711 as Folio decodes it.</summary>
+    internal bool IsG711 => Name is "PCMU" or "PCMA" && ClockRate == 8000 && Channels == 1;
+}
