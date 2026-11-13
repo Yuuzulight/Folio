@@ -70,6 +70,8 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private NavigationDocument? _navigationDocument;
     private readonly object _udpGate = new();
     private UdpBroker? _udp;
+    // Stamped into every Load that replaces the document; the broker refuses UDP commands carrying an older value.
+    private long _udpGeneration = 1;
     /// <summary>Destination policy and quotas for host-mediated UDP. Read when the first command arrives.</summary>
     internal UdpBrokerOptions UdpOptions { get; set; } = new();
     private HashSet<string> _webRtcAllowedOrigins = new(StringComparer.OrdinalIgnoreCase);
@@ -216,7 +218,8 @@ public sealed class ContentProcessClient : IAsyncDisposable
             if (Volatile.Read(ref _disposed) != 0) return;
             broker = _udp ??= new UdpBroker(UdpOptions,
                 () => Volatile.Read(ref _disposed) == 0 && !_shutdown.IsCancellationRequested && Volatile.Read(ref _hostCapabilities).WebRtc,
-                evt => _session.SendAsync(ContentMessageKind.UdpEvent, evt, _shutdown.Token).AsTask().GetAwaiter().GetResult());
+                evt => _session.SendAsync(ContentMessageKind.UdpEvent, evt, _shutdown.Token).AsTask().GetAwaiter().GetResult(),
+                Volatile.Read(ref _udpGeneration));
         }
         broker.Handle(command);
     }
@@ -224,11 +227,22 @@ public sealed class ContentProcessClient : IAsyncDisposable
     internal int UdpOpenSockets { get { lock (_udpGate) return _udp?.OpenSockets ?? 0; } }
     internal long UdpDenied { get { lock (_udpGate) return _udp?.Denied ?? 0; } }
 
-    private void RetireUdp(bool documentReplaced)
+    private void RevokeUdp()
     {
         UdpBroker? broker;
         lock (_udpGate) broker = _udp;
-        if (documentReplaced) broker?.Retire(); else broker?.Revoke();
+        broker?.Revoke();
+    }
+
+    // Called when the Load that replaces the document is about to be sent. A command the old document sends from
+    // now on carries the previous generation and is refused, even if it races this call.
+    private long BeginUdpDocument()
+    {
+        UdpBroker? broker;
+        long generation;
+        lock (_udpGate) { broker = _udp; generation = Interlocked.Increment(ref _udpGeneration); }
+        broker?.BeginDocument(generation);
+        return generation;
     }
 
     private void DisposeUdp()
@@ -558,7 +572,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
             && !payload.ContainsKey("html")
             && !payload.Any(entry => entry.Key.Equals("capabilities", StringComparison.OrdinalIgnoreCase))) return;
         var previous = Interlocked.Exchange(ref _hostCapabilities, capabilities);
-        if (!capabilities.WebRtc) RetireUdp(documentReplaced: false);
+        if (!capabilities.WebRtc) RevokeUdp();
         Interlocked.Increment(ref _captureGeneration);
         foreach (var pair in _mediaCaptureSessions)
         {
@@ -608,7 +622,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
                 if (profile.ContainsKey("html"))
                 {
                     RetireNavigationDocument();
-                    RetireUdp(documentReplaced: true);
+                    BeginUdpDocument();
                     lock (_navigationGate) _navigationDocument = new NavigationDocument();
                     ReleaseMediaCaptureSessions();
                     if (Interlocked.Exchange(ref _hasLoadedDocument, 1) != 0) _session.StopMediaOutput();
@@ -624,6 +638,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
                     {
                         ["generation"] = _navigationDocument?.Generation,
                         ["iframeNavigationEnabled"] = _iframeNavigationRequested is not null,
+                        ["udpGeneration"] = Volatile.Read(ref _udpGeneration),
                         ["webRtcAllowedOrigins"] = new JsonArray(_webRtcAllowedOrigins.Select(origin => (JsonNode?)JsonValue.Create(origin)).ToArray()),
                         ["diagramLibraryUrls"] = new JsonArray(_diagramLibraryUrls.Select(url => (JsonNode?)JsonValue.Create(url)).ToArray())
                     };

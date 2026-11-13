@@ -15,6 +15,9 @@ internal interface IIceTransport : IDisposable
     /// <summary>Sends one datagram. Delivery is best effort; a refused or dropped datagram does not throw.</summary>
     void SendTo(ReadOnlySpan<byte> datagram, IPEndPoint destination);
 
+    /// <summary>Authorises unsolicited inbound datagrams from this address (a remote candidate). Direct sockets accept everything and ignore it.</summary>
+    void Permit(IPAddress address) { }
+
     /// <summary>False when the transport knows the destination would be refused, so ICE can skip the pair instead of timing out.</summary>
     bool CanSendTo(IPEndPoint destination) => true;
 

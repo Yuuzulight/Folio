@@ -108,6 +108,7 @@ internal sealed class IceAgent : IDisposable
         var bound = BindSocket();
         if (bound)
         {
+            PermitRemoteCandidates();
             GatherHostCandidates();
             await GatherServerReflexiveCandidatesAsync().ConfigureAwait(false);
         }
@@ -325,7 +326,26 @@ internal sealed class IceAgent : IDisposable
             _remoteCandidates.Add(candidate);
             FormPairs();
         }
+        PermitRemoteCandidates();
         _ = CheckConnectivityAsync();
+    }
+
+    private readonly HashSet<IPAddress> _permitted = [];
+
+    // A host-mediated transport only delivers datagrams from addresses we sent to or authorised, and a peer's first
+    // check can arrive before ours leaves, so every remote candidate address is authorised. Called outside the gate.
+    private void PermitRemoteCandidates()
+    {
+        var transport = _transport;
+        if (transport is null) return;
+        IPAddress[] fresh;
+        lock (_gate)
+            fresh = _remoteCandidates.Select(c => IPAddress.TryParse(c.Address, out var ip) ? ip : null)
+                .Where(ip => ip is not null && ip.AddressFamily == AddressFamily.InterNetwork && _permitted.Add(ip)).ToArray()!;
+        foreach (var address in fresh)
+        {
+            try { transport.Permit(address); } catch (Exception error) when (error is ObjectDisposedException or IOException) { }
+        }
     }
 
     private void FormPairs()
@@ -493,6 +513,7 @@ internal sealed class IceAgent : IDisposable
         var buffer = new byte[65536];
         EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
         var maintenance = Stopwatch.GetTimestamp();
+        var errors = 0;
 
         while (!_cts.IsCancellationRequested)
         {
@@ -520,11 +541,30 @@ internal sealed class IceAgent : IDisposable
                     var copy = bytes.ToArray();
                     OnDatagramReceived?.Invoke(copy);
                 }
+                errors = 0;
             }
             catch (OperationCanceledException) { break; }
-            catch (ObjectDisposedException) { break; }
-            catch { }
+            catch (ObjectDisposedException) { FailTransport(); break; } // the host closed the socket (revocation, replacement, quota)
+            catch
+            {
+                // A persistent fault must not spin: back off, then give up and fail the connection.
+                if (++errors > 50) { FailTransport(); break; }
+                if (errors > 5) Thread.Sleep(Math.Min(errors * 5, 100));
+            }
         }
+    }
+
+    // The transport is gone without this agent closing it: the connection fails once, and the consent loop (which runs
+    // on the receive thread) ends with the thread.
+    private void FailTransport()
+    {
+        lock (_gate)
+        {
+            if (_disposed || ConnectionState is "failed" or "closed") return;
+            _selectedPair = null;
+            ConnectionState = "failed";
+        }
+        OnConnectionStateChanged?.Invoke("failed");
     }
 
     private void HandleStunMessage(StunMessage msg, EndPoint from)

@@ -30,6 +30,12 @@ public sealed class UdpBrokerTests
             });
         }
 
+        /// <summary>Sends a child command stamped with the broker's current document generation, as a well-behaved child would.</summary>
+        public void Run(string json) =>
+            Broker.Handle(Cmd(json.StartsWith('{') ? json.Insert(1, $"\"gen\":{Broker.Generation},") : json));
+
+        public void NextDocument() => Broker.BeginDocument(Broker.Generation + 1);
+
         public JsonElement[] Snapshot() { lock (Events) return [.. Events]; }
 
         public async Task<JsonElement> WaitFor(Func<JsonElement, bool> match)
@@ -44,14 +50,14 @@ public sealed class UdpBrokerTests
 
         public async Task<(long Id, int Port)> Open(int token = 1)
         {
-            Broker.Handle(Cmd($$"""{"op":"open","token":{{token}}}"""));
+            Run($$"""{"op":"open","token":{{token}}}""");
             var evt = await WaitFor(e => IsToken(e, token));
             Assert.Equal("opened", evt.GetProperty("op").GetString());
             return (evt.GetProperty("id").GetInt64(), evt.GetProperty("port").GetInt32());
         }
 
         public void Send(long id, IPEndPoint to, byte[] data) =>
-            Broker.Handle(Cmd($$"""{"op":"send","id":{{id}},"host":"{{to.Address}}","port":{{to.Port}},"data":"{{Convert.ToBase64String(data)}}"}"""));
+            Run($$"""{"op":"send","id":{{id}},"host":"{{to.Address}}","port":{{to.Port}},"data":"{{Convert.ToBase64String(data)}}"}""");
 
         public void Dispose() => Broker.Dispose();
     }
@@ -88,6 +94,13 @@ public sealed class UdpBrokerTests
     [InlineData("0.0.0.0", 3478, false)]
     [InlineData("240.0.0.1", 3478, false)]
     [InlineData("192.0.2.1", 3478, false)]
+    [InlineData("192.0.0.1", 3478, false)]
+    [InlineData("192.0.0.255", 3478, false)]
+    [InlineData("198.18.0.1", 3478, false)]
+    [InlineData("198.19.255.1", 3478, false)]
+    [InlineData("198.51.100.1", 3478, false)]
+    [InlineData("203.0.113.1", 3478, false)]
+    [InlineData("198.20.0.1", 3478, true)]
     [InlineData("::1", 3478, false)]
     [InlineData("2001:db8::1", 3478, false)]
     public void DestinationPolicyDeniesNonPublicAndMalformedEndpoints(string address, int port, bool allowed) =>
@@ -107,7 +120,7 @@ public sealed class UdpBrokerTests
     {
         using var h = new Harness();
         h.Granted = false;
-        h.Broker.Handle(Cmd("""{"op":"open","token":7}"""));
+        h.Run("""{"op":"open","token":7}""");
         var evt = await h.WaitFor(e => IsToken(e, 7));
         Assert.Equal("failed", evt.GetProperty("op").GetString());
         Assert.Equal(0, h.Broker.OpenSockets);
@@ -118,7 +131,7 @@ public sealed class UdpBrokerTests
     {
         using var h = new Harness(new UdpBrokerOptions { AllowLoopback = true, MaxSockets = 2 });
         await h.Open(1); await h.Open(2);
-        h.Broker.Handle(Cmd("""{"op":"open","token":3}"""));
+        h.Run("""{"op":"open","token":3}""");
         var refused = await h.WaitFor(e => IsToken(e, 3));
         Assert.Equal("failed", refused.GetProperty("op").GetString());
         Assert.Equal(2, h.Broker.OpenSockets);
@@ -129,7 +142,7 @@ public sealed class UdpBrokerTests
     {
         using var h = new Harness();
         var first = await h.Open(1);
-        h.Broker.Handle(Cmd($$"""{"op":"close","id":{{first.Id}}}"""));
+        h.Run($$"""{"op":"close","id":{{first.Id}}}""");
         var second = await h.Open(2);
         Assert.NotEqual(first.Id, second.Id);
         Assert.True(second.Port > 0);
@@ -156,9 +169,9 @@ public sealed class UdpBrokerTests
         using var peer = Peer();
         var (id, _) = await h.Open();
         h.Send(id, (IPEndPoint)peer.LocalEndPoint!, [1, 2, 3]);
-        h.Broker.Handle(Cmd($$"""{"op":"send","id":{{id}},"host":"::1","port":9,"data":"AQ=="}"""));
-        h.Broker.Handle(Cmd($$"""{"op":"send","id":{{id}},"host":"localhost","port":9,"data":"AQ=="}"""));
-        h.Broker.Handle(Cmd($$"""{"op":"send","id":{{id}},"host":"08.8.8.8","port":9,"data":"AQ=="}"""));
+        h.Run($$"""{"op":"send","id":{{id}},"host":"::1","port":9,"data":"AQ=="}""");
+        h.Run($$"""{"op":"send","id":{{id}},"host":"localhost","port":9,"data":"AQ=="}""");
+        h.Run($$"""{"op":"send","id":{{id}},"host":"08.8.8.8","port":9,"data":"AQ=="}""");
         Assert.Equal(-1, await Receive(peer));
         Assert.Equal(4, h.Broker.Denied);
     }
@@ -171,14 +184,14 @@ public sealed class UdpBrokerTests
         var (id, _) = await h.Open();
         var to = (IPEndPoint)peer.LocalEndPoint!;
         h.Send(id + 100, to, [1]);
-        h.Broker.Handle(Cmd("""{"op":"send","id":"x"}"""));
-        h.Broker.Handle(Cmd("""{"op":"bind","address":"0.0.0.0","port":53}"""));
-        h.Broker.Handle(Cmd("[1,2]"));
-        h.Broker.Handle(Cmd($$"""{"op":"send","id":{{id}},"host":"127.0.0.1","port":{{to.Port}},"data":"!!notbase64!!"}"""));
+        h.Run("""{"op":"send","id":"x"}""");
+        h.Run("""{"op":"bind","address":"0.0.0.0","port":53}""");
+        h.Run("[1,2]");
+        h.Run($$"""{"op":"send","id":{{id}},"host":"127.0.0.1","port":{{to.Port}},"data":"!!notbase64!!"}""");
         Assert.Equal(-1, await Receive(peer));
         Assert.Equal(1, h.Broker.Denied);
-        Assert.Equal(3, h.Broker.Malformed);
-        Assert.Equal(1, h.Broker.Oversize);
+        Assert.Equal(4, h.Broker.Malformed);
+        Assert.Equal(0, h.Broker.Oversize);
         Assert.Equal(1, h.Broker.OpenSockets);
     }
 
@@ -216,6 +229,7 @@ public sealed class UdpBrokerTests
         var release = new ManualResetEventSlim();
         using var h = new Harness(new UdpBrokerOptions { AllowLoopback = true, IncomingQueue = 1 });
         var (id, port) = await h.Open();
+        h.Run("""{"op":"permit","host":"127.0.0.1"}""");
         var delivered = 0;
         h.Hook = evt => { if (evt.GetProperty("op").GetString() == "datagram") { Interlocked.Increment(ref delivered); release.Wait(5000); } };
         using var peer = Peer();
@@ -271,6 +285,7 @@ public sealed class UdpBrokerTests
         var release = new ManualResetEventSlim();
         using var h = new Harness();
         var (oldId, port) = await h.Open(1);
+        h.Run("""{"op":"permit","host":"127.0.0.1"}""");
         var entered = new ManualResetEventSlim();
         var delivered = 0;
         h.Hook = evt =>
@@ -284,7 +299,7 @@ public sealed class UdpBrokerTests
         for (var i = 0; i < 4; i++) await peer.SendToAsync(new byte[] { (byte)i }, SocketFlags.None, new IPEndPoint(IPAddress.Loopback, port));
         Assert.True(entered.Wait(3000)); // one datagram is in flight, the rest queued behind it
         await Task.Delay(100);
-        h.Broker.Retire();
+        h.NextDocument();
         release.Set();
         var next = await h.Open(2);
         await h.WaitFor(e => e.GetProperty("op").GetString() == "closed" && e.GetProperty("id").GetInt64() == oldId);
@@ -301,13 +316,13 @@ public sealed class UdpBrokerTests
     [Fact]
     public async Task ReplacementResetsTheDocumentQuotas()
     {
-        using var h = new Harness(new UdpBrokerOptions { AllowLoopback = true, BurstPackets = 1, PacketsPerSecond = 0.01 });
+        using var h = new Harness(new UdpBrokerOptions { AllowLoopback = true, BurstPackets = 1, PacketsPerSecond = 0.01, MinLimiterResetInterval = TimeSpan.Zero });
         using var peer = Peer();
         var (id, _) = await h.Open(1);
         var to = (IPEndPoint)peer.LocalEndPoint!;
         h.Send(id, to, [1]); h.Send(id, to, [1]);
         Assert.Equal(1, h.Broker.RateLimited);
-        h.Broker.Retire();
+        h.NextDocument();
         var next = await h.Open(2);
         h.Send(next.Id, to, [2]);
         Assert.Equal(1, h.Broker.RateLimited);
@@ -332,7 +347,7 @@ public sealed class UdpBrokerTests
         await h.Open();
         h.Dispose();
         Assert.Equal(0, h.Broker.OpenSockets);
-        h.Broker.Handle(Cmd("""{"op":"open","token":9}"""));
+        h.Run("""{"op":"open","token":9}""");
         Assert.Equal(0, h.Broker.OpenSockets);
     }
 }

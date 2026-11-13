@@ -31,9 +31,13 @@ reader thread (like resource responses), so a document that waits for a socket c
 
 Child to host, `UdpCommand`:
 
-- `{op:"open", token}`: ask for a socket. `token` only correlates the reply.
-- `{op:"send", id, host, port, data}`: `host` is a canonical IPv4 literal, `data` is base64.
-- `{op:"close", id}`.
+- Every command carries `gen`, the document generation the host stamped into the `Load` (`hostPolicy.udpGeneration`).
+  A command with any other value is refused (an `open` is answered with `failed`).
+- `{op:"open", gen, token}`: ask for a socket. `token` only correlates the reply.
+- `{op:"send", gen, id, host, port, data}`: `host` is a canonical IPv4 literal (no mapped, octal, hex, padded or
+  whitespace forms), `data` is strict base64.
+- `{op:"permit", gen, host}`: allow unsolicited inbound datagrams from this address (same address policy; see below).
+- `{op:"close", gen, id}`.
 
 Host to child, `UdpEvent`:
 
@@ -44,6 +48,12 @@ Host to child, `UdpEvent`:
 - `{op:"datagram", id, host, port, data}`.
 - `{op:"closed", id, reason}`: revoked, document replaced, closed by the child, or the broker was disposed.
 
+UDP frames are small. A `UdpCommand` or `UdpEvent` frame larger than 8 KiB closes the connection, and the check runs
+when the 4-byte header is read, before the payload is allocated. The kind is read from the start of the payload (our
+serializer writes it first), so any frame over 8 KiB that does not announce its kind that way is refused as well.
+Smaller frames of any kind still follow the general 16 MiB frame limit, and every command is charged to the rate
+limiter before it is decoded.
+
 The path of a packet: `IceAgent.SendDatagram` -> transport `SendTo` -> `UdpCommand` -> broker `Handle` -> per-socket
 bounded outgoing queue -> host socket -> network. The reverse path: host socket receive loop -> source policy check ->
 incoming token buckets -> bounded event queue -> `UdpEvent` -> child transport queue -> `IceAgent` receive loop.
@@ -53,6 +63,12 @@ quota below. A binary framing is a later optimisation.
 ## Policy
 
 - The child never names a local address or port. The host binds `0.0.0.0:0` (IPv4, ephemeral) and reports the port.
+  Binding specific interfaces was left out: the host does not yet report the permitted interfaces (see "Remains"),
+  and inbound filtering below already limits who can reach the socket.
+- **Inbound** datagrams are delivered only from addresses the child has sent to on any of its sockets (up to 256 per
+  document) or has authorised with `permit` (up to 64 per document, validated by the destination policy). `IceAgent`
+  permits every remote candidate address, because a peer's first check can arrive before ours leaves. Everything else
+  is dropped and counted (`Unsolicited`). The sets are cleared when the document is replaced.
 - Destinations must be IPv4 unicast, port 1-65535, and globally routable. Denied: loopback, RFC 1918 and CGNAT
   (`100.64/10`), link-local, multicast, reserved and broadcast, `0/8`, documentation and benchmarking ranges, and all
   IPv6. Loopback and private ranges can be allowed only through `UdpBrokerOptions` (internal in this stage; the
@@ -70,22 +86,44 @@ quota below. A binary framing is a later optimisation.
 | Sockets | 4 |
 | Datagram | 1500 bytes; larger is dropped and counted |
 | Rate, each direction | 1 MiB/s with a 128 KiB burst, and 1000 packets/s with a 200-packet burst, taken together |
-| Outgoing queue | 64 datagrams per socket; overflow drops and counts |
-| Incoming queue | 256 datagrams towards the child; overflow drops and counts |
+| Socket opens | burst of 4, refilling at 1 per second |
+| Commands, any kind | burst of 500, 2000 per second, charged before decoding |
+| Outgoing queue | 64 datagrams per socket; overflow drops and counts (the budget is refunded) |
+| Incoming datagram queue | 256 datagrams towards the child; overflow drops and counts |
+| All queued events | 512, control events included |
+
+The limiters belong to the broker (the process), not to a socket or document; a replaced document receives fresh
+ones at most once per second. If the child stops reading its pipe, the event queue reaches 512, the broker closes
+every socket and refuses further commands until the next document (`Dead`). The broker never writes to the pipe while
+holding a lock, so a stalled child blocks only its own event pump. A persistent receive error backs off and then closes
+the socket (host) or fails the connection (child).
 
 Counters (`Denied`, `Oversize`, `RateLimited`, `DroppedOutgoing`, `DroppedIncoming`, `Malformed`, `SendFailed`) are
 available to the host and tests.
 
 ## Lifetimes, failure and revocation
 
-- **Document replacement** (a `Load` with new HTML): `Retire()` bumps a generation, closes every socket, resets the
-  rate limiters and discards queued events of the old generation. Socket ids are never reused, so a late datagram can
-  only name a dead id, which the child ignores. At most one datagram already being handed to the pipe can be in flight.
+- **Document replacement** (a `Load` with new HTML): when the `Load` is about to be sent, the host bumps the document
+  generation, closes every socket, clears the permit lists and discards queued events of the old generation. The old
+  document keeps running until the child handles the `Load`, but its commands carry the old generation and are
+  refused, so nothing it opens survives into the new document or uses its quota (an open racing the bump is re-checked
+  under the same lock). Socket ids are never reused. At most one datagram already being handed to the pipe can be in flight.
 - **Capability revocation** (`UpdateCapabilities` or a load without `WebRtc`): every socket closes at once and the
   child is sent `closed`. A send or receive that races revocation re-checks the grant and closes the sockets itself.
 - **Process death or client disposal:** the broker is disposed, sockets close, queues drain.
 - **Refusal in the child:** if `Bind` fails, `IceAgent` completes gathering with no candidates and moves to `failed`.
-  A `closed` event ends the child's receive loop, so the peer connection ends rather than hanging.
+  A `closed` event ends the child's receive loop and the ICE connection moves to `failed` once, so the peer connection
+  ends rather than hanging.
+
+## Threat model
+
+The content process is untrusted. With the capability on, the page can send UDP to any globally routable IPv4
+address, at up to the rates above (inherent to WebRTC: peer addresses come from remote SDP). It cannot reach private,
+loopback, link-local, multicast or reserved addresses, cannot choose a local bind, cannot receive from addresses it
+has not contacted or permitted, cannot grow host memory (every queue is bounded and a non-draining child is cut off),
+cannot keep a socket past revocation, document replacement or its own death, and cannot create anything with the
+capability off. Residual risk: UDP volume and reflection toward public hosts within the quotas, and the 16 MiB general
+frame limit for non-UDP kinds.
 
 ## Remains for later stages
 

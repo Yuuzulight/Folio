@@ -101,9 +101,14 @@ public sealed class UdpMediatedIceTransportTests
         using var peer = UdpBrokerTests.Peer();
         var (agent, _) = await ConnectedAgentAsync(channel, peer);
         using var _ = agent;
+        var states = new List<string>();
+        agent.OnConnectionStateChanged += state => { lock (states) states.Add(state); };
         channel.Broker.Revoke();
         for (var i = 0; i < 100 && agent.IsReceivePumpAlive; i++) await Task.Delay(50);
         Assert.False(agent.IsReceivePumpAlive);
+        // The host closing the socket fails the connection, exactly once.
+        Assert.Equal("failed", agent.ConnectionState);
+        lock (states) Assert.Equal(["failed"], states);
         Assert.Equal(0, channel.Broker.OpenSockets);
         // Nothing reaches the peer after revocation.
         agent.SendDatagram([1, 2, 3]);

@@ -17,7 +17,10 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
     private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(5);
     private readonly ConcurrentDictionary<long, (TaskCompletionSource<(long Id, int Port)> Result, Transport Owner)> _pendingOpens = new();
     private readonly ConcurrentDictionary<long, Transport> _byId = new();
-    private long _nextToken;
+    private long _nextToken, _generation = 1;
+
+    /// <summary>The document generation the host stamped into the current Load. New transports carry it on every command.</summary>
+    public long Generation { get => Volatile.Read(ref _generation); set => Volatile.Write(ref _generation, value); }
 
     public IIceTransport CreateTransport() => new Transport(this);
 
@@ -86,7 +89,14 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
             new BoundedChannelOptions(IncomingCapacity) { SingleReader = true, FullMode = BoundedChannelFullMode.DropWrite });
         private long _id;
         private int _disposed;
+        private readonly long _generation = owner.Generation;
         internal UdpBrokerOptions Policy { get; set; } = new();
+
+        public void Permit(IPAddress address)
+        {
+            if (Volatile.Read(ref _id) == 0 || Volatile.Read(ref _disposed) != 0) return;
+            owner.Send(new Dictionary<string, object?> { ["op"] = "permit", ["gen"] = _generation, ["host"] = address.ToString() });
+        }
 
         public bool CanSendTo(IPEndPoint destination) => UdpDestinationPolicy.IsAllowed(destination, Policy);
 
@@ -98,7 +108,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
             owner._pendingOpens[token] = (opened, this);
             try
             {
-                owner.Send(new Dictionary<string, object?> { ["op"] = "open", ["token"] = token });
+                owner.Send(new Dictionary<string, object?> { ["op"] = "open", ["gen"] = _generation, ["token"] = token });
                 if (!opened.Task.Wait(OpenTimeout)) throw new TimeoutException("The host did not answer the UDP open request.");
                 var (id, port) = opened.Task.Result;
                 Volatile.Write(ref _id, id);
@@ -117,7 +127,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
             if (id == 0 || Volatile.Read(ref _disposed) != 0 || datagram.Length == 0) return;
             owner.Send(new Dictionary<string, object?>
             {
-                ["op"] = "send", ["id"] = id, ["host"] = destination.Address.ToString(), ["port"] = destination.Port,
+                ["op"] = "send", ["gen"] = _generation, ["id"] = id, ["host"] = destination.Address.ToString(), ["port"] = destination.Port,
                 ["data"] = Convert.ToBase64String(datagram)
             });
         }
@@ -152,7 +162,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
             if (id != 0)
             {
                 owner._byId.TryRemove(id, out _);
-                owner.Send(new Dictionary<string, object?> { ["op"] = "close", ["id"] = id });
+                owner.Send(new Dictionary<string, object?> { ["op"] = "close", ["gen"] = _generation, ["id"] = id });
             }
             _incoming.Writer.TryComplete();
         }
