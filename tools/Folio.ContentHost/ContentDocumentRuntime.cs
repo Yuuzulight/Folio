@@ -373,7 +373,7 @@ public sealed class ContentDocumentRuntime : IDisposable
         // A content process replaces documents repeatedly. Promptly collect
         // retired DOM/script graphs so the process working-set target reflects
         // the live document rather than every page visited since startup.
-        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: false);
         GC.WaitForPendingFinalizers();
     }
 
