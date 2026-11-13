@@ -83,8 +83,20 @@ internal sealed class Vp8Receiver : IDisposable
     private bool _needKey = true;
     private long _keyRequestAfter;
     private long _lastKeyRequest;
-    private bool _keyRequested;
+    private bool _keyRequestEver;
     private long _frameSequence;
+    private long _highest = -1;
+    private long _scanHint;
+    private long _lastNackScan;
+    private bool _pendingShown;
+    private double _pixelTokens;
+    private long _pixelStamp;
+    private bool _pixelStarted;
+    private readonly double _pixelsPerSecond;
+    /// <summary>The most frames one call decodes; the rest wait for the next packet or tick, so the engine's lock is never held for long.</summary>
+    internal const int MaxFramesPerCall = 8;
+    /// <summary>The decode work budget in pictures per second at the decoder's largest size.</summary>
+    internal const int DecodeFramesPerSecond = 40;
     private bool _started;
 
     internal bool SupportsNack { get; set; } = true;
@@ -101,11 +113,16 @@ internal sealed class Vp8Receiver : IDisposable
     internal bool WaitingForKeyFrame => _needKey;
     internal int BufferedPackets => _buffer.Count;
 
-    internal Vp8Receiver(Vp8Decoder decoder, TimeProvider time)
+    /// <param name="maxPixelsPerSecond">Pixels the stream may reconstruct per second (default: 40 pictures of the decoder's cap); more is dropped.</param>
+    internal Vp8Receiver(Vp8Decoder decoder, TimeProvider time, double? maxPixelsPerSecond = null)
     {
         _decoder = decoder;
         _time = time;
+        _pixelsPerSecond = maxPixelsPerSecond ?? (double)Vp8Decoder.DefaultMaxPixels * DecodeFramesPerSecond;
+        _pixelTokens = _pixelsPerSecond;
     }
+
+    internal long FramesRateLimited { get; private set; }
 
     public void Dispose() => _decoder.Dispose();
 
@@ -137,6 +154,7 @@ internal sealed class Vp8Receiver : IDisposable
         }
         var data = payload[descriptor.PayloadOffset..].ToArray();
         _nacks.Remove(extendedSequence); // it arrived after all
+        if (extendedSequence > _highest) _highest = extendedSequence;
         _buffer[extendedSequence] = new Packet { Timestamp = timestamp, Marker = marker, Start = descriptor.Start, PartitionId = descriptor.PartitionId, Data = data };
         _bufferedBytes += data.Length;
         Assemble(output);
@@ -155,6 +173,8 @@ internal sealed class Vp8Receiver : IDisposable
     {
         _buffer.Clear();
         _bufferedBytes = 0;
+        _highest = -1;
+        _scanHint = 0;
         _nacks.Clear();
         _hole = false;
     }
@@ -168,11 +188,13 @@ internal sealed class Vp8Receiver : IDisposable
     private void Remove(long sequence)
     {
         if (_buffer.Remove(sequence, out var packet)) _bufferedBytes -= packet.Data.Length;
+        if (_buffer.Count == 0) _highest = -1;
     }
 
     private void Assemble(Vp8ReceiverOutput output)
     {
-        while (_buffer.TryGetValue(_next, out var first))
+        var budget = MaxFramesPerCall;
+        while (budget > 0 && _buffer.TryGetValue(_next, out var first))
         {
             var sequence = _next;
             var bytes = 0;
@@ -213,8 +235,33 @@ internal sealed class Vp8Receiver : IDisposable
             _nacks.Remove(_next);
             _next = end + 1;
             _hole = false;
+            budget--;
             DeliverFrame(frame, output);
         }
+        FlushPending(output);
+    }
+
+    /// <summary>Converts the newest decoded shown frame; earlier ones in the same call were superseded and never converted.</summary>
+    private void FlushPending(Vp8ReceiverOutput output)
+    {
+        if (!_pendingShown) return;
+        _pendingShown = false;
+        if (_decoder.ToRgba() is not { } rgba) return;
+        output.Frames.Add(new MediaCaptureVideoFrame(_decoder.Width, _decoder.Height, rgba) { CaptureSequence = ++_frameSequence });
+    }
+
+    private bool TryChargePixels(long pixels, long now)
+    {
+        var frequency = _time.TimestampFrequency;
+        if (!_pixelStarted) { _pixelStarted = true; _pixelStamp = now; }
+        else
+        {
+            _pixelTokens = Math.Min(_pixelsPerSecond, _pixelTokens + Math.Max(0, now - _pixelStamp) * _pixelsPerSecond / frequency);
+            _pixelStamp = now;
+        }
+        if (_pixelTokens < pixels) return false;
+        _pixelTokens -= pixels;
+        return true;
     }
 
     private long FindFrameEnd(long from)
@@ -239,42 +286,56 @@ internal sealed class Vp8Receiver : IDisposable
     {
         var key = Vp8Decoder.IsKeyFrame(frame);
         if (_needKey && !key) { FramesDiscarded++; return; } // an inter frame is useless until a key frame has arrived
+        // Cost is the picture the decoder would reconstruct, whatever the frame's byte size: a 10 byte key frame at 1080p is not cheap.
+        long pixels;
+        if (key) pixels = Vp8Decoder.TryReadKeyFrameSize(frame, out var kw, out var kh) ? (long)kw * kh : 0;
+        else pixels = (long)_decoder.Width * _decoder.Height;
+        if (!TryChargePixels(pixels, _time.GetTimestamp()))
+        {
+            FramesRateLimited++; FramesDiscarded++;
+            if (!key) { _needKey = true; _keyRequestAfter = 0; } // the dropped inter frame breaks the reference chain
+            return;
+        }
+        var shown = (frame[0] & 0x10) != 0;
+        if (_pendingShown && !shown) FlushPending(output); // the pending picture would be replaced by one that is not shown
+        _pendingShown = false;
         if (_decoder.Decode(frame) != Vp8Status.Ok)
         {
             DecodeErrors++;
             _needKey = true; _keyRequestAfter = 0;
             return;
         }
-        if (key) { _needKey = false; _keyRequested = false; KeyFramesDecoded++; }
+        if (key) { _needKey = false; KeyFramesDecoded++; }
         FramesDecoded++;
-        if (!_decoder.FrameShown) return;
-        if (_decoder.ToRgba() is not { } rgba) return;
-        output.Frames.Add(new MediaCaptureVideoFrame(_decoder.Width, _decoder.Height, rgba) { CaptureSequence = ++_frameSequence });
+        if (_decoder.FrameShown) _pendingShown = true;
     }
 
     private void Maintain(long now, Vp8ReceiverOutput output)
     {
         var frequency = _time.TimestampFrequency;
         // A hole: some sequence number at or after the next expected one is absent while a later one is buffered.
-        var firstMissing = _next;
-        while (_buffer.ContainsKey(firstMissing)) firstMissing++;
-        var highest = _buffer.Count > 0 ? _buffer.Keys.Last() : -1;
-        if (_buffer.Count > 0 && firstMissing < highest)
+        // With no gap the buffer holds exactly (highest - next + 1) packets, which is checked without walking it.
+        if (_buffer.Count > 0 && _buffer.Count != _highest - _next + 1)
         {
+            // The scan resumes where the last one stopped: packets below the hint cannot disappear except by _next moving past them.
+            var firstMissing = Math.Max(_next, _scanHint);
+            while (_buffer.ContainsKey(firstMissing)) firstMissing++;
+            _scanHint = firstMissing;
+            var highest = _highest;
             if (!_hole) { _hole = true; _holeSince = now; }
             var age = _time.GetElapsedTime(_holeSince, now);
             if (highest - _next > MaxNackWindow || age >= LossTimeout)
             {
                 GiveUpOnHole(firstMissing, now);
             }
-            else if (SupportsNack && age >= NackDelay)
+            else if (SupportsNack && age >= NackDelay && (_lastNackScan == 0 || _time.GetElapsedTime(_lastNackScan, now) >= NackScanInterval))
             {
-                var missing = 0;
+                _lastNackScan = now;
                 if (_nacks.Count >= MaxNackTracked) foreach (var stale in _nacks.Keys.Where(k => k < _next).ToArray()) _nacks.Remove(stale);
-                for (var s = firstMissing; s < highest && missing < 64; s++)
+                // At most MaxNackItems numbers per request: every one of them fits in the packet, so retry counts stay honest.
+                for (var s = firstMissing; s < highest && output.Nack.Count < RtcpCodec.MaxNackItems; s++)
                 {
                     if (_buffer.ContainsKey(s)) continue;
-                    missing++;
                     if (!_nacks.TryGetValue(s, out var state))
                     {
                         if (_nacks.Count >= MaxNackTracked) continue;
@@ -287,16 +348,19 @@ internal sealed class Vp8Receiver : IDisposable
                 }
             }
         }
-        else _hole = false;
+        else { _hole = false; _scanHint = 0; }
 
+        // The interval is measured from the last request whether or not a key frame decoded in between.
         if (_needKey && SupportsKeyFrameRequest && now >= _keyRequestAfter &&
-            (!_keyRequested || _time.GetElapsedTime(_lastKeyRequest, now) >= KeyFrameRequestInterval))
+            (!_keyRequestEver || _time.GetElapsedTime(_lastKeyRequest, now) >= KeyFrameRequestInterval))
         {
-            _keyRequested = true; _lastKeyRequest = now;
+            _keyRequestEver = true; _lastKeyRequest = now;
             output.KeyFrameRequest = true;
             KeyFrameRequests++;
         }
     }
+
+    internal static readonly TimeSpan NackScanInterval = TimeSpan.FromMilliseconds(5);
 
     private void GiveUpOnHole(long firstMissing, long now)
     {
@@ -304,7 +368,7 @@ internal sealed class Vp8Receiver : IDisposable
         var resume = -1L;
         foreach (var (sequence, packet) in _buffer)
             if (sequence > firstMissing && packet.Start && packet.PartitionId == 0) { resume = sequence; break; }
-        var limit = resume >= 0 ? resume : _buffer.Keys.Last() + 1;
+        var limit = resume >= 0 ? resume : _highest + 1;
         for (var s = _next; s < limit; s++)
         {
             if (!_buffer.ContainsKey(s)) PacketsLost++;
@@ -313,6 +377,7 @@ internal sealed class Vp8Receiver : IDisposable
         }
         _next = limit;
         _hole = false;
+        _scanHint = 0;
         FramesDiscarded++;
         _needKey = true;
         _keyRequestAfter = now;

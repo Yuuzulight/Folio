@@ -60,6 +60,46 @@ internal sealed class RtcMediaBudget
         }
     }
 
+    // Repair requests (NACK, PLI, FIR) share the send path with audio. They get their own small allowance, document-wide, so a lossy
+    // or hostile video stream cannot use up the send budget, and key frame requests are at least KeyFrameRequestSpacing apart.
+    internal const int FeedbackPerSecond = 50;
+    internal static readonly TimeSpan KeyFrameRequestSpacing = TimeSpan.FromMilliseconds(100);
+    private double _feedbackTokens = FeedbackPerSecond;
+    private long _feedbackStamp;
+    private bool _feedbackStarted;
+    private long _lastKeyFrameRequest;
+    private bool _keyFrameRequested;
+
+    /// <summary>Charges one repair-request packet against the document's feedback allowance.</summary>
+    public bool TryConsumeFeedback()
+    {
+        lock (_gate)
+        {
+            var now = _time.GetTimestamp();
+            if (!_feedbackStarted) { _feedbackStarted = true; _feedbackStamp = now; }
+            else
+            {
+                _feedbackTokens = Math.Min(FeedbackPerSecond, _feedbackTokens + Math.Max(0, (double)(now - _feedbackStamp) / _time.TimestampFrequency) * FeedbackPerSecond);
+                _feedbackStamp = now;
+            }
+            if (_feedbackTokens < 1) return false;
+            _feedbackTokens--;
+            return true;
+        }
+    }
+
+    /// <summary>Allows a key frame request (PLI or FIR) if no other went out in the last <see cref="KeyFrameRequestSpacing"/>, anywhere in the document.</summary>
+    public bool TryConsumeKeyFrameRequest()
+    {
+        lock (_gate)
+        {
+            var now = _time.GetTimestamp();
+            if (_keyFrameRequested && _time.GetElapsedTime(_lastKeyFrameRequest, now) < KeyFrameRequestSpacing) return false;
+            _keyFrameRequested = true; _lastKeyFrameRequest = now;
+        }
+        return TryConsumeFeedback();
+    }
+
     public void ReleaseVideoBytes(long bytes) { lock (_gate) _videoBytes = Math.Max(0, _videoBytes - Math.Max(0, bytes)); }
 
     /// <summary>Charges one datagram of the given size against the receive or send bucket (one second of burst).</summary>

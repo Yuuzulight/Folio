@@ -123,9 +123,7 @@ internal sealed partial class Vp8Decoder : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _cur = _last = _golden = _altref = null;
-        foreach (var frame in _store) { frame.Y = frame.U = frame.V = []; }
-        _haveSize = false;
+        FreeBuffers();
         if (_reserved > 0) _budget?.ReleaseVideoBytes(_reserved);
         _reserved = 0;
     }
@@ -133,8 +131,8 @@ internal sealed partial class Vp8Decoder : IDisposable
     /// <summary>Drops all reference state; the next frame must be a key frame.</summary>
     public void Reset()
     {
-        _cur = _last = _golden = _altref = null;
-        _haveSize = false;
+        // The arrays stay (same size), so a recovering key frame does not reallocate tens of megabytes.
+        _cur = _last = _golden = _altref = _lastDecoded = null;
     }
 
     /// <summary>
@@ -249,10 +247,12 @@ internal sealed partial class Vp8Decoder : IDisposable
         var mbs = (long)(cols + 1) * (rows + 1);
         // Four reference buffers, the mode info, one row of coefficients and two RGBA frames the caller may hold.
         var total = 4 * frameBytes + mbs * (24 + 16 * 5) + (long)cols * 25 * 16 * 2 + 2L * width * height * 4;
+        // The old arrays go first: whatever the outcome below, nothing stays allocated that the budget no longer charges.
+        FreeBuffers();
         if (_budget is not null)
         {
             if (_reserved > 0) { _budget.ReleaseVideoBytes(_reserved); _reserved = 0; }
-            if (!_budget.TryReserveVideoBytes(total)) { _haveSize = false; return false; }
+            if (!_budget.TryReserveVideoBytes(total)) return false;
             _reserved = total;
         }
         _mbCols = cols; _mbRows = rows; _width = width; _height = height;
@@ -275,6 +275,21 @@ internal sealed partial class Vp8Decoder : IDisposable
         _haveSize = true;
         return true;
     }
+
+    private void FreeBuffers()
+    {
+        _haveSize = false;
+        _cur = _last = _golden = _altref = _lastDecoded = null;
+        foreach (var frame in _store) { frame.Y = frame.U = frame.V = []; }
+        _yMode = _uvMode = _segmentId = _refFrame = _skip = _partitioning = _bModes = [];
+        _mvX = _mvY = _subMvX = _subMvY = [];
+        _eobMask = [];
+        _coeffs = [];
+        _aboveCtx = [];
+    }
+
+    /// <summary>Bytes of frame, mode and coefficient arrays currently held; 0 after a failed allocation or Dispose.</summary>
+    internal long RetainedBytes => _store.Sum(f => (long)f.Y.Length + f.U.Length + f.V.Length) + _yMode.Length * 6L + _mvX.Length * 4L + _subMvX.Length * 4L + _bModes.Length + _eobMask.Length * 4L + _coeffs.Length * 2L + _aboveCtx.Length * 4L;
 
     private int Mi(int row, int col) => (row + 1) * (_mbCols + 1) + col + 1;
 

@@ -157,7 +157,7 @@ public sealed class ContentHostPolicyTests
         var ssrc = 0xABCDu;
         string? pixel = null;
         const string probe = "(function(){ if(error) return 'ERROR:'+error; if(!video.videoWidth) return 'none'; var c=document.createElement('canvas'); c.width=176; c.height=144; var g=c.getContext('2d'); g.drawImage(video,0,0); var d=g.getImageData(" + "88,72" + ",1,1).data; return video.videoWidth+'x'+video.videoHeight+':'+d[0]+','+d[1]+','+d[2]; })()";
-        for (var round = 0; round < 40 && pixel is not { } p || pixel is null; round++)
+        for (var round = 0; pixel is null && round < 40; round++)
         {
             foreach (var frame in frames)
             {

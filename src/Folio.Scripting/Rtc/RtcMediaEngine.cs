@@ -186,7 +186,13 @@ internal sealed class RtcMediaEngine : IDisposable
             for (var i = 0; i < _remote.Media.Count; i++)
             {
                 var remoteMedia = _remote.Media[i];
-                if (remoteMedia.Kind is not ("audio" or "video") || remoteMedia.Port == 0) continue;
+                if (remoteMedia.Kind is not ("audio" or "video")) continue;
+                if (remoteMedia.Port == 0)
+                {
+                    // Rejected or closed section: nothing arrives on it any more, so its decoders and their budget go now.
+                    if (_sections.FirstOrDefault(s => s.Mid == (remoteMedia.Mid ?? i.ToString())) is { } closed) { closed.Receives = false; ReleaseStreams(closed); }
+                    continue;
+                }
                 var mid = remoteMedia.Mid ?? i.ToString();
                 var section = _sections.FirstOrDefault(s => s.Mid == mid);
                 if (section is null)
@@ -224,6 +230,7 @@ internal sealed class RtcMediaEngine : IDisposable
                     bool Both(string mechanism) => remoteMedia.HasFeedback(vp8.PayloadType, mechanism) && (localMedia is null || localMedia.HasFeedback(vp8.PayloadType, mechanism));
                     section.NackOk = Both("nack"); section.PliOk = Both("pli"); section.FirOk = Both("fir");
                 }
+                if (!section.Receives) ReleaseStreams(section); // inactive or sendonly now: free the decoder instead of holding it idle
                 if (section.Track is not null)
                 {
                     section.Track.Decodable = (section.Kind == "audio" && section.ReceiveCodecs.Any(c => c.IsG711))
@@ -235,6 +242,15 @@ internal sealed class RtcMediaEngine : IDisposable
             foreach (var track in _locals) Bind(track);
         }
         foreach (var track in raised) OnRemoteTrack?.Invoke(track);
+    }
+
+    private void ReleaseStreams(Section section)
+    {
+        foreach (var (ssrc, stream) in _streams.Where(pair => ReferenceEquals(pair.Value.Section, section)).ToArray())
+        {
+            stream.Video?.Dispose();
+            _streams.Remove(ssrc);
+        }
     }
 
     private void Bind(RtcLocalTrack track)
@@ -475,12 +491,12 @@ internal sealed class RtcMediaEngine : IDisposable
         // RFC 4585 feedback travels in a compound packet that starts with a receiver report and carries the CNAME.
         var sender = _locals.FirstOrDefault()?.Ssrc ?? NonZeroRandomStable();
         var parts = new List<byte[]> { RtcpCodec.BuildReport(sender, false, 0, 0, 0, 0, [], _cname) };
-        if (output.Nack.Count > 0 && stream.Section.NackOk)
+        if (output.Nack.Count > 0 && stream.Section.NackOk && _budget.TryConsumeFeedback())
         {
             parts.Add(RtcpCodec.BuildNack(sender, stream.Ssrc, output.Nack));
             track.NacksSent += output.Nack.Count;
         }
-        if (output.KeyFrameRequest)
+        if (output.KeyFrameRequest && _budget.TryConsumeKeyFrameRequest())
         {
             if (stream.Section.PliOk) { parts.Add(RtcpCodec.BuildPli(sender, stream.Ssrc)); track.KeyFrameRequestsSent++; }
             else if (stream.Section.FirOk) { parts.Add(RtcpCodec.BuildFir(sender, stream.Ssrc, stream.FirSequence++)); track.KeyFrameRequestsSent++; }

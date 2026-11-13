@@ -166,8 +166,10 @@ public sealed class RtcVideoTests
         Assert.Equal(1, link.Tracks[0].NacksSent);
 
         link.Engine.ProcessDatagram(lost.Datagram); // the retransmission
-        Assert.Equal(4, link.Delivered.Count);
-        for (var i = 0; i < 4; i++) Assert.True(expected[i].AsSpan().SequenceEqual(link.Delivered[i].Rgba.Span), $"frame {i}");
+        // Frames 2 and 3 complete in the same call; only the newest is converted.
+        Assert.Equal(3, link.Delivered.Count);
+        for (var i = 0; i < 2; i++) Assert.True(expected[i].AsSpan().SequenceEqual(link.Delivered[i].Rgba.Span), $"frame {i}");
+        Assert.True(expected[3].AsSpan().SequenceEqual(link.Delivered[2].Rgba.Span), "frame 3");
         link.Advance(700);
         Assert.DoesNotContain(link.Feedback(), p => p.Kind is RtcpKind.PictureLossIndication or RtcpKind.FullIntraRequest);
     }
@@ -282,17 +284,180 @@ public sealed class RtcVideoTests
             Assert.Empty(link.Delivered);
             Assert.Equal(0, tight.VideoBytesInUse);
         }
-        var shared = new RtcMediaBudget(maxVideoBytes: 2_000_000);
+        // One decoder's charge, measured; the shared budget then fits one and a half of them, so exactly one stream gets a decoder.
+        var probe = new RtcMediaBudget();
+        using (var measure = new VideoLink(budget: probe)) { measure.Send(measure.Packetize(frames[0])); }
+        Assert.Equal(0, probe.VideoBytesInUse);
+        long one;
+        var measuring = new RtcMediaBudget();
+        using (var measure = new VideoLink(budget: measuring)) { measure.Send(measure.Packetize(frames[0])); one = measuring.VideoBytesInUse; }
+        Assert.True(one > 0);
+        var shared = new RtcMediaBudget(maxVideoBytes: one + one / 2);
         var first = new VideoLink(budget: shared);
         first.Send(first.Packetize(frames[0]));
         Assert.Single(first.Delivered);
-        var used = shared.VideoBytesInUse;
-        Assert.InRange(used, 1, 2_000_000);
+        Assert.Equal(one, shared.VideoBytesInUse);
         var second = new VideoLink(budget: shared);
-        second.Send(second.Packetize(frames[0])); // 2 x ~1 MB would not fit in 2 MB with the first one's share, or does; either way never over
-        Assert.True(shared.VideoBytesInUse <= 2_000_000);
-        first.Dispose(); second.Dispose();
-        Assert.Equal(0, shared.VideoBytesInUse); // closing the connections returns every byte
+        second.Send(second.Packetize(frames[0]));
+        Assert.Empty(second.Delivered);               // refused: it would not fit
+        Assert.Equal(one, shared.VideoBytesInUse);    // and nothing was charged for it
+        first.Dispose();
+        Assert.Equal(0, shared.VideoBytesInUse);      // closing a connection returns its bytes
+        second.Send(second.Packetize(frames[0]));     // the next key frame now fits
+        Assert.Single(second.Delivered);
+        Assert.Equal(one, shared.VideoBytesInUse);
+        second.Dispose();
+        Assert.Equal(0, shared.VideoBytesInUse);
+    }
+
+    [Fact]
+    public void AFailedReservationOnASizeChangeRetainsNothing()
+    {
+        var frames = Frames();
+        var budget = new RtcMediaBudget(maxVideoBytes: 600_000);
+        using var decoder = new Vp8Decoder(maxPixels: 1 << 22, budget);
+        Assert.Equal(Vp8Status.Ok, decoder.Decode(frames[0]));
+        var held = budget.VideoBytesInUse;
+        Assert.InRange(held, 1, 600_000);
+        Assert.True(decoder.RetainedBytes > 0);
+        // The same key frame claiming 640x480: the new size does not fit, and the old arrays must not outlive their reservation.
+        var bigger = (byte[])frames[0].Clone();
+        BinaryPrimitives.WriteUInt16LittleEndian(bigger.AsSpan(6), 640); BinaryPrimitives.WriteUInt16LittleEndian(bigger.AsSpan(8), 480);
+        Assert.Equal(Vp8Status.TooLarge, decoder.Decode(bigger));
+        Assert.Equal(0, budget.VideoBytesInUse);
+        Assert.Equal(0, decoder.RetainedBytes);
+        Assert.Equal(0, decoder.Width);
+        Assert.Equal(Vp8Status.NoReference, decoder.Decode(frames[1]));
+        Assert.Equal(Vp8Status.Ok, decoder.Decode(frames[0])); // and the original size works again
+        Assert.Equal(held, budget.VideoBytesInUse);
+    }
+
+    [Fact]
+    public void AFailedDecodeKeepsTheBuffersWhenTheSizeIsUnchanged()
+    {
+        var frames = Frames();
+        var budget = new RtcMediaBudget();
+        using var decoder = new Vp8Decoder(maxPixels: 1 << 22, budget);
+        Assert.Equal(Vp8Status.Ok, decoder.Decode(frames[0]));
+        var retained = decoder.RetainedBytes; var charged = budget.VideoBytesInUse;
+        Assert.Equal(Vp8Status.Corrupt, decoder.Decode(new byte[] { 1, 2 }));
+        Assert.Equal(Vp8Status.NoReference, decoder.Decode(frames[1]));
+        Assert.Equal(retained, decoder.RetainedBytes);   // not freed, so recovery does not reallocate
+        Assert.Equal(charged, budget.VideoBytesInUse);
+        Assert.Equal(Vp8Status.Ok, decoder.Decode(frames[0]));
+        Assert.Equal(retained, decoder.RetainedBytes);
+    }
+
+    [Fact]
+    public void DecodeWorkIsBoundedByAPixelRateNoMatterHowSmallTheFramesAre()
+    {
+        // A ~10 byte key frame header claiming 1920x1080 would otherwise cost a full reconstruction on every packet.
+        var tiny = new byte[10];
+        tiny[0] = 0x10; tiny[3] = 0x9d; tiny[4] = 0x01; tiny[5] = 0x2a;
+        BinaryPrimitives.WriteUInt16LittleEndian(tiny.AsSpan(6), 1920); BinaryPrimitives.WriteUInt16LittleEndian(tiny.AsSpan(8), 1080);
+        var time = new ManualTime();
+        using var receiver = new Vp8Receiver(new Vp8Decoder(maxPixels: 1920 * 1088), time);
+        var output = new Vp8ReceiverOutput();
+        var payload = new byte[tiny.Length + 1];
+        payload[0] = 0x10; tiny.CopyTo(payload, 1);
+        for (var i = 0; i < 1000; i++) receiver.Push(i, (uint)i, true, payload, time.GetTimestamp(), output); // no time passes
+        Assert.InRange(receiver.FramesDecoded + receiver.DecodeErrors, 0, Vp8Receiver.DecodeFramesPerSecond);
+        Assert.True(receiver.FramesRateLimited >= 900);
+        Assert.True(output.Frames.Count <= Vp8Receiver.DecodeFramesPerSecond);
+    }
+
+    [Fact]
+    public void OnlyTheNewestFrameOfABurstIsConvertedToRgba()
+    {
+        var frames = Frames();
+        // Hold packets back by one missing packet, then release them all at once: several frames complete in one call.
+        var link = new VideoLink();
+        var held = new List<(ushort Sequence, byte[] Datagram)>();
+        for (var i = 0; i < 6; i++) held.AddRange(link.Packetize(frames[i], 300));
+        var delivered = new List<MediaCaptureVideoFrame>();
+        link.Send(held.Where((_, index) => index != 1)); // all but the second packet of the key frame
+        Assert.Empty(link.Delivered);
+        link.Engine.ProcessDatagram(held[1].Datagram);
+        Assert.Single(link.Delivered);                 // six frames decoded, one converted: the newest
+        var expected = Reference(frames);
+        Assert.True(expected[5].AsSpan().SequenceEqual(link.Delivered[0].Rgba.Span));
+        link.Dispose();
+    }
+
+    [Fact]
+    public void KeyFrameRequestsKeepTheirSpacingEvenWhenAKeyFrameDecodesBetweenThem()
+    {
+        var frames = Frames();
+        using var link = new VideoLink();
+        var requests = 0;
+        for (var cycle = 0; cycle < 6; cycle++)
+        {
+            link.Send(link.Packetize(Enumerable.Repeat((byte)0xFF, 30).Prepend((byte)1).ToArray())); // a corrupt inter frame: a key frame is needed
+            link.Advance(200);
+            requests += link.Feedback().Count(p => p.Kind == RtcpKind.PictureLossIndication);
+            link.Send(link.Packetize(frames[0]));   // a key frame decodes (this used to reset the throttle)
+            Assert.False(link.Tracks[0].VideoWidth == 0);
+        }
+        Assert.True(requests <= 3, $"{requests} requests in 1.2 s");
+    }
+
+    [Fact]
+    public void RepairRequestsShareADocumentAllowanceAndKeyFrameRequestsAreSpacedAcrossStreams()
+    {
+        var time = new ManualTime();
+        var budget = new RtcMediaBudget(time);
+        Assert.True(budget.TryConsumeKeyFrameRequest());
+        Assert.False(budget.TryConsumeKeyFrameRequest());   // another stream, same instant
+        time.Advance(150);
+        Assert.True(budget.TryConsumeKeyFrameRequest());
+        var granted = 0;
+        for (var i = 0; i < 500; i++) if (budget.TryConsumeFeedback()) granted++;
+        Assert.InRange(granted, 1, RtcMediaBudget.FeedbackPerSecond);
+        time.Advance(1000);
+        Assert.True(budget.TryConsumeFeedback());
+    }
+
+    [Fact]
+    public void ANackNeverAsksForMoreThanItCanCarry()
+    {
+        var frames = Frames();
+        var time = new ManualTime();
+        using var receiver = new Vp8Receiver(new Vp8Decoder(maxPixels: 1 << 22), time);
+        var output = new Vp8ReceiverOutput();
+        // Every second packet missing: 100 holes that cannot share bitmask items beyond 17 numbers each.
+        for (var i = 0; i < 200; i += 2)
+        {
+            var payload = new byte[40]; payload[0] = (byte)(i == 0 ? 0x10 : 0);
+            receiver.Push(10 + i, 5, false, payload, time.GetTimestamp(), output);
+        }
+        time.Advance(30);
+        receiver.Tick(time.GetTimestamp(), output);
+        Assert.InRange(output.Nack.Count, 1, RtcpCodec.MaxNackItems);
+        var parsed = RtcpCodec.Parse(RtcpCodec.BuildNack(1, 2, output.Nack)).Single();
+        Assert.Equal(output.Nack.Count, parsed.NackSequences.Count); // every number counted as asked for was on the wire
+    }
+
+    [Fact]
+    public void RenegotiatingASectionToPortZeroOrInactiveReleasesItsDecoder()
+    {
+        var frames = Frames();
+        var budget = new RtcMediaBudget();
+        using var link = new VideoLink(budget: budget);
+        link.Send(link.Packetize(frames[0]));
+        Assert.True(budget.VideoBytesInUse > 0);
+        // The peer turns the section inactive.
+        link.Engine.Apply(null, RtcSdp.Parse(Remote().Replace("a=sendonly", "a=inactive")));
+        Assert.Equal(0, budget.VideoBytesInUse);
+        link.Send(link.Packetize(frames[0]));
+        Assert.Single(link.Delivered);                    // nothing more is decoded while it is inactive
+        // Back to sendonly: a new key frame is decoded again.
+        link.Engine.Apply(null, RtcSdp.Parse(Remote()));
+        link.Send(link.Packetize(frames[0]));
+        Assert.Equal(2, link.Delivered.Count);
+        Assert.True(budget.VideoBytesInUse > 0);
+        // And a rejected (port 0) section frees it too.
+        link.Engine.Apply(null, RtcSdp.Parse("v=0\r\nm=video 0 UDP/TLS/RTP/SAVPF 96\r\na=mid:v\r\n"));
+        Assert.Equal(0, budget.VideoBytesInUse);
     }
 
     [Fact]
