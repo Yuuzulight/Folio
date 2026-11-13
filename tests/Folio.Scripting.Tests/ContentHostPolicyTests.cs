@@ -40,6 +40,57 @@ public sealed class ContentHostPolicyTests
     {
         await using var client = Start(new FolioOptions());
         WorkerIsolationCapabilityMatrixTests.AssertRestricted(client.Process);
+        await ExchangeRtcDataThroughTheHostBroker(client);
+    }
+
+    // The same exchange against whichever host the run selected, so it also covers the developer build in seconds.
+    [Fact(Timeout = 60000)]
+    public async Task ChildExchangesRtcDataWithALocalPeerThroughTheHostUdpBroker()
+    {
+        await using var client = Start(new FolioOptions());
+        await ExchangeRtcDataThroughTheHostBroker(client);
+    }
+
+    [Fact(Timeout = 60000)]
+    public async Task HostBrokerDeniesLoopbackPeersByDefaultSoNothingConnects()
+    {
+        await using var client = Start(new FolioOptions()); // production destination policy
+        using var remote = new RtcPeerConnectionController();
+        var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        remote.OnDataChannel += channel => channel.OnMessage += payload => received.TrySetResult(payload as string ?? "");
+        await Exchange(client, new
+        {
+            html = "<body></body>",
+            capabilities = new FeatureCapabilities { WebRtc = true },
+            script = """
+                var offer='', error='';
+                var pc=new RTCPeerConnection(), channel=pc.createDataChannel('denied');
+                channel.onopen=function(){channel.send('folio');};
+                pc.createOffer().then(function(d){return pc.setLocalDescription(d).then(function(){offer=d.sdp;});})
+                    .catch(function(e){error=String(e);});
+                'started'
+                """
+        }, "started");
+        var description = Value(await Exchange(client, new { script = "error?'ERROR:'+error:offer" }));
+        Assert.StartsWith("v=0", description);
+        remote.SetRemoteDescription("offer", description!);
+        var answer = await remote.CreateAnswerAsync(true, 0, 0);
+        remote.SetLocalDescription("answer", answer);
+        await Exchange(client, new
+        {
+            script = "pc.setRemoteDescription({type:'answer',sdp:" + JsonSerializer.Serialize(answer) + "}).catch(function(e){error=String(e);});'queued'"
+        }, "queued");
+        var cancellation = TestContext.Current.CancellationToken;
+        var watch = Stopwatch.StartNew();
+        while (client.UdpDenied == 0 && watch.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(25, cancellation);
+        Assert.True(client.UdpDenied > 0, "The loopback peer's datagrams should have been refused by the host.");
+        Assert.False(received.Task.IsCompleted);
+        Assert.NotEqual("connected", remote.Dtls.State);
+    }
+
+    private static async Task ExchangeRtcDataThroughTheHostBroker(ContentProcessClient client)
+    {
+        client.UdpOptions = new UdpBrokerOptions { AllowLoopback = true }; // the test peer lives on loopback
         using var remote = new RtcPeerConnectionController();
         var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         remote.OnDataChannel += channel => channel.OnMessage += payload =>
@@ -102,6 +153,7 @@ public sealed class ContentHostPolicyTests
                 """
         });
         Assert.Equal("closed:closed:InvalidStateError", Value(revoked));
+        Assert.Equal(0, client.UdpOpenSockets); // revocation closed the host-owned socket too
     }
 
     [Fact]
