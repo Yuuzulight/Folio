@@ -88,12 +88,21 @@ internal sealed class StunMessage
     internal IEnumerable<ReadOnlyMemory<byte>> AttributeValues(ushort type) =>
         _attributes.Where(a => a.Type == type).Select(a => (ReadOnlyMemory<byte>)_wire.AsMemory(a.Offset + 4, a.Length)).ToArray();
 
+    internal static byte[] EncodeErrorCode(int code, string reason)
+    {
+        var reasonBytes = System.Text.Encoding.UTF8.GetBytes(reason);
+        var value = new byte[4 + reasonBytes.Length];
+        value[2] = (byte)(code / 100 & 7);
+        value[3] = (byte)(code % 100);
+        reasonBytes.CopyTo(value, 4);
+        return value;
+    }
+
     internal bool TryErrorCode(out int code)
     {
         code = 0;
         if (!TryAttribute(ErrorCode, out var value) || value.Length < 4) return false;
-        var span = value.Span;
-        code = (span[2] & 7) * 100 + span[3] % 100;
+        code = (value.Span[2] & 7) * 100 + value.Span[3];
         return true;
     }
 

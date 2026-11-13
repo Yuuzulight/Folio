@@ -93,7 +93,7 @@ public static class ScriptedProcessBenchmark
         }
 
         if (args?.Contains("--libraries", StringComparer.Ordinal) == true)
-            return await MeasureLibrariesAsync(host, profile);
+            return await MeasureLibrariesAsync(host, profile, args.Contains("--shared-process", StringComparer.Ordinal), args.Contains("--fresh-process", StringComparer.Ordinal));
 
         var table = new StringBuilder()
             .AppendLine("### Scripted Start-up, First Paint, and Content-Process Memory")
@@ -389,7 +389,11 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
     private static bool IsLoadResponse(ContentMessage message) => message.Kind == ContentMessageKind.Diagnostic ||
         (message.Kind == ContentMessageKind.Frame && message.Payload.TryGetProperty("sequence", out var sequence) && sequence.GetInt64() > 0);
 
-    private static async Task<int> MeasureLibrariesAsync(string host, bool profile)
+    // Default: first frame is timed warm in one long-lived content process; working set is read from a new process that
+    // loaded only that artifact (after a trivial warm-up), so it does not accumulate across the corpus.
+    // --shared-process: the old behaviour, both columns from the one long-lived process.
+    // --fresh-process: both columns from the new per-artifact process (first frame is then not warm for the library path).
+    private static async Task<int> MeasureLibrariesAsync(string host, bool profile, bool sharedOnly, bool freshOnly)
     {
         var problems = ConformanceCache.Problems();
         if (problems.Count != 0) throw new InvalidDataException(string.Join(Environment.NewLine, problems));
@@ -402,29 +406,29 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
         };
         var diagramUrls = cache.Values.Where(entry => entry.File == "mermaid.min.js")
             .Select(entry => entry.Url).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        await using var client = ContentProcessClient.StartWithOptions(host, new FolioOptions
+        async Task<ContentProcessClient> StartWarm()
         {
-            ResourceLoader = ConformanceCache.Loader,
-            DiagramLibraryUrls = diagramUrls,
-        });
-        async Task<ContentMessage> Load(string html, string script)
-        {
-            var response = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
-            ValueTask OnMessage(ContentMessage message, CancellationToken cancellationToken)
+            for (var attempt = 1; ; attempt++)
             {
-                if (IsLoadResponse(message)) response.TrySetResult(message);
-                return ValueTask.CompletedTask;
+                var started = ContentProcessClient.StartWithOptions(host, new FolioOptions
+                {
+                    ResourceLoader = ConformanceCache.Loader,
+                    DiagramLibraryUrls = diagramUrls,
+                });
+                try
+                {
+                    ValidateFrame(await LoadOn(started, WarmUpPage, "", profile), started);
+                    return started;
+                }
+                catch (Exception error) when (attempt == 1 && error is TimeoutException or IOException)
+                {
+                    // A process that spawns while the machine is busy can miss the warm-up deadline once.
+                    await started.DisposeAsync();
+                }
             }
-            client.MessageReceived += OnMessage;
-            try
-            {
-                await client.SendAsync(ContentMessageKind.Load, new { html, script, profile });
-                return await response.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            }
-            finally { client.MessageReceived -= OnMessage; }
         }
 
-        ValidateFrame(await Load("<!doctype html><p>Warm up the content process.</p>", ""), client);
+        var shared = freshOnly ? null : await StartWarm();
         Console.WriteLine("| Artifact | First frame ms | Working set MiB | Result |");
         Console.WriteLine("|---|---:|---:|---|");
         var measured = 0;
@@ -435,11 +439,26 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
             var directory = Path.Combine(RepoPaths.Tests, "conformance", $"D{category}");
             foreach (var path in Directory.EnumerateFiles(directory, "index.html", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
             {
-                var html = await File.ReadAllTextAsync(path);
+                var folder = Path.GetDirectoryName(path)!;
+                // A page the host must compile (JSX) is loaded from its compiled form, as the conformance run does.
+                var manifestPath = Path.Combine(folder, "manifest.json");
+                string? compiled = null;
+                if (File.Exists(manifestPath))
+                {
+                    using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath));
+                    if (manifest.RootElement.TryGetProperty("compiled", out var name)) compiled = name.GetString();
+                }
+                var html = await File.ReadAllTextAsync(compiled is null ? path : Path.Combine(folder, compiled));
                 using var document = Document.Parse(html);
                 var urls = document.QuerySelectorAll("script[src]").Select(script => script.GetAttribute("src")!).Distinct(StringComparer.Ordinal).ToArray();
-                if (urls.Length == 0) continue;
                 var id = $"D{category}/{Path.GetFileName(Path.GetDirectoryName(path))}";
+                if (urls.Length == 0)
+                {
+                    if (compiled is null) continue;
+                    Console.WriteLine($"| {id} | — | — | Compiled page references no pinned library |");
+                    unqualified++;
+                    continue;
+                }
                 if (urls.Any(url => !cache.ContainsKey(url)))
                 {
                     Console.WriteLine($"| {id} | — | — | Unavailable in the pinned cache |");
@@ -464,37 +483,113 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                 var phaser = libraries.Contains("phaser.min.js", StringComparer.Ordinal);
                 if (phaser) checks = checks.Append("document.querySelector('canvas[data-scene-ready=true]') !== null");
                 var probe = string.Join(" && ", checks);
-                var start = Stopwatch.GetTimestamp();
-                var frame = await Load(html, probe);
-                var elapsed = Stopwatch.GetElapsedTime(start);
-                client.Process.Refresh();
-                var workingSet = client.Process.WorkingSet64;
-                if (profile && frame.Payload.TryGetProperty("timings", out var timings))
-                    Console.WriteLine($"PROFILE {id}: {timings}");
-                measured++;
+                var chart = libraries.Contains("chart.umd.min.js", StringComparer.Ordinal);
+                void Validate(ContentMessage message, ContentProcessClient from)
+                {
+                    ValidateFrame(message, from, chart, diagram);
+                    if (message.Payload.GetProperty("value").GetString() != "true")
+                        throw new InvalidDataException("A pinned library did not initialize or produce its expected output.");
+                    if (chart && message.Payload.GetProperty("canvasCommands").GetInt32() == 0)
+                        throw new InvalidDataException("The chart did not create a canvas surface.");
+                    if (phaser && message.Payload.GetProperty("canvasCommands").GetInt32() == 0)
+                        throw new InvalidDataException("The Phaser scene did not create a canvas surface.");
+                }
+                static string Cell(string text) => text.Replace('|', '/').Replace('\r', ' ').Replace('\n', ' ');
+                ContentProcessClient? owned = null;
                 try
                 {
-                    var chart = libraries.Contains("chart.umd.min.js", StringComparer.Ordinal);
-                    ValidateFrame(frame, client, chart, diagram);
-                    if (frame.Payload.GetProperty("value").GetString() != "true")
-                        throw new InvalidDataException("A pinned library did not initialize or produce its expected output.");
-                    if (chart && frame.Payload.GetProperty("canvasCommands").GetInt32() == 0)
-                        throw new InvalidDataException("The chart did not create a canvas surface.");
-                    if (phaser && frame.Payload.GetProperty("canvasCommands").GetInt32() == 0)
-                        throw new InvalidDataException("The Phaser scene did not create a canvas surface.");
-                    var within = elapsed <= TargetWarmFirstPaint && workingSet <= TargetWorkingSet;
-                    if (!within) failed++;
-                    Console.WriteLine(FormattableString.Invariant($"| {id} | {elapsed.TotalMilliseconds:F1} | {workingSet / (1024.0 * 1024):F1} | {(within ? "Pass" : "Over budget")} |"));
+                    long start;
+                    ContentProcessClient client;
+                    ContentMessage frame;
+                    TimeSpan elapsed;
+                    long workingSet;
+                    string? freshError = null;
+                    try
+                    {
+                        // The shared process idles while the previous artifact's fresh process runs; a trivial load wakes it so
+                        // the timed load below is warm, as in --shared-process.
+                        if (shared is not null && !sharedOnly) await LoadOn(shared, WarmUpPage, "", false);
+                        if (shared is null) owned = await StartWarm();
+                        client = shared ?? owned!;
+                        start = Stopwatch.GetTimestamp();
+                        frame = await LoadOn(client, html, probe, profile);
+                        elapsed = Stopwatch.GetElapsedTime(start);
+                        if (shared is not null && !sharedOnly)
+                        {
+                            owned = await StartWarm();
+                            var freshFrame = await LoadOn(owned, html, probe, false);
+                            try { Validate(freshFrame, owned); }
+                            catch (InvalidDataException error) { freshError = error.Message; }
+                        }
+                        var memory = owned ?? client;
+                        memory.Process.Refresh();
+                        workingSet = memory.Process.WorkingSet64;
+                        if (shared is not null && owned is not null) { await owned.DisposeAsync(); owned = null; }
+                    }
+                    catch (Exception error) when (error is TimeoutException or IOException or OperationCanceledException or InvalidOperationException or ObjectDisposedException)
+                    {
+                        // The content host died or hung on this artifact: report it and carry on with a new shared process.
+                        measured++;
+                        failed++;
+                        Console.WriteLine($"| {id} | — | — | Content host failed: {error.GetType().Name} |");
+                        if (owned is not null) { await owned.DisposeAsync(); owned = null; }
+                        if (shared is not null)
+                        {
+                            try { await shared.DisposeAsync(); shared = null; shared = await StartWarm(); }
+                            catch (Exception restart) when (restart is not InvalidDataException)
+                            {
+                                throw new InvalidOperationException($"Could not restart the shared content process after {id} failed: {restart.Message}", restart);
+                            }
+                        }
+                        continue;
+                    }
+                    measured++;
+                    if (freshError is not null)
+                    {
+                        failed++;
+                        Console.WriteLine($"| {id} | — | — | Fresh process: {Cell(freshError)} |");
+                        continue;
+                    }
+                    if (profile && frame.Payload.TryGetProperty("timings", out var timings))
+                        Console.WriteLine($"PROFILE {id}: {timings}");
+                    try
+                    {
+                        Validate(frame, client);
+                        var within = elapsed <= TargetWarmFirstPaint && workingSet <= TargetWorkingSet;
+                        if (!within) failed++;
+                        Console.WriteLine(FormattableString.Invariant($"| {id} | {elapsed.TotalMilliseconds:F1} | {workingSet / (1024.0 * 1024):F1} | {(within ? "Pass" : "Over budget")} |"));
+                    }
+                    catch (InvalidDataException error)
+                    {
+                        failed++;
+                        Console.WriteLine($"| {id} | — | — | {Cell(error.Message)} |");
+                    }
                 }
-                catch (InvalidDataException error)
-                {
-                    failed++;
-                    Console.WriteLine($"| {id} | — | — | {error.Message.Replace('|', '/').Replace('\r', ' ').Replace('\n', ' ')} |");
-                }
+                finally { if (owned is not null) await owned.DisposeAsync(); }
             }
         }
+        if (shared is not null) await shared.DisposeAsync();
         Console.WriteLine($"Measured {measured} pinned-library artifacts. Failures: {failed}. Unqualified: {unqualified}.");
         return measured > 0 && failed == 0 && unqualified == 0 ? 0 : 1;
+    }
+
+    private const string WarmUpPage = "<!doctype html><p>Warm up the content process.</p>";
+
+    private static async Task<ContentMessage> LoadOn(ContentProcessClient client, string html, string script, bool profile)
+    {
+        var response = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask OnMessage(ContentMessage message, CancellationToken cancellationToken)
+        {
+            if (IsLoadResponse(message)) response.TrySetResult(message);
+            return ValueTask.CompletedTask;
+        }
+        client.MessageReceived += OnMessage;
+        try
+        {
+            await client.SendAsync(ContentMessageKind.Load, new { html, script, profile });
+            return await response.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        }
+        finally { client.MessageReceived -= OnMessage; }
     }
 
     private static void ValidateFrame(ContentMessage message, ContentProcessClient client, bool allowChartBridge = false, bool allowDiagramBridge = false)
