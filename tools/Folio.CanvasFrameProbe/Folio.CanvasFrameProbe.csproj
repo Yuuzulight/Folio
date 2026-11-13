@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NativeAOT canvas frame probe: the D5/D7 canvas frame budget measured in the build a host ships, with the native
+       script engine only. The assembly is named Folio.Benchmarks so it sees Folio's and Folio.Scripting's internals.
+       Publish: dotnet publish tools/Folio.CanvasFrameProbe -c Release -r win-x64, self-contained, PublishAot=true (see the CI step "Native canvas frame budget"). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Folio.Benchmarks</AssemblyName>
+    <RootNamespace>Folio.CanvasFrameProbe</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DefineConstants>$(DefineConstants);FOLIO_AOT_PROBE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
+    <ProjectReference Include="..\..\src\Folio.Scripting\Folio.Scripting.csproj" />
+    <Compile Include="..\..\tests\Folio.RenderTests\CanvasFrameBenchmark.cs" Link="CanvasFrameBenchmark.cs" />
+    <Compile Include="..\..\tests\Folio.RenderTests\RepoPaths.cs" Link="RepoPaths.cs" />
+  </ItemGroup>
+</Project>

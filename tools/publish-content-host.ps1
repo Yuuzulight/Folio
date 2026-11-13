@@ -1,6 +1,7 @@
 param(
     [string]$Destination = 'artifacts/content-host',
-    [ValidateSet('win-x64', 'win-arm64')][string]$Runtime = 'win-x64'
+    [ValidateSet('win-x64', 'win-arm64')][string]$Runtime = 'win-x64',
+    [string]$Version
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,11 +41,15 @@ Push-Location -LiteralPath $repoRoot
 try {
     # Build separately, validate completely, then exchange directories. An incremental publish must not retain
     # framework-dependent DLLs or replace a working artifact with a partially compiled helper.
+    # Built up as an array: an `if` expression would unwrap a one-element array to a string, and splatting a string
+    # passes it one character at a time.
+    $versionArgs = @()
+    if ($Version) { $versionArgs += "-p:Version=$Version" }
     dotnet publish (Join-Path $PSScriptRoot 'Folio.ContentHost/Folio.ContentHost.csproj') `
         -c Release -r $Runtime --self-contained true -warnaserror `
         -p:FolioOracleHost=false -p:FolioAngleOracle=false -p:FolioWasmOracle=false `
         -p:PublishAot=true -p:PublishReadyToRun=false -p:PublishReadyToRunComposite=false `
-        -p:IlcTreatWarningsAsErrors=true --artifacts-path $buildDirectory -o $stageDirectory
+        -p:IlcTreatWarningsAsErrors=true --artifacts-path $buildDirectory -o $stageDirectory @versionArgs
     if ($LASTEXITCODE -ne 0) { throw 'Production native content-host publish failed.' }
 
     $executable = Join-Path $stageDirectory 'Folio.ContentHost.exe'
@@ -103,7 +108,7 @@ try {
     }
 
     $manifest = [ordered]@{
-        format = 1; runtime = $Runtime; sdk = (dotnet --version).Trim()
+        format = 1; runtime = $Runtime; version = if ($Version) { $Version } else { $null }; sdk = (dotnet --version).Trim()
         sourceCommit = (git -C $repoRoot rev-parse HEAD).Trim()
         sourceDirty = [bool](git -C $repoRoot status --porcelain --untracked-files=all)
         compilerPackages = $compilerPackages

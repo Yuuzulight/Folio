@@ -156,20 +156,27 @@ public static class DomBindings
             URLSearchParams.prototype.has = function(k) { return this._pairs.some(x => x[0] === String(k)); };
             URLSearchParams.prototype.delete = function(k) { k = String(k); this._pairs = this._pairs.filter(x => x[0] !== k); };
             URLSearchParams.prototype.toString = function() { return this._pairs.map(x => encodeURIComponent(x[0]) + '=' + encodeURIComponent(x[1])).join('&'); };
-            globalThis.Blob = function(parts, options) { this._text = Array.from(parts || []).map(String).join(''); this.type = options && options.type ? String(options.type).toLowerCase() : ''; this.size = this._text.length; };
+            const __folio_utf8 = function(value) { const text = String(value); const out = []; for (let i = 0; i < text.length; i++) { let c = text.charCodeAt(i); if (c >= 0xD800 && c <= 0xDBFF && i + 1 < text.length) { const low = text.charCodeAt(i + 1); if (low >= 0xDC00 && low <= 0xDFFF) { c = 0x10000 + ((c - 0xD800) << 10) + (low - 0xDC00); i++; } } if (c >= 0xD800 && c <= 0xDFFF) c = 0xFFFD; if (c < 0x80) out.push(c); else if (c < 0x800) out.push(0xC0 | (c >> 6), 0x80 | (c & 63)); else if (c < 0x10000) out.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63)); else out.push(0xF0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63)); } return new Uint8Array(out); };
+            const __folio_utf8_text = function(bytes) { let text = ''; for (let i = 0; i < bytes.length;) { const b = bytes[i++]; let c = b, more = 0; if (b >= 0xF0 && b < 0xF8) { c = b & 7; more = 3; } else if (b >= 0xE0) { c = b & 15; more = 2; } else if (b >= 0xC0) { c = b & 31; more = 1; } else if (b >= 0x80) { text += '�'; continue; } let ok = i + more <= bytes.length; for (let k = 0; ok && k < more; k++) { const n = bytes[i + k]; if ((n & 0xC0) !== 0x80) ok = false; else c = (c << 6) | (n & 63); } if (!ok) { text += '�'; continue; } i += more; if (c >= 0x10000) { c -= 0x10000; text += String.fromCharCode(0xD800 + (c >> 10), 0xDC00 + (c & 1023)); } else text += String.fromCharCode(c); } return text; };
+            const __folio_bytes_of = function(part) { if (part instanceof Blob) return part._bytes; if (part instanceof ArrayBuffer) return new Uint8Array(part); if (ArrayBuffer.isView(part)) return new Uint8Array(part.buffer, part.byteOffset, part.byteLength); return __folio_utf8(part); };
+            globalThis.Blob = function(parts, options) { const chunks = Array.from(parts || []).map(__folio_bytes_of); let size = 0; for (const chunk of chunks) size += chunk.length; const bytes = new Uint8Array(size); let at = 0; for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; } this._bytes = bytes; this.size = size; this.type = options && options.type ? String(options.type).toLowerCase() : ''; };
+            Object.defineProperty(Blob.prototype, '_text', { get: function() { return __folio_utf8_text(this._bytes); } });
             Blob.prototype.text = function() { return Promise.resolve(this._text); };
-            Blob.prototype.arrayBuffer = function() { const bytes = new Uint8Array(this._text.length); for (let i = 0; i < this._text.length; i++) bytes[i] = this._text.charCodeAt(i) & 255; return Promise.resolve(bytes.buffer); };
+            Blob.prototype.arrayBuffer = function() { return Promise.resolve(this._bytes.slice().buffer); };
+            Blob.prototype.slice = function(start, end, type) { const size = this.size; const clamp = function(v, d) { if (v === undefined) return d; v = Math.trunc(Number(v)) || 0; return v < 0 ? Math.max(size + v, 0) : Math.min(v, size); }; const from = clamp(start, 0), to = Math.max(clamp(end, size), from); return new Blob([this._bytes.slice(from, to)], { type: type === undefined ? '' : type }); };
             globalThis.URL = function(value, base) { const raw = String(value); const match = /^(?:(\w+):\/\/([^\/]+))?([^?#]*)(\?[^#]*)?(#.*)?$/.exec(raw); const result = {}; result.protocol = match && match[1] ? match[1] + ':' : ''; result.host = match && match[2] ? match[2] : ''; result.origin = result.protocol && result.host ? result.protocol + '//' + result.host : ''; result.pathname = match && match[3] ? match[3] : '/'; result.search = match && match[4] ? match[4] : ''; result.hash = match && match[5] ? match[5] : ''; result.href = result.origin + result.pathname + result.search + result.hash; result.searchParams = new URLSearchParams(result.search); return result; };
             URL.createObjectURL = function(blob) { return __folio_blob_store.create(blob && blob._text); };
             URL.revokeObjectURL = function(url) { __folio_blob_store.revoke(url); };
             globalThis.Option = function(text, value, defaultSelected, selected) { const option = document.createElement('option'); option.text = text === undefined ? '' : String(text); if (value !== undefined) option.value = String(value); if (defaultSelected) option.defaultSelected = true; if (selected) option.selected = true; return option; };
             globalThis.btoa = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const bytes = String(value); let out = ''; for (let i = 0; i < bytes.length; i += 3) { const a = bytes.charCodeAt(i), b = i + 1 < bytes.length ? bytes.charCodeAt(i + 1) : 0, c = i + 2 < bytes.length ? bytes.charCodeAt(i + 2) : 0; out += alphabet[a >> 2] + alphabet[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? alphabet[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? alphabet[c & 63] : '='); } return out; };
             globalThis.atob = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const input = String(value).replace(/=+$/, ''); let out = ''; for (let i = 0; i < input.length; i += 4) { const a = alphabet.indexOf(input[i]), b = alphabet.indexOf(input[i + 1]), c = alphabet.indexOf(input[i + 2]), d = alphabet.indexOf(input[i + 3]); out += String.fromCharCode((a << 2) | (b >> 4)); if (c >= 0) out += String.fromCharCode(((b & 15) << 4) | (c >> 2)); if (d >= 0) out += String.fromCharCode(((c & 3) << 6) | d); } return out; };
-            globalThis.crypto = { getRandomValues: function(array) { for (let i = 0; i < array.length; i++) array[i] = Math.floor(Math.random() * 256); return array; } };
+            globalThis.crypto = { getRandomValues: function(array) { if (!array || !ArrayBuffer.isView(array) || array instanceof Float32Array || array instanceof Float64Array) throw new TypeError('Expected an integer typed array.'); const out = new Uint8Array(array.buffer, array.byteOffset, array.byteLength); if (out.length > 65536) throw new DOMException('The requested random buffer is too large.', 'QuotaExceededError'); const random = __folio_random.bytes(out.length); for (let i = 0; i < out.length; i++) out[i] = random[i]; return array; } };
             globalThis.TextEncoder = function() {};
-            TextEncoder.prototype.encode = function(value) { const text = String(value); const bytes = new Uint8Array(text.length); for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 255; return bytes; };
+            TextEncoder.prototype.encoding = 'utf-8';
+            TextEncoder.prototype.encode = function(value) { return __folio_utf8(value === undefined ? '' : value); };
             globalThis.TextDecoder = function() {};
-            TextDecoder.prototype.decode = function(value) { let text = ''; for (let i = 0; i < value.length; i++) text += String.fromCharCode(value[i]); return text; };
+            TextDecoder.prototype.encoding = 'utf-8';
+            TextDecoder.prototype.decode = function(value) { if (value === undefined) return ''; return __folio_utf8_text(value instanceof ArrayBuffer ? new Uint8Array(value) : ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : value); };
             globalThis.console = globalThis.console || {};
             for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
         ";
@@ -354,6 +361,15 @@ public static class DomBindings
             })
             .DefineMethod("revoke", (_, _, args) => { if (args.Length > 0) blobSources.TryRemove(args[0].AsString() ?? "", out _); return ScriptValue.Undefined; });
         engine.SetGlobalProperty("__folio_blob_store", engine.CreateHostObject(blobStore, context));
+        // crypto.getRandomValues must come from the operating system's generator, never from Math.random.
+        var random = new HostObjectTemplate("SecureRandom")
+            .DefineMethod("bytes", (_, _, args) =>
+            {
+                var length = args.Length > 0 ? (int)Math.Clamp(args[0].AsNumber(), 0, 65536) : 0;
+                var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(length);
+                return engine.CreateArray(bytes.Select(value => ScriptValue.FromNumber(value)).ToArray());
+            });
+        engine.SetGlobalProperty("__folio_random", engine.CreateHostObject(random, context));
         // localStorage is artifact-scoped persistence, not process-local scratch state.
         // Keep the storage backend behind a host object so the page never receives the
         // trusted IArtifactStorage implementation itself.
