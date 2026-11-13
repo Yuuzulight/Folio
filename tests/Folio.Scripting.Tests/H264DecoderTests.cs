@@ -339,6 +339,80 @@ public sealed class H264DecoderTests
         }
     }
 
+    private static byte[] RawSps(int log2Frame = 0, int pocType = 2, int pocLsb = 0, int w = 0, int h = 0, int[]? crop = null)
+    {
+        var b = new H264BitWriter().U(8, 66).U(8, 0).U(8, 10).Ue(0).Ue(log2Frame).Ue(pocType);
+        if (pocType == 0) b.Ue(pocLsb);
+        b.Ue(1).U(1, 0).Ue(w).Ue(h).U(1, 1).U(1, 1);
+        if (crop != null) { b.U(1, 1); foreach (var c in crop) b.Ue(c); } else b.U(1, 0);
+        return H264BitWriter.Nal(3, 7, b.U(1, 0).Finish());
+    }
+
+    [Fact]
+    public void ExpGolombValuesAtTheTypeLimitAreRejectedInEveryParameterSetField()
+    {
+        const int max = int.MaxValue;   // the largest value ue(v) can return
+        var samples = OneMbSamples(out _, out _, out _);
+        byte[][] sets =
+        [
+            RawSps(log2Frame: max), RawSps(pocType: 0, pocLsb: max), RawSps(w: max), RawSps(h: max),
+            RawSps(crop: [max, 0, 0, 0]), RawSps(crop: [0, max, 0, 0]), RawSps(crop: [0, 0, max, 0]), RawSps(crop: [0, 0, 0, max]),
+            RawSps(crop: [max, max, 0, 0]),
+        ];
+        foreach (var sps in sets)
+        {
+            var decoder = new H264Decoder { RethrowUnexpected = true };
+            Assert.Empty(decoder.Decode(H264BitWriter.Concat(sps, Pps(), PcmIdr(samples))));
+            Assert.True(decoder.NalUnitsDropped >= 1);
+            Assert.Equal(0, decoder.UnexpectedErrors);
+        }
+        // PPS num_ref_idx_l0_default_active_minus1.
+        var pps = H264BitWriter.Nal(3, 8, new H264BitWriter().Ue(0).Ue(0).U(1, 0).U(1, 0).Ue(0).Ue(max).Ue(0).U(1, 0).U(2, 0)
+            .Se(0).Se(0).Se(0).U(1, 1).U(1, 0).U(1, 0).Finish());
+        var d2 = new H264Decoder { RethrowUnexpected = true };
+        Assert.Empty(d2.Decode(H264BitWriter.Concat(Sps(1, 1), pps, PcmIdr(samples))));
+        Assert.True(d2.NalUnitsDropped >= 1);
+        // Slice num_ref_idx_l0_active_minus1 override.
+        var d3 = new H264Decoder { RethrowUnexpected = true };
+        var badP = new H264BitWriter().Ue(0).Ue(5).Ue(0).U(4, 1).U(1, 1).Ue(max).Finish();
+        var frames = d3.Decode(H264BitWriter.Concat(Sps(1, 1), Pps(), PcmIdr(samples), H264BitWriter.Nal(2, 1, badP)));
+        Assert.Single(frames);
+        Assert.True(d3.NalUnitsDropped >= 1);
+        Assert.Equal(0, d3.UnexpectedErrors);
+    }
+
+    [Fact]
+    public void ThousandsOfTinySlicesAreBoundedByThePerCallBudgets()
+    {
+        var samples = OneMbSamples(out _, out _, out _);
+        // Each P slice is a separate one-macroblock picture; reference pictures advance frame_num, non-reference ones jump it.
+        var nals = new List<byte[]> { Sps(1, 1), Pps(), PcmIdr(samples) };
+        for (var i = 0; i < 5000; i++)
+        {
+            var frameNum = i % 2 == 0 ? (i / 2 + 1) % 16 : (i * 7 + 5) % 16;
+            var w = new H264BitWriter().Ue(0).Ue(5).Ue(0).U(4, frameNum).U(1, 0).U(1, 0);
+            if (i % 2 == 0) w.U(1, 0);
+            nals.Add(H264BitWriter.Nal(i % 2 == 0 ? 2 : 0, 1, w.Se(0).Ue(1).Ue(1).Finish()));
+        }
+        var stream = H264BitWriter.Concat([.. nals]);
+
+        var capped = new H264Decoder(new H264DecoderLimits { MaxFramesPerCall = 32 }) { RethrowUnexpected = true };
+        Assert.True(capped.Decode(stream).Count <= 32);
+        Assert.Equal(1, capped.BudgetStops);
+
+        var worked = new H264Decoder(new H264DecoderLimits { MaxFramesPerCall = int.MaxValue, MaxOutputBytesPerCall = long.MaxValue, MaxWorkMacroblocksPerCall = 1000 }) { RethrowUnexpected = true };
+        Assert.True(worked.Decode(stream).Count <= 1000);
+        Assert.Equal(1, worked.BudgetStops);
+
+        var bytes = new H264Decoder(new H264DecoderLimits { MaxFramesPerCall = int.MaxValue, MaxOutputBytesPerCall = 384 * 10 }) { RethrowUnexpected = true };
+        Assert.True(bytes.Decode(stream).Count <= 10);
+        Assert.Equal(1, bytes.BudgetStops);
+        Assert.Equal(0, capped.UnexpectedErrors + worked.UnexpectedErrors + bytes.UnexpectedErrors);
+
+        // The decoder is still usable after a stop.
+        Assert.Single(capped.Decode(H264BitWriter.Concat(Sps(1, 1), Pps(), PcmIdr(samples))));
+    }
+
     [Fact]
     public void VlcTablesAreCompleteAndPrefixFree()
     {
@@ -374,23 +448,34 @@ public sealed class H264DecoderTests
         Assert.SkipWhen(string.IsNullOrEmpty(root) || !Directory.Exists(root), "FOLIO_H264_CONFORMANCE_DIR is not set");
         string[] streamExt = [".264", ".jsv", ".h264", ".avc", ".26l", ".bit", ".jvt"];
         string[] yuvExt = [".yuv", ".qcif", ".cif"];
-        // Out of scope: CVSE3/HCMP1 use B slices; HCBP2/MR4/MR5 decode every picture correctly but output in POC order,
-        // while this decoder emits pictures in decoding order (equal for the RTP use case).
-        string[] outOfScope = ["CVSE3_Sony_H", "HCBP2_HHI_A", "HCMP1_HHI_A", "MR4_TANDBERG_C", "MR5_TANDBERG_C"];
-        var ran = 0;
-        foreach (var dir in Directory.GetDirectories(root!))
+        // The 32 AVCv1 vectors this decoder reproduces bit-exactly (Constrained Baseline, frame coding).
+        // Out of scope: CVSE3/HCMP1 use B slices; HCBP2/MR4/MR5 decode every picture correctly but expect output in POC
+        // order, while this decoder emits pictures in decoding order (identical for the RTP use case).
+        string[] pinned =
+        [
+            "BA1_FT_C", "BA1_Sony_D", "BA2_Sony_F", "BAMQ1_JVC_C",
+            "BAMQ2_JVC_C", "BANM_MW_D", "BASQP1_Sony_C", "BA_MW_D",
+            "CI_MW_D", "CVPCMNL1_SVA_C", "CVPCMNL2_SVA_C", "CVSE2_Sony_B",
+            "LS_SVA_D", "MIDR_MW_D", "MPS_MW_A", "MR1_BT_A",
+            "MR1_MW_A", "MR2_MW_A", "MR2_TANDBERG_E", "MR3_TANDBERG_B",
+            "NL1_Sony_D", "NL2_Sony_H", "NLMQ1_JVC_C", "NLMQ2_JVC_C",
+            "NRF_MW_E", "SVA_BA1_B", "SVA_BA2_D", "SVA_Base_B",
+            "SVA_CL1_E", "SVA_FM1_E", "SVA_NL1_B", "SVA_NL2_E",
+        ];
+        var limits = new H264DecoderLimits { MaxFramesPerCall = int.MaxValue, MaxOutputBytesPerCall = long.MaxValue, MaxWorkMacroblocksPerCall = long.MaxValue, MaxInputBytes = int.MaxValue };
+        var missing = pinned.Where(n => !Directory.Exists(Path.Combine(root!, n))).ToArray();
+        Assert.True(missing.Length == 0, "missing conformance vectors: " + string.Join(", ", missing));
+        foreach (var name in pinned)
         {
-            if (outOfScope.Contains(Path.GetFileName(dir))) continue;
+            var dir = Path.Combine(root!, name);
             var stream = Directory.GetFiles(dir).FirstOrDefault(f => streamExt.Contains(Path.GetExtension(f).ToLowerInvariant()));
             var yuv = Directory.GetFiles(dir).FirstOrDefault(f => yuvExt.Contains(Path.GetExtension(f).ToLowerInvariant()));
-            if (stream == null || yuv == null) continue;
-            var frames = new H264Decoder { RethrowUnexpected = true }.Decode(File.ReadAllBytes(stream));
-            var expected = File.ReadAllBytes(yuv);
+            Assert.True(stream != null && yuv != null, name + ": stream or reference yuv missing");
+            var frames = new H264Decoder(limits) { RethrowUnexpected = true }.Decode(File.ReadAllBytes(stream!));
             using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
             foreach (var f in frames) { md5.AppendData(f.Y); md5.AppendData(f.U); md5.AppendData(f.V); }
-            Assert.True(Convert.ToHexStringLower(md5.GetHashAndReset()) == Convert.ToHexStringLower(MD5.HashData(expected)), Path.GetFileName(dir));
-            ran++;
+            Assert.True(Convert.ToHexStringLower(md5.GetHashAndReset()) == Convert.ToHexStringLower(MD5.HashData(File.ReadAllBytes(yuv!))), name);
         }
-        Assert.True(ran > 0);
+        Assert.Equal(32, pinned.Length);
     }
 }

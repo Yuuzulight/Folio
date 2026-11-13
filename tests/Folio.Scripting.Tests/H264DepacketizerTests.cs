@@ -89,6 +89,18 @@ public sealed class H264DepacketizerTests
     }
 
     [Fact]
+    public void LostFirstPacketOfTheNextAccessUnitDropsIt()
+    {
+        var units = H264DecoderTests.AccessUnits(H264Fixtures.CroppedSlices());
+        var packets = Packetize(units, 1200, false);
+        var firstOfThird = packets.First(p => p.Ts == 90000 + 6000 * 2);
+        var d = new H264Depacketizer();
+        var access = Run(packets.Where(p => p != firstOfThird), d);
+        Assert.Equal(units.Count - 1, access.Count);
+        Assert.Equal(1, d.DroppedAccessUnits);
+    }
+
+    [Fact]
     public void MissingMarkerIsRecoveredByTheNextTimestamp()
     {
         var packets = Packetize(H264DecoderTests.AccessUnits(H264Fixtures.QcifLife())[..3], 1200, true);

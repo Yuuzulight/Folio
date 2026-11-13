@@ -6,6 +6,8 @@ namespace Folio.Scripting.Rtc;
 /// when the marker bit arrives or when the next timestamp starts. An access unit that lost a packet (a sequence number
 /// gap, or a fragment sequence that does not complete) is dropped whole, never passed on half-built. STAP-B, MTAP and
 /// FU-B (mode 2 interleaving, never negotiated here) are ignored. Malformed packets are dropped; nothing throws.
+/// Not thread-safe: use one instance per RTP stream (one SSRC), fed in arrival order and already deduplicated;
+/// reordering shows up as loss.
 /// </summary>
 internal sealed class H264Depacketizer
 {
@@ -29,10 +31,11 @@ internal sealed class H264Depacketizer
     /// <summary>Feeds one RTP payload (the bytes after the RTP header). Completed access units are appended to <paramref name="output"/>.</summary>
     internal void Push(ReadOnlySpan<byte> payload, ushort sequenceNumber, uint timestamp, bool marker, List<byte[]> output)
     {
-        // A gap while a picture is being assembled damages it. If the gap also straddles a timestamp change the lost packets
-        // may be the head of the new picture, so that one is damaged too. A gap between complete pictures is left to the
-        // decoder (it sees the frame_num gap).
-        var gap = _haveSequence && sequenceNumber != _nextSequence && _haveTimestamp;
+        // Any sequence gap damages the picture it touches. A gap while a picture is being assembled damages it; a gap seen
+        // when the next picture is expected to begin (after a marker, or across a timestamp change) may have swallowed
+        // that picture's first packets, so the new picture is treated as damaged too. This can drop one intact picture
+        // after a wholly lost one; the decoder would be predicting from a missing reference then anyway.
+        var gap = _haveSequence && sequenceNumber != _nextSequence;
         if (gap) MarkLoss();
         _haveSequence = true;
         _nextSequence = (ushort)(sequenceNumber + 1);

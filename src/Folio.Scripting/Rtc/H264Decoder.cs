@@ -14,7 +14,10 @@ internal interface IVideoFrameDecoder
     IReadOnlyList<DecodedVideoFrame> Decode(ReadOnlySpan<byte> annexB);
 }
 
-/// <summary>Resource limits for one decoder; the host derives these from its per-document media budget.</summary>
+/// <summary>
+/// Resource limits for one decoder; the host derives these from its per-document media budget. They are host policy that
+/// bounds memory and work, not an H.264 level conformance check: a stream within them may still exceed its declared level.
+/// </summary>
 internal sealed record H264DecoderLimits
 {
     /// <summary>Largest accepted picture in macroblocks (8160 is 1920x1088).</summary>
@@ -27,6 +30,18 @@ internal sealed record H264DecoderLimits
     internal int MaxInputBytes { get; init; } = 4 << 20;
 
     internal int MaxNalUnitsPerCall { get; init; } = 4096;
+
+    /// <summary>Most frames one Decode call may return; the call stops early (like the NAL cap) once reached.</summary>
+    internal int MaxFramesPerCall { get; init; } = 32;
+
+    /// <summary>Most decoded-frame bytes one Decode call may return.</summary>
+    internal long MaxOutputBytesPerCall { get; init; } = 64L << 20;
+
+    /// <summary>
+    /// Macroblock-work budget per Decode call: every started picture, decoded or skipped macroblock and every inserted
+    /// frame_num-gap frame is charged in macroblocks. The call stops early when it is exhausted.
+    /// </summary>
+    internal long MaxWorkMacroblocksPerCall { get; init; } = 200_000;
 }
 
 /// <summary>
@@ -34,6 +49,9 @@ internal sealed record H264DecoderLimits
 /// one slice group, multiple slices per picture, multiple reference frames with list modification and the sliding-window
 /// and adaptive (MMCO) reference marking. CABAC, B slices, interlace, FMO/ASO, weighted prediction and the High
 /// profiles are rejected: the affected NAL units are dropped and the decoder keeps running.
+/// <para>Not thread-safe: use one instance per video stream and call it from one thread at a time. Each
+/// <see cref="Decode"/> call must carry whole access units (the depacketizer emits exactly that): the picture in progress is
+/// completed at the end of every call, so splitting one picture's slices across calls yields duplicate pictures.</para>
 /// </summary>
 internal sealed partial class H264Decoder : IVideoFrameDecoder
 {
@@ -97,11 +115,21 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
     internal int PicturesDecoded { get; private set; }
     internal int NalUnitsDropped { get; private set; }
 
+    /// <summary>Times the catch-all in <see cref="Decode"/> fired and reset the decoder: each one is a decoder bug, never bad input.</summary>
+    internal int UnexpectedErrors { get; private set; }
+
+    /// <summary>Decode calls cut short by a per-call budget.</summary>
+    internal int BudgetStops { get; private set; }
+
+    private sealed class BudgetExceeded : Exception;
+    private long _work, _outputBytes;
+
     internal H264Decoder(H264DecoderLimits? limits = null) => _limits = limits ?? new H264DecoderLimits();
 
     public IReadOnlyList<DecodedVideoFrame> Decode(ReadOnlySpan<byte> annexB)
     {
         _output.Clear();
+        _work = _outputBytes = 0;
         if (annexB.Length == 0 || annexB.Length > _limits.MaxInputBytes) return [];
         try
         {
@@ -118,6 +146,7 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
                     if (++nals > _limits.MaxNalUnitsPerCall) break;
                     try { HandleNal(annexB.Slice(start, end - start)); }
                     catch (H264Exception) { NalUnitsDropped++; }
+                    catch (BudgetExceeded) { BudgetStops++; AbandonPicture(); return _output.ToArray(); }
                 }
                 pos = next;
                 prefix = nextPrefix;
@@ -127,9 +156,23 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
         catch (Exception e) when (!RethrowUnexpected && e is not OutOfMemoryException)
         {
             // Defence in depth: a decoder bug must not take the host down. Drop all state and wait for the next IDR.
+            UnexpectedErrors++;
             Reset();
         }
         return _output.ToArray();
+    }
+
+    private void Charge(long macroblocks)
+    {
+        _work += macroblocks;
+        if (_work > _limits.MaxWorkMacroblocksPerCall) throw new BudgetExceeded();
+    }
+
+    private void AbandonPicture()
+    {
+        if (_cur != null) Release(_cur);
+        _cur = null;
+        _curHeader = _lastHeader = null;
     }
 
     /// <summary>Drops reference state; decoding resumes at the next IDR picture.</summary>
@@ -176,6 +219,10 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
         }
     }
 
+    /// <summary>Rejects an Exp-Golomb value above <paramref name="max"/> before any arithmetic can overflow.</summary>
+    private static int Bounded(int value, int max, string name) =>
+        value > max ? throw new H264Exception(name + " out of range") : value;
+
     private static byte[] Unescape(ReadOnlySpan<byte> src, out int length)
     {
         var dst = new byte[src.Length];
@@ -207,15 +254,12 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
         _spsTable[id] = null;
         if (profile is not (66 or 77 or 88)) throw new H264Exception("unsupported profile " + profile);
         var s = new Sps { Id = id, Profile = profile, Level = level, Raw = raw };
-        var log2Frame = br.Ue() + 4;
-        if (log2Frame > 16) throw new H264Exception("log2_max_frame_num");
-        s.Log2MaxFrameNum = log2Frame;
+        s.Log2MaxFrameNum = Bounded(br.Ue(), 12, "log2_max_frame_num_minus4") + 4;
         s.PocType = br.Ue();
         if (s.PocType > 2) throw new H264Exception("poc type");
         if (s.PocType == 0)
         {
-            s.Log2MaxPocLsb = br.Ue() + 4;
-            if (s.Log2MaxPocLsb > 16) throw new H264Exception("log2_max_poc_lsb");
+            s.Log2MaxPocLsb = Bounded(br.Ue(), 12, "log2_max_pic_order_cnt_lsb_minus4") + 4;
         }
         else if (s.PocType == 1)
         {
@@ -228,16 +272,16 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
         s.MaxRefFrames = br.Ue();
         if (s.MaxRefFrames > 16) throw new H264Exception("max_num_ref_frames");
         s.GapsAllowed = br.U1() == 1;
-        var w = br.Ue() + 1;
-        var h = br.Ue() + 1;
-        if (w > 1024 || h > 1024 || (long)w * h > _limits.MaxMacroblocks) throw new H264Exception("picture too large");
+        var w = Bounded(br.Ue(), 1023, "pic_width_in_mbs_minus1") + 1;
+        var h = Bounded(br.Ue(), 1023, "pic_height_in_map_units_minus1") + 1;
+        if ((long)w * h > _limits.MaxMacroblocks) throw new H264Exception("picture too large");
         s.MbW = w; s.MbH = h;
         if (br.U1() == 0) throw new H264Exception("interlaced coding is not supported");
         br.U1();   // direct_8x8_inference_flag
         if (br.U1() == 1)
         {
             s.CropL = br.Ue(); s.CropR = br.Ue(); s.CropT = br.Ue(); s.CropB = br.Ue();
-            if ((long)(s.CropL + s.CropR) * 2 >= w * 16L || (long)(s.CropT + s.CropB) * 2 >= h * 16L) throw new H264Exception("crop");
+            if (((long)s.CropL + s.CropR) * 2 >= w * 16L || ((long)s.CropT + s.CropB) * 2 >= h * 16L) throw new H264Exception("crop");
         }
         // VUI is not needed: Constrained Baseline output order equals decoding order.
         var frameBytes = (long)w * h * 384;
@@ -257,9 +301,8 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
         if (br.U1() == 1) throw new H264Exception("CABAC is not supported");
         p.BottomFieldPicOrder = br.U1() == 1;
         if (br.Ue() != 0) throw new H264Exception("slice groups (FMO) are not supported");
-        p.NumRefIdxDefault = br.Ue() + 1;
+        p.NumRefIdxDefault = Bounded(br.Ue(), 31, "num_ref_idx_l0_default_active_minus1") + 1;
         br.Ue();
-        if (p.NumRefIdxDefault > 32) throw new H264Exception("num_ref_idx_default");
         if (br.U1() == 1) throw new H264Exception("weighted prediction is not supported");
         br.U(2);
         var qp = 26 + br.Se();
@@ -331,8 +374,7 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
         {
             if (br.U1() == 1)
             {
-                h.NumRefIdx = br.Ue() + 1;
-                if (h.NumRefIdx > 16) throw new H264Exception("num_ref_idx_active");
+                h.NumRefIdx = Bounded(br.Ue(), 15, "num_ref_idx_l0_active_minus1") + 1;
             }
             if (br.U1() == 1)
             {
@@ -410,6 +452,9 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
             HandleFrameNumGap(h);
         }
         _pps = pps;
+        var frameBytes = (long)_mbCount * 384;
+        if (_output.Count + 1 > _limits.MaxFramesPerCall || _outputBytes + frameBytes > _limits.MaxOutputBytesPerCall) throw new BudgetExceeded();
+        Charge(_mbCount);
         _cur = AcquirePicture();
         _cur.FrameNum = h.FrameNum;
         _cur.ShortTerm = _cur.LongTerm = _cur.NonExisting = false;
@@ -455,6 +500,7 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
         var template = LatestShortTerm();
         while (expected != h.FrameNum)
         {
+            Charge(_mbCount);
             var p = AcquirePicture();
             p.FrameNum = expected;
             p.NonExisting = true;
@@ -529,7 +575,7 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
                 {
                     case 1:
                         {
-                            var pic = FindShort(frameNum - (m.A + 1));
+                            var pic = m.A < sps.MaxFrameNum ? FindShort(frameNum - (m.A + 1)) : null;
                             if (pic != null) Remove(pic);
                             break;
                         }
@@ -541,7 +587,7 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
                         }
                     case 3:
                         {
-                            var pic = FindShort(frameNum - (m.A + 1));
+                            var pic = m.A < sps.MaxFrameNum ? FindShort(frameNum - (m.A + 1)) : null;
                             if (pic == null || m.B > _maxLongTermIdx) break;
                             var holder = _dpb.Find(p => p.LongTerm && p.LongTermIdx == m.B);
                             if (holder != null) Remove(holder);
@@ -621,8 +667,8 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
             Picture? target;
             if (idc < 2)
             {
+                if (value >= max) throw new H264Exception("abs_diff_pic_num");
                 var diff = value + 1;
-                if (diff > max) throw new H264Exception("abs_diff_pic_num");
                 int noWrap;
                 if (idc == 0) { noWrap = picNumPred - diff; if (noWrap < 0) noWrap += max; }
                 else { noWrap = picNumPred + diff; if (noWrap >= max) noWrap -= max; }
@@ -687,5 +733,6 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
             Buffer.BlockCopy(p.V, src, v, r * cw, cw);
         }
         _output.Add(new DecodedVideoFrame(w, hgt, y, u, v));
+        _outputBytes += y.Length + u.Length + v.Length;
     }
 }

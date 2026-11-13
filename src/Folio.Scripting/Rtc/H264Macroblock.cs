@@ -95,6 +95,7 @@ internal sealed partial class H264Decoder
 
     private void BeginMb(int mb)
     {
+        Charge(1);
         _sliceOf[mb] = _curSlice;
         _mbX = mb % _mbW;
         _mbY = mb / _mbW;
