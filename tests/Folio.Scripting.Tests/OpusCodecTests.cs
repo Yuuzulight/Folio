@@ -8,7 +8,7 @@ public sealed class OpusCodecTests
 {
     // ---- RFC 8251 test vectors (opus-codec.org/testvectors/opus_testvectors.tar.gz), truncated ----
 
-    private static IEnumerable<(byte[] Packet, uint FinalRange)> ReadBitFile(byte[] file)
+    internal static IEnumerable<(byte[] Packet, uint FinalRange)> ReadBitFile(byte[] file)
     {
         var pos = 0;
         while (pos + 8 <= file.Length)
@@ -21,7 +21,7 @@ public sealed class OpusCodecTests
         }
     }
 
-    private static Dictionary<string, byte[]> LoadVectors()
+    internal static Dictionary<string, byte[]> LoadVectors()
     {
         var assembly = typeof(OpusCodecTests).Assembly;
         var name = assembly.GetManifestResourceNames().Single(n => n.EndsWith("OpusVectors.zip", StringComparison.Ordinal));
@@ -86,7 +86,7 @@ public sealed class OpusCodecTests
     public void CompleteOfficialVectorsWhenAvailable()
     {
         var dir = Environment.GetEnvironmentVariable("FOLIO_OPUS_VECTORS");
-        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+        Assert.SkipWhen(string.IsNullOrEmpty(dir) || !Directory.Exists(dir), "FOLIO_OPUS_VECTORS is not set: the complete RFC 8251 vectors were not run");
         for (var v = 1; v <= 12; v++)
         {
             var (_, mismatches, snr, _, _, _) = RunVector(File.ReadAllBytes(Path.Combine(dir, $"testvector{v:00}.bit")), File.ReadAllBytes(Path.Combine(dir, $"testvector{v:00}.dec")));
@@ -196,7 +196,7 @@ public sealed class OpusCodecTests
         var rnd = new Random(1234);
         var decoder = new OpusDecoder(2);
         var pcm = new float[5760 * 2];
-        var before = GC.GetTotalMemory(true);
+        var seededOutputs = new List<float>();
         var decoded = 0;
         for (var i = 0; i < 6000; i++)
         {
@@ -204,9 +204,11 @@ public sealed class OpusCodecTests
             rnd.NextBytes(packet);
             if (i % 3 == 0) packet[0] = (byte)(packet[0] & 0xFC | (i % 4)); // exercise every frame-count code
             var result = decoder.Decode(packet, pcm, 5760);
+            Assert.NotEqual(0, result);
             if (result > 0)
             {
                 decoded++;
+                seededOutputs.Add(pcm[0]); seededOutputs.Add(pcm[result * 2 - 1]);
                 Assert.All(pcm.AsSpan(0, result * 2).ToArray(), s => Assert.True(float.IsFinite(s)));
             }
             else Assert.True(result < 0);
@@ -220,10 +222,29 @@ public sealed class OpusCodecTests
                 rnd.NextBytes(packet);
                 packet[0] = (byte)toc;
                 var result = decoder.Decode(packet, pcm, 5760);
-                Assert.True(result is > 0 or < 0);
+                Assert.NotEqual(0, result);
             }
-        var grown = GC.GetTotalMemory(true) - before;
-        Assert.True(grown < 4_000_000, $"decoder state grew by {grown} bytes");
+        // the whole hostile run is deterministic: a second decoder fed the same bytes produces the same samples
+        var replay = new OpusDecoder(2);
+        var rnd2 = new Random(1234);
+        var replayed = new List<float>();
+        for (var i = 0; i < 6000; i++)
+        {
+            var packet = new byte[rnd2.Next(1, 400)];
+            rnd2.NextBytes(packet);
+            if (i % 3 == 0) packet[0] = (byte)(packet[0] & 0xFC | (i % 4));
+            var result = replay.Decode(packet, pcm, 5760);
+            if (result > 0) { replayed.Add(pcm[0]); replayed.Add(pcm[result * 2 - 1]); }
+        }
+        Assert.Equal(seededOutputs, replayed);
+        // and Reset() removes every trace of it: the decoder then behaves exactly like a new one
+        decoder.Reset();
+        var fresh = new OpusDecoder(2);
+        var probe = new byte[] { 0xFC, 0x21, 0x43, 0x65, 0x87, 0xA9, 0xCB, 0xED, 0x0F, 0x11, 0x22, 0x33 };
+        var a1 = new float[960 * 2]; var a2 = new float[960 * 2];
+        Assert.Equal(fresh.Decode(probe, a1, 960), decoder.Decode(probe, a2, 960));
+        Assert.Equal(a1, a2);
+        Assert.Equal(fresh.FinalRange, decoder.FinalRange);
         // the decoder keeps working afterwards
         Assert.True(decoder.Decode([0xF8, 0xFF, 0xFF], pcm, 960) > 0);
     }
@@ -244,7 +265,7 @@ public sealed class OpusCodecTests
                 var r = decoder.Decode(bad, pcm, 5760);
                 if (r > 0) Assert.All(pcm.AsSpan(0, r * 2).ToArray(), s => Assert.True(float.IsFinite(s) && Math.Abs(s) < 64));
                 r = decoder.Decode(packet.AsSpan(0, Math.Max(1, packet.Length / 2)), pcm, 5760); // truncated
-                Assert.True(r is > 0 or < 0);
+                Assert.NotEqual(0, r);
             }
         }
     }

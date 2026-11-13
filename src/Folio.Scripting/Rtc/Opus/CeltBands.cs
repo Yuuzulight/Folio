@@ -727,7 +727,15 @@ internal static class CeltBands
                 b = Math.Max(0, Math.Min(16383, Math.Min(remainingBits + 1, pulses[i] + currBalance)));
             }
             else b = 0;
-            if (resynth && (m * Celt.EBands[i] - n >= m * Celt.EBands[start] ) && (updateLowband || lowbandOffset == 0)) lowbandOffset = i;
+            if (resynth && (m * Celt.EBands[i] - n >= m * Celt.EBands[start] || i == start + 1) && (updateLowband || lowbandOffset == 0)) lowbandOffset = i;
+            if (i == start + 1)
+            {
+                // special hybrid folding (the 2017 decoder update, RFC 8251)
+                var n1 = m * (Celt.EBands[start + 1] - Celt.EBands[start]);
+                var n2 = m * (Celt.EBands[start + 2] - Celt.EBands[start + 1]);
+                norm.Slice(2 * n1 - n2, n2 - n1).CopyTo(norm.Slice(n1));
+                if (dualStereo) norm2.Slice(2 * n1 - n2, n2 - n1).CopyTo(norm2.Slice(n1));
+            }
             var tfChange = tfRes[i];
             ctx.TfChange = tfChange;
             // like the reference, the not yet coded tail of X doubles as scratch for folding (never used by the last band)

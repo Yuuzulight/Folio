@@ -106,6 +106,9 @@ internal sealed class RtcMediaEngine : IDisposable
         public Section Section = null!;
         public RtcCodec Codec = null!;
         public OpusDecoder? Opus;
+        public int LastOpusSamples = 960;
+        public double OpusCreditMs = OpusBurstMs;
+        public long OpusCreditStamp;
         public bool Started;
         public ushort BaseSeq;
         public long MaxExt, Next;
@@ -337,8 +340,10 @@ internal sealed class RtcMediaEngine : IDisposable
         var now = _time.GetTimestamp();
         foreach (var stream in _streams.Values)
         {
+            var opusDecoded = 0;
             while (stream.Buffer.Count > 0)
             {
+                if (stream.Codec.IsOpus && opusDecoded >= MaxOpusPacketsPerDrain) break; // bounded work per lock hold; the rest drains on the next call
                 var first = stream.Buffer.First();
                 long gap = 0;
                 if (first.Key != stream.Next)
@@ -351,7 +356,7 @@ internal sealed class RtcMediaEngine : IDisposable
                 stream.Buffer.Remove(first.Key);
                 stream.Next = first.Key + 1;
                 var payload = first.Value.Payload;
-                if (stream.Codec.IsOpus) { DrainOpus(stream, payload, (int)Math.Min(gap, MaxConcealedFrames), frames); continue; }
+                if (stream.Codec.IsOpus) { opusDecoded++; DrainOpus(stream, payload, (int)Math.Min(gap, MaxConcealedFrames), frames, now); continue; }
                 var samples = new float[payload.Length];
                 var alaw = stream.Codec.Name == "PCMA";
                 for (var i = 0; i < payload.Length; i++) samples[i] = (alaw ? G711.DecodeALaw(payload[i]) : G711.DecodeMuLaw(payload[i])) / 32768f;
@@ -361,26 +366,46 @@ internal sealed class RtcMediaEngine : IDisposable
         }
     }
 
-    internal const int MaxConcealedFrames = 6;
+    /// <summary>Most frames concealed for one gap, whatever its length: a long gap is silence, not an invitation to decode for it.</summary>
+    internal const int MaxConcealedFrames = 3;
+    /// <summary>Opus packets decoded per stream in one pass under the engine lock.</summary>
+    internal const int MaxOpusPacketsPerDrain = 16;
+    /// <summary>Decoded (and concealed) audio allowed per stream: 1.25 times real time, with a burst that covers a full jitter buffer.</summary>
+    internal const double OpusAudioMsPerSecond = 1250, OpusBurstMs = 1500;
 
     /// <summary>
     /// Decodes one Opus packet. When packets were lost before it, the gap is concealed frame by frame, and the last lost frame is
     /// recovered from this packet's in-band redundancy when it has any (RFC 6716 section 2.1.7).
     /// </summary>
-    private void DrainOpus(RecvStream stream, byte[] payload, int lostFrames, List<(RtcRemoteTrack, MediaAudioFrame)> frames)
+    private void DrainOpus(RecvStream stream, byte[] payload, int lostFrames, List<(RtcRemoteTrack, MediaAudioFrame)> frames, long now)
     {
         var track = stream.Section.Track!;
         try
         {
             var samples = OpusPacket.GetNbSamples(payload);
             if (samples <= 0 || samples > 5760) { track.PacketsDropped++; return; }
+            // lost audio is assumed to last as long as the packet before the gap; never more than 120 ms in total
+            var lostSamples = Math.Clamp(stream.LastOpusSamples, 120, 5760);
+            lostFrames = Math.Min(lostFrames, 5760 / lostSamples);
+            // CPU ceiling: decoded and concealed audio per stream is limited to 1.25 times real time
+            var elapsedMs = stream.OpusCreditStamp == 0 ? 0 : _time.GetElapsedTime(stream.OpusCreditStamp, now).TotalMilliseconds;
+            stream.OpusCreditStamp = now == 0 ? 1 : now;
+            stream.OpusCreditMs = Math.Min(OpusBurstMs, stream.OpusCreditMs + elapsedMs * OpusAudioMsPerSecond / 1000.0);
+            var cost = (samples + (double)lostFrames * lostSamples) / 48.0;
+            if (cost > stream.OpusCreditMs)
+            {
+                lostFrames = 0;
+                cost = samples / 48.0;
+                if (cost > stream.OpusCreditMs) { track.PacketsDropped++; return; }
+            }
+            stream.OpusCreditMs -= cost;
             var decoder = stream.Opus ??= new OpusDecoder(stream.Section.OpusChannels);
             var channels = decoder.Channels;
-            const int lostSamples = 960;
             for (var i = 0; i < lostFrames; i++)
             {
                 var pcm = new float[lostSamples * channels];
-                var n = i == lostFrames - 1 && OpusPacket.GetSamplesPerFrame(payload[0]) <= lostSamples
+                // in-band redundancy only describes a frame of the packet's own duration
+                var n = i == lostFrames - 1 && OpusPacket.GetSamplesPerFrame(payload[0]) == lostSamples
                     ? decoder.Decode(payload, pcm, lostSamples, fec: true)
                     : decoder.Decode(default, pcm, lostSamples);
                 if (n > 0) { track.FramesDelivered++; frames.Add((track, new MediaAudioFrame(48000, channels, pcm.AsSpan(0, n * channels).ToArray()))); }
@@ -388,6 +413,7 @@ internal sealed class RtcMediaEngine : IDisposable
             var output = new float[samples * channels];
             var decoded = decoder.Decode(payload, output, samples);
             if (decoded <= 0) { track.PacketsDropped++; decoder.Reset(); return; }
+            stream.LastOpusSamples = decoded;
             track.FramesDelivered++;
             frames.Add((track, new MediaAudioFrame(48000, channels, decoded == samples ? output : output.AsSpan(0, decoded * channels).ToArray())));
         }

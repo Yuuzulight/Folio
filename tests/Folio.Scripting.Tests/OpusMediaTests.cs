@@ -178,4 +178,107 @@ public sealed class OpusMediaTests
         Assert.Single(tracks);
         Assert.True(frames <= 200);
     }
+
+    // ---- CPU ceiling and durations ----
+
+    private sealed class RawStream
+    {
+        public readonly ManualTime Time = new();
+        public readonly RtcMediaEngine Engine;
+        public readonly List<MediaAudioFrame> Frames = [];
+        public RtcRemoteTrack Track = null!;
+        private readonly SrtpTransport _tx;
+
+        public RawStream()
+        {
+            var ka = RandomNumberGenerator.GetBytes(16); var sa = RandomNumberGenerator.GetBytes(12);
+            var kb = RandomNumberGenerator.GetBytes(16); var sb = RandomNumberGenerator.GetBytes(12);
+            _tx = new SrtpTransport(ka, sa, kb, sb);
+            Engine = new RtcMediaEngine(Time);
+            Engine.SetSrtp(new SrtpTransport(kb, sb, ka, sa));
+            Engine.OnRemoteTrack += t => { Track = t; t.AudioFrame += Frames.Add; };
+            Engine.Apply(null, RtcSdp.Parse(ChromeLikeOffer));
+            Engine.Apply(RtcSdp.Parse(OpusAnswer("minptime=10")), null);
+        }
+
+        public void Send(ushort seq, byte[] opusPacket)
+        {
+            var rtp = new byte[12 + opusPacket.Length];
+            rtp[0] = 0x80; rtp[1] = 111; rtp[2] = (byte)(seq >> 8); rtp[3] = (byte)seq; rtp[11] = 5;
+            opusPacket.CopyTo(rtp, 12);
+            Engine.ProcessDatagram(_tx.ProtectRtp(rtp));
+        }
+    }
+
+    private static List<byte[]> LongestRunWithSameDuration(int samples)
+    {
+        var best = new List<byte[]>();
+        foreach (var (name, bytes) in OpusCodecTests.LoadVectors().Where(e => e.Key.EndsWith(".bit")))
+        {
+            var run = new List<byte[]>();
+            foreach (var (packet, _) in OpusCodecTests.ReadBitFile(bytes))
+            {
+                if (packet.Length > 1 && OpusPacket.GetNbSamples(packet) == samples && (run.Count == 0 || OpusPacket.GetMode(packet[0]) == OpusPacket.GetMode(run[0][0]))) run.Add(packet);
+                else { if (run.Count > best.Count) best = run; run = []; }
+            }
+            if (run.Count > best.Count) best = run;
+        }
+        return best;
+    }
+
+    [Theory]
+    [InlineData(480)]
+    [InlineData(960)]
+    [InlineData(2880)]
+    public void ConcealmentFollowsThePacketDurationAndKeepsTheTimeline(int samples)
+    {
+        var run = LongestRunWithSameDuration(samples);
+        Assert.True(run.Count >= 8, $"fixtures hold no run of {samples} sample packets");
+        var stream = new RawStream();
+        ushort seq = 0;
+        for (var i = 0; i < 5; i++) stream.Send(seq++, run[i]);
+        seq++; // packet 5 is lost
+        for (var i = 6; i < 8; i++) stream.Send(seq++, run[i]);
+        stream.Time.Advance(100); stream.Engine.Tick();
+        Assert.Equal(1, stream.Track.PacketsLost);
+        var total = stream.Frames.Sum(f => f.Samples.Length);
+        Assert.Equal(8 * samples, total); // seven packets plus one concealed packet of the same length
+        Assert.Contains(stream.Frames, f => f.Samples.Length == samples);
+        Assert.All(stream.Frames, f => Assert.All(f.Samples.ToArray(), s => Assert.True(float.IsFinite(s))));
+    }
+
+    [Fact]
+    public void DecodedAudioPerStreamIsCappedAtAFewTimesRealTime()
+    {
+        var run = LongestRunWithSameDuration(960);
+        var stream = new RawStream();
+        // 400 packets (8 s of audio) arriving in the same instant: only the burst allowance may be decoded
+        for (var i = 0; i < 400; i++) stream.Send((ushort)i, run[i % run.Count]);
+        var decodedMs = stream.Frames.Sum(f => f.Samples.Length) / 48.0;
+        Assert.InRange(decodedMs, 1000, RtcMediaEngine.OpusBurstMs + 40);
+        Assert.True(stream.Track.PacketsDropped >= 400 - 80);
+        // as time passes the allowance refills at the stated rate
+        var before = stream.Frames.Count;
+        stream.Time.Advance(1000);
+        stream.Send(400, run[0]);
+        Assert.True(stream.Frames.Count > before);
+    }
+
+    [Fact]
+    public void ABurstBehindAHoleIsDecodedInBoundedStepsAndConcealmentIsBounded()
+    {
+        var run = LongestRunWithSameDuration(960);
+        var stream = new RawStream();
+        stream.Send(0, run[0]);
+        stream.Send(1, run[1]);
+        // packet 2 is lost together with a long stretch; 40 later packets pile up behind the hole
+        for (var i = 0; i < 40; i++) stream.Send((ushort)(500 + i), run[2 + i % (run.Count - 2)]);
+        var delivered = stream.Frames.Count;
+        stream.Time.Advance(100);
+        stream.Engine.Tick();
+        // one pass decodes at most MaxOpusPacketsPerDrain packets and MaxConcealedFrames concealed frames for the gap
+        Assert.InRange(stream.Frames.Count - delivered, 1, RtcMediaEngine.MaxOpusPacketsPerDrain + RtcMediaEngine.MaxConcealedFrames);
+        for (var i = 0; i < 4; i++) { stream.Time.Advance(100); stream.Engine.Tick(); }
+        Assert.True(stream.Frames.Count - delivered > RtcMediaEngine.MaxOpusPacketsPerDrain, "the rest drains on later passes");
+    }
 }
