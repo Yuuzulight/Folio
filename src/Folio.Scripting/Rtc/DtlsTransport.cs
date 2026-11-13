@@ -744,25 +744,25 @@ internal sealed class DtlsTransport : IDisposable
         _handshakeReader = new DtlsRecordCipher(IsClient ? serverWriteKey : clientWriteKey, IsClient ? serverWriteIv : clientWriteIv);
 
         // RFC 5764 DTLS-SRTP Key Exporter:
-        // Extract 2 * (16 + 14) = 60 bytes of key material
+        // SRTP_AEAD_AES_128_GCM (RFC 7714): 2 * (16 byte key + 12 byte salt) = 56 bytes: client key, server key, client salt, server salt
         var srtpSeed = new byte[64];
         (IsClient ? _localRandom : _remoteRandom!).CopyTo(srtpSeed.AsSpan(0, 32));
         (IsClient ? _remoteRandom! : _localRandom).CopyTo(srtpSeed.AsSpan(32, 32));
-        var srtpBlock = Prf(_masterSecret, "EXTRACTOR-dtls_srtp"u8, srtpSeed, 60);
+        var srtpBlock = Prf(_masterSecret, "EXTRACTOR-dtls_srtp"u8, srtpSeed, 56);
 
         if (IsClient)
         {
             SrtpLocalMasterKey = srtpBlock[0..16];
             SrtpRemoteMasterKey = srtpBlock[16..32];
-            SrtpLocalMasterSalt = srtpBlock[32..46];
-            SrtpRemoteMasterSalt = srtpBlock[46..60];
+            SrtpLocalMasterSalt = srtpBlock[32..44];
+            SrtpRemoteMasterSalt = srtpBlock[44..56];
         }
         else
         {
             SrtpRemoteMasterKey = srtpBlock[0..16];
             SrtpLocalMasterKey = srtpBlock[16..32];
-            SrtpRemoteMasterSalt = srtpBlock[32..46];
-            SrtpLocalMasterSalt = srtpBlock[46..60];
+            SrtpRemoteMasterSalt = srtpBlock[32..44];
+            SrtpLocalMasterSalt = srtpBlock[44..56];
         }
     }
 

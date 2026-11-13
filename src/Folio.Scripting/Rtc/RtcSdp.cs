@@ -17,6 +17,7 @@ internal sealed class RtcSdp
     public List<IceCandidate> Candidates { get; } = [];
     public List<RtcMediaDescription> Media { get; } = [];
     public List<string> BundleMids { get; } = [];
+    internal const int MaxMediaSections = 16;
 
     internal RtcMediaDescription? TransportMedia()
     {
@@ -60,12 +61,17 @@ internal sealed class RtcSdp
                 var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 3)
                 {
+                    if (result.Media.Count >= MaxMediaSections) throw new InvalidDataException("Too many media sections.");
                     currentMedia = new RtcMediaDescription
                     {
                         Kind = parts[0],
                         Port = int.TryParse(parts[1], out var p) ? p : 9,
                         Protocol = parts[2]
                     };
+                    if (parts[0] is "audio" or "video")
+                        foreach (var token in parts.Skip(3).Take(RtcMediaDescription.MaxCodecs))
+                            if (int.TryParse(token, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var pt) && pt is >= 0 and <= 127)
+                                currentMedia.PayloadTypes.Add(pt);
                     result.Media.Add(currentMedia);
                 }
             }
@@ -139,6 +145,33 @@ internal sealed class RtcSdp
                 {
                     currentMedia.Mid = attrValue;
                 }
+                else if (currentMedia is not null && attrName is "sendrecv" or "sendonly" or "recvonly" or "inactive")
+                {
+                    currentMedia.Direction = attrName;
+                }
+                else if (currentMedia is not null && attrName.Equals("rtcp-mux", StringComparison.OrdinalIgnoreCase))
+                {
+                    currentMedia.RtcpMux = true;
+                }
+                else if (currentMedia is not null && attrName.Equals("rtpmap", StringComparison.OrdinalIgnoreCase))
+                {
+                    // a=rtpmap:<pt> <name>/<clock>[/<channels>]
+                    var halves = attrValue.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                    var spec = halves.Length == 2 ? halves[1].Split('/') : [];
+                    if (halves.Length == 2 && spec.Length >= 2 &&
+                        int.TryParse(halves[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var mapped) && mapped is >= 0 and <= 127 &&
+                        int.TryParse(spec[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var clock) && clock is > 0 and <= 192000 &&
+                        currentMedia.RtpMaps.Count < RtcMediaDescription.MaxCodecs)
+                        currentMedia.RtpMaps[mapped] = new RtcCodec(mapped, spec[0].ToUpperInvariant(), clock,
+                            spec.Length > 2 && int.TryParse(spec[2], out var channels) && channels is > 0 and <= 8 ? channels : 1);
+                }
+                else if (currentMedia is not null && attrName.Equals("ssrc", StringComparison.OrdinalIgnoreCase))
+                {
+                    var id = attrValue.Split(' ', 2)[0];
+                    if (uint.TryParse(id, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var ssrc) &&
+                        !currentMedia.Ssrcs.Contains(ssrc) && currentMedia.Ssrcs.Count < RtcMediaDescription.MaxSsrcs)
+                        currentMedia.Ssrcs.Add(ssrc);
+                }
             }
         }
 
@@ -158,6 +191,7 @@ internal sealed class RtcSdp
             sb.Append("a=group:BUNDLE");
             for (var i = 0; i < Media.Count; i++)
             {
+                if (Media[i].Port == 0) continue; // rejected sections leave the group
                 var mid = Media[i].Mid ?? i.ToString();
                 sb.Append(' ').Append(mid);
             }
@@ -179,7 +213,10 @@ internal sealed class RtcSdp
             var mid = m.Mid ?? i.ToString();
             sb.Append("m=").Append(m.Kind).Append(' ').Append(m.Port).Append(' ').Append(m.Protocol);
             if (m.Kind == "application") sb.Append(" webrtc-datachannel\r\n");
+            else if (m.Codecs.Count > 0) sb.Append(' ').Append(string.Join(' ', m.Codecs.Select(codec => codec.PayloadType))).Append("\r\n");
+            else if (m.PayloadTypes.Count > 0) sb.Append(' ').Append(string.Join(' ', m.PayloadTypes)).Append("\r\n");
             else sb.Append(" 96\r\n");
+            if (m.Port == 0) continue;
 
             sb.Append("c=IN IP4 0.0.0.0\r\n");
             sb.Append("a=mid:").Append(mid).Append("\r\n");
@@ -191,8 +228,16 @@ internal sealed class RtcSdp
             }
             else
             {
-                sb.Append("a=sendrecv\r\n");
+                sb.Append("a=").Append(m.Direction).Append("\r\n");
                 sb.Append("a=rtcp-mux\r\n");
+                foreach (var codec in m.Codecs)
+                {
+                    sb.Append("a=rtpmap:").Append(codec.PayloadType).Append(' ').Append(codec.Name).Append('/').Append(codec.ClockRate);
+                    if (codec.Channels > 1) sb.Append('/').Append(codec.Channels);
+                    sb.Append("\r\n");
+                }
+                foreach (var ssrc in m.Ssrcs)
+                    sb.Append("a=ssrc:").Append(ssrc).Append(" cname:").Append(m.Cname ?? "folio").Append("\r\n");
             }
 
             var mediaUfrag = m.IceUfrag ?? IceUfrag;
@@ -228,4 +273,30 @@ internal sealed class RtcMediaDescription
     public int SctpPort { get; set; } = 5000;
     public ulong? MaximumMessageSize { get; set; }
     public List<IceCandidate> Candidates { get; } = [];
+
+    internal const int MaxCodecs = 32;
+    internal const int MaxSsrcs = 8;
+    /// <summary>a=sendrecv, sendonly, recvonly or inactive (RFC 3264); sendrecv when absent.</summary>
+    public string Direction { get; set; } = "sendrecv";
+    public bool RtcpMux { get; set; }
+    public string? Cname { get; set; }
+    /// <summary>Payload types from the m= line, in preference order.</summary>
+    public List<int> PayloadTypes { get; } = [];
+    public Dictionary<int, RtcCodec> RtpMaps { get; } = [];
+    /// <summary>Codecs to write when generating SDP.</summary>
+    public List<RtcCodec> Codecs { get; } = [];
+    public List<uint> Ssrcs { get; } = [];
+
+    /// <summary>The codec for a payload type, from a=rtpmap or the RFC 3551 static assignments Folio understands.</summary>
+    internal RtcCodec? CodecFor(int payloadType) => RtpMaps.TryGetValue(payloadType, out var mapped) ? mapped : payloadType switch
+    {
+        0 => new RtcCodec(0, "PCMU", 8000, 1),
+        8 => new RtcCodec(8, "PCMA", 8000, 1),
+        _ => null
+    };
+
+    internal bool Sends => Direction is "sendrecv" or "sendonly";
+    internal bool Receives => Direction is "sendrecv" or "recvonly";
 }
+
+internal sealed record RtcCodec(int PayloadType, string Name, int ClockRate, int Channels);
