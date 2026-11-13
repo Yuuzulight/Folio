@@ -53,6 +53,7 @@ internal sealed class IceAgent : IDisposable
     internal TimeSpan TurnRetryBackoff { get; set; } = TimeSpan.FromSeconds(1);
     internal IReadOnlyList<string> TurnSkipReasons { get { lock (_gate) return _turnSkipReasons.ToArray(); } }
     private readonly List<string> _turnSkipReasons = [];
+    internal int LocalPort => _localPort;
     internal bool IsReceivePumpAlive => _receiveThread?.IsAlive == true;
 
     public IReadOnlyList<IceCandidate> LocalCandidates { get { lock (_gate) return _localCandidates.ToArray(); } }
@@ -72,7 +73,7 @@ internal sealed class IceAgent : IDisposable
         lock (_gate)
         {
             if (_disposed) return false;
-            if (GatheringState != "new") return _iceServers.SequenceEqual(servers, StringComparer.OrdinalIgnoreCase);
+            if (GatheringState != "new") return _iceServers.SequenceEqual(servers, ServerEntryComparer.Instance);
             _iceServers = servers;
             return true;
         }
@@ -99,6 +100,20 @@ internal sealed class IceAgent : IDisposable
     /// <summary>Appends TURN credentials to an ICE server URL for <see cref="TrySetIceServers"/> (kept out of any logging).</summary>
     internal static string WithCredentials(string url, string username, string credential) =>
         $"{url}{CredentialSeparator}{username}{CredentialSeparator}{credential}";
+
+    /// <summary>URL part case-insensitive; TURN username and credential compared exactly.</summary>
+    internal sealed class ServerEntryComparer : IEqualityComparer<string>
+    {
+        internal static readonly ServerEntryComparer Instance = new();
+        public bool Equals(string? x, string? y)
+        {
+            if (x is null || y is null) return x is null && y is null;
+            var (ux, uy) = (UrlOf(x), UrlOf(y));
+            return string.Equals(ux, uy, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(x[ux.Length..], y[uy.Length..], StringComparison.Ordinal);
+        }
+        public int GetHashCode(string value) => StringComparer.OrdinalIgnoreCase.GetHashCode(UrlOf(value));
+    }
 
     internal static string UrlOf(string entry)
     {
@@ -306,6 +321,14 @@ internal sealed class IceAgent : IDisposable
             var ipv4 = (await Dns.GetHostAddressesAsync(host, deadline.Token).ConfigureAwait(false))
                 .FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
             if (ipv4 is null) return;
+            // The host policy allowlists a name or literal. A name that resolves to a loopback/private/reserved
+            // address (rebinding, misconfiguration) is refused; only an allowlisted IP literal may be non-public,
+            // which is also the only case where relaying toward non-public peers is permitted.
+            if (TurnClient.IsNonPublic(ipv4) && !IPAddress.TryParse(host, out _))
+            {
+                lock (_gate) _turnSkipReasons.Add($"turn:{host}: resolved to a non-public address");
+                return;
+            }
             var server = new IPEndPoint(ipv4, port);
             client = new TurnClient(server, username, credential, packet =>
             {

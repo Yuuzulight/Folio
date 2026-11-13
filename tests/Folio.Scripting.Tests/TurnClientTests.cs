@@ -217,6 +217,12 @@ public sealed class TurnClientTests
                     catch (error) { return error.name; }
                 })()
                 """).AsString());
+            Assert.Equal("NotSupportedError", engine.Evaluate("""
+                (function(){
+                    try { new RTCPeerConnection({iceServers:[{urls:permitted,username:'a\u0001b',credential:'c'}]}); }
+                    catch (error) { return error.name; }
+                })()
+                """).AsString());
             allowed.Client.ReceiveTimeout = 5000;
             engine.Evaluate("var peer=new RTCPeerConnection({iceServers:[{urls:permitted,username:'u',credential:'c'}]});peer.createDataChannel('x');peer.createOffer();");
             engine.PerformMicrotaskCheckpoint();
@@ -260,6 +266,136 @@ public sealed class TurnClientTests
         Assert.Equal(backward, await atA.Task);
     }
 
+    private static async Task<(IceAgent Agent, Socket Peer, TaskCompletionSource<byte[]> Received)> ConnectThroughRelayAsync(FakeTurnServer server)
+    {
+        var agent = Agent(server);
+        agent.RelayOnly = true;
+        agent.RemoteUfrag = "remote"; agent.RemotePassword = "remote-password";
+        await agent.StartGatheringAsync();
+        var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        agent.OnConnectionStateChanged += state => { if (state == "connected") connected.TrySetResult(); };
+        var received = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        agent.OnDatagramReceived += data => received.TrySetResult(data);
+        agent.AddRemoteCandidate(new IceCandidate
+        {
+            Foundation = "1", Component = 1, Protocol = "udp", Priority = 100, Type = "host",
+            Address = "127.0.0.1", Port = ((IPEndPoint)peer.LocalEndPoint!).Port
+        });
+        var buffer = new byte[2048];
+        var check = await peer.ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), TestContext.Current.CancellationToken);
+        Assert.True(StunMessage.TryParse(buffer.AsSpan(0, check.ReceivedBytes), out var request));
+        await peer.SendToAsync(StunMessage.Encode(StunMessage.BindingResponse, request.TransactionId.Span, [],
+            Encoding.UTF8.GetBytes("remote-password")), SocketFlags.None, check.RemoteEndPoint);
+        await connected.Task.WaitAsync(TimeSpan.FromSeconds(8), TestContext.Current.CancellationToken);
+        return (agent, peer, received);
+    }
+
+    [Theory]
+    [InlineData(1)] // unsigned success
+    [InlineData(2)] // success signed with the wrong key
+    public async Task UnauthenticatedAllocateSuccessNeverYieldsARelay(int signing)
+    {
+        using var server = new FakeTurnServer { AllocateSigning = signing };
+        using var agent = Agent(server);
+        await agent.StartGatheringAsync();
+        Assert.DoesNotContain(agent.LocalCandidates, c => c.Type == "relay");
+    }
+
+    [Fact]
+    public async Task RelayTrafficFromAnythingButTheTurnServerIsNotDelivered()
+    {
+        using var server = new FakeTurnServer();
+        var (agent, peer, received) = await ConnectThroughRelayAsync(server);
+        using var _ = agent; using var __ = peer;
+        var payload = new byte[] { 0x17, 1, 2, 3 };
+        await Until(() => { agent.SendDatagram(payload); return server.ChannelBinds >= 1; }); // channel 0x4000 now exists
+        using var evil = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        evil.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        var target = new IPEndPoint(IPAddress.Loopback, agent.LocalPort);
+        var forged = new byte[] { 0x17, 6, 6, 6 };
+        evil.SendTo(StunMessage.EncodeChannelData(0x4000, forged), target);
+        var txid = RandomNumberGenerator.GetBytes(12);
+        evil.SendTo(StunMessage.EncodeRequest(StunMessage.DataIndication, txid,
+            [(StunMessage.XorPeerAddress, StunMessage.EncodeXorAddress((IPEndPoint)peer.LocalEndPoint!, txid)), (StunMessage.Data, forged)], fingerprint: false), target);
+        evil.SendTo(forged, target);
+        await Task.Delay(300, TestContext.Current.CancellationToken);
+        Assert.False(received.Task.IsCompleted);
+        var genuine = new byte[] { 0x17, 9, 9, 9 };
+        await peer.SendToAsync(genuine, SocketFlags.None, server.RelayEndpoint!);
+        Assert.Equal(genuine, await received.Task.WaitAsync(TimeSpan.FromSeconds(8), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task StaleNonceLoopStopsAfterTheBoundedRetry()
+    {
+        using var server = new FakeTurnServer { AlwaysStale = true };
+        using var agent = Agent(server);
+        await agent.StartGatheringAsync();
+        Assert.DoesNotContain(agent.LocalCandidates, c => c.Type == "relay");
+        await Task.Delay(500, TestContext.Current.CancellationToken);
+        Assert.Equal(3, server.Allocates); // challenge, credentialed, one 438 retry
+    }
+
+    [Fact]
+    public async Task CredentialsContainingTheSeparatorAreRejected()
+    {
+        using var server = new FakeTurnServer();
+        var url = $"turn:127.0.0.1:{server.Endpoint.Port}";
+        Assert.False(IceAgent.TryParseTurnServer(IceAgent.WithCredentials(url, "us\u0001er", "pass"), out _, out _, out _, out _, out _));
+        using var agent = new IceAgent([IceAgent.WithCredentials(url, "us\u0001er", "pass")]) { TurnRequestTimeout = Fast };
+        await agent.StartGatheringAsync();
+        Assert.Equal(0, server.TotalRequests);
+    }
+
+    [Fact]
+    public void ServerEntriesCompareCredentialsCaseSensitively()
+    {
+        var comparer = IceAgent.ServerEntryComparer.Instance;
+        Assert.True(comparer.Equals(IceAgent.WithCredentials("turn:Relay.example", "u", "Pw"), IceAgent.WithCredentials("TURN:relay.EXAMPLE", "u", "Pw")));
+        Assert.False(comparer.Equals(IceAgent.WithCredentials("turn:relay.example", "u", "Pw"), IceAgent.WithCredentials("turn:relay.example", "u", "pw")));
+        Assert.False(comparer.Equals(IceAgent.WithCredentials("turn:relay.example", "U", "pw"), IceAgent.WithCredentials("turn:relay.example", "u", "pw")));
+    }
+
+    [Fact]
+    public async Task FloodOfRemoteCandidatesStaysWithinThePermissionCap()
+    {
+        using var server = new FakeTurnServer();
+        using var agent = Agent(server);
+        await agent.StartGatheringAsync();
+        for (var i = 0; i < 300; i++)
+            agent.AddRemoteCandidate(new IceCandidate
+            {
+                Foundation = "f", Component = 1, Protocol = "udp", Priority = 100, Type = "host",
+                Address = $"20.{i / 250}.{i % 250}.7", Port = 9
+            });
+        await Until(() => server.PermissionRequests >= 8);
+        await Task.Delay(1000, TestContext.Current.CancellationToken);
+        Assert.InRange(server.PermissionRequests, 8, 64);
+        Assert.InRange(server.PermittedCount, 8, 64);
+    }
+
+    [Fact]
+    public async Task HostnameResolvingToLoopbackIsRejectedButALiteralIsAllowed()
+    {
+        using var server = new FakeTurnServer();
+        using var byName = new IceAgent([IceAgent.WithCredentials($"turn:localhost:{server.Endpoint.Port}", "user", "pass")])
+        { TurnRequestTimeout = Fast };
+        await byName.StartGatheringAsync();
+        Assert.DoesNotContain(byName.LocalCandidates, c => c.Type == "relay");
+        Assert.Equal(0, server.TotalRequests);
+        // An allowlisted IP literal is an explicit opt-in to a non-public server.
+        using var literal = Agent(server);
+        await literal.StartGatheringAsync();
+        Assert.Single(literal.LocalCandidates, c => c.Type == "relay");
+    }
+
+    [Theory]
+    [InlineData("192.0.0.5")] [InlineData("198.18.0.1")] [InlineData("192.0.2.1")] [InlineData("198.51.100.1")]
+    [InlineData("203.0.113.1")] [InlineData("100.64.0.1")] [InlineData("169.254.1.1")] [InlineData("10.1.2.3")] [InlineData("0.1.2.3")]
+    public void ReservedAddressesAreNonPublic(string address) => Assert.True(TurnClient.IsNonPublic(IPAddress.Parse(address)));
+
     /// <summary>In-process TURN server: long-term credentials, Allocate/Refresh/CreatePermission/ChannelBind, ChannelData relaying.</summary>
     private sealed class FakeTurnServer : IDisposable
     {
@@ -276,6 +412,9 @@ public sealed class TurnClientTests
         private const string Realm = "folio.test";
 
         public bool StaleNonceOnce { get; set; }
+        public bool AlwaysStale { get; set; }
+        /// <summary>How the Allocate success is signed: 0 = correctly, 1 = unsigned, 2 = with the wrong key.</summary>
+        public int AllocateSigning { get; set; }
         public uint Lifetime { get; set; } = 600;
         public IPEndPoint Endpoint { get; }
         public IPEndPoint? RelayEndpoint => _relay?.LocalEndPoint as IPEndPoint;
@@ -283,6 +422,7 @@ public sealed class TurnClientTests
         public int AuthenticatedAllocates => Volatile.Read(ref _authenticatedAllocates);
         public int AuthFailures => Volatile.Read(ref _authFailures);
         public int Refreshes => Volatile.Read(ref _refreshes);
+        public int PermittedCount { get { lock (_gate) return _permitted.Count; } }
         public int PermissionRequests => Volatile.Read(ref _permissionRequests);
         public int ChannelBinds => Volatile.Read(ref _channelBinds);
         public int ChannelDataFromClient => Volatile.Read(ref _channelDataFromClient);
@@ -371,7 +511,7 @@ public sealed class TurnClientTests
                     (StunMessage.Realm, Encoding.UTF8.GetBytes(Realm)), (StunMessage.Nonce, Encoding.UTF8.GetBytes(_nonce))], null);
                 return;
             }
-            if (StaleNonceOnce || !message.TryText(StunMessage.Nonce, 763, out var nonce) || nonce != _nonce)
+            if (StaleNonceOnce || AlwaysStale || !message.TryText(StunMessage.Nonce, 763, out var nonce) || nonce != _nonce)
             {
                 StaleNonceOnce = false;
                 _nonce = "nonce-" + RandomNumberGenerator.GetHexString(6);
@@ -406,7 +546,7 @@ public sealed class TurnClientTests
                         (StunMessage.XorRelayedAddress, StunMessage.EncodeXorAddress(RelayEndpoint!, message.TransactionId.Span)),
                         (StunMessage.XorMappedAddress, StunMessage.EncodeXorAddress(from, message.TransactionId.Span)),
                         (StunMessage.Lifetime, lifetime)
-                    ], key);
+                    ], AllocateSigning == 0 ? key : AllocateSigning == 1 ? null : RandomNumberGenerator.GetBytes(16));
                     break;
                 case StunMessage.RefreshRequest:
                     message.TryLifetime(out var requested);

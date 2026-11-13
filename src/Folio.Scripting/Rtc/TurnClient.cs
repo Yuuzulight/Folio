@@ -30,6 +30,7 @@ internal sealed class TurnClient : IDisposable
     private readonly Dictionary<IPAddress, Task<bool>> _permissions = [];
     private readonly Dictionary<IPEndPoint, Channel> _channels = [];
     private readonly Dictionary<ushort, IPEndPoint> _byNumber = [];
+    private readonly SemaphoreSlim _permissionSlots = new(8);
     private string _realm = "", _nonce = "";
     private byte[] _key = [];
     private bool _allocated, _stopped;
@@ -77,7 +78,9 @@ internal sealed class TurnClient : IDisposable
         if (a.AddressFamily != AddressFamily.InterNetwork) return true;
         var b = a.GetAddressBytes();
         return b[0] is 0 or 10 or 127 || b[0] >= 224 || (b[0] == 169 && b[1] == 254) || (b[0] == 172 && b[1] is >= 16 and <= 31)
-            || (b[0] == 192 && b[1] == 168) || (b[0] == 100 && b[1] is >= 64 and <= 127);
+            || (b[0] == 192 && b[1] == 168) || (b[0] == 100 && b[1] is >= 64 and <= 127)
+            || (b[0] == 192 && b[1] == 0 && b[2] is 0 or 2) || (b[0] == 198 && b[1] is 18 or 19)
+            || (b[0] == 198 && b[1] == 51 && b[2] == 100) || (b[0] == 203 && b[1] == 0 && b[2] == 113);
     }
 
     private static byte[] LongTermKey(string username, string realm, string password) =>
@@ -194,7 +197,7 @@ internal sealed class TurnClient : IDisposable
                 payload.Length is > 0 and <= MaxDatagram)
             {
                 bool permitted;
-                lock (_gate) permitted = _permissions.ContainsKey(source.Address);
+                lock (_gate) permitted = _permissions.TryGetValue(source.Address, out var granted) && granted.IsCompletedSuccessfully && granted.Result;
                 if (permitted) OnPeerData?.Invoke(source, payload.ToArray());
             }
             return true;
@@ -224,7 +227,12 @@ internal sealed class TurnClient : IDisposable
         {
             if (_stopped || !_allocated || !PeerAllowed(peer)) return Task.FromResult(false);
             if (_permissions.TryGetValue(peer, out var existing) && !(existing.IsCompleted && !existing.Result)) return existing;
-            if (_permissions.Count >= MaxPermissions && !_permissions.ContainsKey(peer)) return Task.FromResult(false);
+            if (_permissions.Count >= MaxPermissions)
+            {
+                // Failed entries are evicted (and so retried on a later call); successful ones are real permissions.
+                foreach (var failed in _permissions.Where(p => p.Value.IsCompleted && !p.Value.Result).Select(p => p.Key).ToArray()) _permissions.Remove(failed);
+                if (_permissions.Count >= MaxPermissions && !_permissions.ContainsKey(peer)) return Task.FromResult(false);
+            }
             completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
             _permissions[peer] = completion.Task;
         }
@@ -233,8 +241,16 @@ internal sealed class TurnClient : IDisposable
 
         async Task CompleteAsync()
         {
-            try { completion.TrySetResult(await CreatePermissionsAsync([peer], _cts.Token).ConfigureAwait(false)); }
+            var slot = false;
+            try
+            {
+                // At most 8 CreatePermission requests in flight; the rest wait (bounded by MaxPermissions).
+                await _permissionSlots.WaitAsync(_cts.Token).ConfigureAwait(false);
+                slot = true;
+                completion.TrySetResult(await CreatePermissionsAsync([peer], _cts.Token).ConfigureAwait(false));
+            }
             catch { completion.TrySetResult(false); }
+            finally { if (slot) _permissionSlots.Release(); }
         }
     }
 
@@ -279,10 +295,21 @@ internal sealed class TurnClient : IDisposable
     {
         try
         {
-            if (!await EnsurePermissionAsync(peer.Address).ConfigureAwait(false)) return;
-            if (await SendChannelBindAsync(peer, channel, _cts.Token).ConfigureAwait(false)) lock (_gate) channel.Bound = true;
+            if (await EnsurePermissionAsync(peer.Address).ConfigureAwait(false) &&
+                await SendChannelBindAsync(peer, channel, _cts.Token).ConfigureAwait(false))
+            {
+                lock (_gate) channel.Bound = true;
+                return;
+            }
         }
         catch { }
+        // A failed bind is forgotten so the next send starts a fresh one (Send indications keep working meanwhile).
+        lock (_gate)
+        {
+            if (channel.Bound) return;
+            _channels.Remove(peer);
+            _byNumber.Remove(channel.Number);
+        }
     }
 
     private async Task<bool> SendChannelBindAsync(IPEndPoint peer, Channel channel, CancellationToken cancellation)
@@ -328,7 +355,7 @@ internal sealed class TurnClient : IDisposable
             }
             lock (_gate) _allocated = false; // the relay is gone; sends stop and the pairs time out
         }
-        catch (OperationCanceledException) { }
+        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException) { }
         finally { Volatile.Write(ref _refreshBusy, 0); }
     }
 
@@ -350,7 +377,7 @@ internal sealed class TurnClient : IDisposable
             foreach (var (peer, channel) in channels)
                 succeeded &= await SendChannelBindAsync(peer, channel, token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) { }
+        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException) { }
         finally
         {
             var delay = succeeded ? PermissionRefreshInterval : RetryBackoff;

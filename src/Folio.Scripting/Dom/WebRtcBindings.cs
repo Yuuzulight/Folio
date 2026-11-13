@@ -72,7 +72,7 @@ internal sealed class WebRtcBindingState : IDisposable
             }
             else if (!IceAgent.TryParseStunServer(endpoint, out _, out _))
                 throw WebIdlException.DomException("NotSupportedError", "Only IPv4 UDP STUN and TURN servers are supported by the document transport.");
-            if (!servers.Contains(entry, StringComparer.OrdinalIgnoreCase)) servers.Add(entry);
+            if (!servers.Contains(entry, IceAgent.ServerEntryComparer.Instance)) servers.Add(entry);
         }
         return servers.ToArray();
     }
