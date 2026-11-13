@@ -76,7 +76,7 @@ public sealed class ContentHostPolicyTests
         }, "started");
         var description = Value(await Exchange(client, new { script = "error?'ERROR:'+error:offer" }));
         Assert.StartsWith("v=0", description);
-        Assert.Contains("m=audio 9 UDP/TLS/RTP/SAVPF 0 8", description);
+        Assert.Contains("m=audio 9 UDP/TLS/RTP/SAVPF 111 0 8", description);
         Assert.Contains("a=recvonly", description);
         remote.SetRemoteDescription("offer", description!);
         var answer = await remote.CreateAnswerAsync(false, 1, 0);
