@@ -10,6 +10,16 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void BuiltInErrorsAreInstancesOfTheirConstructorsAndOfError()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("true,true,false,true", engine.Evaluate("""
+            var caught; try { throw new TypeError('x'); } catch (e) { caught = e; }
+            [caught instanceof TypeError, caught instanceof Error, caught instanceof RangeError, new Error('y') instanceof Error].join()
+            """).AsString());
+    }
+
+    [Fact]
     public void ArrayIteratorsYieldLiveValuesAndRemainExhausted()
     {
         using var engine = new NativeJavaScriptEngine();

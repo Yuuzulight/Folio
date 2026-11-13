@@ -256,7 +256,7 @@ public sealed class WebRtcTransportEventTests
                 while (blobWait.Elapsed < TimeSpan.FromSeconds(5) && !engine.Evaluate("blobReply!==null").AsBoolean())
                 { engine.PerformMicrotaskCheckpoint(); loop.RunOneTurn(); Thread.Sleep(10); }
                 // Byte-exact Blob contents wait for the document Blob to hold bytes (it is text-only today).
-                Assert.True(engine.Evaluate("blobReply instanceof Blob").AsBoolean());
+                Assert.True(engine.Evaluate("blobReply instanceof Blob && blobReply.size===3").AsBoolean());
             }
 
             // close() resets the stream, so the remote channel closes too; each side sees one close event.

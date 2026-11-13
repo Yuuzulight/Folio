@@ -1052,6 +1052,9 @@ internal sealed class JavaScriptEvaluator
             if (name == "Array") return value is IReadOnlyList<object?>;
             if (name == "Object") return value is IReadOnlyDictionary<string, object?>;
             if (name == "Function") return value is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable;
+            // Every built-in error is an Error; the specific ones also match their own constructor.
+            if (value is NativeJavaScriptEngine.NativeError error)
+                return name == "Error" || error.TryGetValue("name", out var errorName) && string.Equals(errorName as string, name, StringComparison.Ordinal);
             if (value is NativeJavaScriptEngine.INativeBuffer buffer && string.Equals(buffer.TypeName, name, StringComparison.Ordinal)) return true;
             if (value is IReadOnlyDictionary<string, object?> named
                 && named.TryGetValue("__constructor", out var constructorName)
