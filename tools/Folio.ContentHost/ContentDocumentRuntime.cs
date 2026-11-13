@@ -43,6 +43,7 @@ public sealed class ContentDocumentRuntime : IDisposable
         _engineFactory = engineFactory ?? (() => new NativeJavaScriptEngine());
     }
 
+    internal Folio.Scripting.Ipc.MediatedUdpClient? Udp { get; init; }
     public FeatureCapabilities Capabilities { get; private set; } = FeatureCapabilities.Default;
     public Document? Document => _document;
     public IScriptEngine? Engine => _engine;
@@ -196,6 +197,9 @@ public sealed class ContentDocumentRuntime : IDisposable
             var documentGeneration = _documentGeneration;
             var policy = message.Payload.TryGetProperty("hostPolicy", out var hostPolicy) ? hostPolicy : default;
             var origins = ContentHostPolicy.ReadOrigins(policy);
+            // Before the document exists, so every transport it creates carries this generation.
+            if (Udp is not null && policy.ValueKind == JsonValueKind.Object && policy.TryGetProperty("udpGeneration", out var udpGeneration)
+                && udpGeneration.ValueKind == JsonValueKind.Number && udpGeneration.TryGetInt64(out var udpGenerationValue)) Udp.Generation = udpGenerationValue;
             var generation = policy.ValueKind == JsonValueKind.Object && policy.TryGetProperty("generation", out var generationValue)
                 && generationValue.ValueKind == JsonValueKind.String ? generationValue.GetString() : null;
             var notifyNavigation = generation is { Length: 32 } && Guid.TryParseExact(generation, "N", out _)

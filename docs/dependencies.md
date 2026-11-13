@@ -183,7 +183,9 @@ loopback transport used by tests and offline artifacts. `FolioOptions.WebRtcAllo
 limits ICE server URLs, and the capability is disabled by default. Real network
 transport is intentionally host-owned: a future transport adapter can route
 packets through the host the same way resource loads are routed, without giving
-the content process direct network access.
+the content process direct network access. Stage 1 is described in
+[`webrtc-host-udp.md`](webrtc-host-udp.md): the host owns every UDP socket and the content process
+reaches the network only through it.
 
 ### Image codecs not built in-house
 
