@@ -65,6 +65,9 @@ internal sealed class WebRtcBindingState : IDisposable
                 throw WebIdlException.DomException("QuotaExceededError", "The ICE server list exceeds its size limit.");
             if (!_context.WebRtcAllowedOrigins.Any(origin => string.Equals(origin.TrimEnd('/'), endpoint, StringComparison.OrdinalIgnoreCase)))
                 throw WebIdlException.DomException("SecurityError", "The ICE server is not allowed by the host.");
+            // Credentials exist only on turn: entries; a separator anywhere in a stun: entry is a forged or confused one.
+            if (entry.Length != endpoint.Length && endpoint.StartsWith("stun", StringComparison.OrdinalIgnoreCase))
+                throw WebIdlException.DomException("SyntaxError", "STUN servers take no credentials.");
             if (IceAgent.TryParseTurnServer(entry, out _, out _, out var username, out var credential, out _))
             {
                 if (Encoding.UTF8.GetByteCount(username) > MaxTurnCredentialLength || Encoding.UTF8.GetByteCount(credential) > MaxTurnCredentialLength)

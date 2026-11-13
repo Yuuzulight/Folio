@@ -111,7 +111,8 @@ The content process has no DNS, so `IIceTransport.ResolveAsync` asks the host (`
 local resolver and behaves as before. The host answers only when the capability is on and the name is a valid DNS name
 of at most 253 characters; IP literals are never sent (the agent uses them directly). `ContentProcessClient` also
 requires the name to be the host part of an entry in `WebRtcAllowedOrigins` (`stun:` or `turn:`), so the page cannot use
-the host as a general resolver. The answer is the first IPv4 address the destination policy would accept for a `send`: a name
+the host as a general resolver. A broker created without an allowlist denies every name. The in-flight slot is held until the
+OS lookup itself returns, not merely until the child was answered with a timeout. The answer is the first IPv4 address the destination policy would accept for a `send`: a name
 that points at loopback, a private range or any other denied range (rebinding, misconfiguration) resolves to nothing, unless
 the embedder opted in to that range for sockets. A lookup that fails, times out or is refused is an answer too; the child
 never waits on silence, and a stale-generation `resolve` is answered with a refusal.
@@ -123,6 +124,12 @@ Allocate, Refresh, CreatePermission, ChannelBind, Send indication and ChannelDat
 subject to the same destination policy and quotas; the server's replies come back as ordinary datagrams. The server
 address is checked with `CanSendTo` before an allocation is attempted. Timers (retransmission, refresh) run on an injected
 `TimeProvider`.
+
+Relayed peers are outside the host's destination policy. The host sees only datagrams to the TURN server; the peer addresses
+inside XOR-PEER-ADDRESS (CreatePermission, ChannelBind, Send indications) are chosen by the page from remote SDP and are not
+checked by the broker. What a TURN server will relay to is enforced by that server. The client additionally refuses to
+request relaying to multicast, unspecified or non-public peers unless the TURN server itself is on a non-public network, but
+that is a courtesy in the child, not a host guarantee.
 
 ## Lifetimes, failure and revocation
 

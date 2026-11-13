@@ -37,7 +37,8 @@ internal sealed class TurnClient : IDisposable
     private bool _allocated, _stopped;
     private uint _lifetime = 600;
     private long _nextRefresh, _nextPermissionRefresh;
-    private int _refreshBusy, _permissionBusy;
+    private int _refreshBusy, _permissionBusy, _permissionFailures;
+    private const int MaxPermissionRefreshFailures = 4;
     private ushort _nextChannel = 0x4000;
 
     internal IPEndPoint Server { get; }
@@ -184,7 +185,10 @@ internal sealed class TurnClient : IDisposable
                 _send(packet);
                 using var delayCancel = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
                 if (await Task.WhenAny(completion.Task, Task.Delay(timeout, _clock, delayCancel.Token)).ConfigureAwait(false) == completion.Task)
+                {
+                    delayCancel.Cancel(); // the retransmission timer must not linger on the clock
                     return await completion.Task.ConfigureAwait(false);
+                }
                 delayCancel.Cancel();
                 timeout *= 2;
             }
@@ -394,8 +398,13 @@ internal sealed class TurnClient : IDisposable
         catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException) { }
         finally
         {
-            var delay = succeeded ? PermissionRefreshInterval : RetryBackoff;
-            Volatile.Write(ref _nextPermissionRefresh, _clock.GetTimestamp() + (long)(delay.TotalSeconds * _clock.TimestampFrequency));
+            // Failures back off exponentially and stop after a few: the relay is presumed gone (the allocation refresh
+            // decides that), and a server that refuses must not be asked forever.
+            var failures = succeeded ? _permissionFailures = 0 : ++_permissionFailures;
+            var next = succeeded ? _clock.GetTimestamp() + (long)(PermissionRefreshInterval.TotalSeconds * _clock.TimestampFrequency)
+                : failures >= MaxPermissionRefreshFailures ? long.MaxValue
+                : _clock.GetTimestamp() + (long)(RetryBackoff.TotalSeconds * (1 << (failures - 1)) * _clock.TimestampFrequency);
+            Volatile.Write(ref _nextPermissionRefresh, next);
             Volatile.Write(ref _permissionBusy, 0);
         }
     }

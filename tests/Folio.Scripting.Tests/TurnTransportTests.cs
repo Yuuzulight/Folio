@@ -215,9 +215,10 @@ public sealed class TurnTransportTests
     [Fact]
     public async Task AllocationGoesOnlyToTheServerThroughTheTransport()
     {
-        var (client, transport, _) = NewClient();
+        var (client, transport, clock) = NewClient();
         using var _ = client;
         Assert.True(await client.AllocateAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, clock.PendingTimers); // answered requests leave no retransmission timer behind
         Assert.Equal(RelayAddress, client.Relayed);
         var sent = transport.SentSnapshot();
         Assert.Equal(2, sent.Length); // the unauthenticated probe, then the credentialed request
@@ -287,6 +288,35 @@ public sealed class TurnTransportTests
 
         transport.Allow = false;
         Assert.False(client.SendToPeer(PeerAddress, [1, 2, 3])); // refused by the transport, reported, not thrown
+    }
+
+    [Fact]
+    public async Task PermissionRefreshBacksOffExponentiallyAndGivesUpAfterABoundedNumberOfFailures()
+    {
+        var (client, transport, clock) = NewClient();
+        using var _ = client;
+        Assert.True(await client.AllocateAsync(TestContext.Current.CancellationToken));
+        Assert.True(await client.EnsurePermissionAsync(PeerAddress.Address));
+        int Requests() => transport.SentSnapshot().Count(d => StunMessage.TryParse(d.Data, out var m) && m.Type == StunMessage.CreatePermissionRequest);
+        var baseline = Requests();
+        transport.Respond = false;
+        // Seconds to move before each round: past the 4 minute refresh, then past the 1 s, 2 s and 4 s backoffs.
+        int[] advances = [241, 2, 3, 5];
+        for (var round = 0; round < advances.Length; round++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(advances[round]));
+            var sent = baseline + 3 * round;
+            await Eventually(() => { client.Maintain(); return Requests() >= sent + 1; });
+            for (var transmission = 0; transmission < 3; transmission++)
+            {
+                await Eventually(() => clock.PendingTimers == 1 && Requests() == sent + transmission + 1);
+                clock.Advance(TimeSpan.FromMilliseconds(500 << transmission));
+            }
+        }
+        // The fourth failure was the last: no amount of time makes it ask again.
+        clock.Advance(TimeSpan.FromSeconds(100));
+        for (var i = 0; i < 2000; i++) { client.Maintain(); await Task.Yield(); }
+        Assert.Equal(baseline + 12, Requests());
     }
 
     private static IceAgent Agent(ScriptedTurnTransport transport, ManualClock clock, string url = "turn:turn.example:3478") =>
@@ -361,7 +391,7 @@ public sealed class TurnTransportTests
         public Wire(UdpBrokerOptions options, Func<string, bool>? allow = null)
         {
             Client = new MediatedUdpClient(command => Broker!.Handle(command));
-            Broker = new UdpBroker(options, () => Granted, Client.Deliver, 1, allow);
+            Broker = new UdpBroker(options, () => Granted, Client.Deliver, 1, allow ?? (_ => true));
         }
 
         public async Task<IPAddress?> Resolve(string name) =>
@@ -382,6 +412,20 @@ public sealed class TurnTransportTests
         using var wire = new Wire(Resolving(name => { asked.Enqueue(name); return Answer("8.8.8.8"); }), name => name == "turn.example");
         Assert.Equal(IPAddress.Parse("8.8.8.8"), await wire.Resolve("turn.example"));
         Assert.Equal(["turn.example"], asked);
+    }
+
+    [Fact]
+    public async Task WithoutAnAllowlistNoNameResolves()
+    {
+        var asked = 0;
+        UdpBroker? broker = null;
+        var client = new MediatedUdpClient(command => broker!.Handle(command));
+        broker = new UdpBroker(Resolving(_ => { Interlocked.Increment(ref asked); return Answer("8.8.8.8"); }), () => true, client.Deliver);
+        using var _ = broker;
+        var answer = await client.CreateTransport().ResolveAsync("turn.example", TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
+        Assert.Null(answer);
+        Assert.Equal(0, asked);
+        Assert.Equal(1, broker.Denied);
     }
 
     [Fact]
@@ -481,6 +525,35 @@ public sealed class TurnTransportTests
         Assert.False(answer.IsCompleted);
         clock.Advance(TimeSpan.FromSeconds(5));
         Assert.Null(await answer);
+    }
+
+    [Fact]
+    public async Task ALookupThatOutlivesItsTimeoutKeepsItsSlotUntilTheOsCallFinishes()
+    {
+        var clock = new ManualClock();
+        var stuck = new TaskCompletionSource<IPAddress[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        using var wire = new Wire(Resolving(_ => { Interlocked.Increment(ref calls); return calls == 1 ? stuck.Task : Answer("8.8.8.8"); }, clock)
+            with { MaxResolvesInFlight = 1, ResolveTimeout = TimeSpan.FromSeconds(5), BurstResolves = 10000 });
+        var first = wire.Resolve("hang.example");
+        await Eventually(() => clock.PendingTimers == 1);
+        clock.Advance(TimeSpan.FromSeconds(5));
+        Assert.Null(await first); // the child was answered...
+        Assert.Null(await wire.Resolve("next.example")); // ...but the slot is still taken
+        Assert.Equal(1, calls);
+        stuck.SetResult([]); // the OS call finally returns
+        IPAddress? retry = null;
+        for (var i = 0; i < 5000 && retry is null; i++) { retry = await wire.Resolve("next.example"); await Task.Yield(); }
+        Assert.NotNull(retry); // the slot came back once the OS call ended
+    }
+
+    [Fact]
+    public async Task AnyResolverExceptionStillAnswersTheChild()
+    {
+        using var wire = new Wire(Resolving(_ => throw new InvalidProgramException("boom")));
+        Assert.Null(await wire.Resolve("a.example"));
+        using var faulted = new Wire(Resolving(_ => Task.FromException<IPAddress[]>(new NullReferenceException())));
+        Assert.Null(await faulted.Resolve("b.example"));
     }
 
     [Fact]

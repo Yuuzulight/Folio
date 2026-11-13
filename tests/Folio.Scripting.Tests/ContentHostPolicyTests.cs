@@ -174,6 +174,18 @@ public sealed class ContentHostPolicyTests
     }
 
     [Fact]
+    public async Task StrayCredentialSeparatorsInStunEntriesAreRefused()
+    {
+        await using var client = Start(new FolioOptions { WebRtcAllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "stun:allowed.example", "turn:turn.example" } });
+        var response = await Exchange(client, new
+        {
+            html = "<body></body>", capabilities = Grants,
+            script = "function probe(url){try{var p=new RTCPeerConnection({iceServers:[{urls:url}]});p.close();return 'allowed';}catch(e){return e.name;}} probe('stun:allowed.example\\u0001u\\u0001p')+'|'+probe('stun:allowed.example\\u0001x')+'|'+probe('stun:allowed.example')"
+        });
+        Assert.Equal("SyntaxError|SyntaxError|allowed", Value(response));
+    }
+
+    [Fact]
     public async Task EmptyPolicyCannotBeGrantedByLoadFieldsOrPageGlobals()
     {
         await using var client = Start(new FolioOptions());

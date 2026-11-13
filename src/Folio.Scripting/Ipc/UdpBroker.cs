@@ -137,7 +137,7 @@ internal sealed class UdpBroker : IDisposable
     internal Task? SendPause;
 
     /// <param name="granted">Re-evaluated on every operation; false means the WebRTC capability is off.</param>
-    /// <param name="nameAllowed">Which DNS names the child may ask to resolve (the host's WebRTC server allowlist); null allows any valid name.</param>
+    /// <param name="nameAllowed">Which DNS names the child may ask to resolve (the host's WebRTC server allowlist); null (the default) allows no name at all.</param>
     /// <param name="emit">Delivers an event to the child. Called from one pump thread; may block. No lock is held meanwhile.</param>
     public UdpBroker(UdpBrokerOptions options, Func<bool> granted, Action<JsonElement> emit, long generation = 1, Func<string, bool>? nameAllowed = null)
     {
@@ -273,7 +273,7 @@ internal sealed class UdpBroker : IDisposable
         string? refusal = null;
         if (name is not { Length: > 0 and <= 253 } || Uri.CheckHostName(name) != UriHostNameType.Dns) { Interlocked.Increment(ref Malformed); refusal = "invalid name"; }
         else if (!_granted()) { Revoke(); Interlocked.Increment(ref Denied); refusal = "WebRTC networking is not granted"; }
-        else if (_nameAllowed is { } allowed && !allowed(name)) { Interlocked.Increment(ref Denied); refusal = "name not allowed by the host"; }
+        else if (_nameAllowed is not { } allowed || !allowed(name)) { Interlocked.Increment(ref Denied); refusal = "name not allowed by the host"; }
         else
         {
             UdpRateLimiter limiter;
@@ -294,6 +294,8 @@ internal sealed class UdpBroker : IDisposable
         _ = Task.Run(() => ResolveAsync(name!, token, generation));
     }
 
+    // The lookup slot is held until the OS call itself finishes, not merely until the child is answered: a lookup that
+    // ignores its cancellation (a blocking getaddrinfo) keeps counting against MaxResolvesInFlight.
     private async Task ResolveAsync(string name, long token, long generation)
     {
         IPEndPoint? answer = null;
@@ -301,14 +303,17 @@ internal sealed class UdpBroker : IDisposable
         try
         {
             using var timeout = new CancellationTokenSource(_options.ResolveTimeout, _options.Clock);
-            var addresses = await _options.Resolver(name, timeout.Token).WaitAsync(timeout.Token).ConfigureAwait(false);
+            Task<IPAddress[]> lookup;
+            try { lookup = _options.Resolver(name, timeout.Token); }
+            catch { lock (_gate) _resolving--; throw; }
+            _ = lookup.ContinueWith(finished => { _ = finished.Exception; lock (_gate) _resolving--; }, TaskScheduler.Default);
+            var addresses = await lookup.WaitAsync(timeout.Token).ConfigureAwait(false);
             var allowed = addresses.FirstOrDefault(a => UdpDestinationPolicy.IsAllowed(new IPEndPoint(a, 1), _options));
             if (allowed is not null) { answer = new IPEndPoint(allowed, 0); reason = null; }
             else reason = addresses.Any(a => a.AddressFamily == AddressFamily.InterNetwork) ? "the name resolves to a disallowed address" : "no IPv4 address";
         }
         catch (OperationCanceledException) { reason = "lookup timed out"; }
-        catch (Exception error) when (error is SocketException or ArgumentException or InvalidOperationException or ObjectDisposedException) { }
-        finally { lock (_gate) _resolving--; }
+        catch (Exception) { } // whatever the resolver throws, the child still gets an answer
         Enqueue(new(generation, "resolved", token, 0, reason, answer, null, false));
     }
 

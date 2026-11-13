@@ -121,17 +121,39 @@ public sealed class TurnClientTests
     [Fact]
     public async Task PermissionAndAllocationRefreshAreSentOnSchedule()
     {
+        // The schedule runs on a manual clock: nothing is due until the test moves time, and nothing sleeps.
+        var clock = new TurnTransportTests.ManualClock();
         using var server = new FakeTurnServer { Lifetime = 2 };
         using var agent = Agent(server);
+        agent.TurnClock = clock;
         agent.TurnPermissionRefreshInterval = TimeSpan.FromMilliseconds(300);
         await agent.StartGatheringAsync();
         agent.AddRemoteCandidate(new IceCandidate
         {
             Foundation = "1", Component = 1, Protocol = "udp", Priority = 100, Type = "host", Address = "127.0.0.1", Port = 9
         });
-        await Until(() => server.PermissionRequests >= 3); // the first plus at least two refreshes
-        await Until(() => server.Refreshes >= 2);          // 2 s lifetime: refreshed about every second
+        await Yield(() => server.PermissionRequests >= 1);
+        Assert.Equal(0, server.Refreshes);
+        // The maintenance tick is real (the receive loop), but only fires work the clock says is due.
+        clock.Advance(TimeSpan.FromMilliseconds(400));
+        await Yield(() => server.PermissionRequests >= 2);
+        clock.Advance(TimeSpan.FromMilliseconds(400));
+        await Yield(() => server.PermissionRequests >= 3);
+        clock.Advance(TimeSpan.FromSeconds(1)); // 2 s lifetime: due after 1 s
+        await Yield(() => server.Refreshes >= 1);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await Yield(() => server.Refreshes >= 2);
         Assert.All(server.RefreshLifetimes, lifetime => Assert.Equal(600u, lifetime));
+    }
+
+    private static async Task Yield(Func<bool> condition)
+    {
+        var deadline = Environment.TickCount64 + 20000;
+        while (!condition())
+        {
+            Assert.True(Environment.TickCount64 < deadline, "Timed out waiting for the condition.");
+            await Task.Yield();
+        }
     }
 
     [Fact]
