@@ -36,6 +36,11 @@ jobs:
 
       - run: dotnet build Folio.slnx -c Release -p:FolioOracleHost=false -p:FolioWasmOracle=false
 
+      # The production projects' package graph (direct and transitive) must hold none of the superseded packages.
+      - name: Verify production package graph excludes superseded dependencies
+        shell: pwsh
+        run: pwsh -File tools/check-production-packages.ps1
+
       # The dependency-first path is allowed during development, but the Folio-owned replacement track is a hard
       # completion gate. Keep the roadmap from regressing to the old optional-track wording.
       - name: Enforce Folio-owned replacement gate
@@ -201,10 +206,14 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: pwsh -File tools/publish-content-host.ps1
       - name: Verify production publish excludes superseded dependencies
-        if: matrix.os == 'windows-latest'
+        if: always() && matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           $publish = Join-Path $env:GITHUB_WORKSPACE 'artifacts/content-host'
+          if (-not (Test-Path -LiteralPath $publish)) {
+            Write-Error "artifacts/content-host is missing: the content host publish did not run or failed, so the dependency gate could not check anything."
+            exit 1
+          }
           $superseded = Get-ChildItem -Path $publish -File -Recurse |
             Where-Object { $_.Name -match '^(Jint|Folio\.Scripting\.Jint|Wasmtime|SkiaSharp|libSkiaSharp|HarfBuzzSharp|libHarfBuzzSharp|av_libglesv2|av_libegl|Avalonia\.Angle)(\.|$)' }
           if ($superseded) {
