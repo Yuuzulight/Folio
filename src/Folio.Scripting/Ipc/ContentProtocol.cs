@@ -34,6 +34,10 @@ public enum ContentMessageKind
     /// channel. Host-owned; the host replaces the worker a bounded number of times per content process.
     /// </summary>
     GpuRestore,
+    /// <summary>Content process to host: a host-mediated UDP command (open, send, close). Handled by the host's UdpBroker; see docs/webrtc-host-udp.md.</summary>
+    UdpCommand,
+    /// <summary>Host to content process: a host-mediated UDP event (opened, failed, datagram, closed).</summary>
+    UdpEvent,
 }
 
 public sealed record ContentMessage(ContentMessageKind Kind, long Sequence, JsonElement Payload, int Version = 1)

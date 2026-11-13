@@ -28,6 +28,11 @@ if (engineFactory is null)
 {
     _ = Task.Run(NativeJavaScriptEngine.Prime);
 }
+// The content process has no network of its own: ICE datagrams go through the host's UDP broker.
+var udp = new Folio.Scripting.Ipc.MediatedUdpClient(command =>
+    session.SendAsync(ContentMessageKind.UdpCommand, command).AsTask().GetAwaiter().GetResult());
+session.UdpEventHandler = udp.Deliver;
+Folio.Scripting.Rtc.IceTransportProvider.Factory = udp.CreateTransport;
 using var runtime = new ContentDocumentRuntime(session, frameStore, engineFactory);
 using var runtimeGate = new SemaphoreSlim(1, 1);
 using var ticking = new CancellationTokenSource();

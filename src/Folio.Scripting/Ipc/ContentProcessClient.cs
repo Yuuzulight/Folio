@@ -68,6 +68,10 @@ public sealed class ContentProcessClient : IAsyncDisposable
     // Serialises revocation notices so a host message sent after Revoke() cannot overtake one.
     private readonly SemaphoreSlim _captureRevocationGate = new(1, 1);
     private NavigationDocument? _navigationDocument;
+    private readonly object _udpGate = new();
+    private UdpBroker? _udp;
+    /// <summary>Destination policy and quotas for host-mediated UDP. Read when the first command arrives.</summary>
+    internal UdpBrokerOptions UdpOptions { get; set; } = new();
     private HashSet<string> _webRtcAllowedOrigins = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _diagramLibraryUrls = new(StringComparer.OrdinalIgnoreCase);
     private Action<Uri>? _iframeNavigationRequested;
@@ -86,6 +90,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
         _session = new ContentHostSession(output, input, supervisor, resourcePolicy, resourceLoader, mediaDecoder, mediaAudioOutput);
         _session.HostCapabilities = () => _shutdown.IsCancellationRequested ? FeatureCapabilities.Default : Volatile.Read(ref _hostCapabilities);
         _session.MessageReceived += ValidateAndDispatchAsync;
+        _session.UdpCommandHandler = HandleUdpCommand;
         if (storage is not null) _session.ConfigureStorage(storage, artifact, documentLimits.MaxServiceWorkerCacheBytes);
         _supervisor.Stopped += OnStopped;
         _job?.MonitorMemory(() => _supervisor.Stop("content process memory limit exceeded"));
@@ -203,6 +208,36 @@ public sealed class ContentProcessClient : IAsyncDisposable
     }
 
     private static string Quote(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
+    private void HandleUdpCommand(JsonElement command)
+    {
+        UdpBroker broker;
+        lock (_udpGate)
+        {
+            if (Volatile.Read(ref _disposed) != 0) return;
+            broker = _udp ??= new UdpBroker(UdpOptions,
+                () => Volatile.Read(ref _disposed) == 0 && !_shutdown.IsCancellationRequested && Volatile.Read(ref _hostCapabilities).WebRtc,
+                evt => _session.SendAsync(ContentMessageKind.UdpEvent, evt, _shutdown.Token).AsTask().GetAwaiter().GetResult());
+        }
+        broker.Handle(command);
+    }
+
+    internal int UdpOpenSockets { get { lock (_udpGate) return _udp?.OpenSockets ?? 0; } }
+    internal long UdpDenied { get { lock (_udpGate) return _udp?.Denied ?? 0; } }
+
+    private void RetireUdp(bool documentReplaced)
+    {
+        UdpBroker? broker;
+        lock (_udpGate) broker = _udp;
+        if (documentReplaced) broker?.Retire(); else broker?.Revoke();
+    }
+
+    private void DisposeUdp()
+    {
+        UdpBroker? broker;
+        lock (_udpGate) { broker = _udp; _udp = null; }
+        broker?.Dispose();
+    }
+
     private void OnProcessExited(object? sender, EventArgs args) => _supervisor.Stop("content process exited");
     private async ValueTask ValidateAndDispatchAsync(ContentMessage message, CancellationToken cancellationToken)
     {
@@ -523,6 +558,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
             && !payload.ContainsKey("html")
             && !payload.Any(entry => entry.Key.Equals("capabilities", StringComparison.OrdinalIgnoreCase))) return;
         var previous = Interlocked.Exchange(ref _hostCapabilities, capabilities);
+        if (!capabilities.WebRtc) RetireUdp(documentReplaced: false);
         Interlocked.Increment(ref _captureGeneration);
         foreach (var pair in _mediaCaptureSessions)
         {
@@ -559,6 +595,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         if (kind == ContentMessageKind.GpuRestore) throw new ArgumentException("GPU worker channels are host-owned.", nameof(kind));
+        if (kind is ContentMessageKind.UdpCommand or ContentMessageKind.UdpEvent) throw new ArgumentException("UDP traffic is owned by the host broker.", nameof(kind));
         // A provider revocation that happened before this call must reach the child first.
         await SendCaptureRevocationsAsync(_shutdown.Token).ConfigureAwait(false);
         if (kind == ContentMessageKind.Load)
@@ -571,6 +608,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
                 if (profile.ContainsKey("html"))
                 {
                     RetireNavigationDocument();
+                    RetireUdp(documentReplaced: true);
                     lock (_navigationGate) _navigationDocument = new NavigationDocument();
                     ReleaseMediaCaptureSessions();
                     if (Interlocked.Exchange(ref _hasLoadedDocument, 1) != 0) _session.StopMediaOutput();
@@ -761,6 +799,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private void OnStopped(string reason)
     {
         RetireNavigationDocument();
+        DisposeUdp();
         StopGpuWorker();
         _navigationDeliveries.Writer.TryComplete();
         // A crashed or externally terminated content process can no longer send
@@ -802,6 +841,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         RetireNavigationDocument();
+        DisposeUdp();
         _navigationDeliveries.Writer.TryComplete();
         StopGpuWorker();
         Exception? failure = null;

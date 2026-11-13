@@ -36,7 +36,8 @@ internal sealed class IceAgent : IDisposable
     private readonly List<CandidatePair> _pairs = [];
     private CandidatePair? _selectedPair;
 
-    private Socket? _socket;
+    private IIceTransport? _transport;
+    private readonly IIceTransport? _suppliedTransport;
     private int _localPort;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _gate = new();
@@ -48,8 +49,9 @@ internal sealed class IceAgent : IDisposable
 
     public IReadOnlyList<IceCandidate> LocalCandidates { get { lock (_gate) return _localCandidates.ToArray(); } }
 
-    public IceAgent(IReadOnlyList<string>? iceServers = null)
+    public IceAgent(IReadOnlyList<string>? iceServers = null, IIceTransport? transport = null)
     {
+        _suppliedTransport = transport;
         LocalUfrag = GenerateRandomString(8);
         LocalPassword = GenerateRandomString(24);
         Span<byte> tieBreakerBytes = stackalloc byte[8];
@@ -103,9 +105,12 @@ internal sealed class IceAgent : IDisposable
         }
         OnGatheringStateChanged?.Invoke("gathering");
 
-        BindSocket();
-        GatherHostCandidates();
-        await GatherServerReflexiveCandidatesAsync().ConfigureAwait(false);
+        var bound = BindSocket();
+        if (bound)
+        {
+            GatherHostCandidates();
+            await GatherServerReflexiveCandidatesAsync().ConfigureAwait(false);
+        }
 
         lock (_gate)
         {
@@ -115,19 +120,37 @@ internal sealed class IceAgent : IDisposable
             FormPairs();
         }
         OnGatheringStateChanged?.Invoke("complete");
+        if (!bound)
+        {
+            // No transport (for example the host refused a socket): nothing can ever connect.
+            lock (_gate) { if (_disposed) return; ConnectionState = "failed"; }
+            OnConnectionStateChanged?.Invoke("failed");
+            return;
+        }
         _ = CheckConnectivityAsync();
     }
 
-    private void BindSocket()
+    private bool BindSocket()
     {
         lock (_gate)
         {
-            if (_socket is not null) return;
-            _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            _socket.Bind(new IPEndPoint(IPAddress.Any, 0));
-            _localPort = ((IPEndPoint)_socket.LocalEndPoint!).Port;
+            if (_transport is not null) return true;
+            if (_disposed) return false;
+            IIceTransport? transport = null;
+            try
+            {
+                transport = _suppliedTransport ?? IceTransportProvider.Create();
+                _localPort = transport.Bind().Port;
+            }
+            catch (Exception error) when (error is SocketException or IOException or InvalidOperationException or TimeoutException or ObjectDisposedException)
+            {
+                transport?.Dispose();
+                return false;
+            }
+            _transport = transport;
             _receiveThread = new Thread(ReceiveLoop) { IsBackground = true, Name = "Folio ICE receive" };
             _receiveThread.Start();
+            return true;
         }
     }
 
@@ -225,7 +248,8 @@ internal sealed class IceAgent : IDisposable
         byte[] request, byte[] transactionId, IPEndPoint destination, TimeSpan timeout, byte[]? integrityKey = null,
         Action<StunMessage>? validatedResponse = null)
     {
-        if (_socket is null) return (null, null);
+        var transport = _transport;
+        if (transport is null) return (null, null);
         var tcs = new TaskCompletionSource<(StunMessage, EndPoint)>(TaskCreationOptions.RunContinuationsAsynchronously);
         var responseAccepted = 0;
 
@@ -263,7 +287,8 @@ internal sealed class IceAgent : IDisposable
             {
                 for (var attempt = 0; attempt < attempts; attempt++)
                 {
-                    await _socket.SendToAsync(request, SocketFlags.None, destination, linked.Token).ConfigureAwait(false);
+                    linked.Token.ThrowIfCancellationRequested();
+                    transport.SendTo(request, destination);
                     var retry = Task.Delay(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * (1 << attempt)), linked.Token);
                     if (await Task.WhenAny(tcs.Task, retry).ConfigureAwait(false) == tcs.Task)
                     {
@@ -354,6 +379,7 @@ internal sealed class IceAgent : IDisposable
         foreach (var pair in candidates)
         {
             if (_disposed) break;
+            if (_transport is { } route && !route.CanSendTo(pair.RemoteEndPoint)) continue;
             try
             {
                 var (request, transactionId, key) = BuildBindingRequest(pair, nominate: IsControlling);
@@ -472,14 +498,14 @@ internal sealed class IceAgent : IDisposable
         {
             try
             {
-                var socket = _socket;
-                if (socket is null) break;
+                var transport = _transport;
+                if (transport is null) break;
                 if (Stopwatch.GetElapsedTime(maintenance) >= TimeSpan.FromMilliseconds(250))
                 { maintenance = Stopwatch.GetTimestamp(); MaintainConsent(); OnMaintenance?.Invoke(); }
                 // Socket completions and transport retry timers must not wait
                 // behind synchronous page work on the shared CLR thread pool.
-                if (!socket.Poll(250000, SelectMode.SelectRead)) continue;
-                var received = socket.ReceiveFrom(buffer, SocketFlags.None, ref remoteEp);
+                var received = transport.Receive(buffer, 250000, ref remoteEp);
+                if (received < 0) continue;
                 var bytes = buffer.AsSpan(0, received);
 
                 if (StunMessage.TryParse(bytes, out var stun))
@@ -531,7 +557,7 @@ internal sealed class IceAgent : IDisposable
                     };
 
                     var resp = StunMessage.Encode(StunMessage.BindingResponse, msg.TransactionId.Span, attrs, Encoding.UTF8.GetBytes(LocalPassword));
-                    _socket?.SendTo(resp, ep);
+                    _transport?.SendTo(resp, ep);
                     // An authenticated check proves the peer's source address,
                     // including when SDP deliberately hides it behind mDNS.
                     AddRemoteCandidate(new IceCandidate
@@ -565,10 +591,11 @@ internal sealed class IceAgent : IDisposable
     public void SendDatagram(ReadOnlySpan<byte> datagram)
     {
         var pair = _selectedPair;
-        if (pair is null || _socket is null) return;
+        var transport = _transport;
+        if (pair is null || transport is null) return;
         try
         {
-            _socket.SendTo(datagram.ToArray(), pair.RemoteEndPoint);
+            transport.SendTo(datagram, pair.RemoteEndPoint);
         }
         catch { }
     }
@@ -586,8 +613,8 @@ internal sealed class IceAgent : IDisposable
         }
         _cts.Cancel();
         _cts.Dispose();
-        _socket?.Dispose();
-        _socket = null;
+        _transport?.Dispose();
+        _transport = null;
         OnConnectionStateChanged?.Invoke("closed");
     }
 
