@@ -18,6 +18,16 @@ The Windows CI matrix includes all ten grants (`webgl`, `media`, `sound`, `camer
 
 The WinForms lifecycle scenarios run serially, and the full CI suite runs one test executable at a time. Cold-starting unrelated content processes concurrently on a small runner can consume the watchdog's wall-clock budget before the first frame; the supervisor now allows a bounded startup-only grace window before the first heartbeat, then applies the configured deadline strictly. Serialization still isolates the scenario under test. A one-CPU run reproduced three UI failures before the correction and passed all eight cases afterward.
 
+### Network access with the WebRTC capability
+
+The AppContainer still has no network capability. When `WebRtc` is granted, UDP goes through the host's broker
+([`webrtc-host-udp.md`](webrtc-host-udp.md)), and the honest consequence is: **the page can send UDP to any globally
+routable IPv4 address**, within the quotas. That is inherent to WebRTC, because peer addresses come from the remote
+session description. What the host does limit: private, loopback, link-local, multicast and reserved ranges and all IPv6
+are refused; at most 4 sockets, 1500-byte datagrams, 1 MiB/s and 1000 packets/s, and 4 socket opens in a burst; inbound
+datagrams only from addresses the page sent to or explicitly permitted (never unsolicited traffic); every socket closes on
+revocation, document replacement and process death. With the capability off, no socket can be created.
+
 Authoritative Windows API references: [AppContainer launch](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer), [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects), [CPU rate control](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information), and [desktop restrictions](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_ui_restrictions).
 
 This work does not establish real camera/network transport, timed media, native GPU or WebAssembly execution, or completion of the other original milestone 6 issues. The non-Windows launch path still needs its own OS containment design; the original #526 matrix targets Windows.

@@ -9,6 +9,24 @@ namespace Folio.Scripting.Native;
 /// <summary>Bounded evaluator for the expression AST; the full VM will replace this staged implementation.</summary>
 internal sealed class JavaScriptEvaluator
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IList<object?>, Dictionary<string, object?>> ArrayProperties = new();
+
+    internal static bool TryGetArrayProperty(IList<object?> array, string name, out object? value)
+    {
+        if (name == "length")
+        {
+            value = (double)array.Count;
+            return true;
+        }
+        if (TryArrayIndex(name, out var index) && (uint)index < (uint)array.Count)
+        {
+            value = array[index];
+            return true;
+        }
+        value = null;
+        return ArrayProperties.TryGetValue(array, out var properties) && properties.TryGetValue(name, out value);
+    }
+
     private static readonly ConditionalWeakTable<object, Dictionary<string, object?>> CallableProperties = new();
 
     internal static void SetCallableProperty(object callable, string name, object? value) => CallableProperties.GetOrCreateValue(callable)[name] = value;
@@ -139,6 +157,8 @@ internal sealed class JavaScriptEvaluator
 
             var value = Evaluate(spread.Operand);
             if (value is NativeJavaScriptEngine.NativeSet set) result.AddRange(set.Values());
+            else if (value is NativeJavaScriptEngine.NativeMap map) result.AddRange(map.Entries());
+            else if (value is string text) result.AddRange(text.EnumerateRunes().Select(rune => (object?)rune.ToString()));
             else if (value is IEnumerable<object?> sequence) result.AddRange(sequence);
             else if (value is NativeJavaScriptEngine.INativeHostObject host
                 && host.TryGetValue("length", out var length))
@@ -367,8 +387,8 @@ internal sealed class JavaScriptEvaluator
                         if (names[index].StartsWith("...", StringComparison.Ordinal))
                         {
                             var rest = value is IReadOnlyList<object?> readOnly
-                                ? readOnly.Skip(index).ToArray()
-                                : Array.Empty<object?>();
+                                ? readOnly.Skip(index).ToList()
+                                : new List<object?>();
                             declarationBindings[names[index][3..]] = rest;
                             break;
                         }
@@ -484,13 +504,13 @@ internal sealed class JavaScriptEvaluator
             case JavaScriptForEachStatement each:
                 var source = Evaluate(each.Iterable);
                 var items = each.Keys && source is IReadOnlyDictionary<string, object?> dictionary
-                    ? dictionary.Keys.Cast<object?>().ToArray()
+                    ? dictionary.Keys.Cast<object?>().ToList()
                     : source is NativeJavaScriptEngine.NativeArrayIterator iterator ? (IEnumerable<object?>)iterator
-                    : source is IReadOnlyList<object?> array ? (each.Keys ? Enumerable.Range(0, array.Count).Cast<object?>().ToArray() : array.ToArray())
+                    : source is IReadOnlyList<object?> array ? (each.Keys ? Enumerable.Range(0, array.Count).Cast<object?>().ToList() : array.ToList())
                     : source is NativeJavaScriptEngine.INativeHostObject host && host.TryGetValue("length", out var hostLength)
                         ? Enumerable.Range(0, Math.Max(0, (int)Number(hostLength)))
-                            .Select(index => host.TryGetIndex(index, out var value) ? value : UndefinedOrNull()).ToArray()
-                        : Array.Empty<object?>();
+                            .Select(index => host.TryGetIndex(index, out var value) ? value : UndefinedOrNull()).ToList()
+                        : new List<object?>();
                 {
                     foreach (var item in items)
                     {
@@ -524,9 +544,10 @@ internal sealed class JavaScriptEvaluator
                 try
                 {
                     try { tryResult = ExecuteStatementWithResult(guarded.Body); }
-                    catch (JavaScriptThrownException error) when (guarded.CatchBody is not null)
+                    catch (Exception error) when (guarded.CatchBody is not null && error is JavaScriptThrownException or WebIdlException)
                     {
-                        if (guarded.CatchName is not null) _bindings[guarded.CatchName] = error.Value;
+                        var thrown = error as JavaScriptThrownException ?? (JavaScriptThrownException)ConvertHostException((WebIdlException)error);
+                        if (guarded.CatchName is not null) _bindings[guarded.CatchName] = thrown.Value;
                         tryResult = ExecuteStatementWithResult(guarded.CatchBody);
                     }
                 }
@@ -696,7 +717,7 @@ internal sealed class JavaScriptEvaluator
             // the latter keeps JavaScript's construction/member precedence;
             // ordinary properties (such as URL.href) are returned directly.
             return property is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable or NativeJavaScriptEngine.NativeReceiverFunction
-                ? InvokeWithReceiver(property!, receiver, call.Arguments.Select(Evaluate).ToArray())
+                ? InvokeWithReceiver(property!, receiver, call.Arguments.Select(Evaluate).ToList())
                 : property;
         }
         if (call.Callee is JavaScriptMemberExpression memberChain
@@ -707,11 +728,11 @@ internal sealed class JavaScriptEvaluator
             var intermediate = MemberValue(receiver, nestedMember.Name);
             var property = MemberValue(intermediate, memberChain.Name);
             return property is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable or NativeJavaScriptEngine.NativeReceiverFunction
-                ? InvokeWithReceiver(property!, intermediate, call.Arguments.Select(Evaluate).ToArray())
+                ? InvokeWithReceiver(property!, intermediate, call.Arguments.Select(Evaluate).ToList())
                 : property;
         }
         var constructor = call.Callee is JavaScriptIdentifierExpression identifier ? Lookup(identifier.Name) : Evaluate(call.Callee);
-        var arguments = call.Arguments.Select(Evaluate).ToArray();
+        var arguments = call.Arguments.Select(Evaluate).ToList();
         var instance = new Dictionary<string, object?>(StringComparer.Ordinal) { ["__constructor"] = constructor };
         if (TryGetPrototype(constructor, out var prototype))
             instance["__proto__"] = prototype;
@@ -947,11 +968,8 @@ internal sealed class JavaScriptEvaluator
             case JavaScriptMemberExpression member when Evaluate(member.Target) is IDictionary<string, object?> properties:
                 SetDictionaryProperty(properties, member.Name, assigned);
                 break;
-            case JavaScriptMemberExpression member when Evaluate(member.Target) is IList<object?> values && member.Name == "length":
-                var length = (int)Number(assigned);
-                if (length < 0) throw new ArgumentOutOfRangeException(nameof(assigned), "Invalid array length.");
-                while (values.Count > length) values.RemoveAt(values.Count - 1);
-                while (values.Count < length) values.Add(JavaScriptEvaluator.UndefinedValue.Instance);
+            case JavaScriptMemberExpression member when Evaluate(member.Target) is IList<object?> values:
+                SetArrayProperty(values, member.Name, assigned);
                 break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is NativeJavaScriptEngine.NativeFunction function:
                 function.SetProperty(member.Name, assigned);
@@ -963,14 +981,7 @@ internal sealed class JavaScriptEvaluator
                 CallableProperties.GetOrCreateValue(callable)[member.Name] = assigned;
                 break;
             case JavaScriptIndexExpression index when Evaluate(index.Target) is IList<object?> values:
-                var position = (int)Number(Evaluate(index.Index));
-                if (position < 0) throw new IndexOutOfRangeException();
-                if (position < values.Count) values[position] = assigned;
-                else
-                {
-                    while (values.Count < position) values.Add(null);
-                    values.Add(assigned);
-                }
+                SetArrayProperty(values, StringValue(Evaluate(index.Index)), assigned);
                 break;
             case JavaScriptIndexExpression index when Evaluate(index.Target) is IDictionary<string, object?> indexedProperties:
                 SetDictionaryProperty(indexedProperties, StringValue(Evaluate(index.Index)), assigned);
@@ -996,6 +1007,35 @@ internal sealed class JavaScriptEvaluator
                 throw new InvalidDataException($"Only lexical, object-property, and array-index assignment is supported (target: {target}).");
         }
     }
+
+    internal static void SetArrayProperty(IList<object?> array, string name, object? value)
+    {
+        if (name == "length")
+        {
+            var length = (int)Number(value);
+            if (length < 0) throw new ArgumentOutOfRangeException(nameof(value), "Invalid array length.");
+            while (array.Count > length) array.RemoveAt(array.Count - 1);
+            while (array.Count < length) array.Add(UndefinedValue.Instance);
+        }
+        else if (TryArrayIndex(name, out var index))
+        {
+            if (index < array.Count)
+                array[index] = value;
+            else
+            {
+                while (array.Count < index) array.Add(null);
+                array.Add(value);
+            }
+        }
+        else
+        {
+            ArrayProperties.GetOrCreateValue(array)[name] = value;
+        }
+    }
+
+    private static bool TryArrayIndex(string name, out int index) =>
+        int.TryParse(name, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out index) &&
+        (name.Length == 1 || name[0] != '0');
 
     private static void SetDictionaryProperty(IDictionary<string, object?> receiver, string name, object? assigned)
     {
@@ -1115,7 +1155,7 @@ internal sealed class JavaScriptEvaluator
         if (target is not Func<IReadOnlyList<object?>, object?>
             && target is not NativeJavaScriptEngine.INativeCallable
             && target is not NativeJavaScriptEngine.NativeReceiverFunction)
-            throw new NotSupportedException($"Only explicitly supplied host functions can be called in the staged VM: {call.Callee} resolved to {target?.GetType().Name ?? "null"}.");
+            throw WebIdlException.TypeError($"{call.Callee} is not a function (resolved to {target?.GetType().Name ?? "null"}).");
         object?[] arguments;
         var argCount = call.Arguments.Count;
         if (argCount == 0)
@@ -1140,7 +1180,10 @@ internal sealed class JavaScriptEvaluator
                 {
                     var arg = call.Arguments[i];
                     var val = Evaluate(arg is JavaScriptSpreadExpression sp ? sp.Operand : arg);
-                    if (arg is JavaScriptSpreadExpression && val is IEnumerable<object?> seq) expanded.AddRange(seq);
+                    if (arg is JavaScriptSpreadExpression && val is string spreadText) expanded.AddRange(spreadText.EnumerateRunes().Select(rune => (object?)rune.ToString()));
+                    else if (arg is JavaScriptSpreadExpression && val is NativeJavaScriptEngine.NativeSet spreadSet) expanded.AddRange(spreadSet.Values());
+                    else if (arg is JavaScriptSpreadExpression && val is NativeJavaScriptEngine.NativeMap spreadMap) expanded.AddRange(spreadMap.Entries());
+                    else if (arg is JavaScriptSpreadExpression && val is IEnumerable<object?> seq) expanded.AddRange(seq);
                     else expanded.Add(val);
                 }
                 arguments = expanded.ToArray();
@@ -1179,15 +1222,22 @@ internal sealed class JavaScriptEvaluator
             && namedHost.TryGetValue(StringValue(key), out var namedValue)) return namedValue;
         if (target is IReadOnlyDictionary<string, object?> dictionary)
             return PrototypeMemberValue(dictionary, StringValue(key), target);
-        if (target is IList<object?> iterable && StringValue(key) == "Symbol.iterator")
-            return (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(iterable));
-        var position = (int)Number(key);
+        if (target is IList<object?> iterable)
+        {
+            var name = StringValue(key);
+            if (TryArrayIndex(name, out var indexValue))
+                return (uint)indexValue < (uint)iterable.Count ? iterable[indexValue] : UndefinedOrNull();
+            return MemberValue(iterable, name);
+        }
+        var keyName = StringValue(key);
+        if (!TryArrayIndex(keyName, out var position))
+            return target is null or UndefinedValue ? UndefinedOrNull() : MemberValue(target, keyName);
         return target switch
         {
-            NativeJavaScriptEngine.INativeHostObject host when int.TryParse(StringValue(key), out var hostIndex) && host.TryGetIndex(hostIndex, out var value) => value,
+            NativeJavaScriptEngine.INativeHostObject host when host.TryGetIndex(position, out var value) => value,
             NativeJavaScriptEngine.INativeBuffer buffer when buffer.TryGetIndex(position, out var bufferValue) => bufferValue,
-            IReadOnlyList<object?> values when position >= 0 && position < values.Count => values[position],
-            string text when position >= 0 && position < text.Length => CharString(text[position]),
+            IReadOnlyList<object?> values when position < values.Count => values[position],
+            string text when position < text.Length => CharString(text[position]),
             _ => UndefinedOrNull(),
         };
     }
@@ -1208,7 +1258,8 @@ internal sealed class JavaScriptEvaluator
             if (host.TryGetPrototypeValue(name, out var prototypeValue)) return prototypeValue;
         }
         if (target is IReadOnlyDictionary<string, object?> dictionary && name == "hasOwnProperty" && !dictionary.ContainsKey(name))
-            return (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && dictionary.ContainsKey(StringValue(args[0])));
+            return new NativeJavaScriptEngine.NativeReceiverFunction((receiver, args) =>
+                args.Count > 0 && NativeJavaScriptEngine.HasOwnProperty(receiver ?? dictionary, StringValue(args[0])));
         if (target is IReadOnlyDictionary<string, object?> ownProperties && name == "prototype" && ownProperties.TryGetValue("prototype", out var ownPrototype))
             return ownPrototype;
         if (target is NativeJavaScriptEngine.NativeReceiverFunction receiverFunction)
@@ -1228,7 +1279,7 @@ internal sealed class JavaScriptEvaluator
                 var boundArguments = args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>();
                 return (Func<IReadOnlyList<object?>, object?>)(callArgs => receiverFunction.Invoke(boundReceiver, [.. boundArguments, .. callArgs]));
             });
-            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToArray() : []));
+            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToList() : []));
             if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : []));
         }
         if (target is NativeJavaScriptEngine.INativeCallable callable && callable.TryGetProperty(name, out var callableValue)) return callableValue;
@@ -1248,7 +1299,7 @@ internal sealed class JavaScriptEvaluator
                 var boundArguments = args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>();
                 return (Func<IReadOnlyList<object?>, object?>)(callArgs => nativeFunction.Invoke([.. boundArguments, .. callArgs]));
             });
-            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => nativeFunction.Invoke(args.Count > 1 ? args.Skip(1).ToArray() : []));
+            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => nativeFunction.Invoke(args.Count > 1 ? args.Skip(1).ToList() : []));
             if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => nativeFunction.Invoke(args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : []));
         }
         if (target is NativeJavaScriptEngine.INativePromise promise && promise.TryGetProperty(name, out var promiseValue)) return promiseValue;
@@ -1261,7 +1312,7 @@ internal sealed class JavaScriptEvaluator
         }
         if (target is IList<object?> values)
         {
-            if (name == "length") return (double)values.Count;
+            if (TryGetArrayProperty(values, name, out var property)) return property;
             if (name == "Symbol.iterator") return (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(values));
             if (TryArrayMethod(values, name, out var arrayMethod)) return arrayMethod;
         }
@@ -1313,6 +1364,9 @@ internal sealed class JavaScriptEvaluator
                 });
         }
         if (target is string stringValue && TryStringMethod(stringValue, name, out var stringMethod)) return stringMethod;
+        if (target is string iteratedText && name == "Symbol.iterator")
+            return (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(
+                iteratedText.EnumerateRunes().Select(rune => (object?)rune.ToString()).ToList()));
         if (target is RegexValue regex && regex.TryGetProperty(name, out var regexMethod)) return regexMethod;
         if (target is NativeJavaScriptEngine.NativeWeakMap weakMap && weakMap.TryGetProperty(name, out var weakMapMethod)) return weakMapMethod;
         if (target is NativeJavaScriptEngine.NativeWeakSet weakSet && weakSet.TryGetProperty(name, out var weakSetMethod)) return weakSetMethod;
@@ -1335,8 +1389,8 @@ internal sealed class JavaScriptEvaluator
                 return (Func<IReadOnlyList<object?>, object?>)(callArgs =>
                     InvokeFunction(delegateValue, boundReceiver, [.. boundArguments, .. callArgs]));
             });
-            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>()));
-            if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : Array.Empty<object?>()));
+            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToList() : new List<object?>()));
+            if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : new List<object?>()));
             if (delegateProperties.TryGetValue(name, out var delegateProperty)) return delegateProperty;
             if (name == "prototype") return delegateProperties[name] = new Dictionary<string, object?>(StringComparer.Ordinal);
         }
@@ -1357,10 +1411,20 @@ internal sealed class JavaScriptEvaluator
                 _ => NativeJavaScriptEngine.ReadProperty(value),
             };
         }
-        if (properties.TryGetValue("__proto__", out var parent) && parent is IReadOnlyDictionary<string, object?> parentProperties)
-            return PrototypeMemberValue(parentProperties, name, receiver);
+        if (properties.TryGetValue("__proto__", out var parent))
+            return parent is IReadOnlyDictionary<string, object?> parentProperties
+                ? PrototypeMemberValue(parentProperties, name, receiver) : UndefinedOrNull();
+        // A chain that ends without an explicit null __proto__ ends at Object.prototype.
+        if (name is "toString" or "hasOwnProperty" or "valueOf" or "isPrototypeOf" or "propertyIsEnumerable" or "toLocaleString"
+            && ObjectPrototype() is { } objectPrototype && !ReferenceEquals(objectPrototype, properties)
+            && objectPrototype.TryGetValue(name, out var inherited))
+            return inherited;
         return UndefinedOrNull();
     }
+
+    private IReadOnlyDictionary<string, object?>? ObjectPrototype() =>
+        Lookup("Object") is NativeJavaScriptEngine.INativeCallable constructor
+            && constructor.TryGetProperty("prototype", out var prototype) ? prototype as IReadOnlyDictionary<string, object?> : null;
 
     private object Object(JavaScriptObjectExpression expression)
     {
@@ -1379,7 +1443,7 @@ internal sealed class JavaScriptEvaluator
             {
                 var spread = Evaluate(property.Value);
                 if (spread is IReadOnlyDictionary<string, object?> spreadDictionary)
-                    foreach (var key in spreadDictionary.Keys.ToArray())
+                    foreach (var key in spreadDictionary.Keys.ToList())
                         if (spreadDictionary.TryGetValue(key, out var value))
                             result[key] = value is NativeJavaScriptEngine.NativePropertyAccessor accessor
                                 ? accessor.Get(spread) : value;
@@ -1423,7 +1487,7 @@ internal sealed class JavaScriptEvaluator
             var parameter = function.Parameters[i];
             if (parameter.StartsWith("...", StringComparison.Ordinal))
             {
-                BindParameter(local, parameter[3..], arguments.Skip(i).ToArray());
+                BindParameter(local, parameter[3..], arguments.Skip(i).ToList());
                 break;
             }
             var value = i < arguments.Count ? arguments[i] : UndefinedOrNull();
@@ -1489,8 +1553,62 @@ internal sealed class JavaScriptEvaluator
             if (flags.Contains('i')) options |= RegexOptions.IgnoreCase;
             if (flags.Contains('m')) options |= RegexOptions.Multiline;
             if (flags.Contains('s')) options |= RegexOptions.Singleline;
-            var regex = CompiledCache.GetOrAdd((pattern, options), pattern.Length, static key => new Regex(key.Pattern, key.Options, TimeSpan.FromMilliseconds(100)));
+            var translated = TranslatePattern(pattern, multiline: flags.Contains('m'));
+            var regex = CompiledCache.GetOrAdd((translated, options), translated.Length, static key => new Regex(key.Pattern, key.Options, TimeSpan.FromMilliseconds(100)));
             return new RegexValue(regex, pattern, flags);
+        }
+
+        // ponytail: rewrites only the JS/.NET differences that change meaning or fail to parse;
+        // `.` and `\b`/`\s` keep .NET's Unicode behaviour.
+        internal static string TranslatePattern(string pattern, bool multiline)
+        {
+            var output = new System.Text.StringBuilder(pattern.Length + 8);
+            var inClass = false;
+            for (var i = 0; i < pattern.Length; i++)
+            {
+                var c = pattern[i];
+                if (c == '\\' && i + 1 < pattern.Length)
+                {
+                    var next = pattern[++i];
+                    switch (next)
+                    {
+                        case 'd': output.Append(inClass ? "0-9" : "[0-9]"); break;
+                        case 'D' when !inClass: output.Append("[^0-9]"); break;
+                        case 'w': output.Append(inClass ? "a-zA-Z0-9_" : "[a-zA-Z0-9_]"); break;
+                        case 'W' when !inClass: output.Append("[^a-zA-Z0-9_]"); break;
+                        case 'u' when i + 1 < pattern.Length && pattern[i + 1] == '{':
+                            var close = pattern.IndexOf('}', i + 2);
+                            if (close > i + 2 && int.TryParse(pattern.AsSpan(i + 2, close - i - 2), System.Globalization.NumberStyles.HexNumber, null, out var code) && code <= 0x10FFFF)
+                            {
+                                foreach (var unit in char.ConvertFromUtf32(code)) output.Append("\\u").Append(((int)unit).ToString("X4"));
+                                i = close;
+                            }
+                            else output.Append("\\u");
+                            break;
+                        default: output.Append('\\').Append(next); break;
+                    }
+                    continue;
+                }
+                if (inClass)
+                {
+                    if (c == ']') inClass = false;
+                    else if (c == '[') { output.Append("\\["); continue; }
+                    output.Append(c);
+                    continue;
+                }
+                if (c == '[')
+                {
+                    if (string.CompareOrdinal(pattern, i, "[^]", 0, 3) == 0) { output.Append(@"[\s\S]"); i += 2; continue; }
+                    if (string.CompareOrdinal(pattern, i, "[]", 0, 2) == 0) { output.Append("(?!)"); i += 1; continue; }
+                    inClass = true;
+                    output.Append(c);
+                    if (i + 1 < pattern.Length && pattern[i + 1] == '^') output.Append(pattern[++i]);
+                    continue;
+                }
+                if (c == '$' && !multiline) { output.Append(@"\z"); continue; }
+                output.Append(c);
+            }
+            return output.ToString();
         }
         internal bool TryGetProperty(string name, out object? value)
         {
@@ -1517,7 +1635,7 @@ internal sealed class JavaScriptEvaluator
                     try
                     {
                         var match = Execute(StringValue(args[0]));
-                        return match is not null ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+                        return match is not null ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToList() : null;
                     }
                     catch (RegexMatchTimeoutException) { return null; }
                 }),
@@ -1544,20 +1662,20 @@ internal sealed class JavaScriptEvaluator
             try
             {
                 if (Flags.Contains('g'))
-                    return _regex.Matches(input).Cast<Match>().Select(match => (object?)match.Value).ToArray();
+                    return _regex.Matches(input).Cast<Match>().Select(match => (object?)match.Value).ToList();
                 var match = _regex.Match(input);
-                return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+                return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToList() : null;
             }
             catch (RegexMatchTimeoutException) { return null; }
         }
-        internal object?[] MatchAll(string input)
+        internal List<object?> MatchAll(string input)
         {
             try
             {
                 return _regex.Matches(input)
                     .Cast<Match>()
-                    .Select(match => (object?)match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray())
-                    .ToArray();
+                    .Select(match => (object?)match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToList())
+                    .ToList();
             }
             catch (RegexMatchTimeoutException) { return []; }
         }
@@ -1650,8 +1768,8 @@ internal sealed class JavaScriptEvaluator
                 var target = RelativeArrayIndex(args.Count > 0 ? args[0] : null, values.Count, 0);
                 var start = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, 0);
                 var end = RelativeArrayIndex(args.Count > 2 ? args[2] : null, values.Count, values.Count);
-                var copied = values.Skip(start).Take(Math.Max(0, end - start)).ToArray();
-                for (var i = 0; i < copied.Length && target + i < values.Count; i++) values[target + i] = copied[i];
+                var copied = values.Skip(start).Take(Math.Max(0, end - start)).ToList();
+                for (var i = 0; i < copied.Count && target + i < values.Count; i++) values[target + i] = copied[i];
                 return values;
             }),
             "with" => (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -1659,7 +1777,7 @@ internal sealed class JavaScriptEvaluator
                 var index = args.Count == 0 ? 0 : (int)Number(args[0]);
                 if (index < 0) index += values.Count;
                 if (index < 0 || index >= values.Count) throw WebIdlException.RangeError("Array.prototype.with index is out of range.");
-                var copy = values.ToArray();
+                var copy = values.ToList();
                 copy[index] = args.Count > 1 ? args[1] : JavaScriptEvaluator.UndefinedValue.Instance;
                 return copy;
             }),
@@ -1722,7 +1840,7 @@ internal sealed class JavaScriptEvaluator
                 for (var i = 0; i < sorted.Count; i++) values[i] = sorted[i];
                 return values;
             }),
-            "toReversed" => (Func<IReadOnlyList<object?>, object?>)(args => values.Reverse().ToArray()),
+            "toReversed" => (Func<IReadOnlyList<object?>, object?>)(args => values.Reverse().ToList()),
             "toSorted" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var copy = values.ToList();
@@ -1735,21 +1853,21 @@ internal sealed class JavaScriptEvaluator
                     })
                     : (left, right) => string.Compare(StringValue(left), StringValue(right), StringComparison.Ordinal);
                 copy.Sort(comparison);
-                return copy.ToArray();
+                return copy.ToList();
             }),
             "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var start = RelativeArrayIndex(args.Count > 0 ? args[0] : null, values.Count, 0);
                 var end = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, values.Count);
                 if (end < start) end = start;
-                return values.Skip(start).Take(end - start).ToArray();
+                return values.Skip(start).Take(end - start).ToList();
             }),
             "concat" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var result = new List<object?>(values);
                 foreach (var arg in args)
                     if (arg is IReadOnlyList<object?> items) result.AddRange(items); else result.Add(arg);
-                return result.ToArray();
+                return result.ToList();
             }),
             _ => null,
         };
@@ -1807,12 +1925,12 @@ internal sealed class JavaScriptEvaluator
         return value;
     }
 
-    private static object?[] Splice(IList<object?> values, IReadOnlyList<object?> args)
+    private static List<object?> Splice(IList<object?> values, IReadOnlyList<object?> args)
     {
         var requestedStart = args.Count > 0 ? (int)Number(args[0]) : 0;
         var start = requestedStart < 0 ? Math.Max(values.Count + requestedStart, 0) : Math.Min(requestedStart, values.Count);
         var deleteCount = args.Count > 1 ? Math.Clamp((int)Number(args[1]), 0, values.Count - start) : values.Count - start;
-        var removed = values.Skip(start).Take(deleteCount).ToArray();
+        var removed = values.Skip(start).Take(deleteCount).ToList();
         for (var i = 0; i < deleteCount; i++) values.RemoveAt(start);
         for (var i = 2; i < args.Count; i++) values.Insert(start + i - 2, args[i]);
         return removed;
@@ -1828,29 +1946,29 @@ internal sealed class JavaScriptEvaluator
         {
             callbackArgs[0] = values[i];
             callbackArgs[1] = (double)i;
-            TryInvoke(args[0], callbackArgs, out var mapped);
+            var mapped = InvokeWithReceiver(args[0]!, args.Count > 1 ? args[1] : null, callbackArgs);
             if (!discard)
             {
                 if (!filter || Truth(mapped)) result!.Add(filter ? values[i] : mapped);
             }
         }
-        return discard ? Array.Empty<object?>() : result!;
+        return discard ? new List<object?>() : result!;
     }
 
-    private static object?[] FlatMap(IList<object?> values, IReadOnlyList<object?> args)
+    private static List<object?> FlatMap(IList<object?> values, IReadOnlyList<object?> args)
     {
         RequireCallable(args, "Array callback must be callable.");
         var result = new List<object?>();
         for (var i = 0; i < values.Count; i++)
         {
-            TryInvoke(args[0], [values[i], (double)i, values], out var mapped);
+            var mapped = InvokeWithReceiver(args[0]!, args.Count > 1 ? args[1] : null, [values[i], (double)i, values]);
             if (mapped is IEnumerable<object?> nested) result.AddRange(nested);
             else result.Add(mapped);
         }
-        return result.ToArray();
+        return result.ToList();
     }
 
-    private static object?[] Flatten(IEnumerable<object?> values, int depth)
+    private static List<object?> Flatten(IEnumerable<object?> values, int depth)
     {
         using var callScope = NativeExecutionBudget.EnterCall();
         var result = new List<object?>();
@@ -1862,7 +1980,7 @@ internal sealed class JavaScriptEvaluator
             else
                 result.Add(value);
         }
-        return result.ToArray();
+        return result.ToList();
     }
 
     private static object? Reduce(IList<object?> values, IReadOnlyList<object?> args)
@@ -1898,7 +2016,7 @@ internal sealed class JavaScriptEvaluator
         {
             callbackArgs[0] = values[i];
             callbackArgs[1] = (double)i;
-            TryInvoke(args[0], callbackArgs, out var callbackResult);
+            var callbackResult = InvokeWithReceiver(args[0]!, args.Count > 1 ? args[1] : null, callbackArgs);
             var matched = Truth(callbackResult);
             if (mode == "find" && matched) return values[i];
             if (mode == "findIndex" && matched) return (double)i;
@@ -2053,7 +2171,7 @@ internal sealed class JavaScriptEvaluator
             }),
             "matchAll" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
-                if (args.Count == 0) return Array.Empty<object?>();
+                if (args.Count == 0) return new List<object?>();
                 if (args[0] is RegexValue regex)
                 {
                     if (!regex.Flags.Contains('g'))
@@ -2067,7 +2185,7 @@ internal sealed class JavaScriptEvaluator
             {
                 if (args.Count == 0 || args[0] is UndefinedValue) return new List<object?> { value };
                 var limit = args.Count > 1 ? Math.Max(0, (int)Number(args[1])) : int.MaxValue;
-                if (limit == 0) return Array.Empty<object?>();
+                if (limit == 0) return new List<object?>();
                 if (args[0] is RegexValue regex)
                 {
                     var regexParts = regex.Split(value);
@@ -2210,7 +2328,7 @@ internal sealed class JavaScriptEvaluator
     private object Function(JavaScriptFunctionExpression function)
     {
         var captured = _bindings;
-        var capturedWithScopes = _withScopes.ToArray();
+        var capturedWithScopes = _withScopes.ToList();
         // Arrow functions capture the lexical receiver. This matters for
         // host bootstrap code such as CacheStorage, whose promise callbacks
         // intentionally close over the class instance via `this`.
@@ -2231,7 +2349,7 @@ internal sealed class JavaScriptEvaluator
                 var parameter = function.Parameters[i];
                 if (parameter.StartsWith("...", StringComparison.Ordinal))
                 {
-                    BindParameter(local, parameter[3..], arguments.Skip(i).ToArray());
+                    BindParameter(local, parameter[3..], arguments.Skip(i).ToList());
                     break;
                 }
                 var value = i < arguments.Count ? arguments[i] : UndefinedOrNull();
@@ -2253,7 +2371,7 @@ internal sealed class JavaScriptEvaluator
             // for their `(function(){ ... })(this)` wrapper; method calls still
             // supply their actual receiver through ReceiverBindings.
             local["this"] = function.IsArrow ? lexicalThis : receiver ?? captured;
-            local["arguments"] = arguments is IList<object?> argList ? argList : arguments.ToArray();
+            local["arguments"] = arguments is IList<object?> argList ? argList : arguments.ToList();
             if (function.IsGenerator) return RunGenerator(local, function.Body);
             try
             {
@@ -2340,7 +2458,7 @@ internal sealed class JavaScriptEvaluator
                 if (string.IsNullOrEmpty(names[i])) continue;
                 if (names[i].StartsWith("...", StringComparison.Ordinal))
                 {
-                    local[names[i][3..]] = values is null ? Array.Empty<object?>() : values.Skip(i).ToArray();
+                    local[names[i][3..]] = values is null ? new List<object?>() : values.Skip(i).ToList();
                     break;
                 }
                 var item = values is not null && i < values.Count ? values[i] : UndefinedOrNull();
@@ -2406,7 +2524,7 @@ internal sealed class JavaScriptEvaluator
     private NativeJavaScriptEngine.NativeFunction Class(JavaScriptClassExpression @class)
     {
         var constructor = @class.Methods.FirstOrDefault(method => method.Name == "constructor" && !method.Static)?.Function;
-        var methods = @class.Methods.Where(method => method.Name != "constructor" && !method.Static).ToArray();
+        var methods = @class.Methods.Where(method => method.Name != "constructor" && !method.Static).ToList();
         var prototype = new Dictionary<string, object?>(StringComparer.Ordinal);
         var type = new NativeJavaScriptEngine.NativeFunction(arguments =>
         {
@@ -2490,7 +2608,7 @@ internal sealed class JavaScriptEvaluator
                 var parameter = function.Parameters[i];
                 if (parameter.StartsWith("...", StringComparison.Ordinal))
                 {
-                    BindParameter(local, parameter[3..], arguments.Skip(i).ToArray());
+                    BindParameter(local, parameter[3..], arguments.Skip(i).ToList());
                     break;
                 }
                 var value = i < arguments.Count ? arguments[i] : UndefinedOrNull();

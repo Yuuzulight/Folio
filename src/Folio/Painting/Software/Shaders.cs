@@ -251,7 +251,26 @@ internal sealed class ImageShader : Shader
                     _levels.Add(Halve(_levels[^1]));
             }
         }
+        if (_smooth && _lod > 0 && float.IsFinite(_lod))
+        {
+            // The two levels a sample blends, with their scales to level 0, fixed once instead of looked up per pixel.
+            var lowerIndex = Math.Min((int)MathF.Floor(_lod), _levels.Count - 1);
+            var upperIndex = Math.Min(lowerIndex + 1, _levels.Count - 1);
+            _mipT = _lod - MathF.Floor(_lod);
+            _lowerLevel = _levels[lowerIndex];
+            _upperLevel = _levels[upperIndex];
+            _lowerScale = new Vector2((float)_lowerLevel.Width / _levels[0].Width, (float)_lowerLevel.Height / _levels[0].Height);
+            _upperScale = new Vector2((float)_upperLevel.Width / _levels[0].Width, (float)_upperLevel.Height / _levels[0].Height);
+        }
     }
+
+    /// <summary>Test switch: sample every pixel through the general path.</summary>
+    [ThreadStatic]
+    internal static bool DisableSeparableSampling;
+
+    private Level? _lowerLevel, _upperLevel;
+    private Vector2 _lowerScale, _upperScale;
+    private float _mipT;
 
     // Half the size, each pixel the average of four, taken premultiplied so that transparent pixels do not darken the colour.
     private static Level Halve(Level from)
@@ -316,17 +335,38 @@ internal sealed class ImageShader : Shader
     {
         if (image.Width <= 0 || image.Height <= 0 || image.Pixels.Length < image.Width * image.Height * 4)
             return null;
-        return Matrix33.Invert(imageToDevice, out var inverse) ? new ImageShader(image, inverse, true, true, smooth) { _clamp = true } : null;
+        if (!Matrix33.Invert(imageToDevice, out var inverse))
+            return null;
+        var shader = new ImageShader(image, inverse, true, true, smooth) { _clamp = true };
+        shader._separable = !DisableSeparableSampling && shader._lowerLevel is not null
+            && System.Runtime.InteropServices.MemoryMarshal.TryGetArray(shader._lowerLevel.Pixels, out var lowerPixels) && lowerPixels.Offset == 0
+            && System.Runtime.InteropServices.MemoryMarshal.TryGetArray(shader._upperLevel!.Pixels, out var upperPixels) && upperPixels.Offset == 0
+            && inverse.M12 == 0 && inverse.M21 == 0 && inverse.M13 == 0 && inverse.M23 == 0
+            && float.IsFinite(inverse.M11) && float.IsFinite(inverse.M22) && float.IsFinite(inverse.M31) && float.IsFinite(inverse.M32) && float.IsFinite(inverse.M33);
+        if (shader._separable)
+        {
+            shader._lowerBytes = ArrayOf(shader._lowerLevel!);
+            shader._upperBytes = ArrayOf(shader._upperLevel!);
+            shader._lowerRows = new RowCache(shader._lowerLevel!.Width);
+            shader._upperRows = new RowCache(shader._upperLevel!.Width);
+        }
+        return shader;
     }
 
     public override Vector4 ColorAt(int x, int y)
     {
+        if (_separable && (uint)x < MaxSeparableX)
+            return Premultiplied(SampleSeparable(x, y));
         var p = _inverse.Apply(new Vector2(x + 0.5f, y + 0.5f));
         Vector4 color;
         if (!_smooth)
             color = Texel(0, p.X, p.Y, nearest: true);
         else if (_lod <= 0)
             color = Texel(0, p.X, p.Y, nearest: false);
+        else if (_clamp)
+            color = Vector4.Lerp(
+                TexelClamped(_lowerLevel!, p.X * _lowerScale.X, p.Y * _lowerScale.Y),
+                TexelClamped(_upperLevel!, p.X * _upperScale.X, p.Y * _upperScale.Y), _mipT);
         else
         {
             var lower = Math.Min((int)MathF.Floor(_lod), _levels.Count - 1);
@@ -334,8 +374,132 @@ internal sealed class ImageShader : Shader
             var t = _lod - MathF.Floor(_lod);
             color = Vector4.Lerp(SampleLevel(lower, p), SampleLevel(upper, p), t);
         }
-        // The texels were filtered as straight colours (as the Skia backend does); premultiply the result.
-        return new Vector4(color.X * color.W, color.Y * color.W, color.Z * color.W, color.W);
+        return Premultiplied(color);
+    }
+
+    // The texels were filtered as straight colours (as the Skia backend does); premultiply the result.
+    private static Vector4 Premultiplied(Vector4 color) => new(color.X * color.W, color.Y * color.W, color.Z * color.W, color.W);
+
+    // With no rotation, skew or perspective in the device-to-image map, a sample's x position depends only on x and its y
+    // position only on y, so the texel indices and weights are worked out once per column and once per row (the same
+    // arithmetic as Texel, which the zero terms leave bit-identical) rather than once per pixel.
+    private const int MaxSeparableX = 16384;
+
+    private struct Axis
+    {
+        public int A, B; // the two texel indices (rows are already multiplied by the level width); A < 0: not yet computed
+        public float F;  // the weight of B
+    }
+
+    private Axis[]? _colLower, _colUpper;
+    private byte[]? _lowerBytes, _upperBytes;
+    private RowCache? _lowerRows, _upperRows;
+    private Axis _rowLower, _rowUpper;
+    private int _rowY = int.MinValue;
+    private bool _separable;
+
+    private static Axis Locate(float position, int size, int stride)
+    {
+        var u = position - 0.5f;
+        var x0 = (int)MathF.Floor(u);
+        return new Axis
+        {
+            A = Math.Clamp(x0, 0, size - 1) * stride,
+            B = Math.Clamp(x0 + 1, 0, size - 1) * stride,
+            F = u - x0,
+        };
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    private Vector4 SampleSeparable(int x, int y)
+    {
+        if (_colLower is null || x >= _colLower.Length)
+        {
+            var size = Math.Min(MaxSeparableX, Math.Max(x + 1, (_colLower?.Length ?? 64) * 2));
+            _colLower = Grow(_colLower, size);
+            _colUpper = Grow(_colUpper, size);
+        }
+        ref var lowerColumn = ref _colLower[x];
+        ref var upperColumn = ref _colUpper![x];
+        if (lowerColumn.A < 0)
+        {
+            var px = _inverse.Apply(new Vector2(x + 0.5f, 0.5f)).X;
+            lowerColumn = Locate(px * _lowerScale.X, _lowerLevel!.Width, 1);
+            upperColumn = Locate(px * _upperScale.X, _upperLevel!.Width, 1);
+        }
+        if (y != _rowY)
+        {
+            var py = _inverse.Apply(new Vector2(0.5f, y + 0.5f)).Y;
+            _rowLower = Locate(py * _lowerScale.Y, _lowerLevel!.Height, 1);
+            _rowUpper = Locate(py * _upperScale.Y, _upperLevel!.Height, 1);
+            _rowY = y;
+        }
+        return Vector4.Lerp(Bilinear(_lowerRows!.Get(_lowerBytes!, _rowLower.A, false), _lowerRows.Get(_lowerBytes!, _rowLower.B, true), lowerColumn, _rowLower.F),
+            Bilinear(_upperRows!.Get(_upperBytes!, _rowUpper.A, false), _upperRows.Get(_upperBytes!, _rowUpper.B, true), upperColumn, _rowUpper.F), _mipT);
+    }
+
+    private static byte[] ArrayOf(Level level) => System.Runtime.InteropServices.MemoryMarshal.TryGetArray(level.Pixels, out var segment) ? segment.Array! : [];
+
+    private static Axis[] Grow(Axis[]? old, int size)
+    {
+        var grown = new Axis[size];
+        if (old is not null)
+            Array.Copy(old, grown, old.Length);
+        for (var i = old?.Length ?? 0; i < size; i++)
+            grown[i].A = -1;
+        return grown;
+    }
+
+    // The rows a bilinear sample reads, as floats: converted once when the sample row changes, not once per sample.
+    private sealed class RowCache(int width)
+    {
+        private readonly int[] _row = [-1, -1];
+        private readonly Vector4[][] _buffer = [new Vector4[width], new Vector4[width]];
+        private int _last;
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+        public Vector4[] Get(byte[] pixels, int row, bool keepLast)
+        {
+            for (var i = 0; i < 2; i++)
+                if (_row[i] == row)
+                    return _buffer[_last = i];
+            var slot = keepLast ? 1 - _last : _last;
+            var buffer = _buffer[slot];
+            var unit = ByteToUnit;
+            var from = row * width * 4;
+            for (var x = 0; x < width; x++, from += 4)
+                buffer[x] = new Vector4(unit[pixels[from]], unit[pixels[from + 1]], unit[pixels[from + 2]], unit[pixels[from + 3]]);
+            _row[slot] = row;
+            _last = slot;
+            return buffer;
+        }
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    private static Vector4 Bilinear(Vector4[] top, Vector4[] bottom, Axis column, float rowWeight)
+    {
+        var topColor = Vector4.Lerp(top[column.A], top[column.B], column.F);
+        var bottomColor = Vector4.Lerp(bottom[column.A], bottom[column.B], column.F);
+        return Vector4.Lerp(topColor, bottomColor, rowWeight);
+    }
+
+    // Texel's clamped bilinear branch on a known level, with the same arithmetic.
+    private Vector4 TexelClamped(Level image, float px, float py)
+    {
+        var u = px - 0.5f;
+        var v = py - 0.5f;
+        var x0 = (int)MathF.Floor(u);
+        var y0 = (int)MathF.Floor(v);
+        var fx = u - x0;
+        var fy = v - y0;
+        var pixels = image.Pixels.Span;
+        var left = Math.Clamp(x0, 0, image.Width - 1);
+        var right = Math.Clamp(x0 + 1, 0, image.Width - 1);
+        var topRow = Math.Clamp(y0, 0, image.Height - 1) * image.Width;
+        var bottomRow = Math.Clamp(y0 + 1, 0, image.Height - 1) * image.Width;
+        var topColor = Vector4.Lerp(ReadPixel(pixels, topRow + left), ReadPixel(pixels, topRow + right), fx);
+        var bottomColor = Vector4.Lerp(ReadPixel(pixels, bottomRow + left), ReadPixel(pixels, bottomRow + right), fx);
+        return Vector4.Lerp(topColor, bottomColor, fy);
     }
 
     // The sample at a point of the image, in the level's own pixels.
@@ -397,9 +561,13 @@ internal sealed class ImageShader : Shader
         return ReadPixel(l.Pixels.Span, y * w + x);
     }
 
+    private static readonly float[] ByteToUnit = Enumerable.Range(0, 256).Select(b => b / 255f).ToArray();
+
     private static Vector4 ReadPixel(ReadOnlySpan<byte> pixels, int index)
     {
         var i = index * 4;
-        return new Vector4(pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]) / 255f;
+        // Table entries are b / 255f, the same division, so the result is bit-identical.
+        var unit = ByteToUnit;
+        return new Vector4(unit[pixels[i]], unit[pixels[i + 1]], unit[pixels[i + 2]], unit[pixels[i + 3]]);
     }
 }

@@ -101,7 +101,7 @@ public sealed class TurnClientTests
         Assert.Equal(server.RelayEndpoint, check.RemoteEndPoint);
         Assert.True(StunMessage.TryParse(buffer.AsSpan(0, check.ReceivedBytes), out var request));
         await peer.SendToAsync(StunMessage.Encode(StunMessage.BindingResponse, request.TransactionId.Span, [],
-            Encoding.UTF8.GetBytes("remote-password")), SocketFlags.None, check.RemoteEndPoint);
+            Encoding.UTF8.GetBytes("remote-password")), SocketFlags.None, check.RemoteEndPoint, TestContext.Current.CancellationToken);
         await connected.Task.WaitAsync(TimeSpan.FromSeconds(8), TestContext.Current.CancellationToken);
 
         // Agent -> peer: Send indications until the channel is bound, then ChannelData.
@@ -114,7 +114,7 @@ public sealed class TurnClientTests
 
         // Peer -> agent, delivered to the same OnDatagramReceived as direct datagrams.
         var reply = new byte[] { 0x17, 0xfe, 0xfd, 9, 8, 7 };
-        await peer.SendToAsync(reply, SocketFlags.None, server.RelayEndpoint);
+        await peer.SendToAsync(reply, SocketFlags.None, server.RelayEndpoint!);
         Assert.Equal(reply, await received.Task.WaitAsync(TimeSpan.FromSeconds(8), TestContext.Current.CancellationToken));
     }
 
@@ -287,7 +287,7 @@ public sealed class TurnClientTests
         var check = await peer.ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), TestContext.Current.CancellationToken);
         Assert.True(StunMessage.TryParse(buffer.AsSpan(0, check.ReceivedBytes), out var request));
         await peer.SendToAsync(StunMessage.Encode(StunMessage.BindingResponse, request.TransactionId.Span, [],
-            Encoding.UTF8.GetBytes("remote-password")), SocketFlags.None, check.RemoteEndPoint);
+            Encoding.UTF8.GetBytes("remote-password")), SocketFlags.None, check.RemoteEndPoint, TestContext.Current.CancellationToken);
         await connected.Task.WaitAsync(TimeSpan.FromSeconds(8), TestContext.Current.CancellationToken);
         return (agent, peer, received);
     }
@@ -397,7 +397,7 @@ public sealed class TurnClientTests
     public void ReservedAddressesAreNonPublic(string address) => Assert.True(TurnClient.IsNonPublic(IPAddress.Parse(address)));
 
     /// <summary>In-process TURN server: long-term credentials, Allocate/Refresh/CreatePermission/ChannelBind, ChannelData relaying.</summary>
-    private sealed class FakeTurnServer : IDisposable
+    internal sealed class FakeTurnServer : IDisposable
     {
         private readonly Socket _socket = new(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         private Socket? _relay;

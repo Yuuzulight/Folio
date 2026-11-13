@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NativeAOT frame probe: the paint budgets measured in the build a host would ship. The assembly is named
+       Folio.Benchmarks so it sees Folio's internals, like tests/Folio.Benchmarks, whose frame measurements it links.
+       Publish: dotnet publish tools/Folio.FrameProbe -c Release -r win-x64 (self-contained, PublishAot=true, output artifacts/frame-probe). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Folio.Benchmarks</AssemblyName>
+    <RootNamespace>Folio.Benchmarks</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <DefineConstants>$(DefineConstants);FOLIO_AOT_PROBE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
+    <Compile Include="..\..\tests\Folio.Benchmarks\FrameBenchmark.cs" Link="FrameBenchmark.cs" />
+    <Compile Include="..\..\tests\Folio.RenderTests\RepoPaths.cs" Link="RepoPaths.cs" />
+  </ItemGroup>
+</Project>

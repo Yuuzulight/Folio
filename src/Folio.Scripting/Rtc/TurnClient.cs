@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -8,9 +7,10 @@ using System.Text;
 namespace Folio.Scripting.Rtc;
 
 /// <summary>
-/// TURN client (RFC 8656 / RFC 5766) over UDP with the long-term credential mechanism. It owns no socket: the
-/// owner supplies a send delegate for the configured server and routes datagrams from that server to
-/// <see cref="TryHandleDatagram"/>, so it keeps working when sockets move behind the host.
+/// TURN client (RFC 8656 / RFC 5766) over UDP with the long-term credential mechanism. It owns no socket: it sends
+/// to the configured server through the agent's <see cref="IIceTransport"/> (so inside the sandbox every datagram goes
+/// through the host broker and its policy and quotas) and the owner routes datagrams from that server to
+/// <see cref="TryHandleDatagram"/>. All timing runs on the injected <see cref="TimeProvider"/>.
 ///
 /// Data path: ChannelData once a ChannelBind is confirmed (4 bytes of framing instead of a ~36 byte Send
 /// indication, which matters for DTLS/SRTP volume), Send indications until then.
@@ -22,7 +22,8 @@ internal sealed class TurnClient : IDisposable
     internal const int MaxDatagram = 8192;
     private const int MaxPending = 16, MaxPermissions = 64, MaxChannels = 64, PermissionsPerRequest = 8;
 
-    private readonly Func<byte[], bool> _send;
+    private readonly IIceTransport _transport;
+    private readonly TimeProvider _clock;
     private readonly string _username, _password;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _gate = new();
@@ -52,12 +53,25 @@ internal sealed class TurnClient : IDisposable
 
     internal event Action<IPEndPoint, byte[]>? OnPeerData;
 
-    internal TurnClient(IPEndPoint server, string username, string password, Func<byte[], bool> send)
+    internal TurnClient(IPEndPoint server, string username, string password, IIceTransport transport, TimeProvider? clock = null)
     {
         Server = server;
         _username = username;
         _password = password;
-        _send = send;
+        _transport = transport;
+        _clock = clock ?? TimeProvider.System;
+    }
+
+    // Best effort, like every datagram: false when the transport knows the server would be refused or is gone.
+    private bool _send(byte[] packet)
+    {
+        try
+        {
+            if (!_transport.CanSendTo(Server)) return false;
+            _transport.SendTo(packet, Server);
+            return true;
+        }
+        catch (Exception e) when (e is SocketException or IOException or ObjectDisposedException or InvalidOperationException) { return false; }
     }
 
     private sealed record Pending(ushort Type, byte[]? Key, TaskCompletionSource<StunMessage> Completion);
@@ -113,16 +127,16 @@ internal sealed class TurnClient : IDisposable
         {
             if (_stopped) return false;
             (Relayed, Mapped, _lifetime, _allocated) = (relayed, mapped, lifetime, true);
-            var now = Stopwatch.GetTimestamp();
+            var now = _clock.GetTimestamp();
             _nextRefresh = now + RefreshDelay(lifetime);
-            _nextPermissionRefresh = now + (long)(PermissionRefreshInterval.TotalSeconds * Stopwatch.Frequency);
+            _nextPermissionRefresh = now + (long)(PermissionRefreshInterval.TotalSeconds * _clock.TimestampFrequency);
         }
         return true;
     }
 
     // RFC 8656: refresh before expiry; one minute early for the default lifetime, half-way for short ones.
-    private static long RefreshDelay(uint lifetime) =>
-        (long)(Math.Max(lifetime - 60.0, lifetime / 2.0) * Stopwatch.Frequency);
+    private long RefreshDelay(uint lifetime) =>
+        (long)(Math.Max(lifetime - 60.0, lifetime / 2.0) * _clock.TimestampFrequency);
 
     private async Task<StunMessage?> AuthenticatedAsync(ushort type, IReadOnlyList<(ushort, byte[])> extra, CancellationToken cancellation)
     {
@@ -169,7 +183,7 @@ internal sealed class TurnClient : IDisposable
             {
                 _send(packet);
                 using var delayCancel = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-                if (await Task.WhenAny(completion.Task, Task.Delay(timeout, delayCancel.Token)).ConfigureAwait(false) == completion.Task)
+                if (await Task.WhenAny(completion.Task, Task.Delay(timeout, _clock, delayCancel.Token)).ConfigureAwait(false) == completion.Task)
                     return await completion.Task.ConfigureAwait(false);
                 delayCancel.Cancel();
                 timeout *= 2;
@@ -328,7 +342,7 @@ internal sealed class TurnClient : IDisposable
         lock (_gate)
         {
             if (_stopped || !_allocated) return;
-            now = Stopwatch.GetTimestamp();
+            now = _clock.GetTimestamp();
         }
         if (now >= Volatile.Read(ref _nextRefresh) && Interlocked.Exchange(ref _refreshBusy, 1) == 0) _ = RefreshAllocationAsync();
         if (now >= Volatile.Read(ref _nextPermissionRefresh) && Interlocked.Exchange(ref _permissionBusy, 1) == 0) _ = RefreshPermissionsAsync();
@@ -347,11 +361,11 @@ internal sealed class TurnClient : IDisposable
                 if (response?.Type == StunMessage.RefreshResponse)
                 {
                     var granted = response.TryLifetime(out var seconds) && seconds > 0 ? seconds : _lifetime;
-                    Volatile.Write(ref _nextRefresh, Stopwatch.GetTimestamp() + RefreshDelay(granted));
+                    Volatile.Write(ref _nextRefresh, _clock.GetTimestamp() + RefreshDelay(granted));
                     return;
                 }
                 if (response is not null) break; // an authenticated refusal (for example 437) is final
-                await Task.Delay(TimeSpan.FromTicks(RetryBackoff.Ticks << attempt), token).ConfigureAwait(false); // exponential backoff
+                await Task.Delay(TimeSpan.FromTicks(RetryBackoff.Ticks << attempt), _clock, token).ConfigureAwait(false); // exponential backoff
             }
             lock (_gate) _allocated = false; // the relay is gone; sends stop and the pairs time out
         }
@@ -381,7 +395,7 @@ internal sealed class TurnClient : IDisposable
         finally
         {
             var delay = succeeded ? PermissionRefreshInterval : RetryBackoff;
-            Volatile.Write(ref _nextPermissionRefresh, Stopwatch.GetTimestamp() + (long)(delay.TotalSeconds * Stopwatch.Frequency));
+            Volatile.Write(ref _nextPermissionRefresh, _clock.GetTimestamp() + (long)(delay.TotalSeconds * _clock.TimestampFrequency));
             Volatile.Write(ref _permissionBusy, 0);
         }
     }

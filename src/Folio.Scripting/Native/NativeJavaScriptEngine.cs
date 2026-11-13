@@ -57,22 +57,22 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             if (args.Count == 0 || args[0] is null or JavaScriptEvaluator.UndefinedValue) throw WebIdlException.TypeError("Array.from requires an array-like or iterable object.");
             var values = args[0] switch
             {
-                IReadOnlyList<object?> list => list.ToArray(),
-                string text => text.EnumerateRunes().Select(rune => (object?)rune.ToString()).ToArray(),
+                IReadOnlyList<object?> list => list.ToList(),
+                string text => text.EnumerateRunes().Select(rune => (object?)rune.ToString()).ToList(),
                 IReadOnlyDictionary<string, object?> arrayLike when arrayLike.TryGetValue("length", out var length)
                     => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length)))
                         .Select(index => arrayLike.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance))
-                        .ToArray(),
+                        .ToList(),
                 NativeSet set => set.Values(),
                 NativeMap map => map.Entries(),
-                NativeBuffer buffer => Enumerable.Range(0, buffer.Length).Select(index => buffer.TryGetIndex(index, out var value) ? value : JavaScriptEvaluator.UndefinedValue.Instance).ToArray(),
-                IEnumerable<object?> enumerable => enumerable.ToArray(),
-                _ => Array.Empty<object?>(),
+                NativeBuffer buffer => Enumerable.Range(0, buffer.Length).Select(index => buffer.TryGetIndex(index, out var value) ? value : JavaScriptEvaluator.UndefinedValue.Instance).ToList(),
+                IEnumerable<object?> enumerable => enumerable.ToList(),
+                _ => new List<object?>(),
             };
             if (args.Count > 1)
             {
                 if (!IsCallable(args[1])) throw WebIdlException.TypeError("Array.from mapfn must be callable.");
-                for (var index = 0; index < values.Length; index++) values[index] = InvokeCallable(args[1]!, [values[index], (double)index, values]);
+                for (var index = 0; index < values.Count; index++) values[index] = InvokeCallable(args[1]!, [values[index], (double)index, values]);
             }
             return values;
         }));
@@ -85,8 +85,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 {
                     IReadOnlyList<object?> list => list,
                     IReadOnlyDictionary<string, object?> properties when properties.TryGetValue("length", out var length)
-                        => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length))).Select(index => properties.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance)).ToArray(),
-                    _ => Array.Empty<object?>(),
+                        => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length))).Select(index => properties.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance)).ToList(),
+                    _ => new List<object?>(),
                 };
                 return string.Join(separator, values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? "" : StringValue(value)));
             }),
@@ -137,17 +137,17 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 {
                     IReadOnlyList<object?> list => list,
                     IReadOnlyDictionary<string, object?> properties when properties.TryGetValue("length", out var length)
-                        => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length))).Select(index => properties.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance)).ToArray(),
-                    _ => Array.Empty<object?>(),
+                        => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length))).Select(index => properties.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance)).ToList(),
+                    _ => new List<object?>(),
                 };
                 var start = JavaScriptEvaluator.RelativeArrayIndex(args.Count > 0 ? args[0] : null, values.Count, 0);
                 var end = JavaScriptEvaluator.RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, values.Count);
                 if (end < start) end = start;
-                return values.Skip(start).Take(end - start).ToArray();
+                return values.Skip(start).Take(end - start).ToList();
             }),
             ["map"] = new NativeReceiverFunction((receiver, args) =>
             {
-                if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
+                if (receiver is not IReadOnlyList<object?> values) return new List<object?>();
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
                 var callback = args[0]!;
                 var count = values.Count;
@@ -180,7 +180,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }),
             ["filter"] = new NativeReceiverFunction((receiver, args) =>
             {
-                if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
+                if (receiver is not IReadOnlyList<object?> values) return new List<object?>();
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
                 var callback = args[0]!;
                 var count = values.Count;
@@ -199,7 +199,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }),
             ["flatMap"] = new NativeReceiverFunction((receiver, args) =>
             {
-                if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
+                if (receiver is not IReadOnlyList<object?> values) return new List<object?>();
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
                 return values.SelectMany((value, index) =>
                 {
@@ -210,12 +210,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         };
         arrayConstructor.SetProperty("prototype", arrayPrototype);
         _bindings["Array"] = arrayConstructor;
+        var hasOwnProperty = new NativeReceiverFunction((receiver, args) =>
+            HasOwnProperty(receiver ?? _bindings, StringValue(args.Count > 0 ? args[0] : JavaScriptEvaluator.UndefinedValue.Instance)));
         var objectPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["hasOwnProperty"] = new NativeReceiverFunction((receiver, args) =>
-                receiver is IReadOnlyDictionary<string, object?> properties
-                    && args.Count > 0
-                    && properties.ContainsKey(StringValue(args[0]))),
+            ["hasOwnProperty"] = hasOwnProperty,
             ["toString"] = new NativeReceiverFunction((receiver, _) => receiver switch
             {
                 null => "[object Null]",
@@ -224,41 +223,43 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 _ => "[object Object]",
             }),
         };
+        _bindings["hasOwnProperty"] = hasOwnProperty;
         var objectBindings = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["prototype"] = objectPrototype,
             ["assign"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
-                if (args.Count == 0 || args[0] is not IDictionary<string, object?> target) return args.Count > 0 ? args[0] : null;
+                if (args.Count == 0 || args[0] is null or JavaScriptEvaluator.UndefinedValue) throw WebIdlException.TypeError("Object.assign requires an object target.");
+                var target = args[0];
                 foreach (var source in args.Skip(1))
                     if (source is IReadOnlyDictionary<string, object?> properties)
-                        foreach (var pair in properties) target[pair.Key] = pair.Value;
+                        foreach (var pair in properties) SetOwnProperty(target, pair.Key, pair.Value);
                 return target;
             }),
             ["keys"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0
                 ? args[0] switch
                 {
-                    IReadOnlyDictionary<string, object?> properties => properties.Keys.Cast<object?>().ToArray(),
-                    IReadOnlyList<object?> values => Enumerable.Range(0, values.Count).Select(index => (object?)index.ToString(CultureInfo.InvariantCulture)).ToArray(),
-                    _ => Array.Empty<object?>(),
+                    IReadOnlyDictionary<string, object?> properties => properties.Keys.Cast<object?>().ToList(),
+                    IReadOnlyList<object?> values => Enumerable.Range(0, values.Count).Select(index => (object?)index.ToString(CultureInfo.InvariantCulture)).ToList(),
+                    _ => new List<object?>(),
                 }
-                : Array.Empty<object?>()),
+                : new List<object?>()),
             ["entries"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0
                 ? args[0] switch
                 {
-                    IReadOnlyDictionary<string, object?> properties => properties.Select(pair => (object?)new object?[] { pair.Key, pair.Value }).ToArray(),
-                    IReadOnlyList<object?> values => values.Select((value, index) => (object?)new object?[] { index.ToString(CultureInfo.InvariantCulture), value }).ToArray(),
-                    _ => Array.Empty<object?>(),
+                    IReadOnlyDictionary<string, object?> properties => properties.Select(pair => (object?)new List<object?> { pair.Key, pair.Value }).ToList(),
+                    IReadOnlyList<object?> values => values.Select((value, index) => (object?)new List<object?> { index.ToString(CultureInfo.InvariantCulture), value }).ToList(),
+                    _ => new List<object?>(),
                 }
-                : Array.Empty<object?>()),
+                : new List<object?>()),
             ["values"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0
                 ? args[0] switch
                 {
-                    IReadOnlyDictionary<string, object?> properties => properties.Values.ToArray(),
-                    IReadOnlyList<object?> values => values.ToArray(),
-                    _ => Array.Empty<object?>(),
+                    IReadOnlyDictionary<string, object?> properties => properties.Values.ToList(),
+                    IReadOnlyList<object?> values => values.ToList(),
+                    _ => new List<object?>(),
                 }
-                : Array.Empty<object?>()),
+                : new List<object?>()),
             ["fromEntries"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var result = new Dictionary<string, object?>(StringComparer.Ordinal);
@@ -273,16 +274,16 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }),
             ["getOwnPropertyNames"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
-                if (args.Count == 0 || args[0] is null || args[0] is JavaScriptEvaluator.UndefinedValue) return Array.Empty<object?>();
+                if (args.Count == 0 || args[0] is null || args[0] is JavaScriptEvaluator.UndefinedValue) return new List<object?>();
                 return args[0] switch
                 {
-                    IReadOnlyDictionary<string, object?> properties => properties.Keys.Cast<object?>().ToArray(),
-                    IList<object?> values => Enumerable.Range(0, values.Count).Select(index => (object?)index.ToString(CultureInfo.InvariantCulture)).Append("length").ToArray(),
-                    INativeCallable callable => callable.GetPropertyNames().Cast<object?>().ToArray(),
-                    _ => Array.Empty<object?>(),
+                    IReadOnlyDictionary<string, object?> properties => properties.Keys.Cast<object?>().ToList(),
+                    IList<object?> values => Enumerable.Range(0, values.Count).Select(index => (object?)index.ToString(CultureInfo.InvariantCulture)).Append("length").ToList(),
+                    INativeCallable callable => callable.GetPropertyNames().Cast<object?>().ToList(),
+                    _ => new List<object?>(),
                 };
             }),
-            ["getOwnPropertySymbols"] = (Func<IReadOnlyList<object?>, object?>)(_ => Array.Empty<object?>()),
+            ["getOwnPropertySymbols"] = (Func<IReadOnlyList<object?>, object?>)(_ => new List<object?>()),
             ["create"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var result = new Dictionary<string, object?>(StringComparer.Ordinal);
@@ -298,7 +299,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 if (args.Count > 2 && args[1] is not null)
                 {
                     var name = StringValue(args[1]);
-                    object? value = null;
+                    object? value = JavaScriptEvaluator.UndefinedValue.Instance;
                     if (args[2] is IReadOnlyDictionary<string, object?> descriptor)
                     {
                         var hasGetter = descriptor.TryGetValue("get", out var getter) && IsCallable(getter);
@@ -308,22 +309,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                                 hasGetter ? receiver => JavaScriptEvaluator.InvokeWithReceiver(getter!, receiver, []) : null,
                                 hasSetter ? (receiver, assigned) => JavaScriptEvaluator.InvokeWithReceiver(setter!, receiver, [assigned]) : null);
                         else if (descriptor.TryGetValue("value", out var descriptorValue)) value = descriptorValue;
+                        else if (TryReadOwnProperty(args[0], name, out _)) return args[0];
                     }
-                    if (args[0] is IDictionary<string, object?> target)
-                        target[name] = value;
-                    else if (args[0] is NativeFunction function)
-                        function.SetProperty(name, value);
-                    else if (args[0] is NativeReceiverFunction receiverFunction)
-                        receiverFunction.SetProperty(name, value);
-                    else if (args[0] is Func<IReadOnlyList<object?>, object?> callable)
-                        JavaScriptEvaluator.SetCallableProperty(callable, name, value);
-                    else if (args[0] is INativeHostObject host)
-                        host.TrySetSetValue(name, value);
-                    else if (args[0] is IList<object?> values && int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var index) && index >= 0)
-                    {
-                        while (values.Count <= index) values.Add(JavaScriptEvaluator.UndefinedValue.Instance);
-                        values[index] = value;
-                    }
+                    SetOwnProperty(args[0], name, value);
                 }
                 return args.Count > 0 ? args[0] : null;
             }),
@@ -357,25 +345,14 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     return prototype;
                 return null;
             }),
-            ["hasOwn"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && args[0] is IReadOnlyDictionary<string, object?> own && own.ContainsKey(StringValue(args[1]))),
+            ["hasOwn"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && HasOwnProperty(args[0], StringValue(args[1]))),
             ["is"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && SameValue(args[0], args[1])),
             ["freeze"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? args[0] : null),
             ["getOwnPropertyDescriptor"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count < 2 || args[0] is null || args[0] is JavaScriptEvaluator.UndefinedValue) return null;
                 var name = StringValue(args[1]);
-                object? value;
-                var found = args[0] switch
-                {
-                    IReadOnlyDictionary<string, object?> target => target.TryGetValue(name, out value),
-                    INativeHostObject host => host.TryGetValue(name, out value),
-                    INativeCallable callable => callable.TryGetProperty(name, out value),
-                    INativeBuffer buffer => buffer.TryGetProperty(name, out value),
-                    IList<object?> values when name == "length" => (value = (double)values.Count) is not null,
-                    IList<object?> values when int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var index) && index >= 0 && index < values.Count
-                        => (value = values[index]) is not null,
-                    _ => (value = null) is not null,
-                };
+                var found = TryReadOwnProperty(args[0], name, out var value);
                 return found ? new Dictionary<string, object?> { ["value"] = value, ["writable"] = true, ["enumerable"] = name != "length", ["configurable"] = true } : null;
             }),
             ["prototype"] = new Dictionary<string, object?>(StringComparer.Ordinal),
@@ -394,7 +371,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             {
                 if (args.Count == 0) return null;
                 var fn = args[0];
-                var callArgs = args.Count > 2 && args[2] is IReadOnlyList<object?> list ? list : Array.Empty<object?>();
+                var callArgs = args.Count > 2 && args[2] is IReadOnlyList<object?> list ? list : new List<object?>();
                 return fn switch
                 {
                     NativeReceiverFunction receiverCallable => receiverCallable.Invoke(args.Count > 1 ? args[1] : null, callArgs),
@@ -646,7 +623,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     return existing.CreateView(kind, args.Count > 1 ? BufferIndex(args[1]) : 0,
                         args.Count > 2 && args[2] is not JavaScriptEvaluator.UndefinedValue ? BufferIndex(args[2]) : null);
                 var copied = existing.Kind == ScriptBufferSourceKind.DataView ? []
-                    : Enumerable.Range(0, existing.Length).Select(index => existing.ReadElement(index)).ToArray();
+                    : Enumerable.Range(0, existing.Length).Select(index => existing.ReadElement(index)).ToList();
                 return new NativeBuffer(kind, EncodeElements(kind, copied), elementSize);
             }
             if (args[0] is IReadOnlyList<object?> values)
@@ -818,7 +795,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     public ScriptValue CreatePlainObject(IReadOnlyDictionary<string, ScriptValue> properties) => ScriptValue.FromObject(properties.ToDictionary(pair => pair.Key, pair => ToObject(pair.Value), StringComparer.Ordinal));
     public bool TryGetArrayItems(ScriptValue value, out IReadOnlyList<ScriptValue> items)
     {
-        if (value.Raw is IReadOnlyList<object?> array) { items = array.Select(ToScriptValue).ToArray(); return true; }
+        if (value.Raw is IReadOnlyList<object?> array) { items = array.Select(ToScriptValue).ToList(); return true; }
         items = []; return false;
     }
     public bool CoerceBoolean(ScriptValue value) => JavaScriptEvaluator.Truth(ToObject(value));
@@ -1001,7 +978,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
         if (target.Raw is INativeBuffer buffer && buffer.TryGetProperty(name, out var bufferValue))
             return ToScriptValue(bufferValue);
-        if (target.Raw is IReadOnlyList<object?> array && name == "length") return ScriptValue.FromNumber(array.Count);
+        if (target.Raw is IList<object?> array && JavaScriptEvaluator.TryGetArrayProperty(array, name, out var arrayValue))
+            return ToScriptValue(arrayValue);
         if (target.Raw is string text && name == "length") return ScriptValue.FromNumber(text.Length);
         if (target.Raw is IReadOnlyDictionary<string, object?> properties && properties.TryGetValue(name, out var item))
             return ToScriptValue(ReadProperty(item));
@@ -1016,6 +994,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
         if (target.Raw is NativeHostValue host)
             return host.TrySetSetValue(name, ToObject(value)) || host.TrySetPrototypeValue(name, ToObject(value));
+        if (target.Raw is IList<object?> array)
+        {
+            JavaScriptEvaluator.SetArrayProperty(array, name, ToObject(value));
+            return true;
+        }
         if (target.Raw is IDictionary<string, object?> properties)
         {
             var assigned = ToObject(value);
@@ -1027,6 +1010,43 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }
         return false;
     }
+
+    private static void SetOwnProperty(object? target, string name, object? value)
+    {
+        if (target is IDictionary<string, object?> properties) properties[name] = value;
+        else if (target is NativeFunction function) function.SetProperty(name, value);
+        else if (target is NativeReceiverFunction receiverFunction) receiverFunction.SetProperty(name, value);
+        else if (target is Func<IReadOnlyList<object?>, object?> callable) JavaScriptEvaluator.SetCallableProperty(callable, name, value);
+        else if (target is INativeHostObject host) host.TrySetSetValue(name, value);
+        else if (target is IList<object?> values) JavaScriptEvaluator.SetArrayProperty(values, name, value);
+    }
+
+    private static bool TryReadOwnProperty(object? target, string name, out object? value)
+    {
+        // Ordinary functions own a prototype from creation; Folio makes it on first use.
+        if (name == "prototype" && target is NativeFunction or NativeReceiverFunction or Func<IReadOnlyList<object?>, object?>
+            && !TryReadExistingOwnProperty(target, name, out _))
+        {
+            var prototype = new Dictionary<string, object?>(StringComparer.Ordinal);
+            if (target is NativeFunction function) function.SetProperty(name, prototype);
+            else if (target is NativeReceiverFunction receiverFunction) receiverFunction.SetProperty(name, prototype);
+            else JavaScriptEvaluator.SetCallableProperty(target, name, prototype);
+        }
+        return TryReadExistingOwnProperty(target, name, out value);
+    }
+
+    private static bool TryReadExistingOwnProperty(object? target, string name, out object? value) => target switch
+    {
+        IReadOnlyDictionary<string, object?> properties => properties.TryGetValue(name, out value),
+        INativeHostObject host => host.TryGetValue(name, out value),
+        INativeCallable callable => callable.TryGetProperty(name, out value),
+        Func<IReadOnlyList<object?>, object?> callable => JavaScriptEvaluator.TryGetCallableProperty(callable, name, out value),
+        INativeBuffer buffer => buffer.TryGetProperty(name, out value),
+        IList<object?> array => JavaScriptEvaluator.TryGetArrayProperty(array, name, out value),
+        _ => (value = null) is not null,
+    };
+
+    internal static bool HasOwnProperty(object? target, string name) => TryReadOwnProperty(target, name, out _);
 
     internal static object? ReadProperty(object? value) => value switch
     {
@@ -1704,7 +1724,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         internal bool Has(object? value) => _values.Contains(value);
         internal bool Delete(object? value) => _values.Remove(value);
         internal void ForEach(object callback) { if (IsCallable(callback)) foreach (var item in _values) InvokeCallable(callback, [item, item, this]); }
-        internal object?[] Values() => _values.ToArray();
+        internal List<object?> Values() => _values.ToList();
         internal bool TryGetProperty(string name, out object? value)
         {
             value = name switch
@@ -1713,6 +1733,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 "has" => new NativeReceiverFunction((_, args) => Has(args.Count > 0 ? args[0] : null)),
                 "delete" => new NativeReceiverFunction((_, args) => Delete(args.Count > 0 ? args[0] : null)),
                 "values" or "keys" => new NativeReceiverFunction((_, _) => Values()),
+                "entries" => new NativeReceiverFunction((_, _) => _values.Select(item => (object?)new List<object?> { item, item }).ToList()),
+                "Symbol.iterator" => new NativeReceiverFunction((_, _) => CreateArrayIterator(Values())),
+                "clear" => new NativeReceiverFunction((_, _) => { _values.Clear(); return JavaScriptEvaluator.UndefinedValue.Instance; }),
                 "forEach" => new NativeReceiverFunction((_, args) => { if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Set callback must be callable."); foreach (var item in _values) InvokeCallable(args[0], [item, item, this]); return JavaScriptEvaluator.UndefinedValue.Instance; }),
                 "size" => (double)_values.Count,
                 _ => null,
@@ -1734,7 +1757,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         internal bool Has(object key) => _values.ContainsKey(key);
         internal bool Delete(object key) => _values.Remove(key);
         internal void ForEach(object callback) { if (IsCallable(callback)) foreach (var pair in _values) InvokeCallable(callback, [pair.Value, pair.Key, this]); }
-        internal object?[] Entries() => _values.Select(pair => (object?)new object?[] { pair.Key, pair.Value }).ToArray();
+        internal List<object?> Entries() => _values.Select(pair => (object?)new List<object?> { pair.Key, pair.Value }).ToList();
         internal bool TryGetProperty(string name, out object? value)
         {
             value = name switch
@@ -1743,7 +1766,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 "get" => new NativeReceiverFunction((_, args) => args.Count > 0 && args[0] is { } key ? Get(key) : JavaScriptEvaluator.UndefinedValue.Instance),
                 "has" => new NativeReceiverFunction((_, args) => args.Count > 0 && args[0] is { } key && Has(key)),
                 "delete" => new NativeReceiverFunction((_, args) => args.Count > 0 && args[0] is { } key && Delete(key)),
-                "entries" or "keys" or "values" => new NativeReceiverFunction((_, _) => name == "values" ? _values.Values.ToArray() : name == "keys" ? _values.Keys.ToArray() : Entries()),
+                "entries" or "keys" or "values" => new NativeReceiverFunction((_, _) => name == "values" ? _values.Values.ToList() : name == "keys" ? _values.Keys.Cast<object?>().ToList() : Entries()),
+                "Symbol.iterator" => new NativeReceiverFunction((_, _) => CreateArrayIterator(Entries())),
+                "clear" => new NativeReceiverFunction((_, _) => { _values.Clear(); return JavaScriptEvaluator.UndefinedValue.Instance; }),
                 "forEach" => new NativeReceiverFunction((_, args) => { if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Map callback must be callable."); foreach (var pair in _values) InvokeCallable(args[0], [pair.Value, pair.Key, this]); return JavaScriptEvaluator.UndefinedValue.Instance; }),
                 "size" => (double)_values.Count,
                 _ => null,
@@ -1785,7 +1810,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         JsonValueKind.False => false,
         JsonValueKind.Number when element.TryGetDouble(out var number) => number,
         JsonValueKind.String => element.GetString(),
-        JsonValueKind.Array => element.EnumerateArray().Select(ParseJson).ToArray(),
+        JsonValueKind.Array => element.EnumerateArray().Select(ParseJson).ToList(),
         JsonValueKind.Object => element.EnumerateObject().ToDictionary(property => property.Name, property => ParseJson(property.Value), StringComparer.Ordinal),
         _ => null,
     };
