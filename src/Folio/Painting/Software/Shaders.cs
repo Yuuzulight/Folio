@@ -251,7 +251,7 @@ internal sealed class ImageShader : Shader
                     _levels.Add(Halve(_levels[^1]));
             }
         }
-        if (_smooth && _lod > 0)
+        if (_smooth && _lod > 0 && float.IsFinite(_lod))
         {
             // The two levels a sample blends, with their scales to level 0, fixed once instead of looked up per pixel.
             var lowerIndex = Math.Min((int)MathF.Floor(_lod), _levels.Count - 1);
