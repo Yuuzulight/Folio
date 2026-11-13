@@ -80,7 +80,13 @@ internal sealed class GposKerning
     public int Placement(ushort left, ushort right)
         => Adjustment(left, right).XPlacement;
 
+    // Text repeats the same glyph pairs, and each lookup is a handful of binary searches over the table bytes.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (int XPlacement, int XAdvance)> _pairs = new();
+
     private (int XPlacement, int XAdvance) Adjustment(ushort left, ushort right)
+        => _pairs.GetOrAdd(((uint)left << 16) | right, static (_, state) => state.self.Lookup(state.left, state.right), (self: this, left, right));
+
+    private (int XPlacement, int XAdvance) Lookup(ushort left, ushort right)
     {
         try
         {
