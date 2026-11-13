@@ -1,3 +1,4 @@
+using System.Text;
 using Folio;
 using Folio.Scripting.Rtc;
 using Folio.Scripting.Ipc;
@@ -46,6 +47,8 @@ internal sealed class WebRtcBindingState : IDisposable
         }
     }
 
+    private const int MaxTurnCredentialLength = 255;
+
     private string[] ValidateIceServers(ReadOnlySpan<ScriptValue> endpoints)
     {
         if (endpoints.Length > ContentHostPolicy.MaxOrigins)
@@ -54,15 +57,22 @@ internal sealed class WebRtcBindingState : IDisposable
         var totalLength = 0;
         foreach (var value in endpoints)
         {
-            var endpoint = value.AsString() ?? "";
-            if (endpoint.Length > ContentHostPolicy.MaxOriginLength ||
-                (totalLength += endpoint.Length) > ContentHostPolicy.MaxOriginsLength)
+            var entry = value.AsString() ?? "";
+            // TURN credentials travel after the URL; only the URL is matched against the host allowlist.
+            var endpoint = IceAgent.UrlOf(entry);
+            if (entry.Length > ContentHostPolicy.MaxOriginLength + 2 * MaxTurnCredentialLength + 2 ||
+                (totalLength += endpoint.Length) > ContentHostPolicy.MaxOriginsLength || endpoint.Length > ContentHostPolicy.MaxOriginLength)
                 throw WebIdlException.DomException("QuotaExceededError", "The ICE server list exceeds its size limit.");
             if (!_context.WebRtcAllowedOrigins.Any(origin => string.Equals(origin.TrimEnd('/'), endpoint, StringComparison.OrdinalIgnoreCase)))
                 throw WebIdlException.DomException("SecurityError", "The ICE server is not allowed by the host.");
-            if (!IceAgent.TryParseStunServer(endpoint, out _, out _))
-                throw WebIdlException.DomException("NotSupportedError", "Only IPv4 UDP STUN servers are supported by the document transport.");
-            if (!servers.Contains(endpoint, StringComparer.OrdinalIgnoreCase)) servers.Add(endpoint);
+            if (IceAgent.TryParseTurnServer(entry, out _, out _, out var username, out var credential, out _))
+            {
+                if (Encoding.UTF8.GetByteCount(username) > MaxTurnCredentialLength || Encoding.UTF8.GetByteCount(credential) > MaxTurnCredentialLength)
+                    throw WebIdlException.DomException("QuotaExceededError", "The TURN credentials exceed their size limit.");
+            }
+            else if (!IceAgent.TryParseStunServer(endpoint, out _, out _))
+                throw WebIdlException.DomException("NotSupportedError", "Only IPv4 UDP STUN and TURN servers are supported by the document transport.");
+            if (!servers.Contains(entry, StringComparer.OrdinalIgnoreCase)) servers.Add(entry);
         }
         return servers.ToArray();
     }
@@ -494,6 +504,7 @@ internal sealed class WebRtcBindingState : IDisposable
             var endpoint=String(urls[j]);
             if(documentTransport) {
                 if(endpoints.length>=65)throw new DOMException('Too many ICE servers.','QuotaExceededError');
+                if(/^turns?:/i.test(endpoint))endpoint+='\u0001'+(server.username===undefined?'':String(server.username))+'\u0001'+(server.credential===undefined?'':String(server.credential));
                 apply(arrayPush,endpoints,[endpoint]);
             } else if(!/^(stun|stuns|turn|turns):/i.test(endpoint)||!host.allowOrigin(endpoint)) {
                 throw new DOMException('The WebRTC server URL is invalid or not allowed.','SecurityError');
