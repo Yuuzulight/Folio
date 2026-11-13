@@ -79,8 +79,26 @@ public class RetainedScrollTests
         return text.ToString();
     }
 
+    private static string Prefixed(string anchored) => LongText().Replace("<body style='margin: 0; padding: 16px; font: 15px/1.4 sans-serif'>",
+        "<body style='margin: 0; padding: 16px; font: 15px/1.4 sans-serif'>" + anchored);
+
+    // Ink that reaches far from where its text is: big type, long descenders, emoji, a shadow.
+    private static string BigGlyphs()
+    {
+        var text = new StringBuilder("<!DOCTYPE html><body style='margin: 0; font-family: sans-serif'>");
+        for (var i = 0; i < 40; i++)
+            text.Append($"<div style='font-size: {60 + i % 5 * 20}px; line-height: 0.8; text-shadow: 0 {i % 3 * 6}px 4px rgba(0,0,0,.5); padding-left: {i * 11 % 90}px'>gypQÅé 😀 j{i}</div>");
+        return text.ToString();
+    }
+
     private static readonly Dictionary<string, Func<string>> Pages = new()
     {
+        ["fixed-text"] = () => Prefixed("<div style='position: fixed; top: 10px; left: 10px; color: red'>No background here</div>"),
+        ["fixed-border"] = () => Prefixed("<div style='position: fixed; top: 50px; left: 300px; width: 80px; height: 30px; border: 3px solid green'></div>"),
+        ["fixed-svg"] = () => Prefixed("<svg style='position: fixed; bottom: 20px; right: 20px' width=60 height=40><rect width=60 height=40 fill=teal /></svg>"),
+        ["sticky"] = () => Prefixed("<p style='position: sticky; top: 0'>sticky text only</p>"),
+        ["fixed-nested"] = () => Prefixed("<div style='overflow: auto; height: 200px; width: 300px; position: relative'><div style='position: fixed; top: 5px'>inside a scroller</div><div style='height: 900px'>x</div></div>"),
+        ["glyphs"] = BigGlyphs, ["emoji-free-glyphs"] = () => BigGlyphs().Replace("😀", "e"),
         ["saturate"] = () => Filtered("saturate(.5)"),
         ["blur"] = () => Filtered("blur(3px)"),
         ["dashboard"] = Dashboard,
@@ -90,27 +108,27 @@ public class RetainedScrollTests
         ["fixed-background"] = FixedBackground,
     };
 
-    private static readonly Dictionary<(string, int), DisplayList> Lists = [];
+    private static readonly Dictionary<(string, int, float), DisplayList> Lists = [];
 
-    private static DisplayList ListOf(string page, int height)
+    private static DisplayList ListOf(string page, int height, float scale = 1)
     {
         lock (Lists)
         {
-            if (Lists.TryGetValue((page, height), out var cached))
+            if (Lists.TryGetValue((page, height, scale), out var cached))
                 return cached;
             var document = Document.Parse(Pages[page](), Options); // kept: the list is used by every case
-            var (list, contentHeight) = document.Paint(800, height, 1, SoftwareRasterBackend.Instance.TextShaper, 0);
-            Assert.True(contentHeight > 1300 + height, $"{page} must be taller than the scrolls: {contentHeight}");
-            return Lists[(page, height)] = list!;
+            var (list, contentHeight) = document.Paint(800 / scale, height / scale, scale, SoftwareRasterBackend.Instance.TextShaper, 0);
+            Assert.True(contentHeight * scale > 1300 + height, $"{page} must be taller than the scrolls: {contentHeight}");
+            return Lists[(page, height, scale)] = list!;
         }
     }
 
     // What FolioView does for a scroll: shift when possible, else repaint in full. True when it shifted.
-    private static bool Scroll(DisplayList list, SoftwareRasterSurface surface, int from, int to)
+    private static bool Scroll(DisplayList list, SoftwareRasterSurface surface, int from, int to, float scale = 1)
     {
-        if (RetainedScroll.TryScroll(list, surface, 1, from, to, White))
+        if (RetainedScroll.TryScroll(list, surface, scale, from, to, White))
             return true;
-        RetainedScroll.Repaint(list, surface, 1, to, White);
+        RetainedScroll.Repaint(list, surface, scale, to, White);
         return false;
     }
 
@@ -131,15 +149,43 @@ public class RetainedScrollTests
         RetainedScroll.Repaint(list, fresh, 1, from + delta, White);
 
         Assert.True(fresh.PremultipliedPixels.AsSpan().SequenceEqual(scrolled.PremultipliedPixels), $"{page} {height} {delta:+0;-0}: pixels differ");
-        var expected = page is not ("fixed-header" or "blur") && Math.Abs(delta) <= height - height / 8;
+        var expected = page is not ("glyphs" or "fixed-header" or "fixed-text" or "fixed-border" or "fixed-svg" or "sticky" or "fixed-nested" or "blur") && Math.Abs(delta) <= height - height / 8;
         Assert.Equal(expected, shifted);
     }
 
     [Fact]
     public void ABoxFixedToTheViewportMakesTheListRefuseToShift()
     {
-        Assert.True(ListOf("fixed-header", 600).ViewportAnchored);
+        foreach (var page in new[] { "fixed-header", "fixed-text", "fixed-border", "fixed-svg", "sticky", "fixed-nested" })
+            Assert.True(ListOf(page, 600).ViewportAnchored, page);
         Assert.False(ListOf("dashboard", 600).ViewportAnchored);
+    }
+
+    private static string Differences(SoftwareRasterSurface a, SoftwareRasterSurface b)
+    {
+        var (x, y) = (a.PremultipliedPixels, b.PremultipliedPixels);
+        var wrong = Enumerable.Range(0, x.Length).Where(i => x[i] != y[i]).ToList();
+        return $"{wrong.Count} bytes differ, by at most {wrong.Select(i => Math.Abs(x[i] - y[i])).DefaultIfEmpty(0).Max()}";
+    }
+
+    public static IEnumerable<object[]> ScaledCases() =>
+        from page in new[] { "dashboard", "text", "glyphs", "overlay" } from scale in new[] { 1.25f, 1.5f, 1.75f, 2f } from delta in new[] { 1, 3, 17, 101, 333 } from sign in new[] { 1, -1 }
+        select new object[] { page, scale, delta * sign };
+
+    // The control scrolls in whole device pixels at any scale; odd offsets and fractional scales must agree with a repaint too.
+    [Theory]
+    [MemberData(nameof(ScaledCases))]
+    public void AScrollAtAnotherScaleFallsBackAndMatchesAFullRepaint(string page, float scale, int delta)
+    {
+        var list = ListOf(page, 600, scale);
+        const int from = 701;
+        using var scrolled = new SoftwareRasterSurface(800, 600);
+        using var fresh = new SoftwareRasterSurface(800, 600);
+        RetainedScroll.Repaint(list, scrolled, scale, from, White);
+        // Scales other than 1 fall back (a shift there can differ by one level in a few bytes, and emoji at 2), and still match.
+        Assert.False(Scroll(list, scrolled, from, from + delta, scale));
+        RetainedScroll.Repaint(list, fresh, scale, from + delta, White);
+        Assert.True(fresh.PremultipliedPixels.AsSpan().SequenceEqual(scrolled.PremultipliedPixels), $"{page} x{scale} {delta:+0;-0}: {Differences(fresh, scrolled)}");
     }
 
     [Fact]

@@ -13,7 +13,11 @@ namespace Folio.Painting;
 /// rasterizes to the same coverage, only on another row. That holds for what the list paints on its own. It does not hold,
 /// and the shift is refused, when the list has something anchored to the viewport (<see cref="DisplayList.ViewportAnchored"/>),
 /// a backdrop-filter layer, or a filter layer other than colour matrices (saturate, brightness and the like work on one pixel at a time and are fine; a blur's reach ends at the viewport edge, which moves), a blend mode (it may read what the
-/// shift cannot vouch for), a perspective transform, or the shift is nearly the whole viewport (nothing left to reuse).
+/// shift cannot vouch for), a perspective transform, colour or bitmap glyphs (emoji), a scale other than 1 (see below), or the shift is nearly the whole viewport (nothing left to reuse).
+/// Only scale 1 is shifted. At 125% or 150% the page-to-device products round differently for each offset, and a shifted
+/// frame differed from a repainted one by one level in a few bytes (measured, at most 1, a few dozen of 480,000); at scale 2
+/// colour emoji came out differently too. Allowing other scales would be
+/// a choice to accept that, or to prove the list free of what causes it.
 /// The kill switch is the environment variable FOLIO_RETAINED_SCROLL=0.
 /// </remarks>
 internal static class RetainedScroll
@@ -22,7 +26,7 @@ internal static class RetainedScroll
     internal static bool Enabled { get; set; } = Environment.GetEnvironmentVariable("FOLIO_RETAINED_SCROLL") != "0";
 
     /// <summary>The transform a frame scrolled to <paramref name="top"/> device pixels is drawn with.</summary>
-    // (The control used translate(-top / scale) * scale: the same to within float noise of about 1e-4 px, which this form removes.)
+    // (The control used translate(-top / scale) * scale: the same to within float noise of about 1e-4 px; this form makes the offset a whole number.)
     internal static Matrix3x2 Transform(float scale, int top) => Matrix3x2.CreateScale(scale) * Matrix3x2.CreateTranslation(0, -top);
 
     /// <summary>Draws the whole frame at <paramref name="top"/> device pixels of scroll.</summary>
@@ -38,7 +42,7 @@ internal static class RetainedScroll
     {
         var delta = toTop - fromTop;
         var height = surface.Height;
-        if (!Enabled || delta == 0 || list.ViewportAnchored || !(scale > 0) || Math.Abs(delta) > height - height / 8 || !ShiftSafe(list))
+        if (!Enabled || delta == 0 || list.ViewportAnchored || !(scale > 0) || scale != 1 || Math.Abs(delta) > height - height / 8 || !ShiftSafe(list))
             return false;
         surface.ShiftRows(delta);
         if (delta > 0)
@@ -65,6 +69,11 @@ internal static class RetainedScroll
         canvas.Restore();
     }
 
+    // Colour and bitmap glyphs (emoji) are resampled from a strike at the position they land on, and came out a level
+    // off in a few bytes when shifted: lists with them are repainted.
+    private static bool HasColorGlyphs(in DisplayItem item) =>
+        item.Glyphs?.Font is Typography.FontFace face && (Software.ColorGlyphs.Has(face) || Software.BitmapGlyphs.Has(face));
+
     private const float CullMargin = 96; // device pixels
 
     private static bool ShiftSafe(DisplayList list)
@@ -74,7 +83,7 @@ internal static class RetainedScroll
         var safe = true;
         foreach (var item in list.Items)
         {
-            if (item.Blend != BlendMode.Normal || item.Projection is not null
+            if (item.Blend != BlendMode.Normal || item.Projection is not null || HasColorGlyphs(item)
                 || item is { Kind: DisplayItemKind.PushLayer } && (item.Backdrop is { Count: > 0 } || item.Filters?.Any(f => f.Kind != FilterKind.ColorMatrix || f.Subregion is not null) == true))
             {
                 safe = false;

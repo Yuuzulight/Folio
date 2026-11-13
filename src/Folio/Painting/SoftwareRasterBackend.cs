@@ -56,7 +56,7 @@ public sealed class SoftwareRasterSurface : IRasterSurface
             for (; x <= stride - 16; x += 16)
             {
                 var rgba = System.Runtime.Intrinsics.Vector128.LoadUnsafe(ref System.Runtime.InteropServices.MemoryMarshal.GetReference(source), (nuint)x);
-                System.Runtime.Intrinsics.Vector128.Shuffle(rgba, order).StoreUnsafe(ref destination[0], (nuint)x);
+                System.Runtime.Intrinsics.Vector128.StoreUnsafe(System.Runtime.Intrinsics.Vector128.Shuffle(rgba, order), ref destination[0], (nuint)x);
             }
         }
         for (; x < stride; x += 4)
