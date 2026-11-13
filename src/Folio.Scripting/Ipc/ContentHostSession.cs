@@ -299,6 +299,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             WriteAsync(ContentMessageKind.MediaDecodeRequest, sequence, new Dictionary<string, object?> { ["data"] = Convert.ToBase64String(data.Span), ["contentType"] = contentType, ["video"] = video, ["maxOutputBytes"] = maxOutputBytes }, timeout.Token).AsTask().GetAwaiter().GetResult();
             return completion.Task.WaitAsync(timeout.Token).GetAwaiter().GetResult();
         }
+        catch (IOException) when (_connectionClosed) { return null; }
         finally { _mediaDecodeRequests.TryRemove(sequence, out _); _requestSlots.Release(); }
     }
 
@@ -430,6 +431,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             await WriteAsync(ContentMessageKind.ResourceRequest, sequence, new Dictionary<string, object?> { ["url"] = request.Url, ["kind"] = (int)request.Kind, ["integrity"] = request.Integrity }, timeout.Token).ConfigureAwait(false);
             return await completion.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
         }
+        catch (IOException) when (_connectionClosed) { return ResourceResponse.Refused("The content connection closed."); }
         finally { _resourceRequests.TryRemove(sequence, out _); _requestSlots.Release(); }
     }
 
@@ -472,14 +474,17 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             JsonElement json => json.Clone(),
             _ => ScriptJson.SerializeToElement(payload),
         };
-        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        // Disposal races a write in flight; that is an ordinary closed connection, not a fault.
+        try { await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        catch (ObjectDisposedException) { throw new IOException("The content connection closed."); }
         try
         {
             await ContentTransport.WriteAsync(_output, new ContentMessage(kind, sequence, element), cancellationToken).ConfigureAwait(false);
         }
+        catch (ObjectDisposedException) { throw new IOException("The content connection closed."); }
         finally
         {
-            _writeGate.Release();
+            try { _writeGate.Release(); } catch (ObjectDisposedException) { }
         }
     }
 
