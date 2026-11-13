@@ -333,7 +333,7 @@ internal static class SilkTables
     /// <summary>[ 2 ][ 2 ]</summary>
     internal static readonly short[] QuantizationOffsetsQ10 =
     [
-        10, 10, 10, 10
+        100, 240, 32, 100
     ];
     /// <summary>[ 3 ]</summary>
     internal static readonly short[] LTPScalesTableQ14 =
