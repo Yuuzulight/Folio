@@ -127,7 +127,9 @@ internal sealed class RtcPeerConnectionController : IDisposable
     /// <summary>The i-th audio sender, in addTrack order, once an offer or answer has created it.</summary>
     public RtcLocalTrack? LocalAudioTrack(int index) { lock (_gate) return index >= 0 && index < _localAudio.Count ? _localAudio[index] : null; }
 
-    private static readonly RtcCodec[] AudioCodecs = [new(0, "PCMU", 8000, 1), new(8, "PCMA", 8000, 1)];
+    /// <summary>Folio receives mono or stereo Opus and sends mono (RFC 7587 parameters), with in-band FEC accepted.</summary>
+    internal const string OpusFmtp = "minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0";
+    private static readonly RtcCodec[] AudioCodecs = [new(111, "opus", 48000, 2) { Fmtp = OpusFmtp }, new(0, "PCMU", 8000, 1), new(8, "PCMA", 8000, 1)];
     private static readonly RtcCodec[] VideoCodecs = [new(96, "VP8", 90000, 1)];
 
     private RtcMediaDescription MediaSection(string kind, string mid, string direction, RtcLocalTrack? sender)
@@ -150,7 +152,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
     {
         var midIndex = hasDataChannels ? 1 : 0;
         if (hasDataChannels) sdp.Media.Add(DataSection("0"));
-        // Folio sends and decodes G.711 audio only. Video sections keep the m-line order but are negotiated inactive.
+        // Folio sends and decodes Opus and G.711 audio only. Video sections keep the m-line order but are negotiated inactive.
         for (var i = 0; i < audioSenders && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
             sdp.Media.Add(MediaSection("audio", (midIndex++).ToString(), "sendrecv", LocalAudio(i)));
         for (var i = 0; i < audioReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
@@ -202,7 +204,8 @@ internal sealed class RtcPeerConnectionController : IDisposable
                     var mid = offered.Mid ?? i.ToString();
                     if (offered.Kind == "application" && offered.Port != 0) { sdp.Media.Add(DataSection(mid)); continue; }
                     var accepted = offered.Kind == "audio" && offered.Port != 0
-                        ? offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).Where(c => c is { IsG711: true }).Cast<RtcCodec>().ToArray()
+                        ? offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).Where(c => c is { IsG711: true } or { IsOpus: true }).Cast<RtcCodec>()
+                            .OrderBy(c => c.IsOpus ? 0 : 1).Select(c => c.IsOpus ? new RtcCodec(c.PayloadType, "opus", 48000, 2) { Fmtp = OpusFmtp } : c).ToArray()
                         : [];
                     if (accepted.Length == 0)
                     {

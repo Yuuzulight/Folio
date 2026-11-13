@@ -225,6 +225,18 @@ internal sealed class OpusDecoder
     /// </summary>
     internal int Decode(ReadOnlySpan<byte> data, Span<float> pcm, int frameSize, bool fec = false)
     {
+        var samples = DecodeCore(data, pcm, frameSize, fec);
+        if (samples > 0)
+        {
+            // corrupt streams can overshoot: the sink gets finite samples in [-1, 1]
+            var span = pcm[..(samples * _channels)];
+            for (var i = 0; i < span.Length; i++) span[i] = float.IsNaN(span[i]) ? 0f : Math.Clamp(span[i], -1f, 1f);
+        }
+        return samples;
+    }
+
+    private int DecodeCore(ReadOnlySpan<byte> data, Span<float> pcm, int frameSize, bool fec)
+    {
         if (frameSize <= 0) return OpusError.BadArg;
         if (pcm.Length < frameSize * _channels) return OpusError.BufferTooSmall;
         if ((fec || data.IsEmpty) && frameSize % (Fs / 400) != 0) return OpusError.BadArg;
@@ -253,11 +265,11 @@ internal sealed class OpusDecoder
         if (fec)
         {
             if (frameSize < packetFrameSize || packetMode == OpusPacket.ModeCeltOnly || _mode == OpusPacket.ModeCeltOnly)
-                return Decode(default, pcm, frameSize);
+                return DecodeCore(default, pcm, frameSize, false);
             var durationCopy = _lastPacketDuration;
             if (frameSize - packetFrameSize != 0)
             {
-                var ret = Decode(default, pcm, frameSize - packetFrameSize);
+                var ret = DecodeCore(default, pcm, frameSize - packetFrameSize, false);
                 if (ret < 0) { _lastPacketDuration = durationCopy; return ret; }
             }
             _mode = packetMode; _bandwidth = packetBandwidth; _frameSize = packetFrameSize; _streamChannels = packetChannels;

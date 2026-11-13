@@ -285,8 +285,8 @@ internal sealed class CeltDecoder
 
     // ---- allocation (celt/rate.c, decoder subset) ----
 
-    private static int ComputeAllocation(int start, int end, int[] offsets, int[] cap, int allocTrim, ref int intensity, ref bool dualStereo,
-        int total, out int balance, int[] pulses, int[] ebits, int[] finePriority, int c, int lm, RangeDecoder dec)
+    internal static int ComputeAllocation(int start, int end, int[] offsets, int[] cap, int allocTrim, ref int intensity, ref bool dualStereo,
+        int total, out int balance, int[] pulses, int[] ebits, int[] finePriority, int c, int lm, RangeDecoder? dec, RangeEncoder? enc = null)
     {
         total = Math.Max(total, 0);
         var len = Ne;
@@ -349,11 +349,11 @@ internal sealed class CeltDecoder
             bits1[j] = bits1j;
             bits2[j] = bits2j;
         }
-        return Interp(start, end, skipStart, bits1, bits2, thresh, cap, total, out balance, skipRsv, ref intensity, intensityRsv, ref dualStereo, dualStereoRsv, pulses, ebits, finePriority, c, lm, dec);
+        return Interp(start, end, skipStart, bits1, bits2, thresh, cap, total, out balance, skipRsv, ref intensity, intensityRsv, ref dualStereo, dualStereoRsv, pulses, ebits, finePriority, c, lm, dec, enc);
     }
 
     private static int Interp(int start, int end, int skipStart, Span<int> bits1, Span<int> bits2, Span<int> thresh, int[] cap, int total, out int balanceOut,
-        int skipRsv, ref int intensity, int intensityRsv, ref bool dualStereo, int dualStereoRsv, int[] bits, int[] ebits, int[] finePriority, int c, int lm, RangeDecoder dec)
+        int skipRsv, ref int intensity, int intensityRsv, ref bool dualStereo, int dualStereoRsv, int[] bits, int[] ebits, int[] finePriority, int c, int lm, RangeDecoder? dec, RangeEncoder? enc)
     {
         var allocFloor = c << Celt.BitRes;
         var stereo = c > 1 ? 1 : 0;
@@ -408,7 +408,13 @@ internal sealed class CeltDecoder
             var bandBits = bits[j] + percoeff * bandWidth + rem;
             if (bandBits >= Math.Max(thresh[j], allocFloor + (1 << Celt.BitRes)))
             {
-                if (dec.BitLogp(1) != 0) break;
+                if (enc is not null)
+                {
+                    // the encoder never drops a band it has bits for
+                    enc.BitLogp(1, 1);
+                    break;
+                }
+                if (dec!.BitLogp(1) != 0) break;
                 psum2 += 1 << Celt.BitRes;
                 bandBits -= 1 << Celt.BitRes;
             }
@@ -422,14 +428,22 @@ internal sealed class CeltDecoder
             }
             else bits[j] = 0;
         }
-        if (intensityRsv > 0) intensity = start + (int)dec.Uint((uint)(codedBands + 1 - start));
+        if (intensityRsv > 0)
+        {
+            if (enc is not null) { intensity = Math.Min(intensity, codedBands); enc.Uint((uint)(intensity - start), (uint)(codedBands + 1 - start)); }
+            else intensity = start + (int)dec!.Uint((uint)(codedBands + 1 - start));
+        }
         else intensity = 0;
         if (intensity <= start)
         {
             total += dualStereoRsv;
             dualStereoRsv = 0;
         }
-        if (dualStereoRsv > 0) dualStereo = dec.BitLogp(1) != 0;
+        if (dualStereoRsv > 0)
+        {
+            if (enc is not null) enc.BitLogp(dualStereo ? 1 : 0, 1);
+            else dualStereo = dec!.BitLogp(1) != 0;
+        }
         else dualStereo = false;
         var left2 = total - psum2;
         var pc = left2 / (Celt.EBands[codedBands] - Celt.EBands[start]);
