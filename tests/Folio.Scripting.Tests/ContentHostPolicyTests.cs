@@ -101,7 +101,7 @@ public sealed class ContentHostPolicyTests
         Assert.NotNull(report);
         var block = report.Blocks[0];
         Assert.Equal(sender.Ssrc, block.Ssrc);          // the child reported on the SSRC it unprotected
-        Assert.NotEqual(0u, block.ExtendedHighestSequence);
+        // A report block only exists for a stream the child has received packets on, so this proves reception without depending on the random sequence base.
         Assert.Equal("audio:1", Value(await Exchange(client, new { script = "error?'ERROR:'+error:tracks.join(',')" })));
     }
 

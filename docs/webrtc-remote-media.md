@@ -25,25 +25,46 @@ remote peer <-UDP-> host UdpBroker <-UdpCommand/UdpEvent-> MediatedIceTransport 
 | Receive to host | `WebRtcBindingState` | `RTCPeerConnection.ontrack` fires with a `MediaStreamTrack` and a one-track `MediaStream`. Decoded PCM goes to `IMediaAudioOutput`. |
 | Send from capture | `WebRtcBindingState` | `addTrack(microphoneTrack)` attaches the capture reader of that track; a 20 ms pump resamples to 8 kHz and emits SRTP. |
 
-## Limits and budgets (host side)
+## Limits and budgets
 
-Enforced by `RtcMediaBudget`, one instance per document, shared by all its peer connections:
+There are two layers, and only the second is a security boundary.
+
+**Content process (defence in depth, not trusted).** `RtcMediaBudget` lives in the content process, one instance per
+document shared by its peer connections. A compromised child can ignore it, so it bounds work and memory for honest
+documents and malformed traffic, nothing more:
 
 - live tracks (remote and local): 16
 - packets per second: 4000 in each direction; bytes per second: 4 MiB in each direction (one second of burst)
 
-Per engine:
+**Host (the real limits).** The `UdpBroker` applies its own limits to every datagram regardless of what the child
+believes: 1000 packets per second, a 128 KiB burst, and 1500-byte datagrams, plus the destination and source address
+policy and socket quotas described in [`webrtc-host-udp.md`](webrtc-host-udp.md). The child budgets above are
+therefore looser than the host's on packets (4000 vs 1000 per second); the host figure is the one that holds. The
+host does not parse RTP, so it cannot enforce track counts.
+
+Per engine, in the content process:
 
 - a datagram over 2048 bytes, an RTP payload over 1200 bytes, malformed headers, bad padding, unknown payload types,
   unauthenticated, replayed or over-budget packets are dropped and counted, never queued
-- SRTP stream state is created only after a packet authenticates, and is capped at 32 SSRCs per direction
+- SRTP stream state is created only after a packet authenticates, is capped at 32 SSRCs per direction, and a BYE
+  frees that SSRC's RTP state
 - jitter buffer: 64 packets per stream. On overflow the oldest packet is dropped and the hole is counted as lost.
   A hole is otherwise skipped after 60 ms
 - at most 16 remote streams, 16 media sections, 32 payload types and 8 SSRCs per section, 16 RTCP packets per compound
-- nothing in the media path logs keys, salts or payloads
+- session descriptions over 64 KiB or with more than 64 candidates are refused, and a description that fails to
+  parse makes `setLocalDescription`/`setRemoteDescription` reject with `OperationError` without changing state
+- PCMU and PCMA are accepted only at 8000 Hz mono
+- SRTP is created once per connection (a second context would reset the rollover counters and SRTCP index);
+  derived session keys and the DTLS master key, salt and exporter block are zeroed on dispose where the runtime
+  allows, and nothing in the media path logs keys, salts or payloads
+- the DTLS client checks that the server chose exactly the SRTP profile it offered
 
-Decoded remote audio reaches the output only when the document has `Media`, `Sound` and `AllowSoundAutoplay`, because
-nothing a user did started it. Capture still needs its own microphone grant and the track must be live and enabled.
+**Autoplay gate.** Whether decoded remote audio is submitted needs `Media`, `Sound` and `AllowSoundAutoplay`. That
+check is made in the content process, against the child's own copy of the capabilities. The host re-checks only
+`Sound`: it stops the media output when `Sound` is revoked (`ContentProcessClient`), and it does not look at `Media` or
+`AllowSoundAutoplay` for WebRTC audio. A compromised child could therefore play remote audio without autoplay
+permission as long as `Sound` is granted. Capture still needs its own microphone grant, and the track must be live and
+enabled.
 
 ## Tests
 
@@ -52,6 +73,7 @@ nothing a user did started it. Capture still needs its own microphone grant and 
   transports on a manual clock covering PCMU and PCMA, reordering, loss and the 60 ms wait, receiver and sender reports
   (including DLSR), BYE, track/packet/byte budgets, garbage and authenticated-but-unusable packets, jitter bound, and
   video being negotiated but not decoded.
+- `SrtpMatchesRfc7714KnownAnswerVectors*`: the RFC 7714 section 16.1 (RTP) and 17.1 (RTCP) AEAD_AES_128_GCM vectors, byte for byte.
 - `ContentHostPolicyTests.ChildReceivesRemoteAudioOverSrtpThroughTheHostUdpBroker`: a real content-process child (no
   socket) negotiates a `recvonly` audio transceiver with an out-of-process controller, `ontrack` fires in script, SRTP
   arrives through the host broker and the child's SRTCP receiver report comes back through it. This runs over real
@@ -67,9 +89,9 @@ I did not overclaim these:
   streams).
 - **Opus.** Browsers prefer Opus; Folio only speaks G.711. A browser offer always lists PCMU/PCMA too, so negotiation
   succeeds at 8 kHz, but it is narrowband.
-- **Interoperability is untested.** The SRTP and DTLS key layout follow RFC 7714 and RFC 5764, but I have only run Folio
-  against Folio. The first run against a browser may expose a mismatch. There are no third-party test vectors in the
-  suite yet.
+- **Browser interoperability is untested.** The SRTP packet format matches the RFC 7714 vectors and the DTLS key layout
+  follows RFC 5764, but I have only run Folio against Folio end to end. The first run against a browser may expose a
+  mismatch. The client-side `use_srtp` validation has no negative test yet.
 - **Only AEAD_AES_128_GCM** is offered in `use_srtp`. A peer that supports only the AES-CM/HMAC-SHA1 profiles cannot
   connect media (data channels are unaffected).
 - No MID header extension, no SSRC-less demux, no simulcast, no RTX/FEC/NACK/PLI, no congestion control or REMB.

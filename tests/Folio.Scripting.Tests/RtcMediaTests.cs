@@ -120,6 +120,63 @@ public sealed class RtcMediaTests
         Assert.False(b.TryUnprotectRtcp(new byte[10], out _));
     }
 
+    // RFC 7714 section 16.1 (RTP) and 17.1 (RTCP), AEAD_AES_128_GCM. The vectors give session keys, so they bypass the KDF.
+    private static readonly byte[] VectorKey = Convert.FromHexString("000102030405060708090a0b0c0d0e0f");
+    private static readonly byte[] VectorSalt = Convert.FromHexString("51756964" + "2070726f" + "2071756f");
+    private const string RtpPlain = "8040f17b8041f8d35501a0b247616c6c69612065737420" + "6f6d6e697320646976697361" + "20696e20706172746573207472" + "6573";
+    private const string RtpSecret = "8040f17b8041f8d35501a0b2f24de3a3fb34de6cacba861c9d7e4bcabe633bd50d294e6f42a5f47a51c7d19b36de3adf8833899d7f27beb16a9152cf765ee4390cce";
+    private const string RtcpPlain = "81c8000d4d6172734e5450314e54503252545020" + "0000042a0000e9304c756e61" + "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+    private const string RtcpSecret = "81c8000d4d61727363e94885dcdab67ca727d7662f6b7e997ff5c0f76c06f32dc676a5f1730d6fda4ce09b4686303ded0bb9275bc84aa45896cf4d2fc5abf87245d9eade800005d4";
+
+    [Fact]
+    public void SrtpMatchesRfc7714KnownAnswerVectorsForRtp()
+    {
+        var plain = Convert.FromHexString(RtpPlain);
+        using var sender = new SrtpTransport(VectorKey, VectorSalt, true);
+        Assert.Equal(RtpSecret, Convert.ToHexStringLower(sender.ProtectRtp(plain)));
+        using var receiver = new SrtpTransport(VectorKey, VectorSalt, true);
+        Assert.True(receiver.TryUnprotectRtp(Convert.FromHexString(RtpSecret), out var decrypted));
+        Assert.Equal(plain, decrypted);
+        var broken = Convert.FromHexString(RtpSecret); broken[^1] ^= 1;
+        using var strict = new SrtpTransport(VectorKey, VectorSalt, true);
+        Assert.False(strict.TryUnprotectRtp(broken, out _));
+    }
+
+    [Fact]
+    public void SrtpMatchesRfc7714KnownAnswerVectorsForRtcp()
+    {
+        var plain = Convert.FromHexString(RtcpPlain);
+        using var sender = new SrtpTransport(VectorKey, VectorSalt, true) { RtcpSendIndex = 0x5d4 };
+        Assert.Equal(RtcpSecret, Convert.ToHexStringLower(sender.ProtectRtcp(plain)));
+        using var receiver = new SrtpTransport(VectorKey, VectorSalt, true);
+        Assert.True(receiver.TryUnprotectRtcp(Convert.FromHexString(RtcpSecret), out var decrypted));
+        Assert.Equal(plain, decrypted);
+    }
+
+    [Fact]
+    public void ByeEvictsTheSsrcReceiveState()
+    {
+        var (a, b) = SrtpPair(); using var _a = a; using var _b = b;
+        var first = a.ProtectRtp(Rtp(5, 10));
+        Assert.True(b.TryUnprotectRtp(first, out _));
+        Assert.False(b.TryUnprotectRtp(first, out _));
+        b.RemoveRemoteStream(5);
+        Assert.True(b.TryUnprotectRtp(first, out _)); // state is gone, so the slot is free again (and a replay would re-enter)
+    }
+
+    [Fact]
+    public void SdpOnlyTreatsEightKilohertzMonoAsG711AndBoundsSizeAndCandidates()
+    {
+        var sdp = RtcSdp.Parse("m=audio 9 X 0 8 96\r\na=rtpmap:0 PCMU/16000\r\na=rtpmap:8 PCMA/8000\r\na=rtpmap:96 PCMU/8000/2\r\n");
+        var media = sdp.Media[0];
+        Assert.False(media.CodecFor(0)!.IsG711);
+        Assert.True(media.CodecFor(8)!.IsG711);
+        Assert.False(media.CodecFor(96)!.IsG711);
+        Assert.Throws<InvalidDataException>(() => RtcSdp.Parse(new string('a', RtcSdp.MaxSdpChars + 1)));
+        var candidates = string.Concat(Enumerable.Range(0, RtcSdp.MaxCandidates + 1).Select(i => $"a=candidate:{i} 1 udp 2130706431 10.0.0.1 {40000 + i} typ host\r\n"));
+        Assert.Throws<InvalidDataException>(() => RtcSdp.Parse("v=0\r\nm=audio 9 X 0\r\n" + candidates));
+    }
+
     [Fact]
     public void KeyDerivationUsesTheDirectionOfTheKeys()
     {
