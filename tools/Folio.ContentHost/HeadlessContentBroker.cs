@@ -95,19 +95,26 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var parent = Process.GetProcessById(_parentPid);
+        Process parent;
+        try { parent = Process.GetProcessById(_parentPid); }
+        catch (ArgumentException) { return; }
+        using (parent)
+        {
         var parentExit = WatchParentAsync(parent, lifetime);
         try
         {
             while (!lifetime.IsCancellationRequested)
             {
-                var line = await Console.In.ReadLineAsync(lifetime.Token).ConfigureAwait(false);
-                if (line is null) break;
-                if (Encoding.UTF8.GetByteCount(line) > ContentProtocol.MaxPayloadBytes)
+                string? line;
+                var readTask = Task.Run(() => ReadBoundedLineAsync(lifetime.Token), CancellationToken.None);
+                if (await Task.WhenAny(readTask, parentExit).ConfigureAwait(false) == parentExit) break;
+                try { line = await readTask.ConfigureAwait(false); }
+                catch (InvalidDataException)
                 {
                     await WriteAsync(ErrorResponse(default, false, "invalid_request", "Request exceeds the content protocol size limit."), lifetime.Token).ConfigureAwait(false);
                     continue;
                 }
+                if (line is null) break;
 
                 JsonElement id = default;
                 var hasId = false;
@@ -152,6 +159,58 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             lifetime.Cancel();
             await parentExit.ConfigureAwait(false);
         }
+        }
+    }
+
+    private static async Task<string?> ReadBoundedLineAsync(CancellationToken cancellationToken)
+    {
+        var reader = Console.In;
+        var buffer = new char[4096];
+        var line = new StringBuilder();
+        var byteCount = 0;
+        var oversized = false;
+        while (true)
+        {
+            var count = await reader.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+            if (count == 0)
+            {
+                if (line.Length == 0 && !oversized) return null;
+                break;
+            }
+            var segmentStart = 0;
+            for (var index = 0; index < count; index++)
+            {
+                if (buffer[index] != '\n') continue;
+                if (!oversized && index > segmentStart)
+                {
+                    var segmentBytes = Encoding.UTF8.GetByteCount(buffer, segmentStart, index - segmentStart);
+                    if ((long)byteCount + segmentBytes > ContentProtocol.MaxPayloadBytes) oversized = true;
+                    else { line.Append(buffer, segmentStart, index - segmentStart); byteCount += segmentBytes; }
+                }
+                if (oversized) throw new InvalidDataException("Request exceeds the content protocol size limit.");
+                if (line.Length > 0 && line[^1] == '\r') line.Length--;
+                return line.ToString();
+            }
+            if (!oversized && count > segmentStart)
+            {
+                var segmentBytes = Encoding.UTF8.GetByteCount(buffer, segmentStart, count - segmentStart);
+                if ((long)byteCount + segmentBytes > ContentProtocol.MaxPayloadBytes) oversized = true;
+                else { line.Append(buffer, segmentStart, count - segmentStart); byteCount += segmentBytes; }
+            }
+            if (oversized)
+            {
+                // Keep draining only until newline; never retain the remainder of an oversized request.
+                while (Array.IndexOf(buffer, '\n', 0, count) < 0)
+                {
+                    count = await reader.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    if (count == 0) break;
+                }
+                throw new InvalidDataException("Request exceeds the content protocol size limit.");
+            }
+        }
+        if (oversized) throw new InvalidDataException("Request exceeds the content protocol size limit.");
+        if (line.Length > 0 && line[^1] == '\r') line.Length--;
+        return line.ToString();
     }
 
     private static async Task WatchParentAsync(Process parent, CancellationTokenSource lifetime)
