@@ -208,7 +208,7 @@ internal sealed class RtcMediaEngine : IDisposable
                         if (localMedia.CodecFor(pt) is { } codec) section.ReceiveCodecs.Add(codec);
                     if (localMedia.Sends && remoteMedia.Receives && remoteMedia.RtcpMux)
                         foreach (var pt in localMedia.PayloadTypes)
-                            if (remoteMedia.PayloadTypes.Contains(pt) && localMedia.CodecFor(pt) is { Name: "PCMU" or "PCMA" } codec) { section.SendCodec = codec; break; }
+                            if (remoteMedia.PayloadTypes.Contains(pt) && localMedia.CodecFor(pt) is { IsG711: true } codec) { section.SendCodec = codec; break; }
                 }
                 else section.Receives = remoteMedia.Sends; // answerer before its own description exists
                 if (section.Track is null && remoteMedia.Sends && _budget.TryAcquireTrack())
@@ -226,7 +226,7 @@ internal sealed class RtcMediaEngine : IDisposable
                 }
                 if (section.Track is not null)
                 {
-                    section.Track.Decodable = (section.Kind == "audio" && section.ReceiveCodecs.Any(c => c.Name is "PCMU" or "PCMA"))
+                    section.Track.Decodable = (section.Kind == "audio" && section.ReceiveCodecs.Any(c => c.IsG711))
                         || (section.Kind == "video" && section.ReceiveCodecs.Any(c => c.Name == "VP8"));
                     section.Track.ReceiveTypes.Clear();
                     section.Track.ReceiveTypes.AddRange(section.ReceiveCodecs.Select(c => c.PayloadType));
@@ -340,7 +340,7 @@ internal sealed class RtcMediaEngine : IDisposable
             CollectVideo(stream, output);
             return;
         }
-        if (!track.Decodable) return; // negotiated and counted, but there is no decoder for this payload
+        if (!track.Decodable || !codec.IsG711) return; // negotiated and counted, but there is no decoder for this payload
         stream.Buffer[ext] = (packet.AsSpan(headerLength, payloadLength).ToArray(), now);
         while (stream.Buffer.Count > MaxJitterPackets) // bounded: drop the oldest, counting the gap as loss
         {
@@ -409,11 +409,14 @@ internal sealed class RtcMediaEngine : IDisposable
             else if (packet.Kind == RtcpKind.Bye)
             {
                 foreach (var ssrc in packet.ByeSsrcs)
+                {
+                    _srtp?.RemoveRemoteStream(ssrc); // the peer is done with this SSRC: free its SRTP slot
                     if (_streams.Remove(ssrc, out var gone))
                     {
                         gone.Video?.Dispose();
                         if (!_streams.Values.Any(s => s.Section == gone.Section)) gone.Section.Track?.RaiseEnded();
                     }
+                }
             }
         }
     }

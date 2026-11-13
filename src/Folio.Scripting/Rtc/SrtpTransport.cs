@@ -33,15 +33,37 @@ internal sealed class SrtpTransport : IDisposable
         ArgumentNullException.ThrowIfNull(remoteKey); ArgumentNullException.ThrowIfNull(remoteSalt);
         if (localKey.Length != 16 || remoteKey.Length != 16 || localSalt.Length < SaltBytes || remoteSalt.Length < SaltBytes)
             throw new ArgumentException("SRTP master keys must be 16 bytes and salts at least 12 bytes.");
-        _rtpEnc = new AesGcm(Derive(localKey, localSalt, 0x00, 16), Tag);
-        _rtpDec = new AesGcm(Derive(remoteKey, remoteSalt, 0x00, 16), Tag);
+        _rtpEnc = Gcm(Derive(localKey, localSalt, 0x00, 16));
+        _rtpDec = Gcm(Derive(remoteKey, remoteSalt, 0x00, 16));
         _rtpLocalSalt = Derive(localKey, localSalt, 0x02, SaltBytes);
         _rtpRemoteSalt = Derive(remoteKey, remoteSalt, 0x02, SaltBytes);
-        _rtcpEnc = new AesGcm(Derive(localKey, localSalt, 0x03, 16), Tag);
-        _rtcpDec = new AesGcm(Derive(remoteKey, remoteSalt, 0x03, 16), Tag);
+        _rtcpEnc = Gcm(Derive(localKey, localSalt, 0x03, 16));
+        _rtcpDec = Gcm(Derive(remoteKey, remoteSalt, 0x03, 16));
         _rtcpLocalSalt = Derive(localKey, localSalt, 0x05, SaltBytes);
         _rtcpRemoteSalt = Derive(remoteKey, remoteSalt, 0x05, SaltBytes);
     }
+
+    /// <summary>Known-answer tests only: uses the given session key and salt for every direction and for RTP and RTCP, as the RFC 7714 vectors do.</summary>
+    internal SrtpTransport(byte[] sessionKey, byte[] sessionSalt, bool sessionKeysAreFinal)
+    {
+        if (!sessionKeysAreFinal) throw new ArgumentException("Use the master key constructor.", nameof(sessionKeysAreFinal));
+        _rtpEnc = Gcm((byte[])sessionKey.Clone()); _rtpDec = Gcm((byte[])sessionKey.Clone());
+        _rtcpEnc = Gcm((byte[])sessionKey.Clone()); _rtcpDec = Gcm((byte[])sessionKey.Clone());
+        _rtpLocalSalt = sessionSalt[..SaltBytes]; _rtpRemoteSalt = sessionSalt[..SaltBytes];
+        _rtcpLocalSalt = sessionSalt[..SaltBytes]; _rtcpRemoteSalt = sessionSalt[..SaltBytes];
+    }
+
+    /// <summary>AesGcm copies the key, so the derived array is wiped as soon as the cipher exists.</summary>
+    private static AesGcm Gcm(byte[] key)
+    {
+        try { return new AesGcm(key, Tag); }
+        finally { CryptographicOperations.ZeroMemory(key); }
+    }
+
+    internal uint RtcpSendIndex { set { lock (_gate) _rtcpSendIndex = value; } }
+
+    /// <summary>Forgets the RTP receive state of an SSRC the peer said goodbye to. The RTCP window is kept so the BYE cannot be replayed.</summary>
+    internal void RemoveRemoteStream(uint ssrc) { lock (_gate) _recv.Remove(ssrc); }
 
     /// <summary>RFC 3711 section 4.3 KDF with key_derivation_rate 0 (AES-CM PRF), as used by RFC 7714.</summary>
     private static byte[] Derive(byte[] masterKey, byte[] masterSalt, byte label, int length)

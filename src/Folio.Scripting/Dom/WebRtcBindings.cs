@@ -435,7 +435,9 @@ internal sealed class WebRtcBindingState : IDisposable
     {
         if (_engine.TryGetHostTarget(value, out var target) && target is PeerLease lease && ReferenceEquals(lease.Owner, this))
         {
-            lease.Controller.SetLocalDescription(type, sdp);
+            try { lease.Controller.SetLocalDescription(type, sdp); }
+            catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or FormatException or ArgumentException)
+            { throw WebIdlException.DomException("OperationError", "The session description could not be applied."); }
             PublishLocalCandidates(lease);
         }
     }
@@ -443,7 +445,9 @@ internal sealed class WebRtcBindingState : IDisposable
     internal void SetRemoteDescription(ScriptValue value, string type, string sdp)
     {
         if (_engine.TryGetHostTarget(value, out var target) && target is PeerLease lease && ReferenceEquals(lease.Owner, this))
-            lease.Controller.SetRemoteDescription(type, sdp);
+            try { lease.Controller.SetRemoteDescription(type, sdp); }
+            catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or FormatException or ArgumentException)
+            { throw WebIdlException.DomException("OperationError", "The session description could not be applied."); }
     }
 
     internal void AddIceCandidate(ScriptValue value, string candidate)
@@ -502,9 +506,15 @@ internal sealed class WebRtcBindingState : IDisposable
                 if (Released || _readers.Count >= MaxSenders) return false;
                 _readers.Add(reader);
                 // 20 ms pump: one RTP packet of audio per tick. Wall-clock by design; the media engine itself takes a TimeProvider.
-                _pump ??= new Timer(_ => Pump(), null, 20, 20);
+                // One-shot timer re-armed after each run, so ticks can never overlap.
+                _pump ??= new Timer(_ => { try { Pump(); } finally { Rearm(); } }, null, 20, Timeout.Infinite);
                 return true;
             }
+        }
+
+        private void Rearm()
+        {
+            lock (_readers) { if (!Released) try { _pump?.Change(20, Timeout.Infinite); } catch (ObjectDisposedException) { } }
         }
 
         private void Pump()

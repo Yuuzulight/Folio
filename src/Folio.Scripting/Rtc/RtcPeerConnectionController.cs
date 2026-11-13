@@ -90,7 +90,8 @@ internal sealed class RtcPeerConnectionController : IDisposable
                 OnConnectionStateChange?.Invoke("connected");
 
                 // Initialize SRTP with keys derived from DTLS
-                if (Dtls.SrtpLocalMasterKey is not null && Dtls.SrtpRemoteMasterKey is not null &&
+                // Created once: a second context would reset the rollover counters and the SRTCP index (keystream reuse).
+                if (Srtp is null && Dtls.SrtpLocalMasterKey is not null && Dtls.SrtpRemoteMasterKey is not null &&
                     Dtls.SrtpLocalMasterSalt is not null && Dtls.SrtpRemoteMasterSalt is not null)
                 {
                     Srtp = new SrtpTransport(Dtls.SrtpLocalMasterKey, Dtls.SrtpLocalMasterSalt,
@@ -205,7 +206,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
                     if (offered.Kind == "application" && offered.Port != 0) { sdp.Media.Add(DataSection(mid)); continue; }
                     var accepted = offered.Port == 0 ? [] : offered.Kind switch
                     {
-                        "audio" => offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).Where(c => c is { Name: "PCMU" or "PCMA" }).Cast<RtcCodec>().ToArray(),
+                        "audio" => offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).Where(c => c is { IsG711: true }).Cast<RtcCodec>().ToArray(),
                         "video" => offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).Where(c => c is { Name: "VP8", ClockRate: 90000 }).Cast<RtcCodec>().ToArray(),
                         _ => [],
                     };
