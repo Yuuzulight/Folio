@@ -307,13 +307,15 @@ internal sealed class UdpBroker : IDisposable
     {
         IPEndPoint? answer = null;
         string? reason = "lookup failed";
+        var released = 0;
+        Task<IPAddress[]>? lookup = null;
+        void Release() { if (Interlocked.Exchange(ref released, 1) == 0) lock (_gate) _resolving--; }
         try
         {
             using var timeout = new CancellationTokenSource(_options.ResolveTimeout, _options.Clock);
-            Task<IPAddress[]> lookup;
             try { lookup = _options.Resolver(name, timeout.Token); }
-            catch { lock (_gate) _resolving--; throw; }
-            _ = lookup.ContinueWith(finished => { _ = finished.Exception; lock (_gate) _resolving--; }, TaskScheduler.Default);
+            catch { Release(); throw; }
+            _ = lookup.ContinueWith(finished => { _ = finished.Exception; Release(); }, TaskScheduler.Default);
             var addresses = await lookup.WaitAsync(timeout.Token).ConfigureAwait(false);
             var allowed = addresses.FirstOrDefault(a => UdpDestinationPolicy.IsAllowed(new IPEndPoint(a, 1), _options));
             if (allowed is not null) { answer = new IPEndPoint(allowed, 0); reason = null; }
@@ -321,6 +323,9 @@ internal sealed class UdpBroker : IDisposable
         }
         catch (OperationCanceledException) { reason = "lookup timed out"; }
         catch (Exception) { } // whatever the resolver throws, the child still gets an answer
+        // A lookup that has finished frees its slot before the child hears about it; the continuation above may be scheduled
+        // after this one, and a child that retries on receiving the answer must not be refused by its own finished lookup.
+        if (lookup is { IsCompleted: true }) Release();
         Enqueue(new(generation, "resolved", token, 0, reason, answer, null, false));
     }
 
