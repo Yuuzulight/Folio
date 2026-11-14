@@ -50,10 +50,12 @@ The latest native Folio-engine run now matches the dependency-backed compatibili
 - `dotnet test tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release --no-restore`: 790/790 passed.
 
 The canvas frame-time harness uses the retained `PaintFrame` path for canvas-only
-script mutations and reuses the document text shaper. CI runs the native production
-engine on Windows and fails if any D5/D7 artifact exceeds 16.70 ms. The latest local
+script mutations and reuses the document text shaper. CI publishes `tools/Folio.CanvasFrameProbe` as NativeAOT (the build a host ships, native engine only)
+on Windows and fails if any D5/D7 artifact exceeds 16.70 ms there; a tiered-JIT run of the same
+`canvas-frames` command is uploaded as `canvas-frames-jit` but never gates, because JIT tiering alone
+adds about a frame to the first frames of `D5/canvas-animated-bars`. The latest local
 30-frame run keeps every artifact within budget, including `D5/canvas-animated-bars`
-at 5.31 ms total p95 and `D7/canvas-snake-game` at 9.84 ms. The compatibility engine
+at 5.2-5.6 ms total p95 (NativeAOT, three local runs) and `D7/canvas-snake-game` at 9.84 ms. The compatibility engine
 remains a differential oracle; its slower result is retained for optimization work,
 not used as the production acceptance gate.
 
