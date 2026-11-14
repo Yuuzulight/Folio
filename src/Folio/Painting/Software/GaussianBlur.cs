@@ -190,6 +190,7 @@ internal static class GaussianBlur
         // shadow is thousands of the same line, which are blurred once and copied.
         if (Deduplicate && (long)rowBytes * height >= DeduplicateMinimumSamples && RowRuns(source, rowBytes, height) is { } runs)
         {
+            deduplicatedPasses++;
             var kept = runs.Count;
             var compact = ArrayPool<byte>.Shared.Rent(kept * rowBytes);
             var compactBlurred = ArrayPool<byte>.Shared.Rent(kept * rowBytes);
@@ -230,8 +231,16 @@ internal static class GaussianBlur
         }
     }
 
-    /// <summary>Whether lines and columns equal to their neighbour are blurred once (the result is the same bytes either way; the tests turn it off to compare).</summary>
-    internal static bool Deduplicate { get; set; } = true;
+    // Per thread, so tests and the benchmark that switch the shortcut off do not affect blurs running on other threads. Only the
+    // calling thread reads it (the parallel workers never do), and it is read once per pass.
+    [ThreadStatic] private static bool deduplicateOff;
+    [ThreadStatic] private static int deduplicatedPasses;
+
+    /// <summary>Whether lines and columns equal to their neighbour are blurred once (the result is the same bytes either way; the tests turn it off to compare). Per thread.</summary>
+    internal static bool Deduplicate { get => !deduplicateOff; set => deduplicateOff = !value; }
+
+    /// <summary>How many passes on this thread blurred distinct lines or columns once (for the tests to see the shortcut fire, or not).</summary>
+    internal static int DeduplicatedPasses => deduplicatedPasses;
 
     // Below this many samples finding what repeats costs more than it saves.
     private const long DeduplicateMinimumSamples = 1 << 12;
@@ -273,6 +282,9 @@ internal static class GaussianBlur
                 for (; x < width; x++)
                     if (line[x] != line[x - 1])
                         same[x] = 0;
+                // Columns only ever drop out: once fewer than half could still repeat there is no worthwhile shortcut.
+                if ((row & 7) == 7 && (same.AsSpan(1, width - 1).Count((byte)0) + 1) * 2 > width)
+                    return null; // runs so far = broken columns + 1
             }
             var runs = new List<(int Start, int Length)>();
             var start = 0;
@@ -294,6 +306,7 @@ internal static class GaussianBlur
     {
         if (Deduplicate && channels == 1 && (long)width * height >= DeduplicateMinimumSamples && ColumnRuns(source, width, height) is { } runs)
         {
+            deduplicatedPasses++;
             var kept = runs.Count;
             var compact = ArrayPool<byte>.Shared.Rent(kept * height);
             var compactBlurred = ArrayPool<byte>.Shared.Rent(kept * height);

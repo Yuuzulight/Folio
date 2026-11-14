@@ -12,6 +12,8 @@ namespace Folio.Benchmarks;
 /// artifact, a new document is parsed, laid out at 1920x1080 and 100%, rasterized in full into a new surface and copied into a
 /// bitmap, as a new <c>FolioView</c> does on its first paint, in a warm process. It leaves out the window itself (GDI+ and
 /// message dispatch), so it is for comparing changes to the pipeline, not for qualifying the budget: that is the visible run.
+/// Copy is a managed-array copy of the surface, which understates the real copy into a GDI+ bitmap; a long page's scrollbar
+/// re-layout (the document gets narrower once the bar appears) is not modeled; and nothing here is a budget qualification.
 /// <c>firstpaint [rounds]</c> alternates the blur's repeated-line shortcut off and on in one process, so both see the same JIT and
 /// machine state; they produce the same bytes (GaussianBlurDeduplicationTests).
 /// </summary>
@@ -54,7 +56,7 @@ internal static class FirstPaintBenchmark
                         medians[artifact.Name] = new Sample(Mid(samples, s => s.Parse), Mid(samples, s => s.Layout), Mid(samples, s => s.Raster), Mid(samples, s => s.Copy));
                     }
                     var totals = medians.Values.Select(s => s.Total).Order().ToList();
-                    results[variant].Add(new Round(Percentile(totals, 0.5), Percentile(totals, 0.95), medians));
+                    results[variant].Add(new Round(Median(totals), Percentile(totals, 0.95), medians));
                     Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"round {round + 1} {(variant == 1 ? "shortcut on " : "shortcut off")}: corpus median {results[variant][^1].Median:F1} ms, p95 {results[variant][^1].P95:F1} ms"));
                 }
         }
@@ -64,16 +66,16 @@ internal static class FirstPaintBenchmark
         {
             // One variant in this process (a fresh JIT, as the visible harness has): the table is that variant's.
             var variant = only == "on" ? 1 : 0;
-            Console.WriteLine($"| Artifact | Total | Parse | Layout | Raster | Copy |  (median over {rounds} rounds, ms)");
+            Console.WriteLine($"| Artifact | Total | Parse | Layout | Raster | Copy |  (median over {rounds} rounds, ms; Copy is a managed-array copy, understated)");
             foreach (var artifact in artifacts)
             {
-                double Of(Func<Sample, double> pick) => results[variant].Select(r => pick(r.Artifacts[artifact.Name])).Order().ElementAt(rounds / 2);
+                double Of(Func<Sample, double> pick) => Median(results[variant].Select(r => pick(r.Artifacts[artifact.Name])));
                 Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"| {artifact.Name} | {Of(s => s.Total):F1} | {Of(s => s.Parse):F1} | {Of(s => s.Layout):F1} | {Of(s => s.Raster):F1} | {Of(s => s.Copy):F1} |"));
             }
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"PROCESS corpus median {results[variant][0].Median:F1} p95 {results[variant][0].P95:F1}"));
             return 0;
         }
-        string Spread(IEnumerable<double> values) { var v = values.Order().ToList(); return string.Create(CultureInfo.InvariantCulture, $"{v[v.Count / 2]:F1} (min {v[0]:F1}, max {v[^1]:F1})"); }
+        string Spread(IEnumerable<double> values) { var v = values.Order().ToList(); return string.Create(CultureInfo.InvariantCulture, $"{Median(v):F1} (min {v[0]:F1}, max {v[^1]:F1})"); }
         Console.WriteLine();
         Console.WriteLine($"Corpus over {artifacts.Count} S1/S3 artifacts at {Width}x{Height}, median of each artifact's {RunsPerArtifact} runs, {rounds} rounds, ms:");
         Console.WriteLine("| | Corpus median | Corpus p95 (nearest rank) |");
@@ -85,16 +87,37 @@ internal static class FirstPaintBenchmark
         Console.WriteLine("|---|--:|--:|--:|--:|--:|--:|");
         foreach (var artifact in artifacts)
         {
-            double Of(int variant, Func<Sample, double> pick) => results[variant].Select(r => pick(r.Artifacts[artifact.Name])).Order().ElementAt(rounds / 2);
+            double Of(int variant, Func<Sample, double> pick) => Median(results[variant].Select(r => pick(r.Artifacts[artifact.Name])));
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
                 $"| {artifact.Name} | {Of(0, s => s.Total):F1} | {Of(1, s => s.Total):F1} | {Of(0, s => s.Raster):F1} | {Of(1, s => s.Raster):F1} | {Of(1, s => s.Layout):F1} | {Of(1, s => s.Copy):F1} |"));
         }
+        Console.WriteLine();
+        Console.WriteLine("Copy is a managed-array copy (understated against a GDI+ bitmap); a long page's scrollbar re-layout is not modeled; this is not a budget qualification (the visible run is).");
         return 0;
 
-        static double Mid(List<Sample> samples, Func<Sample, double> pick) => samples.Select(pick).Order().ElementAt(samples.Count / 2);
+        static double Mid(List<Sample> samples, Func<Sample, double> pick) => Median(samples.Select(pick));
 
-        static double Percentile(List<double> sorted, double p) =>
-            p == 0.5 && sorted.Count % 2 == 0 ? (sorted[sorted.Count / 2 - 1] + sorted[sorted.Count / 2]) / 2 : sorted[(int)Math.Ceiling(sorted.Count * p) - 1];
+        static double Percentile(List<double> sorted, double p) => sorted[(int)Math.Ceiling(sorted.Count * p) - 1];
+    }
+
+    // One median everywhere: the middle value, or the mean of the two middle ones for an even count.
+    private static double Median(IEnumerable<double> values)
+    {
+        var v = values.Order().ToList();
+        return v.Count % 2 == 0 ? (v[v.Count / 2 - 1] + v[v.Count / 2]) / 2 : v[v.Count / 2];
+    }
+
+    /// <summary><c>firstpaint [rounds] [on|off]</c>; false with a message when the arguments are not that.</summary>
+    public static bool TryParse(string[] args, out int rounds, out string? only)
+    {
+        (rounds, only) = (5, null);
+        if (args.Length > 2 || args.Length > 0 && !int.TryParse(args[0], NumberStyles.None, CultureInfo.InvariantCulture, out rounds) || rounds < 1 || args.Length == 2 && args[1] is not ("on" or "off"))
+        {
+            Console.Error.WriteLine("usage: firstpaint [rounds >= 1] [on|off]");
+            return false;
+        }
+        only = args.Length == 2 ? args[1] : null;
+        return true;
     }
 
     // One first paint, as the control does it: a new document, laid out and painted, a new surface drawn in full and copied into a bitmap.

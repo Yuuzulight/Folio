@@ -24,7 +24,7 @@ public static class Program
         if (args is ["cold"])
             return Cold();
         if (args is ["firstpaint", .. var firstPaintRest])
-            return FirstPaintBenchmark.Run(firstPaintRest is [var n, ..] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 5, firstPaintRest is [_, var only] && only is "on" or "off" ? only : null);
+            return FirstPaintBenchmark.TryParse(firstPaintRest, out var rounds, out var only) ? FirstPaintBenchmark.Run(rounds, only) : 2;
         if (args is ["gpu"])
             return GpuProcessBenchmark.RunAsync().GetAwaiter().GetResult();
         if (args is ["wasm", .. var wasmRest])
