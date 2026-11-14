@@ -186,6 +186,46 @@ public sealed class RtcMediaTests
     }
 
     [Fact]
+    public void DtlsClientRejectsUnsupportedSrtpProfile()
+    {
+        var clock = new ManualTime();
+        using var client = new DtlsTransport(clock, false);
+        using var server = new DtlsTransport(clock, false) { IsClient = false };
+        client.RemoteFingerprint = server.Fingerprint;
+        server.RemoteFingerprint = client.Fingerprint;
+        byte[]? serverHello = null;
+        client.OnDatagramToSend += bytes => server.ProcessIncomingDatagram(bytes);
+        server.OnDatagramToSend += bytes =>
+        {
+            if (serverHello is null && bytes.Length > 13 && bytes[0] == 22 && bytes[13] == 2)
+                serverHello = (byte[])bytes.Clone();
+        };
+        server.StartHandshake();
+        client.StartHandshake();
+        Assert.NotNull(serverHello);
+
+        // Mutate the use_srtp extension in ServerHello to an unsupported profile (0x0001 instead of 0x0007)
+        var pattern = new byte[] { 0x00, 0x0E, 0x00, 0x05, 0x00, 0x02, 0x00, 0x07, 0x00 };
+        var idx = serverHello.AsSpan().IndexOf(pattern);
+        Assert.True(idx >= 0);
+
+        var badProfile = (byte[])serverHello.Clone();
+        badProfile[idx + 7] = 0x01; // unsupported profile
+        var ex = Assert.Throws<CryptographicException>(() => client.ProcessIncomingDatagram(badProfile));
+        Assert.Contains("unsupported SRTP profile", ex.Message);
+
+        // Malformed length on a fresh client is also rejected
+        using var client2 = new DtlsTransport(clock, false);
+        client2.RemoteFingerprint = server.Fingerprint;
+        client2.OnDatagramToSend += bytes => server.ProcessIncomingDatagram(bytes);
+        client2.StartHandshake();
+        var badLength = (byte[])serverHello.Clone();
+        badLength[idx + 3] = 0x04;
+        var ex2 = Assert.Throws<CryptographicException>(() => client2.ProcessIncomingDatagram(badLength));
+        Assert.Contains("unsupported SRTP profile", ex2.Message);
+    }
+
+    [Fact]
     public void G711RoundTripsWithinQuantisationError()
     {
         for (var s = -32768; s <= 32767; s += 97)
