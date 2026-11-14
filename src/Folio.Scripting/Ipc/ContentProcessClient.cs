@@ -154,6 +154,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
         client._diagramLibraryUrls = diagramUrls;
         client._iframeNavigationRequested = options.IframeNavigationRequested;
         client._iframeNavigationDispatcher = iframeNavigationDispatcher;
+        client.UdpOptions = client.UdpOptions with { AllowMdns = options.WebRtcAllowMdns };
         return client;
     }
 

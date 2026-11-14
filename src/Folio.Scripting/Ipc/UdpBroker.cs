@@ -45,6 +45,14 @@ internal sealed record UdpBrokerOptions
     public TimeSpan ResolveTimeout { get; init; } = TimeSpan.FromSeconds(5);
     /// <summary>The host's resolver. Defaults to the system DNS; tests substitute their own.</summary>
     public Func<string, CancellationToken, Task<IPAddress[]>> Resolver { get; init; } = (name, token) => Dns.GetHostAddressesAsync(name, token);
+    /// <summary>Whether host-mediated mDNS resolution is enabled.</summary>
+    public bool AllowMdns { get; init; }
+    /// <summary>Maximum distinct mDNS names resolved per document.</summary>
+    public int MaxMdnsNames { get; init; } = 8;
+    /// <summary>Timeout for mDNS resolution.</summary>
+    public TimeSpan MdnsTimeout { get; init; } = TimeSpan.FromSeconds(2);
+    /// <summary>The host's mDNS resolver. Defaults to MdnsClient.ResolveAsync; tests substitute a fake one.</summary>
+    public Func<string, CancellationToken, Task<IPAddress?>> MdnsResolver { get; init; } = (name, token) => MdnsClient.ResolveAsync(name, token);
     /// <summary>Time source for the lookup timeout; tests substitute a fake one.</summary>
     public TimeProvider Clock { get; init; } = TimeProvider.System;
 }
@@ -113,7 +121,10 @@ internal sealed class UdpBroker : IDisposable
     private readonly Func<bool> _granted;
     private readonly Func<string, bool>? _nameAllowed;
     private readonly HashSet<string> _resolvedNames = new(StringComparer.OrdinalIgnoreCase);
-    private int _resolving;
+    private readonly HashSet<string> _resolvedMdnsNames = [];
+    private int _resolving, _resolvingMdns;
+    // Cancelled when the document is replaced or the broker is disposed, so in-flight multicast lookups stop early.
+    private CancellationTokenSource _mdnsCts = new();
     private readonly Action<JsonElement> _emit;
     private readonly object _gate = new();
     private readonly Dictionary<long, UdpSocketLease> _sockets = [];
@@ -220,6 +231,8 @@ internal sealed class UdpBroker : IDisposable
                 Enqueue(new(0, "failed", staleToken, 0, "the document was replaced", null, null, false));
             else if (name == "resolve" && TryInt64(command, "token", out var staleResolve))
                 Enqueue(new(0, "resolved", staleResolve, 0, "the document was replaced", null, null, false));
+            else if (name == "resolveMdns" && TryInt64(command, "token", out var staleMdns))
+                Enqueue(new(0, "resolvedMdns", staleMdns, 0, "the document was replaced", null, null, false));
             return;
         }
         switch (name)
@@ -227,6 +240,7 @@ internal sealed class UdpBroker : IDisposable
             case "open" when TryInt64(command, "token", out var token): Open(token, gen); break;
             case "send": Send(command); break;
             case "resolve" when TryInt64(command, "token", out var resolveToken): Resolve(command, resolveToken, gen); break;
+            case "resolveMdns" when TryInt64(command, "token", out var mdnsToken): ResolveMdns(command, mdnsToken, gen); break;
             case "permit": Permit(command); break;
             case "close" when TryInt64(command, "id", out var id): Close(id, "closed by document"); break;
             default: Interlocked.Increment(ref Malformed); break;
@@ -327,6 +341,70 @@ internal sealed class UdpBroker : IDisposable
         // after this one, and a child that retries on receiving the answer must not be refused by its own finished lookup.
         if (lookup is { IsCompleted: true }) Release();
         Enqueue(new(generation, "resolved", token, 0, reason, answer, null, false));
+    }
+
+    private void ResolveMdns(JsonElement command, long token, long generation)
+    {
+        string? name = command.TryGetProperty("name", out var nameValue) && nameValue.ValueKind == JsonValueKind.String ? nameValue.GetString() : null;
+        string? refusal = null;
+        if (name is null || !MdnsClient.ValidMdnsNameRegex().IsMatch(name)) { Interlocked.Increment(ref Malformed); refusal = "invalid mDNS name"; }
+        else if (!_granted()) { Revoke(); Interlocked.Increment(ref Denied); refusal = "WebRTC networking is not granted"; }
+        else if (!_options.AllowMdns) { Interlocked.Increment(ref Denied); refusal = "mDNS resolution is disabled by host policy"; }
+        else
+        {
+            UdpRateLimiter limiter;
+            lock (_gate) limiter = _resolveLimit;
+            if (!limiter.TryTake(0)) { Interlocked.Increment(ref RateLimited); refusal = "resolve rate exceeded"; }
+            else
+            {
+                lock (_gate)
+                {
+                    if (!_resolvedMdnsNames.Contains(name) && _resolvedMdnsNames.Count >= _options.MaxMdnsNames) refusal = "mDNS resolve quota exceeded";
+                    else if (_resolvingMdns >= _options.MaxResolvesInFlight) refusal = "too many lookups in flight";
+                    else { _resolvedMdnsNames.Add(name); _resolvingMdns++; }
+                }
+                if (refusal is not null) Interlocked.Increment(ref Denied);
+            }
+        }
+        if (refusal is not null) { Enqueue(new(0, "resolvedMdns", token, 0, refusal, null, null, false)); return; }
+        _ = Task.Run(() => ResolveMdnsAsync(name!, token, generation));
+    }
+
+    private async Task ResolveMdnsAsync(string name, long token, long generation)
+    {
+        IPEndPoint? answer = null;
+        string? reason = "lookup failed";
+        var released = 0;
+        Task<IPAddress?>? lookup = null;
+        CancellationToken document;
+        lock (_gate) document = _mdnsCts.Token;
+        void Release() { if (Interlocked.Exchange(ref released, 1) == 0) lock (_gate) _resolvingMdns--; }
+        try
+        {
+            using var timeout = new CancellationTokenSource(_options.MdnsTimeout, _options.Clock);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, document);
+            try { lookup = _options.MdnsResolver(name, linked.Token); }
+            catch { Release(); throw; }
+            _ = lookup.ContinueWith(finished => { _ = finished.Exception; Release(); }, TaskScheduler.Default);
+            var ip = await lookup.WaitAsync(linked.Token).ConfigureAwait(false);
+            if (ip is not null && UdpDestinationPolicy.IsAllowed(new IPEndPoint(ip, 1), _options))
+            {
+                answer = new IPEndPoint(ip, 0);
+                reason = null;
+            }
+            else if (ip is not null)
+            {
+                reason = "the name resolves to a disallowed address";
+            }
+            else
+            {
+                reason = "mDNS resolution failed";
+            }
+        }
+        catch (OperationCanceledException) { reason = "lookup timed out"; }
+        catch (Exception) { }
+        if (lookup is { IsCompleted: true }) Release();
+        Enqueue(new(generation, "resolvedMdns", token, 0, reason, answer, null, false));
     }
 
     private void Permit(JsonElement command)
@@ -448,7 +526,7 @@ internal sealed class UdpBroker : IDisposable
     {
         if (Interlocked.Exchange(ref _dead, 1) != 0) return;
         UdpSocketLease[] leases;
-        lock (_gate) { leases = [.. _sockets.Values]; _sockets.Clear(); _sentTo.Clear(); _permitted.Clear(); _resolvedNames.Clear(); }
+        lock (_gate) { leases = [.. _sockets.Values]; _sockets.Clear(); _sentTo.Clear(); _permitted.Clear(); _resolvedNames.Clear(); _resolvedMdnsNames.Clear(); }
         foreach (var lease in leases) lease.Dispose();
     }
 
@@ -470,6 +548,7 @@ internal sealed class UdpBroker : IDisposable
             // Advisory copy of the destination policy so the child can skip pairs the host would only drop.
             ["allowLoopback"] = _options.AllowLoopback, ["allowPrivate"] = _options.AllowPrivate },
         "resolved" => new Dictionary<string, object?> { ["op"] = "resolved", ["token"] = item.Token, ["host"] = item.Peer?.Address.ToString(), ["reason"] = item.Text },
+        "resolvedMdns" => new Dictionary<string, object?> { ["op"] = "resolvedMdns", ["token"] = item.Token, ["host"] = item.Peer?.Address.ToString(), ["reason"] = item.Text },
         "failed" => new Dictionary<string, object?> { ["op"] = "failed", ["token"] = item.Token, ["reason"] = item.Text },
         "datagram" => new Dictionary<string, object?> { ["op"] = "datagram", ["id"] = item.Id, ["host"] = item.Peer!.Address.ToString(), ["port"] = item.Peer.Port, ["data"] = Convert.ToBase64String(item.Data!) },
         _ => new Dictionary<string, object?> { ["op"] = "closed", ["id"] = item.Id, ["reason"] = item.Text },
@@ -505,9 +584,10 @@ internal sealed class UdpBroker : IDisposable
         lock (_gate)
         {
             _generation = generation;
+            _mdnsCts.Cancel(); _mdnsCts.Dispose(); _mdnsCts = new();
             // Events still queued for the retired document no longer count against the new one's bound (the pump drops them).
             _epoch++; Volatile.Write(ref _queued, 0);
-            _sentTo.Clear(); _permitted.Clear(); _resolvedNames.Clear();
+            _sentTo.Clear(); _permitted.Clear(); _resolvedNames.Clear(); _resolvedMdnsNames.Clear();
             Interlocked.Exchange(ref _dead, 0);
             var now = System.Diagnostics.Stopwatch.GetTimestamp();
             if (System.Diagnostics.Stopwatch.GetElapsedTime(_limiterStamp, now) >= _options.MinLimiterResetInterval)
@@ -524,7 +604,7 @@ internal sealed class UdpBroker : IDisposable
 
     public void Dispose()
     {
-        lock (_gate) { if (_disposed) return; _disposed = true; _generation++; }
+        lock (_gate) { if (_disposed) return; _disposed = true; _generation++; _mdnsCts.Cancel(); }
         Kill();
         _events.Writer.TryComplete();
         try { _pump.Wait(TimeSpan.FromSeconds(2)); } catch (AggregateException) { }

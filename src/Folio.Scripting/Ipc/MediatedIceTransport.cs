@@ -19,6 +19,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
     private readonly ConcurrentDictionary<long, (TaskCompletionSource<(long Id, int Port)> Result, Transport Owner)> _pendingOpens = new();
     private readonly ConcurrentDictionary<long, Transport> _byId = new();
     private readonly ConcurrentDictionary<long, TaskCompletionSource<IPAddress?>> _pendingResolves = new();
+    private readonly ConcurrentDictionary<long, TaskCompletionSource<IPAddress?>> _pendingMdnsResolves = new();
     private long _nextToken, _generation = 1;
 
     /// <summary>The document generation the host stamped into the current Load. New transports carry it on every command.</summary>
@@ -67,6 +68,11 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
                     resolve.TrySetResult(evt.TryGetProperty("host", out var host) && host.ValueKind == JsonValueKind.String
                         && IPAddress.TryParse(host.GetString(), out var resolved) && resolved.AddressFamily == AddressFamily.InterNetwork ? resolved : null);
                 break;
+            case "resolvedMdns" when TryNumber(evt, "token", out var mdnsToken):
+                if (_pendingMdnsResolves.TryGetValue(mdnsToken, out var mdnsResolve))
+                    mdnsResolve.TrySetResult(evt.TryGetProperty("host", out var host) && host.ValueKind == JsonValueKind.String
+                        && IPAddress.TryParse(host.GetString(), out var resolved) && resolved.AddressFamily == AddressFamily.InterNetwork ? resolved : null);
+                break;
             case "closed" when TryTransport(evt, out var closing): closing.HostClosed(); break;
         }
     }
@@ -76,6 +82,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
     {
         foreach (var pending in _pendingOpens.Values) pending.Result.TrySetException(new IOException("The host connection closed."));
         foreach (var pending in _pendingResolves.Values) pending.TrySetResult(null);
+        foreach (var pending in _pendingMdnsResolves.Values) pending.TrySetResult(null);
         foreach (var transport in _byId.Values) transport.HostClosed();
     }
 
@@ -93,6 +100,21 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
         }
         catch (TimeoutException) { return null; }
         finally { _pendingResolves.TryRemove(token, out _); }
+    }
+
+    /// <summary>Asks the host to resolve an mDNS .local name. Null when the host refuses (disabled, over quota, disallowed IP, no answer).</summary>
+    internal async Task<IPAddress?> ResolveMdnsAsync(string name, CancellationToken cancellation)
+    {
+        var token = Interlocked.Increment(ref _nextToken);
+        var answer = new TaskCompletionSource<IPAddress?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingMdnsResolves[token] = answer;
+        try
+        {
+            Send(new Dictionary<string, object?> { ["op"] = "resolveMdns", ["gen"] = Generation, ["token"] = token, ["name"] = name });
+            return await answer.Task.WaitAsync(ResolveTimeout, cancellation).ConfigureAwait(false);
+        }
+        catch (TimeoutException) { return null; }
+        finally { _pendingMdnsResolves.TryRemove(token, out _); }
     }
 
     private bool TryTransport(JsonElement evt, out Transport transport)
@@ -129,6 +151,8 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
         }
 
         public Task<IPAddress?> ResolveAsync(string host, CancellationToken cancellation) => owner.ResolveAsync(host, cancellation);
+
+        public Task<IPAddress?> ResolveMdnsAsync(string host, CancellationToken cancellation) => owner.ResolveMdnsAsync(host, cancellation);
 
         public bool CanSendTo(IPEndPoint destination) => UdpDestinationPolicy.IsAllowed(destination, Policy);
 
