@@ -9,6 +9,8 @@ internal sealed class RtcPeerConnectionController : IDisposable
     public DtlsTransport Dtls { get; }
     public SctpDataChannel Sctp { get; }
     public SrtpTransport? Srtp { get; private set; }
+    /// <summary>RTP/RTCP plane: receives demultiplexed media datagrams from ICE and sends SRTP back through it.</summary>
+    public RtcMediaEngine Media { get; }
 
     public string ConnectionState { get; private set; } = "new";
     public string IceConnectionState { get; private set; } = "new";
@@ -24,18 +26,23 @@ internal sealed class RtcPeerConnectionController : IDisposable
     public event Action<string>? OnSignalingStateChange;
     public event Action<IceCandidate?>? OnIceCandidate;
     public event Action<SctpDataChannel.ChannelState>? OnDataChannel;
+    /// <summary>A negotiated remote audio/video track exists (raised from SetRemoteDescription).</summary>
+    public event Action<RtcRemoteTrack>? OnRemoteTrack;
 
     private readonly object _gate = new();
     private bool _disposed;
 
-    public RtcPeerConnectionController(IReadOnlyList<string>? iceServers = null)
+    public RtcPeerConnectionController(IReadOnlyList<string>? iceServers = null, RtcMediaBudget? mediaBudget = null, TimeProvider? time = null)
     {
         Ice = new IceAgent(iceServers);
+        Media = new RtcMediaEngine(time, mediaBudget);
+        Media.OnPacketToSend += bytes => Ice.SendDatagram(bytes);
+        Media.OnRemoteTrack += track => OnRemoteTrack?.Invoke(track);
         Dtls = new DtlsTransport(TimeProvider.System, enableRetryTimer: false);
         Sctp = new SctpDataChannel(TimeProvider.System, enableRetryTimer: false);
         Ice.OnMaintenance += () =>
         {
-            Dtls.RetryDueFlight(); Sctp.RetryDueHandshake(); Sctp.RetryDueData();
+            Dtls.RetryDueFlight(); Sctp.RetryDueHandshake(); Sctp.RetryDueData(); Media.Tick();
         };
 
         Ice.OnCandidateGathered += candidate => OnIceCandidate?.Invoke(candidate);
@@ -63,7 +70,12 @@ internal sealed class RtcPeerConnectionController : IDisposable
         };
 
         // Wire datagram flow: ICE <-> DTLS
-        Ice.OnDatagramReceived += bytes => Dtls.ProcessIncomingDatagram(bytes);
+        // RFC 7983: first byte 128..191 is RTP/RTCP; everything else stays with DTLS.
+        Ice.OnDatagramReceived += bytes =>
+        {
+            if (RtcMediaEngine.IsMediaDatagram(bytes)) Media.ProcessDatagram(bytes);
+            else Dtls.ProcessIncomingDatagram(bytes);
+        };
         Dtls.OnDatagramToSend += bytes => Ice.SendDatagram(bytes);
 
         // Wire application data flow: DTLS <-> SCTP
@@ -78,11 +90,13 @@ internal sealed class RtcPeerConnectionController : IDisposable
                 OnConnectionStateChange?.Invoke("connected");
 
                 // Initialize SRTP with keys derived from DTLS
-                if (Dtls.SrtpLocalMasterKey is not null && Dtls.SrtpRemoteMasterKey is not null &&
+                // Created once: a second context would reset the rollover counters and the SRTCP index (keystream reuse).
+                if (Srtp is null && Dtls.SrtpLocalMasterKey is not null && Dtls.SrtpRemoteMasterKey is not null &&
                     Dtls.SrtpLocalMasterSalt is not null && Dtls.SrtpRemoteMasterSalt is not null)
                 {
                     Srtp = new SrtpTransport(Dtls.SrtpLocalMasterKey, Dtls.SrtpLocalMasterSalt,
                         Dtls.SrtpRemoteMasterKey, Dtls.SrtpRemoteMasterSalt);
+                    Media.SetSrtp(Srtp);
                 }
 
                 // Start SCTP association
@@ -98,7 +112,54 @@ internal sealed class RtcPeerConnectionController : IDisposable
         Sctp.OnDataChannelCreated += channel => OnDataChannel?.Invoke(channel);
     }
 
-    public async Task<string> CreateOfferAsync(bool hasDataChannels, int audioSenders, int videoSenders)
+    private readonly List<RtcLocalTrack> _localAudio = [];
+
+    private RtcLocalTrack? LocalAudio(int index)
+    {
+        while (_localAudio.Count <= index)
+        {
+            if (Media.AddLocalAudio() is not { } track) return null;
+            _localAudio.Add(track);
+        }
+        return _localAudio[index];
+    }
+
+    /// <summary>The i-th audio sender, in addTrack order, once an offer or answer has created it.</summary>
+    public RtcLocalTrack? LocalAudioTrack(int index) { lock (_gate) return index >= 0 && index < _localAudio.Count ? _localAudio[index] : null; }
+
+    private static readonly RtcCodec[] AudioCodecs = [new(0, "PCMU", 8000, 1), new(8, "PCMA", 8000, 1)];
+    private static readonly RtcCodec[] VideoCodecs = [new(96, "VP8", 90000, 1)];
+
+    private RtcMediaDescription MediaSection(string kind, string mid, string direction, RtcLocalTrack? sender)
+    {
+        var media = new RtcMediaDescription
+        {
+            Kind = kind, Port = 9, Protocol = "UDP/TLS/RTP/SAVPF", Mid = mid, Direction = direction, RtcpMux = true, Cname = Media.Cname
+        };
+        media.Codecs.AddRange(kind == "audio" ? AudioCodecs : VideoCodecs);
+        if (sender is not null) media.Ssrcs.Add(sender.Ssrc);
+        return media;
+    }
+
+    private static RtcMediaDescription DataSection(string mid) => new()
+    {
+        Kind = "application", Port = 9, Protocol = "UDP/DTLS/SCTP", Mid = mid, SctpPort = 5000, MaximumMessageSize = SctpDataChannel.MaxMessageBytes
+    };
+
+    private void AddMediaSections(RtcSdp sdp, bool hasDataChannels, int audioSenders, int videoSenders, int audioReceivers, int videoReceivers)
+    {
+        var midIndex = hasDataChannels ? 1 : 0;
+        if (hasDataChannels) sdp.Media.Add(DataSection("0"));
+        // Folio sends and decodes G.711 audio only. Video sections keep the m-line order but are negotiated inactive.
+        for (var i = 0; i < audioSenders && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
+            sdp.Media.Add(MediaSection("audio", (midIndex++).ToString(), "sendrecv", LocalAudio(i)));
+        for (var i = 0; i < audioReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
+            sdp.Media.Add(MediaSection("audio", (midIndex++).ToString(), "recvonly", null));
+        for (var i = 0; i < videoSenders + videoReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
+            sdp.Media.Add(MediaSection("video", (midIndex++).ToString(), "inactive", null));
+    }
+
+    public async Task<string> CreateOfferAsync(bool hasDataChannels, int audioSenders, int videoSenders, int audioReceivers = 0, int videoReceivers = 0)
     {
         var sdp = new RtcSdp
         {
@@ -108,42 +169,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
             FingerprintValue = Dtls.Fingerprint,
             Setup = "actpass"
         };
-
-        if (hasDataChannels)
-        {
-            sdp.Media.Add(new RtcMediaDescription
-            {
-                Kind = "application",
-                Port = 9,
-                Protocol = "UDP/DTLS/SCTP",
-                Mid = "0",
-                SctpPort = 5000,
-                MaximumMessageSize = SctpDataChannel.MaxMessageBytes
-            });
-        }
-
-        var midIndex = hasDataChannels ? 1 : 0;
-        for (var i = 0; i < audioSenders; i++)
-        {
-            sdp.Media.Add(new RtcMediaDescription
-            {
-                Kind = "audio",
-                Port = 9,
-                Protocol = "UDP/TLS/RTP/SAVPF",
-                Mid = (midIndex++).ToString()
-            });
-        }
-
-        for (var i = 0; i < videoSenders; i++)
-        {
-            sdp.Media.Add(new RtcMediaDescription
-            {
-                Kind = "video",
-                Port = 9,
-                Protocol = "UDP/TLS/RTP/SAVPF",
-                Mid = (midIndex++).ToString()
-            });
-        }
+        lock (_gate) AddMediaSections(sdp, hasDataChannels, Math.Max(0, audioSenders), Math.Max(0, videoSenders), Math.Max(0, audioReceivers), Math.Max(0, videoReceivers));
 
         await Ice.StartGatheringAsync().ConfigureAwait(false);
         sdp.Candidates.AddRange(Ice.LocalCandidates);
@@ -153,9 +179,6 @@ internal sealed class RtcPeerConnectionController : IDisposable
 
     public async Task<string> CreateAnswerAsync(bool hasDataChannels, int audioSenders, int videoSenders)
     {
-        // An answer must retain the offered data m-line even when this peer
-        // has not created a local channel of its own.
-        hasDataChannels |= RemoteDescription?.Media.Any(media => media.Kind == "application") == true;
         var sdp = new RtcSdp
         {
             Type = "answer",
@@ -165,40 +188,43 @@ internal sealed class RtcPeerConnectionController : IDisposable
             Setup = RemoteDescription?.TransportSetup == "active" ? "passive" : "active"
         };
 
-        if (hasDataChannels)
+        lock (_gate)
         {
-            sdp.Media.Add(new RtcMediaDescription
+            if (RemoteDescription is not { Media.Count: > 0 } remote)
+                AddMediaSections(sdp, hasDataChannels, Math.Max(0, audioSenders), Math.Max(0, videoSenders), 0, 0);
+            else
             {
-                Kind = "application",
-                Port = 9,
-                Protocol = "UDP/DTLS/SCTP",
-                Mid = "0",
-                SctpPort = 5000,
-                MaximumMessageSize = SctpDataChannel.MaxMessageBytes
-            });
-        }
-
-        var midIndex = hasDataChannels ? 1 : 0;
-        for (var i = 0; i < audioSenders; i++)
-        {
-            sdp.Media.Add(new RtcMediaDescription
-            {
-                Kind = "audio",
-                Port = 9,
-                Protocol = "UDP/TLS/RTP/SAVPF",
-                Mid = (midIndex++).ToString()
-            });
-        }
-
-        for (var i = 0; i < videoSenders; i++)
-        {
-            sdp.Media.Add(new RtcMediaDescription
-            {
-                Kind = "video",
-                Port = 9,
-                Protocol = "UDP/TLS/RTP/SAVPF",
-                Mid = (midIndex++).ToString()
-            });
+                // An answer mirrors the offer: same sections, same order, same mids (RFC 3264). Sections Folio cannot serve are rejected.
+                var audioIndex = 0;
+                for (var i = 0; i < remote.Media.Count; i++)
+                {
+                    var offered = remote.Media[i];
+                    var mid = offered.Mid ?? i.ToString();
+                    if (offered.Kind == "application" && offered.Port != 0) { sdp.Media.Add(DataSection(mid)); continue; }
+                    var accepted = offered.Kind == "audio" && offered.Port != 0
+                        ? offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).Where(c => c is { IsG711: true }).Cast<RtcCodec>().ToArray()
+                        : [];
+                    if (accepted.Length == 0)
+                    {
+                        var rejected = new RtcMediaDescription { Kind = offered.Kind, Port = 0, Protocol = offered.Protocol, Mid = mid };
+                        if (offered.Kind is "audio" or "video") rejected.Codecs.Add(offered.PayloadTypes.Count > 0 && offered.CodecFor(offered.PayloadTypes[0]) is { } first ? first : new RtcCodec(0, "PCMU", 8000, 1));
+                        sdp.Media.Add(rejected);
+                        continue;
+                    }
+                    var sender = offered.Receives && audioIndex < Math.Max(0, audioSenders) ? LocalAudio(audioIndex++) : null;
+                    var direction = (sender is not null, offered.Sends) switch
+                    {
+                        (true, true) => "sendrecv",
+                        (true, false) => "sendonly",
+                        (false, true) => "recvonly",
+                        _ => "inactive"
+                    };
+                    var media = MediaSection("audio", mid, direction, sender);
+                    media.Codecs.Clear();
+                    media.Codecs.AddRange(accepted.Take(1)); // one codec keeps both directions on the same payload type
+                    sdp.Media.Add(media);
+                }
+            }
         }
 
         await Ice.StartGatheringAsync().ConfigureAwait(false);
@@ -226,6 +252,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
             }
 
             LocalDescription = description;
+            Media.Apply(description, null);
             if (type == "offer")
             {
                 Ice.IsControlling = true;
@@ -292,6 +319,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
 
             foreach (var candidate in candidates)
                 Ice.AddRemoteCandidate(candidate);
+            Media.Apply(null, description);
         }
     }
 
@@ -322,6 +350,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
         Ice.Dispose();
         Dtls.Dispose();
         Sctp.Dispose();
+        Media.Dispose();
         Srtp?.Dispose();
         OnConnectionStateChange?.Invoke("closed");
     }

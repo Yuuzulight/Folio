@@ -514,7 +514,36 @@ internal sealed class DtlsTransport : IDisposable
     {
         if (body.Length < 34) return;
         _remoteRandom = body.Slice(2, 32).ToArray();
+        // RFC 5764: the server must choose exactly one profile we offered (SRTP_AEAD_AES_128_GCM, no MKI).
+        // Anything else, or a malformed extension, aborts the handshake; absent means no SRTP keys are exported.
+        _srtpNegotiated = false;
+        var offset = 34;
+        if (body.Length < offset + 1) return;
+        offset += 1 + body[offset];                       // session id
+        offset += 3;                                      // cipher suite + compression
+        if (body.Length == offset) return;                // no extensions
+        if (body.Length < offset + 2) throw new CryptographicException("Malformed DTLS ServerHello.");
+        var total = BinaryPrimitives.ReadUInt16BigEndian(body[offset..]); offset += 2;
+        if (total != body.Length - offset) throw new CryptographicException("Malformed DTLS ServerHello extensions.");
+        while (offset < body.Length)
+        {
+            if (body.Length - offset < 4) throw new CryptographicException("Malformed DTLS ServerHello extension.");
+            var type = BinaryPrimitives.ReadUInt16BigEndian(body[offset..]);
+            var length = BinaryPrimitives.ReadUInt16BigEndian(body[(offset + 2)..]); offset += 4;
+            if (length > body.Length - offset) throw new CryptographicException("Malformed DTLS ServerHello extension.");
+            if (type == 0x000E)
+            {
+                var data = body.Slice(offset, length);
+                if (_srtpNegotiated || data.Length != 5 || data[0] != 0 || data[1] != 2 || data[2] != 0 || data[3] != 7 || data[4] != 0)
+                    throw new CryptographicException("The DTLS server chose an unsupported SRTP profile.");
+                _srtpNegotiated = true;
+            }
+            offset += length;
+        }
     }
+
+    // The server side always offers and echoes our single profile; the client sets this from the ServerHello.
+    private bool _srtpNegotiated = true;
 
     internal static bool OffersSecureRenegotiation(ReadOnlySpan<byte> hello)
     {
@@ -744,25 +773,26 @@ internal sealed class DtlsTransport : IDisposable
         _handshakeReader = new DtlsRecordCipher(IsClient ? serverWriteKey : clientWriteKey, IsClient ? serverWriteIv : clientWriteIv);
 
         // RFC 5764 DTLS-SRTP Key Exporter:
-        // Extract 2 * (16 + 14) = 60 bytes of key material
+        // SRTP_AEAD_AES_128_GCM (RFC 7714): 2 * (16 byte key + 12 byte salt) = 56 bytes: client key, server key, client salt, server salt
         var srtpSeed = new byte[64];
         (IsClient ? _localRandom : _remoteRandom!).CopyTo(srtpSeed.AsSpan(0, 32));
         (IsClient ? _remoteRandom! : _localRandom).CopyTo(srtpSeed.AsSpan(32, 32));
-        var srtpBlock = Prf(_masterSecret, "EXTRACTOR-dtls_srtp"u8, srtpSeed, 60);
+        if (!_srtpNegotiated) return;
+        var srtpBlock = Prf(_masterSecret, "EXTRACTOR-dtls_srtp"u8, srtpSeed, 56);
 
         if (IsClient)
         {
             SrtpLocalMasterKey = srtpBlock[0..16];
             SrtpRemoteMasterKey = srtpBlock[16..32];
-            SrtpLocalMasterSalt = srtpBlock[32..46];
-            SrtpRemoteMasterSalt = srtpBlock[46..60];
+            SrtpLocalMasterSalt = srtpBlock[32..44];
+            SrtpRemoteMasterSalt = srtpBlock[44..56];
         }
         else
         {
             SrtpRemoteMasterKey = srtpBlock[0..16];
             SrtpLocalMasterKey = srtpBlock[16..32];
-            SrtpRemoteMasterSalt = srtpBlock[32..46];
-            SrtpLocalMasterSalt = srtpBlock[46..60];
+            SrtpRemoteMasterSalt = srtpBlock[32..44];
+            SrtpLocalMasterSalt = srtpBlock[44..56];
         }
     }
 
@@ -823,6 +853,8 @@ internal sealed class DtlsTransport : IDisposable
             _retryTimer?.Dispose();
             State = "closed";
         }
+        foreach (var secret in new[] { SrtpLocalMasterKey, SrtpRemoteMasterKey, SrtpLocalMasterSalt, SrtpRemoteMasterSalt, _masterSecret })
+            if (secret is not null) CryptographicOperations.ZeroMemory(secret);
         _localEcdsa.Dispose();
         _localCert.Dispose();
         _localEcdh.Dispose();
