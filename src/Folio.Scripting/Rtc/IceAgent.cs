@@ -30,6 +30,21 @@ internal sealed class IceAgent : IDisposable
     public event Action<string>? OnConnectionStateChanged;
     public event Action<byte[]>? OnDatagramReceived;
     internal event Action? OnMaintenance;
+    // Clock for consent freshness, the maintenance tick and STUN retransmission. Tests substitute a manual clock
+    // and drive the tick themselves with RunMaintenance (AutoMaintenance = false).
+    internal TimeProvider Clock { get; init; } = TimeProvider.System;
+    internal bool AutoMaintenance { get; init; } = true;
+    internal void RunMaintenance()
+    {
+        MaintainConsent(); OnMaintenance?.Invoke();
+        foreach (var turn in _turnClients) turn.Maintain();
+    }
+    // Resolves once the connectivity-check pass that is running (or queued) has finished.
+    internal async Task WhenChecksIdleAsync(CancellationToken cancellationToken)
+    {
+        await _checkSerial.WaitAsync(cancellationToken).ConfigureAwait(false);
+        _checkSerial.Release();
+    }
 
     private readonly List<IceCandidate> _localCandidates = [];
     private readonly List<IceCandidate> _remoteCandidates = [];
@@ -53,7 +68,8 @@ internal sealed class IceAgent : IDisposable
     internal TimeSpan TurnPermissionRefreshInterval { get; set; } = TimeSpan.FromMinutes(4);
     internal TimeSpan TurnRetryBackoff { get; set; } = TimeSpan.FromSeconds(1);
     /// <summary>Time source for TURN timers (retransmission, refresh); tests substitute a fake one.</summary>
-    internal TimeProvider TurnClock { get; set; } = TimeProvider.System;
+    internal TimeProvider TurnClock { get => _turnClock ?? Clock; set => _turnClock = value; }
+    private TimeProvider? _turnClock;
     internal IReadOnlyList<string> TurnSkipReasons { get { lock (_gate) return _turnSkipReasons.ToArray(); } }
     private readonly List<string> _turnSkipReasons = [];
     internal int LocalPort => _localPort;
@@ -448,7 +464,7 @@ internal sealed class IceAgent : IDisposable
         try
         {
             var attempts = integrityKey is null ? 1 : 3;
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * ((1 << attempts) - 1)));
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * ((1 << attempts) - 1)), Clock);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, timeoutCts.Token);
             using (linked.Token.Register(() =>
             {
@@ -463,7 +479,7 @@ internal sealed class IceAgent : IDisposable
                     linked.Token.ThrowIfCancellationRequested();
                     if (relay is null) transport.SendTo(request, destination);
                     else relay.SendToPeer(destination, request);
-                    var retry = Task.Delay(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * (1 << attempt)), linked.Token);
+                    var retry = Task.Delay(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * (1 << attempt)), Clock, linked.Token);
                     if (await Task.WhenAny(tcs.Task, retry).ConfigureAwait(false) == tcs.Task)
                     {
                         var result = await tcs.Task.ConfigureAwait(false);
@@ -652,24 +668,24 @@ internal sealed class IceAgent : IDisposable
 
     private void ConfirmConsent()
     {
-        var now = Stopwatch.GetTimestamp();
+        var now = Clock.GetTimestamp();
         Volatile.Write(ref _consentConfirmed, now);
         if (Volatile.Read(ref _consentNextCheck) == 0) Volatile.Write(ref _consentNextCheck, now + NextConsentDelay());
     }
 
     private long NextConsentDelay() =>
-        (long)(ConsentInterval.TotalSeconds * (0.8 + 0.4 * Random.Shared.NextDouble()) * Stopwatch.Frequency);
+        (long)(ConsentInterval.TotalSeconds * (0.8 + 0.4 * Random.Shared.NextDouble()) * Clock.TimestampFrequency);
 
     private void MaintainConsent()
     {
         CandidatePair? pair;
         var expired = false;
-        var now = Stopwatch.GetTimestamp();
+        var now = Clock.GetTimestamp();
         lock (_gate)
         {
             if (_disposed || ConnectionState != "connected" || _selectedPair is null) return;
             pair = _selectedPair;
-            if (Stopwatch.GetElapsedTime(Volatile.Read(ref _consentConfirmed), now) > ConsentTimeout)
+            if (Clock.GetElapsedTime(Volatile.Read(ref _consentConfirmed), now) > ConsentTimeout)
             {
                 _selectedPair = null;
                 ConnectionState = "failed";
@@ -683,8 +699,10 @@ internal sealed class IceAgent : IDisposable
         }
         if (now < Volatile.Read(ref _consentNextCheck) || Interlocked.Exchange(ref _consentInFlight, 1) != 0) return;
         Volatile.Write(ref _consentNextCheck, now + NextConsentDelay());
-        _ = CheckConsentAsync(pair);
+        ConsentCheck = CheckConsentAsync(pair);
     }
+
+    internal Task ConsentCheck { get; private set; } = Task.CompletedTask;
 
     private async Task CheckConsentAsync(CandidatePair pair)
     {
@@ -720,7 +738,7 @@ internal sealed class IceAgent : IDisposable
     {
         var buffer = new byte[65536];
         EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
-        var maintenance = Stopwatch.GetTimestamp();
+        var maintenance = Clock.GetTimestamp();
         var errors = 0;
 
         while (!_cts.IsCancellationRequested)
@@ -729,11 +747,8 @@ internal sealed class IceAgent : IDisposable
             {
                 var transport = _transport;
                 if (transport is null) break;
-                if (Stopwatch.GetElapsedTime(maintenance) >= TimeSpan.FromMilliseconds(250))
-                {
-                    maintenance = Stopwatch.GetTimestamp(); MaintainConsent(); OnMaintenance?.Invoke();
-                    foreach (var turn in _turnClients) turn.Maintain();
-                }
+                if (AutoMaintenance && Clock.GetElapsedTime(maintenance) >= TimeSpan.FromMilliseconds(250))
+                { maintenance = Clock.GetTimestamp(); RunMaintenance(); }
                 // Socket completions and transport retry timers must not wait
                 // behind synchronous page work on the shared CLR thread pool.
                 var received = transport.Receive(buffer, 250000, ref remoteEp);

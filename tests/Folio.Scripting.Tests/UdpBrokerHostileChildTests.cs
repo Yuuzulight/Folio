@@ -25,9 +25,11 @@ public sealed class UdpBrokerHostileChildTests
     public async Task EventQueueStaysBoundedAndSocketsAreRevokedWhenTheChildNeverDrains()
     {
         var stalled = new ManualResetEventSlim();
+        var stuck = new ManualResetEventSlim();
         using var h = Harness(Open with { MaxSockets = 1, MaxQueuedEvents = 8 });
-        h.Hook = _ => stalled.Wait(10_000); // the pipe write never completes
+        h.Hook = _ => { stuck.Set(); stalled.Wait(10_000); }; // the pipe write never completes
         h.Run("""{"op":"open","token":1}""");
+        Assert.True(stuck.Wait(TimeSpan.FromSeconds(30))); // the pump is now blocked inside the first write, so the backlog stays queued
         for (var i = 2; i < 500; i++) h.Run($$"""{"op":"open","token":{{i}}}"""); // every refusal queues a `failed`
         Assert.True(h.Broker.Dead);
         Assert.Equal(0, h.Broker.OpenSockets);
@@ -36,11 +38,14 @@ public sealed class UdpBrokerHostileChildTests
         var before = h.Broker.QueuedEvents;
         for (var i = 0; i < 100; i++) h.Run($$"""{"op":"open","token":{{1000 + i}}}""");
         Assert.Equal(before, h.Broker.QueuedEvents);
-        stalled.Set();
-        // The next document starts clean.
+        // The next document starts clean even while the old document's backlog is still undrained.
         h.NextDocument();
         Assert.False(h.Broker.Dead);
-        Assert.True((await h.Open(5000)).Id > 0);
+        h.Run("""{"op":"open","token":5000}""");
+        Assert.False(h.Broker.Dead);
+        stalled.Set();
+        var opened = await h.WaitFor(e => UdpBrokerTests.IsToken(e, 5000));
+        Assert.Equal("opened", opened.GetProperty("op").GetString());
     }
 
     [Fact]

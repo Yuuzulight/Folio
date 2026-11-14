@@ -79,10 +79,12 @@ public static class Program
         if (hover.Median > FrameBenchmark.HoverTarget)
             warnings.Add($"Hover restyle of the dashboard is over the target: median {Ms(hover.Median)} ms (target {Ms(FrameBenchmark.HoverTarget)} ms)");
 
-        table.AppendLine().AppendLine($"Scroll frame, {frames} steps: replay display list + Folio software raster at 800x600; target {Ms(FrameBenchmark.ScrollTarget)} ms.")
+        table.AppendLine().AppendLine($"Scroll frame, {frames} steps: shift the rendered rows and paint the exposed ones (RetainedScroll), Folio software raster at 800x600; target {Ms(FrameBenchmark.ScrollTarget)} ms.")
             .AppendLine().AppendLine("| Interaction | Median ms | p95 ms |").AppendLine("|---|--:|--:|");
         var scroll = FrameBenchmark.MeasureScroll(FrameBenchmark.ScrollHtml, frames);
         table.AppendLine($"| viewport scroll frame | {Ms(scroll.Median)} | {Ms(scroll.P95)} |");
+        var fullScroll = FrameBenchmark.MeasureScroll(FrameBenchmark.ScrollHtml, frames, retained: false);
+        table.AppendLine($"| viewport scroll frame (full repaint) | {Ms(fullScroll.Median)} | {Ms(fullScroll.P95)} |");
         if (scroll.Median > FrameBenchmark.ScrollTarget)
             warnings.Add($"Viewport scroll frame is over the target: median {Ms(scroll.Median)} ms (target {Ms(FrameBenchmark.ScrollTarget)} ms)");
 
