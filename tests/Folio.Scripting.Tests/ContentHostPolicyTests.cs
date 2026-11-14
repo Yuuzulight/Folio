@@ -183,7 +183,7 @@ public sealed class ContentHostPolicyTests
         }
         Assert.Equal("176x144:" + want, pixel);
         Assert.Equal("video", Value(await Exchange(client, new { script = "info" })));
-        Assert.Equal("NotSupportedError", Value(await Exchange(client, new { script = "sendError" })));
+        Assert.Equal("none", Value(await Exchange(client, new { script = "sendError" })));
     }
 
     [Fact(Timeout = 60000)]
