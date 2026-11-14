@@ -115,10 +115,13 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
 
     private sealed class Transport(MediatedUdpClient owner) : IIceTransport
     {
+        internal const int MaxIncomingBytes = 512 * 1024;
+        /// <summary>Datagrams dropped because the child-side queue was full by count or by bytes.</summary>
+        internal long DroppedIncoming;
         private readonly Channel<(byte[] Data, IPEndPoint From)> _incoming = Channel.CreateBounded<(byte[], IPEndPoint)>(
             new BoundedChannelOptions(IncomingCapacity) { SingleReader = true, FullMode = BoundedChannelFullMode.DropWrite });
         private long _id;
-        private int _disposed;
+        private int _disposed, _incomingBytes;
         private readonly long _generation = owner.Generation;
         internal UdpBrokerOptions Policy { get; set; } = new();
 
@@ -151,7 +154,15 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
             finally { owner._pendingOpens.TryRemove(token, out _); }
         }
 
-        internal void Enqueue(byte[] data, IPEndPoint from) => _incoming.Writer.TryWrite((data, from));
+        internal void Enqueue(byte[] data, IPEndPoint from)
+        {
+            if (Volatile.Read(ref _incomingBytes) + data.Length > MaxIncomingBytes || !_incoming.Writer.TryWrite((data, from)))
+            {
+                Interlocked.Increment(ref DroppedIncoming);
+                return;
+            }
+            Interlocked.Add(ref _incomingBytes, data.Length);
+        }
 
         public void SendTo(ReadOnlySpan<byte> datagram, IPEndPoint destination)
         {
@@ -171,6 +182,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
             try
             {
                 var (data, from) = _incoming.Reader.ReadAsync(timeout.Token).AsTask().GetAwaiter().GetResult();
+                Interlocked.Add(ref _incomingBytes, -data.Length);
                 remote = from;
                 data.CopyTo(buffer, 0);
                 return Math.Min(data.Length, buffer.Length);
@@ -183,6 +195,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
         internal void HostClosed()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            Volatile.Write(ref _incomingBytes, 0);
             owner._byId.TryRemove(Volatile.Read(ref _id), out _);
             _incoming.Writer.TryComplete();
         }
@@ -190,6 +203,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            Volatile.Write(ref _incomingBytes, 0);
             var id = Volatile.Read(ref _id);
             if (id != 0)
             {
