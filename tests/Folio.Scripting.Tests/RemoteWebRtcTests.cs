@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -441,5 +442,80 @@ public sealed class RemoteWebRtcTests
         remoteChannel.OnMessage += value => delivered.TrySetResult(value as string ?? "wrong type");
         local.Send("authenticated UDP data");
         Assert.Equal("authenticated UDP data", await delivered.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void AggregateSctpReassemblyBudgetEnforcedAcrossPeersInDocument()
+    {
+        // 4 KiB aggregate reassembly budget
+        var budget = new RtcMediaBudget(maxSctpReassemblyBytes: 4096);
+        var peer1 = new SctpReliableDelivery(1, budget); peer1.SetPeerInitialTsn(1);
+        var peer2 = new SctpReliableDelivery(1, budget); peer2.SetPeerInitialTsn(1);
+
+        var sender = new SctpReliableDelivery();
+        // Generate fragments for a 3000-byte payload (~3 fragments of ~1120 bytes)
+        var chunks1 = sender.Enqueue(1, 0, 53, new byte[3000], 0);
+        // Feed chunks to peer1: chunk 0, 1 (around 2200 bytes total)
+        peer1.Receive(chunks1[0][1], chunks1[0].AsSpan(4));
+        peer1.Receive(chunks1[1][1], chunks1[1].AsSpan(4));
+        Assert.True(budget.SctpReassemblyBytesInUse > 2000);
+
+        // peer2 now receives chunks for another message
+        var chunks2 = sender.Enqueue(sender.NextTsn, 1, 53, new byte[3000], 0);
+        peer2.Receive(chunks2[0][1], chunks2[0].AsSpan(4));
+        // The next chunk exceeds budget (4096) and is dropped/not accepted into fragments
+        var dropped = peer2.Receive(chunks2[1][1], chunks2[1].AsSpan(4));
+        Assert.Empty(dropped);
+        Assert.True(budget.SctpReassemblyBytesInUse <= 4096);
+
+        // When peer1 is cleared, bytes are refunded
+        peer1.Clear();
+        Assert.True(budget.SctpReassemblyBytesInUse < 2000);
+
+        // Now peer2 can be cleared as well
+        peer2.Clear();
+        Assert.Equal(0, budget.SctpReassemblyBytesInUse);
+    }
+
+    [Fact]
+    public void AggregateDtlsReassemblyBudgetEnforcedAcrossPeersInDocument()
+    {
+        // 2048 bytes aggregate DTLS reassembly budget
+        var budget = new RtcMediaBudget(maxDtlsReassemblyBytes: 2048);
+        using var dtls1 = new DtlsHandshakeFragments(budget);
+        using var dtls2 = new DtlsHandshakeFragments(budget);
+
+        // Message body 500 bytes -> cost = 500 * 2 + 12 = 1012 bytes
+        var frag1 = new byte[12 + 100];
+        frag1[0] = 11; // Certificate
+        // length = 500:
+        frag1[1] = 0; frag1[2] = (byte)(500 >> 8); frag1[3] = (byte)(500 & 0xFF);
+        BinaryPrimitives.WriteUInt16BigEndian(frag1.AsSpan(4), 0);
+        // offset = 0, count = 100:
+        frag1[9] = 0; frag1[10] = 0; frag1[11] = 100;
+
+        dtls1.Add(frag1, 0);
+        Assert.True(budget.DtlsReassemblyBytesInUse > 1000);
+
+        // Add to dtls2: another 500-byte message -> cost 1012. Total 2024 <= 2048.
+        var frag2 = (byte[])frag1.Clone();
+        dtls2.Add(frag2, 0);
+        Assert.True(budget.DtlsReassemblyBytesInUse > 2000);
+
+        // Add third to dtls2 -> exceeds 2048 -> throws CryptographicException
+        var frag3 = (byte[])frag1.Clone();
+        BinaryPrimitives.WriteUInt16BigEndian(frag3.AsSpan(4), 1);
+        Assert.Throws<CryptographicException>(() => dtls2.Add(frag3, 0));
+
+        // When dtls1 is disposed, its retained bytes are refunded
+        dtls1.Dispose();
+        Assert.True(budget.DtlsReassemblyBytesInUse <= 1024);
+
+        // Now dtls2 can add seq 1 without throwing
+        dtls2.Add(frag3, 0);
+        Assert.True(budget.DtlsReassemblyBytesInUse > 2000);
+
+        dtls2.Dispose();
+        Assert.Equal(0, budget.DtlsReassemblyBytesInUse);
     }
 }

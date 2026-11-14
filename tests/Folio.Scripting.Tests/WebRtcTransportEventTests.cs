@@ -324,4 +324,104 @@ public sealed class WebRtcTransportEventTests
         }
         finally { DomBindings.Dispose(engine); }
     }
+
+    private sealed class FakeClock : TimeProvider
+    {
+        internal long Ticks;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => Ticks;
+        public void AdvanceSeconds(double seconds) => Ticks += (long)(seconds * TimeSpan.TicksPerSecond);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MessageDeliverySustainedRateCapRetiresOverflowingPeerAndPreservesSibling(bool native)
+    {
+        using IScriptEngine engine = native ? new NativeJavaScriptEngine() : new JintScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions { Capabilities = new FeatureCapabilities { WebRtc = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        var context = new DomContext(engine, document.Node, capabilities: new FeatureCapabilities { WebRtc = true }) { OwnerEventLoop = loop };
+        using var state = WebRtcBindings.Install(engine, context);
+        var clock = new FakeClock();
+        state.Clock = clock;
+
+        engine.Evaluate("""
+            var a = new RTCPeerConnection(), b = new RTCPeerConnection();
+            var chA = a.createDataChannel('chA');
+            var chB = b.createDataChannel('chB');
+            var aMessages = 0, bMessages = 0;
+            chA.onmessage = function() { aMessages++; };
+            chB.onmessage = function() { bMessages++; };
+            """);
+
+        var chAVal = engine.Evaluate("chA.__nativeChannel");
+        var chBVal = engine.Evaluate("chB.__nativeChannel");
+        Assert.True(engine.TryGetHostTarget(chAVal, out var targetA));
+        Assert.True(engine.TryGetHostTarget(chBVal, out var targetB));
+        var leaseA = Assert.IsType<WebRtcBindingState.ChannelLease>(targetA);
+        var leaseB = Assert.IsType<WebRtcBindingState.ChannelLease>(targetB);
+
+        // Flood chA with 300 messages without advancing the clock (Burst is 256)
+        for (var i = 0; i < 300; i++)
+        {
+            leaseA.Channel.DeliverMessage($"msg{i}");
+        }
+
+        // chA should have overflowed the burst cap: peer A marked overflow
+        Assert.True(leaseA.Peer.DeliveryOverflow);
+
+        // Advance clock a bit so chB has a token
+        clock.AdvanceSeconds(0.1);
+        leaseB.Channel.DeliverMessage("sibling-ok");
+        Assert.False(leaseB.Peer.DeliveryOverflow);
+
+        // Process event loop turn
+        loop.SpinUntilIdle();
+
+        // chB should have received its message; chA is retired and peer A closed
+        Assert.Equal(1, engine.Evaluate("bMessages").AsNumber());
+        Assert.Equal(0, engine.Evaluate("aMessages").AsNumber());
+        Assert.Equal("closed", engine.Evaluate("a.connectionState").AsString());
+        Assert.NotEqual("closed", engine.Evaluate("b.connectionState").AsString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RemotePeerFloodingMessagesDoesNotExhaustMemoryOrStallEventLoop(bool native)
+    {
+        using IScriptEngine engine = native ? new NativeJavaScriptEngine() : new JintScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions { Capabilities = new FeatureCapabilities { WebRtc = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        var context = new DomContext(engine, document.Node, capabilities: new FeatureCapabilities { WebRtc = true }) { OwnerEventLoop = loop };
+        using var state = WebRtcBindings.Install(engine, context);
+        var clock = new FakeClock();
+        state.Clock = clock;
+
+        engine.Evaluate("""
+            var a = new RTCPeerConnection();
+            var chA = a.createDataChannel('flood');
+            var received = 0;
+            chA.onmessage = function() { received++; };
+            """);
+
+        var chAVal = engine.Evaluate("chA.__nativeChannel");
+        Assert.True(engine.TryGetHostTarget(chAVal, out var targetA));
+        var leaseA = Assert.IsType<WebRtcBindingState.ChannelLease>(targetA);
+
+        // Simulate remote peer flooding large 64 KiB binary messages
+        var payload = new byte[64 * 1024];
+        for (var i = 0; i < 50; i++)
+        {
+            leaseA.Channel.DeliverMessage(payload);
+        }
+
+        // Peer exceeded MaxDeliveryBytes (1 MiB) or message burst, so it was capped and overflowed
+        Assert.True(leaseA.Peer.DeliveryOverflow);
+        loop.SpinUntilIdle();
+        Assert.Equal("closed", engine.Evaluate("a.connectionState").AsString());
+    }
 }

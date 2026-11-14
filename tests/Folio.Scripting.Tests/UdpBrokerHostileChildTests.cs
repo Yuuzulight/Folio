@@ -29,7 +29,7 @@ public sealed class UdpBrokerHostileChildTests
         using var h = Harness(Open with { MaxSockets = 1, MaxQueuedEvents = 8 });
         h.Hook = _ => { stuck.Set(); stalled.Wait(10_000); }; // the pipe write never completes
         h.Run("""{"op":"open","token":1}""");
-        Assert.True(stuck.Wait(TimeSpan.FromSeconds(30))); // the pump is now blocked inside the first write, so the backlog stays queued
+        Assert.True(stuck.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken)); // the pump is now blocked inside the first write, so the backlog stays queued
         for (var i = 2; i < 500; i++) h.Run($$"""{"op":"open","token":{{i}}}"""); // every refusal queues a `failed`
         Assert.True(h.Broker.Dead);
         Assert.Equal(0, h.Broker.OpenSockets);
@@ -46,6 +46,46 @@ public sealed class UdpBrokerHostileChildTests
         stalled.Set();
         var opened = await h.WaitFor(e => UdpBrokerTests.IsToken(e, 5000));
         Assert.Equal("opened", opened.GetProperty("op").GetString());
+    }
+
+    [Fact]
+    public async Task EventQueueMaxQueuedBytesRevokesSocketsAndKillsBrokerWhenChildNeverDrains()
+    {
+        var stalled = new ManualResetEventSlim();
+        var stuck = new ManualResetEventSlim();
+        using var h = Harness(Open with { MaxSockets = 1, MaxQueuedEvents = 500, MaxQueuedBytes = 1024 });
+        h.Hook = _ => { stuck.Set(); stalled.Wait(10_000); };
+        h.Run("""{"op":"open","token":1}""");
+        Assert.True(stuck.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        for (var i = 2; i < 200; i++)
+        {
+            h.Run($$"""{"op":"open","token":{{i}}}""");
+            if (h.Broker.Dead) break;
+        }
+        Assert.True(h.Broker.Dead);
+        Assert.Equal(0, h.Broker.OpenSockets);
+        Assert.True(h.Broker.QueuedBytes <= 1024 + 512, $"queued {h.Broker.QueuedBytes} bytes");
+        stalled.Set();
+    }
+
+    [Fact]
+    public void BrokerDisposesCleanlyWhileEventQueueIsFull()
+    {
+        var stalled = new ManualResetEventSlim();
+        var stuck = new ManualResetEventSlim();
+        var h = Harness(Open with { MaxSockets = 1, MaxQueuedEvents = 500, MaxQueuedBytes = 1024 });
+        h.Hook = _ => { stuck.Set(); stalled.Wait(10_000); };
+        h.Run("""{"op":"open","token":1}""");
+        Assert.True(stuck.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        for (var i = 2; i < 200; i++)
+        {
+            h.Run($$"""{"op":"open","token":{{i}}}""");
+            if (h.Broker.Dead) break;
+        }
+        Assert.True(h.Broker.Dead);
+        stalled.Set();
+        h.Dispose();
+        Assert.Equal(0, h.Broker.OpenSockets);
     }
 
     [Fact]

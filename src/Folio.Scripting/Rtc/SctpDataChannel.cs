@@ -92,7 +92,7 @@ internal sealed class SctpDataChannel : IDisposable
     private int _handshakeRetries;
     private TimeSpan _handshakeRetryDelay = TimeSpan.FromSeconds(1);
     private long _associationStartedAt;
-    private readonly SctpReliableDelivery _reliable = new();
+    private readonly SctpReliableDelivery _reliable;
     // RFC 6525 stream reset (RFC 8831 closes a data channel by resetting its stream both ways).
     private bool _peerSupportsReconfig;
     private uint _reconfigRequestSequence = 1;
@@ -106,9 +106,10 @@ internal sealed class SctpDataChannel : IDisposable
 
     public SctpDataChannel() : this(TimeProvider.System) { }
 
-    internal SctpDataChannel(TimeProvider clock, bool enableRetryTimer = true)
+    internal SctpDataChannel(TimeProvider clock, bool enableRetryTimer = true, RtcMediaBudget? budget = null)
     {
         _clock = clock;
+        _reliable = new SctpReliableDelivery(1, budget);
         do { LocalVerificationTag = BinaryPrimitives.ReadUInt32BigEndian(RandomNumberGenerator.GetBytes(4)); }
         while (LocalVerificationTag == 0);
         if (enableRetryTimer)
