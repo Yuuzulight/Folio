@@ -191,31 +191,47 @@ internal static class FrameBenchmark
     }
 
     /// <summary>
-    /// Scroll frame time (docs/study/18-memory-and-performance.md, M3 target 8 ms):
-    /// viewport scroll replays the display list with offset into viewport and rasters.
+    /// Scroll frame time (docs/study/18-memory-and-performance.md, M3 target 8 ms): a step of the scroll bar, 1 to 60
+    /// device pixels, as <c>FolioView</c> does it. With <paramref name="retained"/> that is <see cref="RetainedScroll"/>:
+    /// the rendered rows move and only the exposed ones are painted; without, the whole viewport is repainted (background fill included, as FolioView does; the row before this one filled none). Both rows include the surface-to-bitmap copy FolioView does after every changed frame.
     /// </summary>
-    public static (TimeSpan Median, TimeSpan P95) MeasureScroll(string html, int steps) => Steady(() => MeasureScrollPass(html, steps));
+    public static (TimeSpan Median, TimeSpan P95) MeasureScroll(string html, int steps, bool retained = true) => Steady(() => MeasureScrollPass(html, steps, retained));
 
-    private static (TimeSpan Median, TimeSpan P95) MeasureScrollPass(string html, int steps)
+    private static (TimeSpan Median, TimeSpan P95) MeasureScrollPass(string html, int steps, bool retained)
     {
         using var document = Document.Parse(html, Options);
         var (list, contentHeight) = document.Paint(800, 600, 1, SoftwareRasterBackend.Instance.TextShaper, 0);
-        var scrollRange = contentHeight - Viewport.Height;
-        if (!(scrollRange > 0))
+        var scrollRange = (int)(contentHeight - Viewport.Height);
+        if (scrollRange <= 60)
             throw new InvalidOperationException("The scroll fixture must extend beyond the viewport.");
         using var surface = new SoftwareRasterSurface(800, 600);
-        var canvas = surface.Canvas;
+        RetainedScroll.Repaint(list!, surface, 1, 0, Background);
         var times = new List<TimeSpan>();
+        var (rowBuffer, frame) = (new byte[800 * 4], new byte[800 * 4 * 600]);
+        var (top, direction) = (0, 1);
         for (var i = -10; i < steps; i++)
         {
+            var step = 1 + Math.Max(0, i) * 17 % 60;
+            var next = top + direction * step;
+            if (next < 0 || next > scrollRange)
+            {
+                direction = -direction;
+                next = top + direction * step;
+            }
             var start = Stopwatch.GetTimestamp();
-            var scrollTop = Math.Max(0, i) * scrollRange / Math.Max(1, steps - 1);
-            canvas.Save();
-            canvas.Transform(System.Numerics.Matrix3x2.CreateTranslation(0, -scrollTop));
-            Replay(canvas, list, new RectF(0, scrollTop, 800, 600));
-            canvas.Restore();
+            if (!retained)
+                RetainedScroll.Repaint(list!, surface, 1, next, Background);
+            else if (!RetainedScroll.TryScroll(list!, surface, 1, top, next, Background))
+                throw new InvalidOperationException($"The scroll fixture no longer takes the retained path (step {top} -> {next}); the row would time a full repaint.");
+            // FolioView then copies the surface into the bitmap it draws, swizzling every row.
+            foreach (var row in Enumerable.Range(0, surface.Height))
+            {
+                surface.ReadBgraRow(row, rowBuffer);
+                Buffer.BlockCopy(rowBuffer, 0, frame, row * rowBuffer.Length, rowBuffer.Length);
+            }
             if (i >= 0)
                 times.Add(Stopwatch.GetElapsedTime(start));
+            top = next;
         }
         times.Sort();
         return (times[times.Count / 2], times[Math.Min(times.Count - 1, (int)(times.Count * 0.95))]);
