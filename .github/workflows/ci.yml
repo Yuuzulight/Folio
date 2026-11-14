@@ -138,7 +138,7 @@ jobs:
           dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll rtc-chrome-media-probe /usr/bin/google-chrome
 
       - name: Independent browser media (Folio answerer)
-        if: matrix.os == 'ubuntu-latest'
+        if: always() && matrix.os == 'ubuntu-latest'
         env:
           FOLIO_RTC_PROBE_OUTPUT: artifacts/rtc-interop
         run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll rtc-chrome-media-probe /usr/bin/google-chrome folio-answerer

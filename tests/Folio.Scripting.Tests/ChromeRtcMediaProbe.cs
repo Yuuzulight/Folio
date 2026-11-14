@@ -408,44 +408,21 @@ internal static class ChromeRtcMediaProbe
             pc.close();
           }
 
-          function filterSdpCodecs(sdp, keepCodec){
-            var lines = sdp.split('\r\n');
-            var otherCodec = keepCodec.toUpperCase() === 'VP8' ? 'H264' : 'VP8';
-            var removePts = new Set();
-            for (var i = 0; i < lines.length; i++){
-              var m = lines[i].match(/^a=rtpmap:(\d+)\s+([^\/]+)/i);
-              if (m && m[2].toUpperCase().indexOf(otherCodec) !== -1){
-                removePts.add(m[1]);
-              }
-            }
-            for (var i = 0; i < lines.length; i++){
-              var m2 = lines[i].match(/^a=fmtp:(\d+)\s+apt=(\d+)/i);
-              if (m2 && removePts.has(m2[2])){
-                removePts.add(m2[1]);
-              }
-            }
-            var result = [];
-            for (var i = 0; i < lines.length; i++){
-              var line = lines[i];
-              if (line.indexOf('m=video ') === 0){
-                var parts = line.split(' ');
-                var header = parts.slice(0, 3);
-                var pts = parts.slice(3).filter(function(pt){ return !removePts.has(pt); });
-                result.push(header.concat(pts).join(' '));
-              } else {
-                var skip = false;
-                for (var pt of removePts){
-                  if (line.indexOf('a=rtpmap:' + pt + ' ') === 0 ||
-                      line.indexOf('a=rtcp-fb:' + pt + ' ') === 0 ||
-                      line.indexOf('a=fmtp:' + pt + ' ') === 0){
-                    skip = true;
-                    break;
-                  }
-                }
-                if (!skip) result.push(line);
-              }
-            }
-            return result.join('\r\n');
+          // Restrict the video sender to the codec under test (plus its rtx/red/fec helpers). Removing codecs from the SDP text does not do this:
+          // Chrome ignores a munged answer and keeps sending its preferred codec, so the negotiated SDP and the wire disagree.
+          function restrictVideoCodec(){
+            var wanted = 'video/' + targetCodec.toLowerCase();
+            var helpers = ['video/rtx', 'video/red', 'video/ulpfec', 'video/flexfec-03'];
+            var codecs = RTCRtpSender.getCapabilities('video').codecs.filter(function(c){
+              var m = c.mimeType.toLowerCase();
+              return m === wanted || helpers.indexOf(m) !== -1;
+            });
+            if (!codecs.some(function(c){ return c.mimeType.toLowerCase() === wanted; })) throw new Error('Chrome cannot send ' + targetCodec);
+            var restricted = 0;
+            pc.getTransceivers().forEach(function(tr){
+              if (tr.receiver.track.kind === 'video' && tr.sender.track){ tr.setCodecPreferences(codecs); restricted++; }
+            });
+            if (restricted !== 1) throw new Error('expected one video sender transceiver, found ' + restricted);
           }
 
           pc.ontrack = function(event){
@@ -482,34 +459,18 @@ internal static class ChromeRtcMediaProbe
               pc.addTrack(tracks[i], stream);
             }
 
-            if (RTCRtpReceiver.getCapabilities){
-              var transceivers = pc.getTransceivers();
-              for (var i = 0; i < transceivers.length; i++){
-                var tr = transceivers[i];
-                if (tr.sender && tr.sender.track && tr.sender.track.kind === 'video' && tr.setCodecPreferences){
-                  var caps = RTCRtpReceiver.getCapabilities('video');
-                  if (caps && caps.codecs){
-                    var match = caps.codecs.filter(function(c){ return c.mimeType.toLowerCase() === 'video/' + targetCodec.toLowerCase(); });
-                    var rest = caps.codecs.filter(function(c){ return c.mimeType.toLowerCase() !== 'video/' + targetCodec.toLowerCase(); });
-                    tr.setCodecPreferences(match.concat(rest));
-                  }
-                }
-              }
-            }
-
             if (folioAnswers){
-              var rawOffer = await pc.createOffer();
-              var filteredOffer = { type: 'offer', sdp: filterSdpCodecs(rawOffer.sdp, targetCodec) };
-              await pc.setLocalDescription(filteredOffer);
+              restrictVideoCodec();
+              var offerInit = await pc.createOffer();
+              await pc.setLocalDescription(offerInit);
               await gather();
               var answer = await (await fetch('/negotiate', { method: 'POST', body: JSON.stringify(pc.localDescription) })).json();
               await pc.setRemoteDescription(answer);
             } else {
               var offer = await (await fetch('/offer')).json();
               await pc.setRemoteDescription(offer);
-              var rawAnswer = await pc.createAnswer();
-              var filteredAnswer = { type: 'answer', sdp: filterSdpCodecs(rawAnswer.sdp, targetCodec) };
-              await pc.setLocalDescription(filteredAnswer);
+              restrictVideoCodec();
+              await pc.setLocalDescription(await pc.createAnswer());
               await gather();
               await fetch('/answer', { method: 'POST', body: JSON.stringify(pc.localDescription) });
             }
