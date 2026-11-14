@@ -100,14 +100,14 @@ internal sealed class BoolEncoder
 
 /// <summary>
 /// A minimal VP8 video encoder (RFC 6386).
-/// Produces valid VP8 key frames and inter frames decodable by <see cref="Vp8Decoder"/> and standard WebRTC browsers.
-/// Encodes frames at resolution capped to 640x360 and frame rate capped to 15 fps.
+/// Intra-only: every frame is a key frame carrying the picture it was given, so a frame is never stale and
+/// a lost packet only costs one frame. Decodable by <see cref="Vp8Decoder"/>; interoperability with browsers is not yet verified.
+/// Frame rate is the caller's to limit (see <see cref="RtpVideoSender"/>); the encoder only caps resolution at 640x360.
 /// </summary>
 internal sealed class Vp8Encoder
 {
     public const int MaxWidth = 640;
     public const int MaxHeight = 360;
-    public const int MaxFps = 15;
 
     private static readonly byte[] KfYModeProbs = [145, 156, 163, 128];
     private static readonly byte[] KfUvModeProbs = [142, 114, 183];
@@ -130,11 +130,8 @@ internal sealed class Vp8Encoder
     private readonly int _qIndex;
     private readonly int _dcFactorY;
     private readonly int _dcFactorUv;
-    private readonly long _minFrameIntervalTicks;
-    private long _lastFrameTimestampTicks;
-    private bool _hasSentKeyFrame;
 
-    public Vp8Encoder(int targetWidth = 320, int targetHeight = 240, int qIndex = 4, int fps = MaxFps)
+    public Vp8Encoder(int targetWidth = 320, int targetHeight = 240, int qIndex = 4)
     {
         _targetWidth = Math.Clamp(targetWidth, 16, MaxWidth);
         _targetHeight = Math.Clamp(targetHeight, 16, MaxHeight);
@@ -142,28 +139,18 @@ internal sealed class Vp8Encoder
         _dcFactorY = Vp8Tables.DcQ[_qIndex];
         var uvdc = Vp8Tables.DcQ[_qIndex];
         _dcFactorUv = uvdc > 132 ? 132 : uvdc;
-        var clampedFps = Math.Clamp(fps, 1, MaxFps);
-        _minFrameIntervalTicks = TimeSpan.FromSeconds(1.0 / clampedFps).Ticks;
     }
 
     public int Width => _targetWidth;
     public int Height => _targetHeight;
 
     /// <summary>
-    /// Encodes an RGBA image into a VP8 frame. Downscales to the encoder dimensions if needed.
-    /// Rate-limits to <= MaxFps; returns null if called sooner than the frame interval unless forceKeyFrame is true.
+    /// Encodes an RGBA image into a VP8 key frame, resampling to the encoder dimensions. Returns null for malformed input.
     /// </summary>
-    public byte[]? Encode(ReadOnlySpan<byte> rgba, int inputWidth, int inputHeight, bool forceKeyFrame = false, long timestampTicks = 0)
+    public byte[]? Encode(ReadOnlySpan<byte> rgba, int inputWidth, int inputHeight)
     {
-        if (rgba.Length < inputWidth * inputHeight * 4 || inputWidth <= 0 || inputHeight <= 0)
+        if (inputWidth <= 0 || inputHeight <= 0 || (long)inputWidth * inputHeight > rgba.Length / 4)
             return null;
-
-        if (timestampTicks != 0 && _lastFrameTimestampTicks != 0 && !forceKeyFrame)
-        {
-            if (timestampTicks - _lastFrameTimestampTicks < _minFrameIntervalTicks)
-                return null;
-        }
-        _lastFrameTimestampTicks = timestampTicks;
 
         var w = _targetWidth;
         var h = _targetHeight;
@@ -175,10 +162,7 @@ internal sealed class Vp8Encoder
         var vPlane = new byte[cols * 8 * rows * 8];
         RgbaToPlanar(rgba, inputWidth, inputHeight, yPlane, uPlane, vPlane, w, h, cols * 16, cols * 8);
 
-        var isKey = !_hasSentKeyFrame || forceKeyFrame;
-        var frame = isKey ? EncodeKey(yPlane, uPlane, vPlane, w, h, cols, rows) : EncodeInter(cols, rows);
-        _hasSentKeyFrame = true;
-        return frame;
+        return EncodeKey(yPlane, uPlane, vPlane, w, h, cols, rows);
     }
 
     private static void RgbaToPlanar(ReadOnlySpan<byte> rgba, int inW, int inH,
@@ -547,86 +531,5 @@ internal sealed class Vp8Encoder
         bd.Put(0, probs[pNext]);
 
         leftCtx[LeftCtxIndex[blockIndex]] = aboveCtx[aboveBase + AboveCtxIndex[blockIndex]] = 1;
-    }
-
-    private byte[] EncodeInter(int cols, int rows)
-    {
-        var bd0 = new BoolEncoder(1024);
-        bd0.PutBit(0); // Segmentation disabled
-
-        // Loop filter: disabled
-        bd0.PutBit(0); // simple = 0
-        bd0.PutUInt(0, 6); // level = 0
-        bd0.PutUInt(0, 3); // sharpness = 0
-        bd0.PutBit(0); // delta = 0
-
-        // 1 token partition
-        bd0.PutUInt(0, 2);
-
-        // Quantizer
-        bd0.PutUInt(_qIndex, 7);
-        bd0.PutBit(0);
-        bd0.PutBit(0);
-        bd0.PutBit(0);
-        bd0.PutBit(0);
-        bd0.PutBit(0);
-
-        // References for inter frame:
-        bd0.PutBit(0); // refresh_golden = 0
-        bd0.PutUInt(0, 2); // copy_golden = 0
-        bd0.PutBit(0); // refresh_altref = 0
-        bd0.PutUInt(0, 2); // copy_altref = 0
-        bd0.PutBit(0); // sign_bias[2] = 0
-        bd0.PutBit(0); // sign_bias[3] = 0
-        bd0.PutBit(0); // refresh_entropy = 0
-        bd0.PutBit(1); // refresh_last = 1 (refresh LAST_FRAME reference)
-
-        // Entropy
-        for (var i = 0; i < 1056; i++)
-            bd0.Put(0, Vp8Tables.CoeffUpdateProbs[i]);
-
-        bd0.PutBit(1); // skip_enabled = 1
-        bd0.PutUInt(255, 8); // skip_prob = 255
-
-        bd0.PutUInt(255, 8); // prob_inter = 255 (all MBs inter)
-        bd0.PutUInt(0, 8); // prob_last = 0 (ref = LAST_FRAME)
-        bd0.PutUInt(128, 8); // prob_golden = 128
-        bd0.PutBit(0); // yMode prob updates = 0
-        bd0.PutBit(0); // uvMode prob updates = 0
-
-        // MV update probs = 38 zeroes
-        for (var i = 0; i < 38; i++)
-            bd0.Put(0, Vp8Tables.MvUpdateProbs[i]);
-
-        // Macroblocks
-        for (var r = 0; r < rows; r++)
-        {
-            for (var c = 0; c < cols; c++)
-            {
-                bd0.Put(1, 255); // skip = 1
-                bd0.Put(1, 255); // is_inter = 1
-                bd0.Put(0, 0); // refFrame = 1 (LAST_FRAME, since prob_last is 0)
-                // ReadMvRef: ZeroMv is bit 0 at root of MvRefTree
-                bd0.PutBit(0);
-            }
-        }
-        bd0.Finish();
-        var part0Data = bd0.ToArray();
-        var part0Size = part0Data.Length;
-
-        // Token partition: empty
-        var bdToken = new BoolEncoder(64);
-        bdToken.Finish();
-        var tokenData = bdToken.ToArray();
-
-        var frame = new byte[3 + part0Size + tokenData.Length];
-        var rawTag = 1 | (0 << 1) | (1 << 4) | (part0Size << 5); // bit 0 = 1 (inter frame)
-        frame[0] = (byte)rawTag;
-        frame[1] = (byte)(rawTag >> 8);
-        frame[2] = (byte)(rawTag >> 16);
-
-        Buffer.BlockCopy(part0Data, 0, frame, 3, part0Size);
-        Buffer.BlockCopy(tokenData, 0, frame, 3 + part0Size, tokenData.Length);
-        return frame;
     }
 }

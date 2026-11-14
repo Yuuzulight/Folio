@@ -54,7 +54,7 @@ public sealed class Vp8EncoderTests
         }
 
         var encoder = new Vp8Encoder(w, h, qIndex: 4);
-        var frame = encoder.Encode(rgba, w, h, forceKeyFrame: true);
+        var frame = encoder.Encode(rgba, w, h);
         Assert.NotNull(frame);
 
         using var decoder = new Vp8Decoder();
@@ -64,50 +64,95 @@ public sealed class Vp8EncoderTests
         var decoded = decoder.ToRgba();
         Assert.NotNull(decoded);
         Assert.Equal(rgba.Length, decoded.Length);
+        var psnr = Psnr(rgba, decoded);
+        Assert.True(psnr >= 30.0, $"Expected PSNR >= 30.0 dB, got {psnr:F2} dB");
+    }
 
-        // Compute Peak Signal-to-Noise Ratio (PSNR) across RGB channels
+    /// <summary>Peak signal-to-noise ratio across the RGB channels of two equal-sized RGBA images.</summary>
+    internal static double Psnr(byte[] expected, byte[] actual)
+    {
+        Assert.Equal(expected.Length, actual.Length);
         double mse = 0;
-        var totalSamples = w * h * 3;
-        for (var i = 0; i < rgba.Length; i += 4)
+        for (var i = 0; i < expected.Length; i += 4)
         {
-            var dr = rgba[i] - decoded[i];
-            var dg = rgba[i + 1] - decoded[i + 1];
-            var db = rgba[i + 2] - decoded[i + 2];
+            var dr = expected[i] - actual[i];
+            var dg = expected[i + 1] - actual[i + 1];
+            var db = expected[i + 2] - actual[i + 2];
             mse += dr * dr + dg * dg + db * db;
         }
-        mse /= totalSamples;
-        var psnr = 10.0 * Math.Log10((255.0 * 255.0) / (mse == 0 ? 1e-10 : mse));
-        Assert.True(psnr >= 30.0, $"Expected PSNR >= 30.0 dB, got {psnr:F2} dB (MSE = {mse:F2})");
+        mse /= expected.Length / 4 * 3;
+        return 10.0 * Math.Log10(255.0 * 255.0 / (mse == 0 ? 1e-10 : mse));
+    }
+
+    internal static byte[] Pattern(int w, int h, int variant)
+    {
+        var rgba = new byte[w * h * 4];
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                var i = (y * w + x) * 4;
+                rgba[i] = (byte)(variant == 0 ? x * 255 / w : 255 - x * 255 / w);
+                rgba[i + 1] = (byte)(variant == 0 ? y * 255 / h : 40);
+                rgba[i + 2] = (byte)(variant == 0 ? 60 : y * 255 / h);
+                rgba[i + 3] = 255;
+            }
+        return rgba;
     }
 
     [Fact]
-    public void InterFrameDecodesAgainstReferenceFrame()
+    public void EveryFrameIsAKeyFrameAndTracksItsInput()
     {
         const int w = 160;
         const int h = 120;
-        var rgba = new byte[w * h * 4];
-        Array.Fill<byte>(rgba, 100);
+        var first = Pattern(w, h, 0);
+        var second = Pattern(w, h, 1);
+        Assert.True(Psnr(first, second) < 15, "test images must differ clearly");
 
-        var encoder = new Vp8Encoder(w, h, qIndex: 4);
-        var keyFrame = encoder.Encode(rgba, w, h, forceKeyFrame: true);
-        Assert.NotNull(keyFrame);
-        Assert.True(Vp8Decoder.IsKeyFrame(keyFrame));
-
+        var encoder = new Vp8Encoder(w, h);
         using var decoder = new Vp8Decoder();
-        var keyStatus = decoder.Decode(keyFrame);
-        Assert.Equal(Vp8Status.Ok, keyStatus);
 
-        var interFrame = encoder.Encode(rgba, w, h, forceKeyFrame: false);
-        Assert.NotNull(interFrame);
-        Assert.False(Vp8Decoder.IsKeyFrame(interFrame));
+        var frame1 = encoder.Encode(first, w, h)!;
+        Assert.True(Vp8Decoder.IsKeyFrame(frame1));
+        Assert.Equal(Vp8Status.Ok, decoder.Decode(frame1));
+        Assert.True(Psnr(first, decoder.ToRgba()!) >= 30);
 
-        var interStatus = decoder.Decode(interFrame);
-        Assert.Equal(Vp8Status.Ok, interStatus);
-        Assert.True(decoder.HasFrame);
+        var frame2 = encoder.Encode(second, w, h)!;
+        Assert.True(Vp8Decoder.IsKeyFrame(frame2));
+        Assert.Equal(Vp8Status.Ok, decoder.Decode(frame2));
+        var decoded2 = decoder.ToRgba()!;
+        var psnr2 = Psnr(second, decoded2);
+        Assert.True(psnr2 >= 30, $"second frame must match the second image, PSNR {psnr2:F2} dB");
+        Assert.True(Psnr(first, decoded2) < 20, "second decoded frame must not still show the first image");
+    }
 
-        var decoded = decoder.ToRgba();
-        Assert.NotNull(decoded);
-        Assert.Equal(rgba.Length, decoded.Length);
+    [Theory]
+    [InlineData(17, 15)]
+    [InlineData(1, 1)]
+    [InlineData(641, 361)]
+    [InlineData(1920, 1080)]
+    [InlineData(10000, 1)]
+    [InlineData(1, 10000)]
+    public void OddAndOversizedInputsEncodeWithinTheCap(int w, int h)
+    {
+        var rgba = new byte[w * h * 4];
+        new Random(7).NextBytes(rgba);
+        var encoder = new Vp8Encoder(Math.Min(w, 640), Math.Min(h, 360));
+        var frame = encoder.Encode(rgba, w, h);
+        Assert.NotNull(frame);
+        Assert.True(Vp8Decoder.TryReadKeyFrameSize(frame, out var fw, out var fh));
+        Assert.InRange(fw, 16, Vp8Encoder.MaxWidth);
+        Assert.InRange(fh, 16, Vp8Encoder.MaxHeight);
+        using var decoder = new Vp8Decoder();
+        Assert.Equal(Vp8Status.Ok, decoder.Decode(frame));
+    }
+
+    [Fact]
+    public void SizeCheckDoesNotOverflowForHugeDimensions()
+    {
+        var encoder = new Vp8Encoder(160, 120);
+        // 40000 x 40000 x 4 overflows int; the check must reject the short buffer rather than wrap into accepting it
+        Assert.Null(encoder.Encode(new byte[16], 40000, 40000));
+        Assert.Null(encoder.Encode(new byte[16], int.MaxValue, int.MaxValue));
     }
 
     [Fact]
@@ -124,10 +169,13 @@ public sealed class Vp8EncoderTests
         var noise = new byte[160 * 120 * 4];
         rng.NextBytes(noise);
 
-        var frame = encoder.Encode(noise, 160, 120, forceKeyFrame: true);
+        var frame = encoder.Encode(noise, 160, 120);
         Assert.NotNull(frame);
         using var decoder = new Vp8Decoder();
-        var status = decoder.Decode(frame);
-        Assert.Equal(Vp8Status.Ok, status);
+        Assert.Equal(Vp8Status.Ok, decoder.Decode(frame));
+        // noise is not smooth, but it must still decode to a real picture of the right size and resemble the input
+        var decoded = decoder.ToRgba()!;
+        Assert.Equal(noise.Length, decoded.Length);
+        Assert.True(Psnr(noise, decoded) > 8, "noise frame decoded to something unrelated to the input");
     }
 }

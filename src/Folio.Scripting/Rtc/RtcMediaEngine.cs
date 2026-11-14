@@ -202,6 +202,7 @@ internal sealed class RtcMediaEngine : IDisposable
         {
             if (!_locals.Remove(track) || track.Released) return;
             track.Released = true;
+            track.VideoSender = null;
             foreach (var section in _sections) if (section.Local == track) section.Local = null;
         }
         _budget.ReleaseTrack();
@@ -258,7 +259,7 @@ internal sealed class RtcMediaEngine : IDisposable
                             if (remoteMedia.PayloadTypes.Contains(pt) && localMedia.CodecFor(pt) is { } codec)
                             {
                                 if (section.Kind == "audio" && (codec.IsG711 || codec.IsOpus)) { section.SendCodec = codec; break; }
-                                if (section.Kind == "video" && codec.Name == "VP8") { section.SendCodec = codec; break; }
+                                if (section.Kind == "video" && codec.IsVp8) { section.SendCodec = codec; break; }
                             }
                 }
                 else section.Receives = remoteMedia.Sends; // answerer before its own description exists
@@ -720,14 +721,23 @@ internal sealed class RtcMediaEngine : IDisposable
     /// Encodes and sends an RGBA video frame on a local video track using VP8.
     /// Returns the number of packets emitted; zero when track is unbound, transport not ready, or budget refused.
     /// </summary>
-    public int SendVideo(RtcLocalTrack track, ReadOnlySpan<byte> rgba, int width, int height)
+    public int SendVideo(RtcLocalTrack track, ReadOnlySpan<byte> rgba, int width, int height, long captureSequence = 0)
     {
-        if (track.Kind != "video" || rgba.Length == 0 || width <= 0 || height <= 0 || (long)width * height * 4 != rgba.Length) return 0;
+        if (track.Kind != "video" || rgba.Length == 0 || width <= 0 || height <= 0 || (long)width * height != rgba.Length / 4 || rgba.Length % 4 != 0) return 0;
+        RtpVideoSender? sender;
+        lock (_gate)
+        {
+            if (_disposed || _srtp is null || track.Released || track.PayloadType < 0) return 0;
+            sender = track.VideoSender;
+        }
+        if (sender is null) return 0;
+        // the encode is the slow part and runs outside the lock so incoming datagrams are not held up behind it
+        if (sender.Encode(rgba, width, height, captureSequence) is not { } frame) return 0;
         List<byte[]> packets;
         lock (_gate)
         {
-            if (_disposed || _srtp is null || track.Released || track.PayloadType < 0 || track.VideoSender is null) return 0;
-            packets = track.VideoSender.EncodeAndPacketize(rgba, width, height, _srtp);
+            if (_disposed || _srtp is null || track.Released) return 0;
+            packets = sender.Packetize(frame, _srtp);
         }
         var sent = 0;
         foreach (var packet in packets)
@@ -736,6 +746,7 @@ internal sealed class RtcMediaEngine : IDisposable
             Send(packet);
             sent++;
         }
+        sender.CompleteFrame(sent == packets.Count);
         return sent;
     }
 

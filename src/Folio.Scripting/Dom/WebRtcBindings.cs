@@ -517,8 +517,9 @@ internal sealed class WebRtcBindingState : IDisposable
         internal ScriptValue TransportCallback { get; set; } = ScriptValue.Undefined;
         internal RtcPeerConnectionController Controller { get; } = new(servers, owner._mediaBudget);
         private readonly List<CaptureAudioReader> _readers = [];
-        private readonly List<CaptureVideoReader> _videoReaders = [];
-        private long _lastVideoPump;
+        // A video reader keeps the controller slot it was attached with, so removing one never moves another onto the wrong track.
+        private readonly List<(CaptureVideoReader Reader, int Slot)> _videoReaders = [];
+        private int _nextVideoSlot;
         private Timer? _pump;
         private const int MaxSenders = 4;
 
@@ -540,7 +541,7 @@ internal sealed class WebRtcBindingState : IDisposable
             lock (_readers)
             {
                 if (Released || _videoReaders.Count >= MaxSenders) return false;
-                _videoReaders.Add(reader);
+                _videoReaders.Add((reader, _nextVideoSlot++));
                 _pump ??= new Timer(_ => { try { Pump(); } finally { Rearm(); } }, null, 20, Timeout.Infinite);
                 return true;
             }
@@ -554,7 +555,7 @@ internal sealed class WebRtcBindingState : IDisposable
         private void Pump()
         {
             CaptureAudioReader[] audioReaders;
-            CaptureVideoReader[] videoReaders;
+            (CaptureVideoReader Reader, int Slot)[] videoReaders;
             lock (_readers)
             {
                 audioReaders = Released ? [] : _readers.ToArray();
@@ -569,28 +570,18 @@ internal sealed class WebRtcBindingState : IDisposable
                     if (local is not null) Controller.Media.SendAudio(local, frame.Samples.Span, frame.SampleRate, frame.Channels);
                 }
             }
-            if (videoReaders.Length > 0)
+            // The sender decides whether a frame is due (new capture sequence, at most 15 fps), so the pump just offers the latest one.
+            foreach (var (reader, slot) in videoReaders)
             {
-                var now = System.Diagnostics.Stopwatch.GetTimestamp();
-                if (_lastVideoPump == 0 || System.Diagnostics.Stopwatch.GetElapsedTime(_lastVideoPump, now).TotalMilliseconds >= 60)
+                if (!reader.IsLive)
                 {
-                    _lastVideoPump = now;
-                    for (var index = 0; index < videoReaders.Length; index++)
-                    {
-                        var reader = videoReaders[index];
-                        if (!reader.IsLive)
-                        {
-                            lock (_readers) _videoReaders.Remove(reader);
-                            reader.Dispose();
-                            continue;
-                        }
-                        var local = Controller.LocalVideoTrack(index);
-                        if (local is not null && reader.Read(out var frame))
-                        {
-                            Controller.Media.SendVideo(local, frame.Rgba.Span, frame.Width, frame.Height);
-                        }
-                    }
+                    lock (_readers) _videoReaders.Remove((reader, slot));
+                    reader.Dispose();
+                    Controller.ReleaseLocalVideo(slot);
+                    continue;
                 }
+                if (Controller.LocalVideoTrack(slot) is { } local && reader.Read(out var frame))
+                    Controller.Media.SendVideo(local, frame.Rgba.Span, frame.Width, frame.Height, frame.CaptureSequence);
             }
         }
 
@@ -603,7 +594,7 @@ internal sealed class WebRtcBindingState : IDisposable
                 _pump?.Dispose(); _pump = null;
                 foreach (var reader in _readers) reader.Dispose();
                 _readers.Clear();
-                foreach (var reader in _videoReaders) reader.Dispose();
+                foreach (var (reader, _) in _videoReaders) reader.Dispose();
                 _videoReaders.Clear();
             }
             CloseCallback = ScriptValue.Undefined;

@@ -113,7 +113,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
     }
 
     private readonly List<RtcLocalTrack> _localAudio = [];
-    private readonly List<RtcLocalTrack> _localVideo = [];
+    private readonly List<RtcLocalTrack?> _localVideo = [];
 
     private RtcLocalTrack? LocalAudio(int index)
     {
@@ -128,7 +128,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
     /// <summary>The i-th audio sender, in addTrack order, once an offer or answer has created it.</summary>
     public RtcLocalTrack? LocalAudioTrack(int index) { lock (_gate) return index >= 0 && index < _localAudio.Count ? _localAudio[index] : null; }
 
-    private RtcLocalTrack? LocalVideo(int index)
+    internal RtcLocalTrack? LocalVideo(int index)
     {
         while (_localVideo.Count <= index)
         {
@@ -138,8 +138,21 @@ internal sealed class RtcPeerConnectionController : IDisposable
         return _localVideo[index];
     }
 
-    /// <summary>The i-th video sender, in addTrack order, once an offer or answer has created it.</summary>
+    /// <summary>The video sender in slot <paramref name="index"/>, once an offer or answer has created it. A released slot stays empty; slots are never reused.</summary>
     public RtcLocalTrack? LocalVideoTrack(int index) { lock (_gate) return index >= 0 && index < _localVideo.Count ? _localVideo[index] : null; }
+
+    /// <summary>Frees the sender in slot <paramref name="index"/> and its track budget, for example when its camera ended.</summary>
+    public void ReleaseLocalVideo(int index)
+    {
+        RtcLocalTrack? track;
+        lock (_gate)
+        {
+            if (index < 0 || index >= _localVideo.Count) return;
+            track = _localVideo[index];
+            _localVideo[index] = null;
+        }
+        if (track is not null) Media.RemoveLocal(track);
+    }
 
     /// <summary>Folio receives mono or stereo Opus and sends mono (RFC 7587 parameters), with in-band FEC accepted.</summary>
     internal const string OpusFmtp = "minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0";
@@ -259,7 +272,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
                     }
                     if (offered.Kind == "video")
                     {
-                        var videoSender = offered.Receives && videoIndex < Math.Max(0, videoSenders) && accepted[0].IsVp8 ? LocalVideo(videoIndex++) : null;
+                        var videoSender = offered.Receives && videoIndex < Math.Max(0, videoSenders) && accepted.Any(c => c.IsVp8) ? LocalVideo(videoIndex++) : null;
                         var videoDirection = (videoSender is not null, offered.Sends) switch
                         {
                             (true, true) => "sendrecv",
