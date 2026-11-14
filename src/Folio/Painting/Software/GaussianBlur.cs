@@ -47,25 +47,10 @@ internal static class GaussianBlur
         {
             if (!horizontal)
             {
-                VerticalBoxes(source, output, width, height, channels, sigma);
+                VerticalBoxesOf(source, output, width, height, channels, sigma);
                 return;
             }
-            // A horizontal pass is the vertical one on the transposed image. Per line the running sum is one long
-            // dependency chain; across many lines at once it vectorizes. Same operations per line, same result.
-            var pixels = width * height;
-            var transposed = ArrayPool<byte>.Shared.Rent(pixels * channels);
-            var blurred = ArrayPool<byte>.Shared.Rent(pixels * channels);
-            try
-            {
-                Transpose(source, transposed, width, height, channels);
-                VerticalBoxes(transposed, blurred, height, width, channels, sigma);
-                Transpose(blurred, output, height, width, channels);
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(transposed);
-                ArrayPool<byte>.Shared.Return(blurred);
-            }
+            HorizontalBoxes(source, output, width, height, channels, sigma);
             return;
         }
         var length = horizontal ? width : height;
@@ -194,6 +179,142 @@ internal static class GaussianBlur
             }
             output[x] = total;
         }
+    }
+
+    // A horizontal pass is the vertical one on the transposed image. Per line the running sum is one long
+    // dependency chain; across many lines at once it vectorizes. Same operations per line, same result.
+    private static void HorizontalBoxes(byte[] source, byte[] output, int width, int height, int channels, float sigma)
+    {
+        var rowBytes = width * channels;
+        // Lines are blurred on their own, so a line equal to the one above comes out equal to it: the middle of a large
+        // shadow is thousands of the same line, which are blurred once and copied.
+        if (Deduplicate && (long)rowBytes * height >= DeduplicateMinimumSamples && RowRuns(source, rowBytes, height) is { } runs)
+        {
+            var kept = runs.Count;
+            var compact = ArrayPool<byte>.Shared.Rent(kept * rowBytes);
+            var compactBlurred = ArrayPool<byte>.Shared.Rent(kept * rowBytes);
+            try
+            {
+                for (var i = 0; i < kept; i++)
+                    Buffer.BlockCopy(source, runs[i].Start * rowBytes, compact, i * rowBytes, rowBytes);
+                TransposedBoxes(compact, compactBlurred, width, kept, channels, sigma);
+                for (var i = 0; i < kept; i++)
+                    for (var row = runs[i].Start; row < runs[i].Start + runs[i].Length; row++)
+                        Buffer.BlockCopy(compactBlurred, i * rowBytes, output, row * rowBytes, rowBytes);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(compact);
+                ArrayPool<byte>.Shared.Return(compactBlurred);
+            }
+            return;
+        }
+        TransposedBoxes(source, output, width, height, channels, sigma);
+    }
+
+    private static void TransposedBoxes(byte[] source, byte[] output, int width, int height, int channels, float sigma)
+    {
+        var pixels = width * height;
+        var transposed = ArrayPool<byte>.Shared.Rent(pixels * channels);
+        var blurred = ArrayPool<byte>.Shared.Rent(pixels * channels);
+        try
+        {
+            Transpose(source, transposed, width, height, channels);
+            VerticalBoxesOf(transposed, blurred, height, width, channels, sigma);
+            Transpose(blurred, output, height, width, channels);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(transposed);
+            ArrayPool<byte>.Shared.Return(blurred);
+        }
+    }
+
+    /// <summary>Whether lines and columns equal to their neighbour are blurred once (the result is the same bytes either way; the tests turn it off to compare).</summary>
+    internal static bool Deduplicate { get; set; } = true;
+
+    // Below this many samples finding what repeats costs more than it saves.
+    private const long DeduplicateMinimumSamples = 1 << 12;
+
+    // The runs of identical consecutive rows, or null when there are not enough of them to be worth it (fewer than half as many runs as rows).
+    private static List<(int Start, int Length)>? RowRuns(byte[] source, int rowBytes, int rows)
+    {
+        var runs = new List<(int Start, int Length)>();
+        var start = 0;
+        for (var row = 1; row <= rows; row++)
+        {
+            if (row < rows && source.AsSpan(row * rowBytes, rowBytes).SequenceEqual(source.AsSpan((row - 1) * rowBytes, rowBytes)))
+                continue;
+            runs.Add((start, row - start));
+            start = row;
+        }
+        return runs.Count * 2 <= rows ? runs : null;
+    }
+
+    // The runs of identical consecutive columns of a one-channel image (null when not worth it): found by comparing every
+    // row with itself one column along and keeping what stays equal in all of them.
+    private static List<(int Start, int Length)>? ColumnRuns(byte[] source, int width, int height)
+    {
+        var same = ArrayPool<byte>.Shared.Rent(width);
+        try
+        {
+            same.AsSpan(0, width).Fill(255);
+            same[0] = 0;
+            for (var row = 0; row < height; row++)
+            {
+                var line = source.AsSpan(row * width, width);
+                var x = 1;
+                if (Vector.IsHardwareAccelerated)
+                    for (; x + Vector<byte>.Count <= width; x += Vector<byte>.Count)
+                    {
+                        var equal = Vector.Equals(new Vector<byte>(line.Slice(x)), new Vector<byte>(line.Slice(x - 1)));
+                        (equal & new Vector<byte>(same, x)).CopyTo(same, x);
+                    }
+                for (; x < width; x++)
+                    if (line[x] != line[x - 1])
+                        same[x] = 0;
+            }
+            var runs = new List<(int Start, int Length)>();
+            var start = 0;
+            for (var x = 1; x <= width; x++)
+            {
+                if (x < width && same[x] != 0)
+                    continue;
+                runs.Add((start, x - start));
+                start = x;
+            }
+            return runs.Count * 2 <= width ? runs : null;
+        }
+        finally { ArrayPool<byte>.Shared.Return(same); }
+    }
+
+    // Columns are blurred on their own, so a column equal to the one beside it comes out equal to it, and the middle of a large
+    // shadow is thousands of the same column: they are blurred once and filled in.
+    private static void VerticalBoxesOf(byte[] source, byte[] output, int width, int height, int channels, float sigma)
+    {
+        if (Deduplicate && channels == 1 && (long)width * height >= DeduplicateMinimumSamples && ColumnRuns(source, width, height) is { } runs)
+        {
+            var kept = runs.Count;
+            var compact = ArrayPool<byte>.Shared.Rent(kept * height);
+            var compactBlurred = ArrayPool<byte>.Shared.Rent(kept * height);
+            try
+            {
+                for (var row = 0; row < height; row++)
+                    for (var i = 0; i < kept; i++)
+                        compact[row * kept + i] = source[row * width + runs[i].Start];
+                VerticalBoxes(compact, compactBlurred, kept, height, 1, sigma);
+                for (var row = 0; row < height; row++)
+                    for (var i = 0; i < kept; i++)
+                        output.AsSpan(row * width + runs[i].Start, runs[i].Length).Fill(compactBlurred[row * kept + i]);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(compact);
+                ArrayPool<byte>.Shared.Return(compactBlurred);
+            }
+            return;
+        }
+        VerticalBoxes(source, output, width, height, channels, sigma);
     }
 
     // The three boxes for a deviation, as (size, pixels before the one computed); the same in both directions.
