@@ -26,6 +26,9 @@ internal interface IIceTransport : IDisposable
     async Task<IPAddress?> ResolveAsync(string host, CancellationToken cancellation) =>
         (await Dns.GetHostAddressesAsync(host, cancellation).ConfigureAwait(false)).FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
 
+    /// <summary>Resolves a .local mDNS hostname candidate to an IPv4 address. Not resolved (null) by default: a direct transport never sends multicast queries on behalf of remote SDP; only the host-mediated transport resolves.</summary>
+    Task<IPAddress?> ResolveMdnsAsync(string host, CancellationToken cancellation) => Task.FromResult<IPAddress?>(null);
+
     /// <summary>Waits up to the timeout for a datagram. Returns its length, or -1 on timeout.
     /// Throws <see cref="ObjectDisposedException"/> once the transport is closed.</summary>
     int Receive(byte[] buffer, int timeoutMicroseconds, ref EndPoint remote);
