@@ -109,6 +109,7 @@ internal sealed class UdpBroker : IDisposable
     private UdpRateLimiter _outLimit, _inLimit, _commandLimit, _openLimit;
     private long _nextId, _generation, _limiterStamp;
     private int _queued, _dead;
+    private long _epoch; // guarded by _gate
     private bool _disposed;
 
     // Counters for diagnostics and tests.
@@ -137,7 +138,11 @@ internal sealed class UdpBroker : IDisposable
     private UdpRateLimiter NewPacketLimiter() => new(_options.BytesPerSecond, _options.BurstBytes, _options.PacketsPerSecond, _options.BurstPackets);
     private static UdpRateLimiter NewCountLimiter(double perSecond, double burst) => new(1e12, 1e12, perSecond, burst);
 
-    private readonly record struct Event(long Generation, string Op, long Token, long Id, string? Text, IPEndPoint? Peer, byte[]? Data, bool Datagram);
+    private readonly record struct Event(long Generation, string Op, long Token, long Id, string? Text, IPEndPoint? Peer, byte[]? Data, bool Datagram)
+    {
+        /// <summary>The queue-accounting epoch this event was counted in; see <see cref="BeginDocument"/>.</summary>
+        public long Epoch { get; init; }
+    }
 
     private sealed class UdpSocketLease(long id, Socket socket, int queue) : IDisposable
     {
@@ -348,13 +353,17 @@ internal sealed class UdpBroker : IDisposable
     {
         if (Dead) return;
         var limit = item.Datagram ? _options.IncomingQueue : _options.MaxQueuedEvents;
-        if (Interlocked.Increment(ref _queued) > limit)
+        // Counting and epoch capture are atomic with BeginDocument, which restarts the count for the new document.
+        lock (_gate)
         {
-            Interlocked.Decrement(ref _queued);
-            if (item.Datagram) Interlocked.Increment(ref DroppedIncoming); else Kill();
-            return;
+            if (_queued + 1 > limit) { if (item.Datagram) { Interlocked.Increment(ref DroppedIncoming); return; } }
+            else
+            {
+                if (_events.Writer.TryWrite(item with { Epoch = _epoch })) Interlocked.Increment(ref _queued);
+                return;
+            }
         }
-        if (!_events.Writer.TryWrite(item)) Interlocked.Decrement(ref _queued);
+        Kill();
     }
 
     private void Kill()
@@ -369,7 +378,7 @@ internal sealed class UdpBroker : IDisposable
     {
         await foreach (var item in _events.Reader.ReadAllAsync().ConfigureAwait(false))
         {
-            Interlocked.Decrement(ref _queued);
+            lock (_gate) { if (item.Epoch == _epoch) Interlocked.Decrement(ref _queued); }
             if (Dead) continue;
             if (item.Generation != 0 && item.Generation != Generation) continue; // a retired document
             try { _emit(Serialize(item)); }
@@ -417,6 +426,8 @@ internal sealed class UdpBroker : IDisposable
         lock (_gate)
         {
             _generation = generation;
+            // Events still queued for the retired document no longer count against the new one's bound (the pump drops them).
+            _epoch++; Volatile.Write(ref _queued, 0);
             _sentTo.Clear(); _permitted.Clear();
             Interlocked.Exchange(ref _dead, 0);
             var now = System.Diagnostics.Stopwatch.GetTimestamp();
