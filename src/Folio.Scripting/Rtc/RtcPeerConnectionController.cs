@@ -144,7 +144,14 @@ internal sealed class RtcPeerConnectionController : IDisposable
     /// <summary>Folio receives mono or stereo Opus and sends mono (RFC 7587 parameters), with in-band FEC accepted.</summary>
     internal const string OpusFmtp = "minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0";
     private static readonly RtcCodec[] AudioCodecs = [new(111, "opus", 48000, 2) { Fmtp = OpusFmtp }, new(0, "PCMU", 8000, 1), new(8, "PCMA", 8000, 1)];
-    private static readonly RtcCodec[] VideoCodecs = [new(96, "VP8", 90000, 1)];
+    // VP8 first, then H.264 Constrained Baseline in packetization mode 1: 42e01f (constraint_set1 and set2) and 42001f (plain Baseline) are decoded identically.
+    private static readonly RtcCodec[] VideoCodecs =
+    [
+        new(96, "VP8", 90000, 1),
+        new(97, "H264", 90000, 1) { Fmtp = H264Fmtp("42e01f", 1) },
+        new(98, "H264", 90000, 1) { Fmtp = H264Fmtp("42001f", 1) },
+    ];
+    private static string H264Fmtp(string profileLevelId, int packetizationMode) => $"level-asymmetry-allowed=1;packetization-mode={packetizationMode};profile-level-id={profileLevelId}";
     private static readonly string[] VideoFeedback = ["nack", "nack pli", "ccm fir"];
 
     private RtcMediaDescription MediaSection(string kind, string mid, string direction, RtcLocalTrack? sender)
@@ -154,7 +161,9 @@ internal sealed class RtcPeerConnectionController : IDisposable
             Kind = kind, Port = 9, Protocol = "UDP/TLS/RTP/SAVPF", Mid = mid, Direction = direction, RtcpMux = true, Cname = Media.Cname
         };
         media.Codecs.AddRange(kind == "audio" ? AudioCodecs : VideoCodecs);
-        if (kind == "video") foreach (var feedback in VideoFeedback) media.AddFeedback(VideoCodecs[0].PayloadType, feedback);
+        if (kind == "video")
+            foreach (var codec in VideoCodecs)
+                foreach (var feedback in VideoFeedback) media.AddFeedback(codec.PayloadType, feedback);
         if (sender is not null) media.Ssrcs.Add(sender.Ssrc);
         return media;
     }
@@ -168,6 +177,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
     {
         var midIndex = hasDataChannels ? 1 : 0;
         if (hasDataChannels) sdp.Media.Add(DataSection("0"));
+        // Folio sends and decodes Opus and G.711 audio, and sends/decodes VP8 video. H.264 is decode-only.
         for (var i = 0; i < audioSenders && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
             sdp.Media.Add(MediaSection("audio", (midIndex++).ToString(), "sendrecv", LocalAudio(i)));
         for (var i = 0; i < audioReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
@@ -194,6 +204,18 @@ internal sealed class RtcPeerConnectionController : IDisposable
         sdp.Candidates.AddRange(Ice.LocalCandidates);
 
         return sdp.ToSdp();
+    }
+
+    /// <summary>
+    /// The one video codec an answer accepts: VP8 when it is offered, else the best H.264 Constrained Baseline payload type
+    /// (packetization mode 1 before 0, then the offer's order), answered with the offered profile-level-id and mode.
+    /// </summary>
+    private static RtcCodec[] AcceptVideo(RtcMediaDescription offered)
+    {
+        var codecs = offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).OfType<RtcCodec>().ToArray();
+        if (codecs.FirstOrDefault(c => c is { IsVp8: true, ClockRate: 90000 }) is { } vp8) return [vp8];
+        var h264 = codecs.Where(c => c.IsDecodableH264).OrderByDescending(c => c.H264PacketizationMode).FirstOrDefault();
+        return h264 is null ? [] : [new RtcCodec(h264.PayloadType, "H264", 90000, 1) { Fmtp = H264Fmtp(h264.H264ProfileLevelId, h264.H264PacketizationMode) }];
     }
 
     public async Task<string> CreateAnswerAsync(bool hasDataChannels, int audioSenders, int videoSenders)
@@ -225,7 +247,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
                     {
                         "audio" => offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).Where(c => c is { IsG711: true } or { IsOpus: true }).Cast<RtcCodec>()
                             .OrderBy(c => c.IsOpus ? 0 : 1).Select(c => c.IsOpus ? new RtcCodec(c.PayloadType, "opus", 48000, 2) { Fmtp = OpusFmtp } : c).ToArray(),
-                        "video" => offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).Where(c => c is { Name: "VP8", ClockRate: 90000 }).Cast<RtcCodec>().ToArray(),
+                        "video" => AcceptVideo(offered),
                         _ => [],
                     };
                     if (accepted.Length == 0)
@@ -237,7 +259,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
                     }
                     if (offered.Kind == "video")
                     {
-                        var videoSender = offered.Receives && videoIndex < Math.Max(0, videoSenders) ? LocalVideo(videoIndex++) : null;
+                        var videoSender = offered.Receives && videoIndex < Math.Max(0, videoSenders) && accepted[0].IsVp8 ? LocalVideo(videoIndex++) : null;
                         var videoDirection = (videoSender is not null, offered.Sends) switch
                         {
                             (true, true) => "sendrecv",

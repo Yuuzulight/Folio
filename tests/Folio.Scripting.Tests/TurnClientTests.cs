@@ -17,8 +17,10 @@ public sealed class TurnClientTests
     private static string Server(FakeTurnServer server, string user = "user", string password = "pass", string query = "") =>
         IceAgent.WithCredentials($"turn:127.0.0.1:{server.Endpoint.Port}{query}", user, password);
 
-    private static IceAgent Agent(FakeTurnServer server, string user = "user", string password = "pass") =>
-        new([Server(server, user, password)]) { TurnRequestTimeout = Fast, TurnRetryBackoff = Fast };
+    // TURN timing (request timeouts, retransmits, backoff, refresh schedule) runs on a manual clock that only moves when
+    // a test advances it, so a slow runner can never fire a retransmit or a refresh on its own.
+    private static IceAgent Agent(FakeTurnServer server, string user = "user", string password = "pass", TurnTransportTests.ManualClock? clock = null) =>
+        new([Server(server, user, password)]) { TurnRequestTimeout = Fast, TurnRetryBackoff = Fast, TurnClock = clock ?? new TurnTransportTests.ManualClock() };
 
     private static async Task Until(Func<bool> condition, int milliseconds = 8000)
     {
@@ -53,14 +55,17 @@ public sealed class TurnClientTests
     public async Task WrongPasswordNeverYieldsARelayAndStopsRetrying()
     {
         using var server = new FakeTurnServer();
-        using var agent = Agent(server, password: "wrong");
+        var clock = new TurnTransportTests.ManualClock();
+        using var agent = Agent(server, password: "wrong", clock: clock);
         await agent.StartGatheringAsync();
         Assert.DoesNotContain(agent.LocalCandidates, c => c.Type == "relay");
-        var allocates = server.Allocates;
+        var allocates = server.Allocates; // distinct transactions: a retransmit of the same request is not a new attempt
         Assert.Equal(2, allocates); // unauthenticated challenge + one credentialed attempt
         Assert.Equal(1, server.AuthFailures);
-        await Task.Delay(800, TestContext.Current.CancellationToken);
+        // Let far more than every retry/backoff interval pass on the clock: no further attempt may ever be made.
+        for (var i = 0; i < 10; i++) { clock.Advance(TimeSpan.FromSeconds(30)); agent.RunMaintenance(); await Task.Delay(20, TestContext.Current.CancellationToken); }
         Assert.Equal(allocates, server.Allocates);
+        Assert.Equal(1, server.AuthFailures);
     }
 
     [Fact]
@@ -68,7 +73,6 @@ public sealed class TurnClientTests
     {
         using var server = new FakeTurnServer { StaleNonceOnce = true };
         using var agent = Agent(server);
-        agent.TurnClock = new TurnTransportTests.ManualClock(); // the server answers at once; a slow runner must not retransmit
         await agent.StartGatheringAsync();
         Assert.Single(agent.LocalCandidates, c => c.Type == "relay");
         Assert.Equal(3, server.Allocates); // challenge, stale (438), retried with the fresh nonce
@@ -155,19 +159,22 @@ public sealed class TurnClientTests
     [Fact]
     public async Task DisposeReleasesTheAllocationAndStopsTimers()
     {
+        var clock = new TurnTransportTests.ManualClock();
         using var server = new FakeTurnServer { Lifetime = 2 };
-        var agent = Agent(server);
+        // The test drives maintenance on the manual clock; nothing depends on a real timer.
+        var agent = new IceAgent([Server(server)]) { TurnRequestTimeout = Fast, TurnRetryBackoff = Fast, AutoMaintenance = false, TurnClock = clock };
         agent.TurnPermissionRefreshInterval = TimeSpan.FromMilliseconds(200);
         await agent.StartGatheringAsync();
         agent.AddRemoteCandidate(new IceCandidate
         {
             Foundation = "1", Component = 1, Protocol = "udp", Priority = 100, Type = "host", Address = "127.0.0.1", Port = 9
         });
-        await Until(() => server.PermissionRequests >= 2);
+        await Yield(() => server.PermissionRequests >= 1);
+        await Yield(() => { clock.Advance(TimeSpan.FromMilliseconds(300)); agent.RunMaintenance(); return server.PermissionRequests >= 2; });
         agent.Dispose();
         await Until(() => server.RefreshLifetimes.Contains(0u));
         var total = server.TotalRequests;
-        await Task.Delay(1500, TestContext.Current.CancellationToken);
+        for (var i = 0; i < 10; i++) { clock.Advance(TimeSpan.FromSeconds(30)); await Task.Delay(20, TestContext.Current.CancellationToken); }
         Assert.Equal(total, server.TotalRequests);
     }
 
@@ -350,7 +357,6 @@ public sealed class TurnClientTests
     {
         using var server = new FakeTurnServer { AlwaysStale = true };
         using var agent = Agent(server);
-        agent.TurnClock = new TurnTransportTests.ManualClock(); // the server answers at once; a slow runner must not retransmit
         await agent.StartGatheringAsync();
         Assert.DoesNotContain(agent.LocalCandidates, c => c.Type == "relay");
         await Task.Delay(500, TestContext.Current.CancellationToken);
@@ -428,6 +434,7 @@ public sealed class TurnClientTests
         private string _nonce = "nonce-1";
         private int _allocates, _authenticatedAllocates, _authFailures, _refreshes, _permissionRequests, _channelBinds, _channelDataFromClient, _total;
         private readonly ConcurrentQueue<uint> _refreshLifetimes = new();
+        private readonly HashSet<string> _seenTransactions = [];
         private const string Realm = "folio.test";
 
         public bool StaleNonceOnce { get; set; }
@@ -522,8 +529,11 @@ public sealed class TurnClientTests
                 }
                 return;
             }
-            Interlocked.Increment(ref _total);
-            if (message.Type == StunMessage.AllocateRequest) Interlocked.Increment(ref _allocates);
+            // Counters count distinct transactions: a retransmission of one request is still one request.
+            bool fresh;
+            lock (_gate) fresh = _seenTransactions.Add(Convert.ToHexString(message.TransactionId.Span));
+            if (fresh) Interlocked.Increment(ref _total);
+            if (fresh && message.Type == StunMessage.AllocateRequest) Interlocked.Increment(ref _allocates);
             if (!message.TryText(StunMessage.Username, 255, out var username) || !message.TryAttribute(StunMessage.Integrity, out _))
             {
                 Reply(from, (ushort)(message.Type | 0x0110), message, [(StunMessage.ErrorCode, ErrorAttribute(401, "Unauthorized")),
@@ -541,7 +551,7 @@ public sealed class TurnClientTests
             var key = MD5.HashData(Encoding.UTF8.GetBytes($"user:{Realm}:pass"));
             if (username != "user" || !message.VerifyIntegritySha1(key))
             {
-                Interlocked.Increment(ref _authFailures);
+                if (fresh) Interlocked.Increment(ref _authFailures);
                 Reply(from, (ushort)(message.Type | 0x0110), message, [(StunMessage.ErrorCode, ErrorAttribute(401, "Unauthorized")),
                     (StunMessage.Realm, Encoding.UTF8.GetBytes(Realm)), (StunMessage.Nonce, Encoding.UTF8.GetBytes(_nonce))], null);
                 return;
@@ -549,7 +559,7 @@ public sealed class TurnClientTests
             switch (message.Type)
             {
                 case StunMessage.AllocateRequest:
-                    Interlocked.Increment(ref _authenticatedAllocates);
+                    if (fresh) Interlocked.Increment(ref _authenticatedAllocates);
                     _client = from;
                     if (_relay is null)
                     {

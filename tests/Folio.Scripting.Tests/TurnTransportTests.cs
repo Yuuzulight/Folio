@@ -401,7 +401,7 @@ public sealed class TurnTransportTests
     }
 
     private static UdpBrokerOptions Resolving(Func<string, Task<IPAddress[]>> resolver, TimeProvider? clock = null) =>
-        new() { Resolver = (name, _) => resolver(name), Clock = clock ?? TimeProvider.System };
+        new() { Resolver = (name, _) => resolver(name), Clock = clock ?? new ManualClock() }; // no test relies on real time passing; a stalled runner must not time a lookup out
 
     private static Task<IPAddress[]> Answer(params string[] addresses) => Task.FromResult(addresses.Select(IPAddress.Parse).ToArray());
 
