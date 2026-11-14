@@ -23,6 +23,8 @@ public static class Program
         }
         if (args is ["cold"])
             return Cold();
+        if (args is ["scroll", .. var scrollRest])
+            return ScrollScales(scrollRest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 5);
         if (args is ["gpu"])
             return GpuProcessBenchmark.RunAsync().GetAwaiter().GetResult();
         if (args is ["wasm", .. var wasmRest])
@@ -87,6 +89,13 @@ public static class Program
         table.AppendLine($"| viewport scroll frame (full repaint) | {Ms(fullScroll.Median)} | {Ms(fullScroll.P95)} |");
         if (scroll.Median > FrameBenchmark.ScrollTarget)
             warnings.Add($"Viewport scroll frame is over the target: median {Ms(scroll.Median)} ms (target {Ms(FrameBenchmark.ScrollTarget)} ms)");
+        foreach (var scale in FrameBenchmark.DpiScales.Skip(1))
+        {
+            var scaled = FrameBenchmark.MeasureScroll(FrameBenchmark.ScrollHtml, frames, scale: scale);
+            table.AppendLine(string.Create(CultureInfo.InvariantCulture, $"| viewport scroll frame at {scale * 100:0}% | {Ms(scaled.Median)} | {Ms(scaled.P95)} |"));
+            if (scaled.Median > FrameBenchmark.ScrollTarget)
+                warnings.Add(string.Create(CultureInfo.InvariantCulture, $"Viewport scroll frame at {scale * 100:0}% is over the target: median {Ms(scaled.Median)} ms (target {Ms(FrameBenchmark.ScrollTarget)} ms)"));
+        }
 
         table.AppendLine().AppendLine($"Raster backends, median of {frames} replays of the typical dashboard's display list; informational comparison with the Skia oracle.")
             .AppendLine().AppendLine("| Viewport | Skia ms | Software ms | Software / Skia |").AppendLine("|---|--:|--:|--:|");
@@ -155,6 +164,23 @@ public static class Program
         Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"parse {Ms(System.Diagnostics.Stopwatch.GetElapsedTime(start, parsed))} ms ({methodsParsed - methodsStart} methods, {Ms(jitParsed - jitStart)} ms JIT), " +
             $"style {Ms(System.Diagnostics.Stopwatch.GetElapsedTime(parsed, styled))} ms ({methodsStyled - methodsParsed} methods, {Ms(jitStyled - jitParsed)} ms JIT), allocated {allocated / 1024} KB"));
+        return 0;
+    }
+
+    /// <summary><c>scroll [runs]</c>: only the scroll frame at each common DPI scale, <c>runs</c> times, with the median of each run's median and the spread.</summary>
+    private static int ScrollScales(int runs)
+    {
+        Console.WriteLine($"Scroll frame (shift, paint the exposed rows, copy the surface to the bitmap), 800x600 device pixels, {runs} runs of 3 x 100 steps; target {Ms(FrameBenchmark.ScrollTarget)} ms.");
+        Console.WriteLine("| Scale | Retained median ms (runs) | Retained p95 ms (median of runs) | Full repaint median ms |");
+        foreach (var scale in FrameBenchmark.DpiScales)
+        {
+            var retained = Enumerable.Range(0, runs).Select(_ => FrameBenchmark.MeasureScroll(FrameBenchmark.ScrollHtml, 100, scale: scale)).ToList();
+            var medians = retained.Select(r => r.Median).Order().ToList();
+            var p95 = retained.Select(r => r.P95).Order().ToList();
+            var full = FrameBenchmark.MeasureScroll(FrameBenchmark.ScrollHtml, 100, retained: false, scale: scale);
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"| {scale * 100:0}% | {Ms(medians[medians.Count / 2])} (min {Ms(medians[0])}, max {Ms(medians[^1])}: {string.Join(" ", retained.Select(r => Ms(r.Median)))}) | {Ms(p95[p95.Count / 2])} | {Ms(full.Median)} |"));
+        }
         return 0;
     }
 

@@ -91,14 +91,36 @@ public class RetainedScrollTests
         return text.ToString();
     }
 
+    // Everything that is not a plain box or a line of text: transforms, every kind of gradient, images, SVG, shadows, odd sizes.
+    private const string Png = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR4nGP8z8Dwn4GBgYGJAQoAHhgCAh6X4CYAAAAASUVORK5CYII=";
+
+    private static string Mixed()
+    {
+        var text = new StringBuilder("<!DOCTYPE html><body style='margin: 0; padding: 9px; font: 13.3px/1.37 sans-serif; background: linear-gradient(170deg, #fdf, #dfe)'>");
+        for (var i = 0; i < 70; i++)
+        {
+            text.Append($"<div style='display: flex; gap: 7.3px; margin: 5.7px 0; align-items: center'>");
+            text.Append($"<div style='width: {41.3 + i % 5}px; height: {23.7 + i % 3}px; transform: rotate({i * 7 % 40 - 20}deg); background: radial-gradient(circle at 30% 40%, #f66, #36f 70%); border-radius: {i % 4 * 3.3}px / 9px'></div>");
+            text.Append($"<div style='width: 40.7px; height: 31.1px; background: conic-gradient(from {i * 11}deg, #f90, #09f, #f90); border-radius: 50%'></div>");
+            text.Append($"<div style='width: 50px; height: 28px; background: repeating-linear-gradient({i * 9}deg, #333 0 3px, #ccc 3px 7px)'></div>");
+            text.Append($"<div style='width: 37px; height: 29px; background: url(data:image/png;base64,{Png}) center / {19 + i % 7}px 13px; image-rendering: auto; box-shadow: 0 {i % 4 + 1}px {i % 6 + 2}px {i % 3}px rgba(0,0,0,.4)'></div>");
+            text.Append($"<img src='data:image/png;base64,{Png}' width={17 + i % 9} height=21 style='transform: scale({1 + i % 5 * .13})'>");
+            text.Append($"<svg width=44 height=30 viewBox='0 0 44 30'><defs><linearGradient id=g{i}><stop offset=0 stop-color=red /><stop offset=1 stop-color=blue /></linearGradient></defs><path d='M2 28 Q 22 {-5 + i % 9} 42 28 Z' fill='url(#g{i})' stroke=#000 stroke-width=1.3 /></svg>");
+            text.Append($"<span style='text-shadow: 0 1px 2px rgba(0,0,0,.5); opacity: .{5 + i % 5}; font-size: {11 + i % 4 * 1.7}px; border: 1.3px dashed #a50; padding: 1.9px 5.1px'>Item {i} gypQ</span>");
+            text.Append("</div>");
+        }
+        return text.Append("<div style='height: 1500px'></div>").ToString();
+    }
+
     private static readonly Dictionary<string, Func<string>> Pages = new()
     {
+        ["mixed"] = Mixed,
         ["fixed-text"] = () => Prefixed("<div style='position: fixed; top: 10px; left: 10px; color: red'>No background here</div>"),
         ["fixed-border"] = () => Prefixed("<div style='position: fixed; top: 50px; left: 300px; width: 80px; height: 30px; border: 3px solid green'></div>"),
         ["fixed-svg"] = () => Prefixed("<svg style='position: fixed; bottom: 20px; right: 20px' width=60 height=40><rect width=60 height=40 fill=teal /></svg>"),
         ["sticky"] = () => Prefixed("<p style='position: sticky; top: 0'>sticky text only</p>"),
         ["fixed-nested"] = () => Prefixed("<div style='overflow: auto; height: 200px; width: 300px; position: relative'><div style='position: fixed; top: 5px'>inside a scroller</div><div style='height: 900px'>x</div></div>"),
-        ["glyphs"] = BigGlyphs, ["emoji-free-glyphs"] = () => BigGlyphs().Replace("😀", "e"),
+        ["glyphs"] = BigGlyphs, ["emoji"] = () => BigGlyphs().Replace("text-shadow", "outline-offset"), ["emoji-free-glyphs"] = () => BigGlyphs().Replace("😀", "e"),
         ["saturate"] = () => Filtered("saturate(.5)"),
         ["blur"] = () => Filtered("blur(3px)"),
         ["dashboard"] = Dashboard,
@@ -149,7 +171,7 @@ public class RetainedScrollTests
         RetainedScroll.Repaint(list, fresh, 1, from + delta, White);
 
         Assert.True(fresh.PremultipliedPixels.AsSpan().SequenceEqual(scrolled.PremultipliedPixels), $"{page} {height} {delta:+0;-0}: pixels differ");
-        var expected = page is not ("glyphs" or "fixed-header" or "fixed-text" or "fixed-border" or "fixed-svg" or "sticky" or "fixed-nested" or "blur") && Math.Abs(delta) <= height - height / 8;
+        var expected = page is not ("fixed-header" or "fixed-text" or "fixed-border" or "fixed-svg" or "sticky" or "fixed-nested" or "blur") && Math.Abs(delta) <= height - height / 8;
         Assert.Equal(expected, shifted);
     }
 
@@ -168,24 +190,44 @@ public class RetainedScrollTests
         return $"{wrong.Count} bytes differ, by at most {wrong.Select(i => Math.Abs(x[i] - y[i])).DefaultIfEmpty(0).Max()}";
     }
 
+    // Windows scales: 100 to 200% in steps of 25 and a few of the others a monitor can be set to.
     public static IEnumerable<object[]> ScaledCases() =>
-        from page in new[] { "dashboard", "text", "glyphs", "overlay" } from scale in new[] { 1.25f, 1.5f, 1.75f, 2f } from delta in new[] { 1, 3, 17, 101, 333 } from sign in new[] { 1, -1 }
+        from page in new[] { "dashboard", "text", "emoji", "overlay", "mixed", "saturate" } from scale in new[] { 1.1f, 1.25f, 1.5f, 1.75f, 2f, 2.25f, 2.5f }
+        from delta in new[] { 1, 3, 17, 101, 333 } from sign in new[] { 1, -1 }
         select new object[] { page, scale, delta * sign };
 
-    // The control scrolls in whole device pixels at any scale; odd offsets and fractional scales must agree with a repaint too.
+    // The control scrolls in whole device pixels at any scale; odd offsets and fractional scales must shift and agree with a repaint too.
+    // (What the page holds is meant to be hard: curves, rotations, every gradient, images, SVG, colour emoji at the scale's own strikes.)
     [Theory]
     [MemberData(nameof(ScaledCases))]
-    public void AScrollAtAnotherScaleFallsBackAndMatchesAFullRepaint(string page, float scale, int delta)
+    public void AScrollAtAnotherScaleIsByteIdenticalToAFullRepaint(string page, float scale, int delta)
     {
         var list = ListOf(page, 600, scale);
         const int from = 701;
         using var scrolled = new SoftwareRasterSurface(800, 600);
         using var fresh = new SoftwareRasterSurface(800, 600);
         RetainedScroll.Repaint(list, scrolled, scale, from, White);
-        // Scales other than 1 fall back (a shift there can differ by one level in a few bytes, and emoji at 2), and still match.
-        Assert.False(Scroll(list, scrolled, from, from + delta, scale));
+        Assert.True(Scroll(list, scrolled, from, from + delta, scale), $"{page} x{scale} {delta:+0;-0} was repainted, not shifted");
         RetainedScroll.Repaint(list, fresh, scale, from + delta, White);
         Assert.True(fresh.PremultipliedPixels.AsSpan().SequenceEqual(scrolled.PremultipliedPixels), $"{page} x{scale} {delta:+0;-0}: {Differences(fresh, scrolled)}");
+    }
+
+    // Drawing with the offset taken off last and drawing with it in the matrix are the same picture to within float noise,
+    // and the same bytes for what is not on a rounding tie: this is the equivalence the golden tests rely on at offset 0.
+    [Fact]
+    public void ScrollingTheCanvasDrawsWhatTranslatingItDraws()
+    {
+        var list = ListOf("dashboard", 600, 1.25f);
+        using var scrolled = new SoftwareRasterSurface(800, 600);
+        using var translated = new SoftwareRasterSurface(800, 600);
+        RetainedScroll.Repaint(list, scrolled, 1.25f, 0, White); // offset 0: the two must agree to the byte
+        var canvas = translated.Canvas;
+        canvas.Save();
+        canvas.FillRoundedRect(new RoundedRect(new RectF(0, 0, 800, 600), default), White);
+        canvas.Transform(RetainedScroll.Transform(1.25f, 0));
+        DisplayListPlayer.Replay(list, canvas, new RectF(0, 0, 640, 480));
+        canvas.Restore();
+        Assert.True(translated.PremultipliedPixels.AsSpan().SequenceEqual(scrolled.PremultipliedPixels), Differences(translated, scrolled));
     }
 
     [Fact]
