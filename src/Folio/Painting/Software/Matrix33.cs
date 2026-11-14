@@ -6,9 +6,22 @@ namespace Folio.Painting.Software;
 /// A projective transform of the plane, in row-vector form: a point (x, y) maps to (x·M11 + y·M21 + M31, x·M12 + y·M22 + M32)
 /// divided by w = x·M13 + y·M23 + M33. Without perspective (M13 = M23 = 0, M33 = 1) it is an ordinary 2D transform.
 /// </summary>
-internal readonly struct Matrix33(float m11, float m12, float m13, float m21, float m22, float m23, float m31, float m32, float m33)
+/// <remarks>
+/// <see cref="OffsetY"/> is a whole number of device rows taken off the result of <see cref="Apply"/> as its very last step, after
+/// the divide. A scrolled page is drawn with its scroll offset there rather than in M32, so that a point's device position is the
+/// unscrolled position (the same bits wherever the page is scrolled to) less a whole number, which is exact. With the offset in
+/// M32 the final sum rounds at the magnitude of its result, which differs from one scroll offset to the next, and a shape
+/// could come out a hair different from the one drawn at another offset.
+/// </remarks>
+internal readonly struct Matrix33(float m11, float m12, float m13, float m21, float m22, float m23, float m31, float m32, float m33, float offsetY = 0)
 {
-    public readonly float M11 = m11, M12 = m12, M13 = m13, M21 = m21, M22 = m22, M23 = m23, M31 = m31, M32 = m32, M33 = m33;
+    public readonly float M11 = m11, M12 = m12, M13 = m13, M21 = m21, M22 = m22, M23 = m23, M31 = m31, M32 = m32, M33 = m33, OffsetY = offsetY;
+
+    /// <summary>This transform, with <paramref name="offsetY"/> (whole device rows) taken off the result of <see cref="Apply"/> in place of any offset it had.</summary>
+    public Matrix33 WithOffsetY(float offsetY) => new(M11, M12, M13, M21, M22, M23, M31, M32, M33, offsetY);
+
+    // The same transform with the offset folded into the matrix (the offset is applied after the divide, hence the w terms).
+    private Matrix33 Folded => OffsetY == 0 ? this : new(M11, M12 - OffsetY * M13, M13, M21, M22 - OffsetY * M23, M23, M31, M32 - OffsetY * M33, M33);
 
     public static Matrix33 Identity => new(1, 0, 0, 0, 1, 0, 0, 0, 1);
 
@@ -20,10 +33,12 @@ internal readonly struct Matrix33(float m11, float m12, float m13, float m21, fl
     public bool IsAffine => M13 == 0 && M23 == 0;
 
     /// <summary>The first transform, then <paramref name="b"/>.</summary>
-    public static Matrix33 operator *(in Matrix33 a, in Matrix33 b) => new(
+    public static Matrix33 operator *(in Matrix33 first, in Matrix33 b) => Multiply(first.Folded, b);
+
+    private static Matrix33 Multiply(in Matrix33 a, in Matrix33 b) => new(
         a.M11 * b.M11 + a.M12 * b.M21 + a.M13 * b.M31, a.M11 * b.M12 + a.M12 * b.M22 + a.M13 * b.M32, a.M11 * b.M13 + a.M12 * b.M23 + a.M13 * b.M33,
         a.M21 * b.M11 + a.M22 * b.M21 + a.M23 * b.M31, a.M21 * b.M12 + a.M22 * b.M22 + a.M23 * b.M32, a.M21 * b.M13 + a.M22 * b.M23 + a.M23 * b.M33,
-        a.M31 * b.M11 + a.M32 * b.M21 + a.M33 * b.M31, a.M31 * b.M12 + a.M32 * b.M22 + a.M33 * b.M32, a.M31 * b.M13 + a.M32 * b.M23 + a.M33 * b.M33);
+        a.M31 * b.M11 + a.M32 * b.M21 + a.M33 * b.M31, a.M31 * b.M12 + a.M32 * b.M22 + a.M33 * b.M32, a.M31 * b.M13 + a.M32 * b.M23 + a.M33 * b.M33, b.OffsetY);
 
     public static Matrix33 operator *(in Matrix33 a, in Matrix3x2 b) => a * FromAffine(b);
 
@@ -35,11 +50,12 @@ internal readonly struct Matrix33(float m11, float m12, float m13, float m21, fl
         // Behind the viewer (w <= 0) there is no picture; keep the point finite.
         if (MathF.Abs(w) < 1e-6f)
             w = w < 0 ? -1e-6f : 1e-6f;
-        return new Vector2((p.X * M11 + p.Y * M21 + M31) / w, (p.X * M12 + p.Y * M22 + M32) / w);
+        return new Vector2((p.X * M11 + p.Y * M21 + M31) / w, (p.X * M12 + p.Y * M22 + M32) / w - OffsetY);
     }
 
-    public static bool Invert(in Matrix33 m, out Matrix33 inverse)
+    public static bool Invert(in Matrix33 matrix, out Matrix33 inverse)
     {
+        var m = matrix.Folded;
         var c11 = m.M22 * m.M33 - m.M23 * m.M32;
         var c12 = m.M13 * m.M32 - m.M12 * m.M33;
         var c13 = m.M12 * m.M23 - m.M13 * m.M22;
@@ -59,6 +75,15 @@ internal readonly struct Matrix33(float m11, float m12, float m13, float m21, fl
 
     /// <summary>The affine transform that matches this one near the origin of the plane; exact without perspective.</summary>
     public Matrix3x2 Affine
+    {
+        get
+        {
+            var m = Folded;
+            return m.UnfoldedAffine;
+        }
+    }
+
+    private Matrix3x2 UnfoldedAffine
     {
         get
         {
