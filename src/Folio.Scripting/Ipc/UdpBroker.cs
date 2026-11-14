@@ -36,6 +36,17 @@ internal sealed record UdpBrokerOptions
     public bool AllowLoopback { get; init; }
     /// <summary>RFC 1918 and CGNAT ranges are denied unless the embedder opts in.</summary>
     public bool AllowPrivate { get; init; }
+    /// <summary>DNS lookups the child may request per document, by distinct name.</summary>
+    public int MaxResolvedNames { get; init; } = 16;
+    /// <summary>Lookups running at once. Further requests are refused rather than queued.</summary>
+    public int MaxResolvesInFlight { get; init; } = 4;
+    public double ResolvesPerSecond { get; init; } = 2;
+    public double BurstResolves { get; init; } = 8;
+    public TimeSpan ResolveTimeout { get; init; } = TimeSpan.FromSeconds(5);
+    /// <summary>The host's resolver. Defaults to the system DNS; tests substitute their own.</summary>
+    public Func<string, CancellationToken, Task<IPAddress[]>> Resolver { get; init; } = (name, token) => Dns.GetHostAddressesAsync(name, token);
+    /// <summary>Time source for the lookup timeout; tests substitute a fake one.</summary>
+    public TimeProvider Clock { get; init; } = TimeProvider.System;
 }
 
 internal static class UdpDestinationPolicy
@@ -92,21 +103,24 @@ internal sealed class UdpRateLimiter(double bytesPerSecond, double burstBytes, d
 /// Socket ids are host-assigned and never reused. Every command carries the document generation the host stamped
 /// into the Load, so a command from a replaced document is refused.
 /// Wire (JSON payloads): commands {op:"open",gen,token} {op:"send",gen,id,host,port,data(base64)} {op:"permit",gen,host}
-/// {op:"close",gen,id}; events {op:"opened",token,id,port,allowLoopback,allowPrivate} {op:"failed",token,reason}
-/// {op:"datagram",id,host,port,data} {op:"closed",id,reason}.
+/// {op:"close",gen,id} {op:"resolve",gen,token,name}; events {op:"opened",token,id,port,allowLoopback,allowPrivate} {op:"failed",token,reason}
+/// {op:"datagram",id,host,port,data} {op:"closed",id,reason} {op:"resolved",token,host|null,reason|null}.
 /// Inbound datagrams are delivered only from addresses the child has sent to, or has permitted.
 /// </summary>
 internal sealed class UdpBroker : IDisposable
 {
     private readonly UdpBrokerOptions _options;
     private readonly Func<bool> _granted;
+    private readonly Func<string, bool>? _nameAllowed;
+    private readonly HashSet<string> _resolvedNames = new(StringComparer.OrdinalIgnoreCase);
+    private int _resolving;
     private readonly Action<JsonElement> _emit;
     private readonly object _gate = new();
     private readonly Dictionary<long, UdpSocketLease> _sockets = [];
     private readonly HashSet<uint> _sentTo = [], _permitted = [];
     private readonly Channel<Event> _events = Channel.CreateUnbounded<Event>(new UnboundedChannelOptions { SingleReader = true });
     private readonly Task _pump;
-    private UdpRateLimiter _outLimit, _inLimit, _commandLimit, _openLimit;
+    private UdpRateLimiter _outLimit, _inLimit, _commandLimit, _openLimit, _resolveLimit;
     private long _nextId, _generation, _limiterStamp;
     private int _queued, _dead;
     private long _epoch; // guarded by _gate
@@ -124,10 +138,12 @@ internal sealed class UdpBroker : IDisposable
     internal Task? SendPause;
 
     /// <param name="granted">Re-evaluated on every operation; false means the WebRTC capability is off.</param>
+    /// <param name="nameAllowed">Which DNS names the child may ask to resolve (the host's WebRTC server allowlist); null (the default) allows no name at all.</param>
     /// <param name="emit">Delivers an event to the child. Called from one pump thread; may block. No lock is held meanwhile.</param>
-    public UdpBroker(UdpBrokerOptions options, Func<bool> granted, Action<JsonElement> emit, long generation = 1)
+    public UdpBroker(UdpBrokerOptions options, Func<bool> granted, Action<JsonElement> emit, long generation = 1, Func<string, bool>? nameAllowed = null)
     {
-        _options = options; _granted = granted; _emit = emit; _generation = generation;
+        _options = options; _granted = granted; _emit = emit; _generation = generation; _nameAllowed = nameAllowed;
+        _resolveLimit = NewCountLimiter(options.ResolvesPerSecond, options.BurstResolves);
         _outLimit = NewPacketLimiter(); _inLimit = NewPacketLimiter();
         _commandLimit = NewCountLimiter(options.CommandsPerSecond, options.BurstCommands);
         _openLimit = NewCountLimiter(options.OpensPerSecond, options.BurstOpens);
@@ -202,12 +218,15 @@ internal sealed class UdpBroker : IDisposable
             Interlocked.Increment(ref Denied);
             if (name == "open" && TryInt64(command, "token", out var staleToken))
                 Enqueue(new(0, "failed", staleToken, 0, "the document was replaced", null, null, false));
+            else if (name == "resolve" && TryInt64(command, "token", out var staleResolve))
+                Enqueue(new(0, "resolved", staleResolve, 0, "the document was replaced", null, null, false));
             return;
         }
         switch (name)
         {
             case "open" when TryInt64(command, "token", out var token): Open(token, gen); break;
             case "send": Send(command); break;
+            case "resolve" when TryInt64(command, "token", out var resolveToken): Resolve(command, resolveToken, gen); break;
             case "permit": Permit(command); break;
             case "close" when TryInt64(command, "id", out var id): Close(id, "closed by document"); break;
             default: Interlocked.Increment(ref Malformed); break;
@@ -217,6 +236,7 @@ internal sealed class UdpBroker : IDisposable
     private void Open(long token, long requestedGeneration)
     {
         UdpSocketLease? lease = null;
+        IPEndPoint? local = null;
         string? refusal = null;
         long generation;
         lock (_gate)
@@ -239,6 +259,7 @@ internal sealed class UdpBroker : IDisposable
                         socket.Bind(new IPEndPoint(IPAddress.Any, 0));
                     }
                     catch { socket.Dispose(); throw; }
+                    local = (IPEndPoint)socket.LocalEndPoint!; // read while the lock keeps a replacing document from disposing the socket
                     lease = new UdpSocketLease(++_nextId, socket, _options.OutgoingQueuePerSocket);
                     _sockets.Add(lease.Id, lease);
                 }
@@ -246,9 +267,61 @@ internal sealed class UdpBroker : IDisposable
             }
         }
         if (lease is null) { Enqueue(new(0, "failed", token, 0, refusal, null, null, false)); return; }
-        Enqueue(new(generation, "opened", token, lease.Id, null, (IPEndPoint)lease.Socket.LocalEndPoint!, null, false));
+        Enqueue(new(generation, "opened", token, lease.Id, null, local, null, false));
         _ = Task.Run(() => SendLoopAsync(lease));
         _ = Task.Run(() => ReceiveLoopAsync(lease, generation));
+    }
+
+    /// <summary>Resolves an allowed name for the child, which has no DNS of its own. Only globally routable (or opted-in) IPv4
+    /// answers are returned, so a name that points at the host's own network (rebinding) resolves to nothing.</summary>
+    private void Resolve(JsonElement command, long token, long generation)
+    {
+        string? name = command.TryGetProperty("name", out var nameValue) && nameValue.ValueKind == JsonValueKind.String ? nameValue.GetString() : null;
+        string? refusal = null;
+        if (name is not { Length: > 0 and <= 253 } || Uri.CheckHostName(name) != UriHostNameType.Dns) { Interlocked.Increment(ref Malformed); refusal = "invalid name"; }
+        else if (!_granted()) { Revoke(); Interlocked.Increment(ref Denied); refusal = "WebRTC networking is not granted"; }
+        else if (_nameAllowed is not { } allowed || !allowed(name)) { Interlocked.Increment(ref Denied); refusal = "name not allowed by the host"; }
+        else
+        {
+            UdpRateLimiter limiter;
+            lock (_gate) limiter = _resolveLimit;
+            if (!limiter.TryTake(0)) { Interlocked.Increment(ref RateLimited); refusal = "resolve rate exceeded"; }
+            else
+            {
+                lock (_gate)
+                {
+                    if (!_resolvedNames.Contains(name) && _resolvedNames.Count >= _options.MaxResolvedNames) refusal = "resolve quota exceeded";
+                    else if (_resolving >= _options.MaxResolvesInFlight) refusal = "too many lookups in flight";
+                    else { _resolvedNames.Add(name); _resolving++; }
+                }
+                if (refusal is not null) Interlocked.Increment(ref Denied);
+            }
+        }
+        if (refusal is not null) { Enqueue(new(0, "resolved", token, 0, refusal, null, null, false)); return; }
+        _ = Task.Run(() => ResolveAsync(name!, token, generation));
+    }
+
+    // The lookup slot is held until the OS call itself finishes, not merely until the child is answered: a lookup that
+    // ignores its cancellation (a blocking getaddrinfo) keeps counting against MaxResolvesInFlight.
+    private async Task ResolveAsync(string name, long token, long generation)
+    {
+        IPEndPoint? answer = null;
+        string? reason = "lookup failed";
+        try
+        {
+            using var timeout = new CancellationTokenSource(_options.ResolveTimeout, _options.Clock);
+            Task<IPAddress[]> lookup;
+            try { lookup = _options.Resolver(name, timeout.Token); }
+            catch { lock (_gate) _resolving--; throw; }
+            _ = lookup.ContinueWith(finished => { _ = finished.Exception; lock (_gate) _resolving--; }, TaskScheduler.Default);
+            var addresses = await lookup.WaitAsync(timeout.Token).ConfigureAwait(false);
+            var allowed = addresses.FirstOrDefault(a => UdpDestinationPolicy.IsAllowed(new IPEndPoint(a, 1), _options));
+            if (allowed is not null) { answer = new IPEndPoint(allowed, 0); reason = null; }
+            else reason = addresses.Any(a => a.AddressFamily == AddressFamily.InterNetwork) ? "the name resolves to a disallowed address" : "no IPv4 address";
+        }
+        catch (OperationCanceledException) { reason = "lookup timed out"; }
+        catch (Exception) { } // whatever the resolver throws, the child still gets an answer
+        Enqueue(new(generation, "resolved", token, 0, reason, answer, null, false));
     }
 
     private void Permit(JsonElement command)
@@ -370,7 +443,7 @@ internal sealed class UdpBroker : IDisposable
     {
         if (Interlocked.Exchange(ref _dead, 1) != 0) return;
         UdpSocketLease[] leases;
-        lock (_gate) { leases = [.. _sockets.Values]; _sockets.Clear(); _sentTo.Clear(); _permitted.Clear(); }
+        lock (_gate) { leases = [.. _sockets.Values]; _sockets.Clear(); _sentTo.Clear(); _permitted.Clear(); _resolvedNames.Clear(); }
         foreach (var lease in leases) lease.Dispose();
     }
 
@@ -391,6 +464,7 @@ internal sealed class UdpBroker : IDisposable
         "opened" => new Dictionary<string, object?> { ["op"] = "opened", ["token"] = item.Token, ["id"] = item.Id, ["port"] = item.Peer!.Port,
             // Advisory copy of the destination policy so the child can skip pairs the host would only drop.
             ["allowLoopback"] = _options.AllowLoopback, ["allowPrivate"] = _options.AllowPrivate },
+        "resolved" => new Dictionary<string, object?> { ["op"] = "resolved", ["token"] = item.Token, ["host"] = item.Peer?.Address.ToString(), ["reason"] = item.Text },
         "failed" => new Dictionary<string, object?> { ["op"] = "failed", ["token"] = item.Token, ["reason"] = item.Text },
         "datagram" => new Dictionary<string, object?> { ["op"] = "datagram", ["id"] = item.Id, ["host"] = item.Peer!.Address.ToString(), ["port"] = item.Peer.Port, ["data"] = Convert.ToBase64String(item.Data!) },
         _ => new Dictionary<string, object?> { ["op"] = "closed", ["id"] = item.Id, ["reason"] = item.Text },
@@ -428,7 +502,7 @@ internal sealed class UdpBroker : IDisposable
             _generation = generation;
             // Events still queued for the retired document no longer count against the new one's bound (the pump drops them).
             _epoch++; Volatile.Write(ref _queued, 0);
-            _sentTo.Clear(); _permitted.Clear();
+            _sentTo.Clear(); _permitted.Clear(); _resolvedNames.Clear();
             Interlocked.Exchange(ref _dead, 0);
             var now = System.Diagnostics.Stopwatch.GetTimestamp();
             if (System.Diagnostics.Stopwatch.GetElapsedTime(_limiterStamp, now) >= _options.MinLimiterResetInterval)
@@ -436,6 +510,7 @@ internal sealed class UdpBroker : IDisposable
                 _outLimit = NewPacketLimiter(); _inLimit = NewPacketLimiter();
                 _commandLimit = NewCountLimiter(_options.CommandsPerSecond, _options.BurstCommands);
                 _openLimit = NewCountLimiter(_options.OpensPerSecond, _options.BurstOpens);
+                _resolveLimit = NewCountLimiter(_options.ResolvesPerSecond, _options.BurstResolves);
                 _limiterStamp = now;
             }
         }

@@ -21,6 +21,11 @@ internal interface IIceTransport : IDisposable
     /// <summary>False when the transport knows the destination would be refused, so ICE can skip the pair instead of timing out.</summary>
     bool CanSendTo(IPEndPoint destination) => true;
 
+    /// <summary>Resolves a DNS name to an IPv4 address where the transport lives: the default asks the local resolver; the
+    /// host-mediated transport asks the host, so a sandboxed content process never resolves names itself. Null when it cannot.</summary>
+    async Task<IPAddress?> ResolveAsync(string host, CancellationToken cancellation) =>
+        (await Dns.GetHostAddressesAsync(host, cancellation).ConfigureAwait(false)).FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+
     /// <summary>Waits up to the timeout for a datagram. Returns its length, or -1 on timeout.
     /// Throws <see cref="ObjectDisposedException"/> once the transport is closed.</summary>
     int Receive(byte[] buffer, int timeoutMicroseconds, ref EndPoint remote);

@@ -219,10 +219,20 @@ public sealed class ContentProcessClient : IAsyncDisposable
             broker = _udp ??= new UdpBroker(UdpOptions,
                 () => Volatile.Read(ref _disposed) == 0 && !_shutdown.IsCancellationRequested && Volatile.Read(ref _hostCapabilities).WebRtc,
                 evt => _session.SendAsync(ContentMessageKind.UdpEvent, evt, _shutdown.Token).AsTask().GetAwaiter().GetResult(),
-                Volatile.Read(ref _udpGeneration));
+                Volatile.Read(ref _udpGeneration), name => IsAllowedIceHost(_webRtcAllowedOrigins, name));
         }
         broker.Handle(command);
     }
+
+    // Only hosts of the WebRTC servers the host allowlisted (stun:/turn: entries; an entry's port does not matter).
+    internal static bool IsAllowedIceHost(IEnumerable<string> allowedOrigins, string name) => allowedOrigins.Any(entry =>
+    {
+        var colon = entry.IndexOf(':');
+        if (colon < 0) return false;
+        var authority = entry[(colon + 1)..];
+        var end = authority.IndexOfAny([':', '?', '/']);
+        return string.Equals(end < 0 ? authority : authority[..end], name, StringComparison.OrdinalIgnoreCase);
+    });
 
     internal int UdpOpenSockets { get { lock (_udpGate) return _udp?.OpenSockets ?? 0; } }
     internal long UdpDenied { get { lock (_udpGate) return _udp?.Denied ?? 0; } }
