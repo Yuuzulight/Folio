@@ -23,6 +23,8 @@ public static class Program
         }
         if (args is ["cold"])
             return Cold();
+        if (args is ["firstpaint", .. var firstPaintRest])
+            return FirstPaintBenchmark.TryParse(firstPaintRest, out var rounds, out var only) ? FirstPaintBenchmark.Run(rounds, only) : 2;
         if (args is ["gpu"])
             return GpuProcessBenchmark.RunAsync().GetAwaiter().GetResult();
         if (args is ["wasm", .. var wasmRest])
