@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- NativeAOT canvas frame probe: the D5/D7 canvas frame budget measured in the build a host ships, with the native
        script engine only. The assembly is named Folio.Benchmarks so it sees Folio's and Folio.Scripting's internals.
-       Publish: dotnet publish tools/Folio.CanvasFrameProbe -c Release -r win-x64, self-contained, PublishAot=true (see the CI step "Native canvas frame budget"). -->
+       Publish: dotnet publish tools/Folio.CanvasFrameProbe -c Release -r win-x64, self-contained, PublishAot=true (see the CI step "Native canvas frame budget (NativeAOT)"; also runnable only from inside the repo, which it searches for Folio.slnx). -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>

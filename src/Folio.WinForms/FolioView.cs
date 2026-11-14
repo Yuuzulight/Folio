@@ -893,7 +893,7 @@ public class FolioView : Control
                 changed = ChangedArea(damage, PixelScale, top, width, height);
                 var canvas = _renderSurface.Canvas;
                 canvas.Save();
-                canvas.Transform(RetainedScroll.Transform(PixelScale, top));
+                RetainedScroll.Begin(canvas, PixelScale, top);
                 canvas.ClipRoundedRect(new RoundedRect(damage, default));
                 canvas.FillRoundedRect(new RoundedRect(damage, default), background);
                 DisplayListPlayer.Replay(_list!, canvas, damage);

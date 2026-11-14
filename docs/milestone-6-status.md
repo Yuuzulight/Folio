@@ -31,7 +31,9 @@ The current path therefore preserves API shape and framebuffer behavior but is
 not true float-precision storage; #530 remains open for a real float-capable
 backend.
 
-The production native canvas frame gate is now authoritative. The latest local
+The production native canvas frame gate is now authoritative and is measured on the NativeAOT
+canvas frame probe (`tools/Folio.CanvasFrameProbe`), not under tiered JIT; the JIT run is
+informational only. The latest local
 30-frame native run keeps every D5/D7 artifact below the 16.70 ms total p95
 limit (D5/canvas-animated-bars 5.31 ms; D7/canvas-snake-game 9.84 ms). The
 compatibility-engine result remains recorded as differential optimization data,
