@@ -513,9 +513,17 @@ internal static class GaussianBlur
     {
         var vectors = MemoryMarshal.Cast<float, Vector<float>>(sum);
         var outputs = MemoryMarshal.Cast<float, Vector<float>>(output);
-        for (var i = 0; i < vectors.Length; i++) outputs[i] = vectors[i] * scale;
-        for (var i = vectors.Length * Vector<float>.Count; i < sum.Length; i++) output[i] = sum[i] * scale;
+        var magic = new Vector<float>(QuantumMagic);
+        for (var i = 0; i < vectors.Length; i++) outputs[i] = vectors[i] * scale + magic - magic;
+        for (var i = vectors.Length * Vector<float>.Count; i < sum.Length; i++) output[i] = Quantized(sum[i] * scale);
     }
+
+    // A box pass's output is rounded to a multiple of 1/256 (adding and taking off 2^15 leaves a float only that fine). Every
+    // value in the passes is then a multiple of 1/256 below 2^16, so a running sum of them is exact (up to boxes of 256 samples)
+    // and does not depend on where in the image it started; without this, the rounding of a sum depended on the rows before it,
+    // and the same shape blurred in a window cropped somewhere else could differ by a level.
+    private const float QuantumMagic = 32768f;
+    private static float Quantized(float value) => value + QuantumMagic - QuantumMagic;
 
     private static void Boxes(float[] input, float[] output, float[] scratchA, float[] scratchB, int length, float sigma)
     {
@@ -556,7 +564,7 @@ internal static class GaussianBlur
             Step(x);
         for (var x = interiorStart; x < interiorEnd; x++)
         {
-            output[x] = window * scale;
+            output[x] = Quantized(window * scale);
             window -= input[x - before];
             window += input[x - before + size];
         }
@@ -565,7 +573,7 @@ internal static class GaussianBlur
 
         void Step(int x)
         {
-            output[x] = window * scale;
+            output[x] = Quantized(window * scale);
             var leaving = x - before;
             var entering = x - before + size;
             if (leaving >= 0 && leaving < length)
