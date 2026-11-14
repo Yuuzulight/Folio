@@ -50,3 +50,68 @@ reproduced here. See RFC 6386 for it.
 `https://storage.googleapis.com/downloads.webmproject.org/test_data/libvpx/`. They are test inputs only, are not part of any
 package, and are copyright the WebM project / Google. I did not find a separate license file in that download location; they
 are published as test data of libvpx, which is BSD-3-Clause licensed.
+
+## Opus codec (RFC 6716, libopus 1.5.2)
+
+`src/Folio.Scripting/Rtc/Opus/` is a C# translation of the Opus reference implementation (libopus 1.5.2, the RFC 6716
+reference decoder): the range coder, SILK, CELT (bands, PVQ, rate allocation, MDCT post-processing, concealment) and the
+top-level decoder. The tables in `SilkTables.cs` and `CeltModeTables.cs` were extracted from the libopus sources by script. The
+encoder reuses that band coder. The licence of libopus (its `COPYING` file, verbatim) follows:
+
+```
+Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic,
+                    Jean-Marc Valin, Timothy B. Terriberry,
+                    CSIRO, Gregory Maxwell, Mark Borgerding,
+                    Erik de Castro Lopo, Mozilla, Amazon
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+- Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+- Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+- Neither the name of Internet Society, IETF or IETF Trust, nor the
+names of specific contributors, may be used to endorse or promote
+products derived from this software without specific prior written
+permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Opus is subject to the royalty-free patent licenses which are
+specified at:
+
+Xiph.Org Foundation:
+https://datatracker.ietf.org/ipr/1524/
+
+Microsoft Corporation:
+https://datatracker.ietf.org/ipr/1914/
+
+Broadcom Corporation:
+https://datatracker.ietf.org/ipr/1526/
+```
+
+The patent licences named in that file are not reproduced here; see the URLs it gives.
+
+## Opus conformance test vectors
+
+`tests/Folio.Scripting.Tests/OpusVectors.zip` holds truncated copies of `testvector01.bit` to `12.bit` and their `.dec`
+reference outputs from the RFC 8251 set, downloaded from
+`https://opus-codec.org/static/testvectors/opus_testvectors-rfc8251.tar.gz` (SHA-256
+`6b26a22f9ba87b2b836906a9bb7afec5f8e54d49553b1200382520ee6fedfa55`). `tools/make-opus-vectors.py` records the exact truncation.
+They are test inputs only, are not part of any package, and are published by the Opus project; I did not find a separate
+licence file with them.

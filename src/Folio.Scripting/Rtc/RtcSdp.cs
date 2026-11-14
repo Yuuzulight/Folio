@@ -170,6 +170,15 @@ internal sealed class RtcSdp
                         currentMedia.RtpMaps[mapped] = new RtcCodec(mapped, spec[0].ToUpperInvariant(), clock,
                             spec.Length > 2 && int.TryParse(spec[2], out var channels) && channels is > 0 and <= 8 ? channels : 1);
                 }
+                else if (currentMedia is not null && attrName.Equals("fmtp", StringComparison.OrdinalIgnoreCase))
+                {
+                    // a=fmtp:<pt> <format specific parameters>; kept bounded, only read for codecs Folio implements
+                    var halves = attrValue.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                    if (halves.Length == 2 && halves[1].Length <= 256 &&
+                        int.TryParse(halves[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var fmtpType) && fmtpType is >= 0 and <= 127 &&
+                        currentMedia.Fmtps.Count < RtcMediaDescription.MaxCodecs)
+                        currentMedia.Fmtps[fmtpType] = halves[1].Trim();
+                }
                 else if (currentMedia is not null && attrName.Equals("rtcp-fb", StringComparison.OrdinalIgnoreCase))
                 {
                     // a=rtcp-fb:<pt|*> <type> [<subtype>] (RFC 4585 section 4.2). Only what Folio acts on is kept, and bounded.
@@ -251,6 +260,7 @@ internal sealed class RtcSdp
                     sb.Append("a=rtpmap:").Append(codec.PayloadType).Append(' ').Append(codec.Name).Append('/').Append(codec.ClockRate);
                     if (codec.Channels > 1) sb.Append('/').Append(codec.Channels);
                     sb.Append("\r\n");
+                    if (!string.IsNullOrEmpty(codec.Fmtp)) sb.Append("a=fmtp:").Append(codec.PayloadType).Append(' ').Append(codec.Fmtp).Append("\r\n");
                 }
                 foreach (var codec in m.Codecs)
                     if (m.Feedback.TryGetValue(codec.PayloadType, out var feedback))
@@ -302,6 +312,8 @@ internal sealed class RtcMediaDescription
     /// <summary>Payload types from the m= line, in preference order.</summary>
     public List<int> PayloadTypes { get; } = [];
     public Dictionary<int, RtcCodec> RtpMaps { get; } = [];
+    /// <summary>a=fmtp parameter strings by payload type.</summary>
+    public Dictionary<int, string> Fmtps { get; } = [];
     /// <summary>Codecs to write when generating SDP.</summary>
     public List<RtcCodec> Codecs { get; } = [];
     public List<uint> Ssrcs { get; } = [];
@@ -324,12 +336,16 @@ internal sealed class RtcMediaDescription
     }
 
     /// <summary>The codec for a payload type, from a=rtpmap or the RFC 3551 static assignments Folio understands.</summary>
-    internal RtcCodec? CodecFor(int payloadType) => RtpMaps.TryGetValue(payloadType, out var mapped) ? mapped : payloadType switch
+    internal RtcCodec? CodecFor(int payloadType)
     {
-        0 => new RtcCodec(0, "PCMU", 8000, 1),
-        8 => new RtcCodec(8, "PCMA", 8000, 1),
-        _ => null
-    };
+        var codec = RtpMaps.TryGetValue(payloadType, out var mapped) ? mapped : payloadType switch
+        {
+            0 => new RtcCodec(0, "PCMU", 8000, 1),
+            8 => new RtcCodec(8, "PCMA", 8000, 1),
+            _ => null
+        };
+        return codec is not null && codec.Fmtp is null && Fmtps.TryGetValue(payloadType, out var fmtp) ? codec with { Fmtp = fmtp } : codec;
+    }
 
     internal bool Sends => Direction is "sendrecv" or "sendonly";
     internal bool Receives => Direction is "sendrecv" or "recvonly";
@@ -337,6 +353,24 @@ internal sealed class RtcMediaDescription
 
 internal sealed record RtcCodec(int PayloadType, string Name, int ClockRate, int Channels)
 {
+    /// <summary>The a=fmtp parameters, when the section carries any.</summary>
+    internal string? Fmtp { get; init; }
+
+    /// <summary>Opus as WebRTC signals it: opus/48000/2 (the channel count in the rtpmap is always 2; a=fmtp says what is actually sent).</summary>
+    internal bool IsOpus => Name.Equals("opus", StringComparison.OrdinalIgnoreCase) && ClockRate == 48000 && Channels == 2;
+
+    /// <summary>Reads one parameter of the a=fmtp list (RFC 7587), for example <c>sprop-stereo</c>.</summary>
+    internal string? FmtpParameter(string name)
+    {
+        if (Fmtp is null) return null;
+        foreach (var part in Fmtp.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var eq = part.IndexOf('=');
+            if (eq > 0 && part[..eq].Trim().Equals(name, StringComparison.OrdinalIgnoreCase)) return part[(eq + 1)..].Trim();
+        }
+        return null;
+    }
+
     /// <summary>PCMU or PCMA at exactly 8000 Hz mono. A peer's rtpmap claiming another clock rate is not G.711 as Folio decodes it.</summary>
     internal bool IsG711 => Name is "PCMU" or "PCMA" && ClockRate == 8000 && Channels == 1;
 }

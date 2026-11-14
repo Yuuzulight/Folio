@@ -22,6 +22,11 @@
     <ProjectReference Include="..\..\tools\Folio.Gen\Folio.Gen.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Truncated RFC 8251 Opus test vectors (opus-codec.org/testvectors); see docs/webrtc-opus.md. -->
+    <EmbeddedResource Include="OpusVectors.zip" />
+  </ItemGroup>
+
   <!-- The Wasmtime differential tests are only meaningful in the explicit
        oracle matrix; production builds must compile without the oracle types. -->
   <ItemGroup Condition="'$(FolioWasmOracle)' != 'true'">
