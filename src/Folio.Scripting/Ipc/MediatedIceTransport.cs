@@ -116,6 +116,8 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
     private sealed class Transport(MediatedUdpClient owner) : IIceTransport
     {
         internal const int MaxIncomingBytes = 512 * 1024;
+        /// <summary>Datagrams dropped because the child-side queue was full by count or by bytes.</summary>
+        internal long DroppedIncoming;
         private readonly Channel<(byte[] Data, IPEndPoint From)> _incoming = Channel.CreateBounded<(byte[], IPEndPoint)>(
             new BoundedChannelOptions(IncomingCapacity) { SingleReader = true, FullMode = BoundedChannelFullMode.DropWrite });
         private long _id;
@@ -154,9 +156,12 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
 
         internal void Enqueue(byte[] data, IPEndPoint from)
         {
-            if (Volatile.Read(ref _incomingBytes) + data.Length > MaxIncomingBytes) return;
-            if (_incoming.Writer.TryWrite((data, from)))
-                Interlocked.Add(ref _incomingBytes, data.Length);
+            if (Volatile.Read(ref _incomingBytes) + data.Length > MaxIncomingBytes || !_incoming.Writer.TryWrite((data, from)))
+            {
+                Interlocked.Increment(ref DroppedIncoming);
+                return;
+            }
+            Interlocked.Add(ref _incomingBytes, data.Length);
         }
 
         public void SendTo(ReadOnlySpan<byte> datagram, IPEndPoint destination)

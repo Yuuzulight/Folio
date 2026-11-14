@@ -68,6 +68,71 @@ public sealed class UdpBrokerHostileChildTests
         stalled.Set();
     }
 
+    private static readonly UdpBrokerOptions Roomy = Open with { BurstPackets = 1e9, PacketsPerSecond = 1e9, BurstBytes = 1e9, BytesPerSecond = 1e9, MaxSockets = 1000 };
+
+    private static async Task WaitUntil(Func<bool> done)
+    {
+        for (var i = 0; i < 500 && !done(); i++) await Task.Delay(10);
+        Assert.True(done());
+    }
+
+    [Fact]
+    public async Task FullSizeDatagramsOverTheByteCapAreDroppedAndCountedNotKilled()
+    {
+        var stalled = new ManualResetEventSlim();
+        using var h = Harness(Roomy with { IncomingQueue = 256, MaxQueuedEvents = 512 }); // ~2 KiB each: the 512 KiB byte cap trips before the 256 count
+        var (_, port) = await h.Open();
+        h.Run(Permit);
+        h.Hook = _ => stalled.Wait(10_000);
+        using var peer = UdpBrokerTests.Peer();
+        var packet = new byte[1500];
+        for (var i = 0; i < 300; i++) await peer.SendToAsync(packet, SocketFlags.None, new IPEndPoint(IPAddress.Loopback, port));
+        await WaitUntil(() => Interlocked.Read(ref h.Broker.DroppedIncoming) > 0);
+        Assert.False(h.Broker.Dead);
+        Assert.Equal(1, h.Broker.OpenSockets);
+        Assert.True(h.Broker.QueuedBytes <= 512 * 1024);
+        stalled.Set();
+    }
+
+    [Fact]
+    public async Task QueuedBytesReturnToZeroOnceThePumpDrains()
+    {
+        var stalled = new ManualResetEventSlim();
+        using var h = Harness(Roomy);
+        var (_, port) = await h.Open();
+        h.Run(Permit);
+        h.Hook = _ => stalled.Wait(10_000);
+        using var peer = UdpBrokerTests.Peer();
+        for (var i = 0; i < 20; i++) await peer.SendToAsync(new byte[1000], SocketFlags.None, new IPEndPoint(IPAddress.Loopback, port));
+        await WaitUntil(() => h.Broker.QueuedBytes > 0);
+        stalled.Set();
+        await WaitUntil(() => h.Broker.QueuedEvents == 0 && h.Broker.QueuedBytes == 0);
+    }
+
+    [Fact]
+    public async Task BeginDocumentResetsTheByteCountAndAStaleBacklogDoesNotCountAgainstTheNewDocument()
+    {
+        var stalled = new ManualResetEventSlim();
+        using var h = Harness(Roomy with { MaxQueuedEvents = 8, MaxSockets = 1 }); // one socket, so the rest are refused with `failed` events
+        h.Hook = _ => stalled.Wait(10_000);
+        h.Run("""{"op":"open","token":1}"""); // the pump blocks inside this event's write
+        await WaitUntil(() => h.Snapshot().Length == 1);
+        for (var i = 2; i < 9; i++) h.Run($$"""{"op":"open","token":{{i}}}""");
+        Assert.True(h.Broker.QueuedEvents > 0);
+        Assert.True(h.Broker.QueuedBytes > 0);
+        h.NextDocument(); // the only thing queued afterwards is the one `closed` notice for the retired socket
+        Assert.Equal(1, h.Broker.QueuedEvents);
+        Assert.InRange(h.Broker.QueuedBytes, 1, 256);
+        // The old backlog was 7 of 8 slots; had it still counted, the new document would die within two events.
+        for (var i = 100; i < 106; i++) h.Run($$"""{"op":"open","token":{{i}}}""");
+        Assert.False(h.Broker.Dead);
+        var fresh = h.Broker.QueuedBytes;
+        Assert.True(fresh > 0);
+        stalled.Set(); // the pump now drains the stale backlog (skipped, not subtracted) and then the new events
+        await WaitUntil(() => h.Broker.QueuedEvents == 0 && h.Broker.QueuedBytes == 0);
+        Assert.False(h.Broker.Dead);
+    }
+
     [Fact]
     public void BrokerDisposesCleanlyWhileEventQueueIsFull()
     {

@@ -123,6 +123,16 @@ internal sealed class RtcMediaBudget
         }
     }
 
+    /// <summary>Each peer may hold at most half the aggregate SCTP budget, so one peer cannot starve its siblings. A fragment over the
+    /// limit is refused unacknowledged (the sender retransmits), which is backpressure rather than data loss.</summary>
+    internal long SctpPeerReassemblyLimit => _maxSctpReassemblyBytes / 2;
+
+    /// <summary>Swaps a held reservation for a smaller or equal one in a single step so the total never drifts.</summary>
+    public void ReplaceSctpReassemblyBytes(long release, long reserve)
+    {
+        lock (_gate) _sctpReassemblyBytes = Math.Max(0, _sctpReassemblyBytes - Math.Max(0, release) + Math.Max(0, reserve));
+    }
+
     public void ReleaseSctpReassemblyBytes(long bytes) { lock (_gate) _sctpReassemblyBytes = Math.Max(0, _sctpReassemblyBytes - Math.Max(0, bytes)); }
 
     /// <summary>Reserves DTLS handshake reassembly memory against the document aggregate budget.</summary>

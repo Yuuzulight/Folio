@@ -333,58 +333,104 @@ public sealed class WebRtcTransportEventTests
         public void AdvanceSeconds(double seconds) => Ticks += (long)(seconds * TimeSpan.TicksPerSecond);
     }
 
+    private sealed class RateRig : IDisposable
+    {
+        private readonly IScriptEngine _engine;
+        private readonly Document _document;
+        private readonly HtmlEventLoop _loop;
+        private readonly WebRtcBindingState _state;
+        internal FakeClock Clock { get; } = new();
+        internal WebRtcBindingState.ChannelLease A { get; }
+        internal WebRtcBindingState.ChannelLease B { get; }
+
+        internal RateRig(bool native)
+        {
+            _engine = native ? new NativeJavaScriptEngine() : new JintScriptEngine();
+            _document = Document.Parse("<html></html>", new FolioOptions { Capabilities = new FeatureCapabilities { WebRtc = true } });
+            _loop = new HtmlEventLoop(_engine);
+            DomBindings.Install(_engine, _document, eventLoop: _loop);
+            var context = new DomContext(_engine, _document.Node, capabilities: new FeatureCapabilities { WebRtc = true }) { OwnerEventLoop = _loop };
+            _state = WebRtcBindings.Install(_engine, context);
+            _state.Clock = Clock;
+            _engine.Evaluate("""
+                var a = new RTCPeerConnection(), b = new RTCPeerConnection();
+                var chA = a.createDataChannel('chA'), chB = b.createDataChannel('chB');
+                var aMessages = 0, bMessages = 0;
+                chA.onmessage = function() { aMessages++; };
+                chB.onmessage = function() { bMessages++; };
+                """);
+            A = Lease("chA"); B = Lease("chB");
+        }
+
+        private WebRtcBindingState.ChannelLease Lease(string name)
+        {
+            Assert.True(_engine.TryGetHostTarget(_engine.Evaluate(name + ".__nativeChannel"), out var target));
+            return Assert.IsType<WebRtcBindingState.ChannelLease>(target);
+        }
+
+        /// <summary>Delivers one tiny message and drains the owner loop, so the 256-event and byte caps can never be what trips.</summary>
+        internal void Send(WebRtcBindingState.ChannelLease channel) { channel.Channel.DeliverMessage("x"); _loop.SpinUntilIdle(); }
+        internal int Count(string name) => (int)_engine.Evaluate(name).AsNumber();
+        internal string State(string peer) => _engine.Evaluate(peer + ".connectionState").AsString();
+
+        public void Dispose() { _state.Dispose(); _loop.Dispose(); _document.Dispose(); _engine.Dispose(); }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void MessageDeliverySustainedRateCapRetiresOverflowingPeerAndPreservesSibling(bool native)
+    public void MessageTokenExhaustionAloneRetiresThePeer(bool native)
     {
-        using IScriptEngine engine = native ? new NativeJavaScriptEngine() : new JintScriptEngine();
-        using var document = Document.Parse("<html></html>", new FolioOptions { Capabilities = new FeatureCapabilities { WebRtc = true } });
-        using var loop = new HtmlEventLoop(engine);
-        DomBindings.Install(engine, document, eventLoop: loop);
-        var context = new DomContext(engine, document.Node, capabilities: new FeatureCapabilities { WebRtc = true }) { OwnerEventLoop = loop };
-        using var state = WebRtcBindings.Install(engine, context);
-        var clock = new FakeClock();
-        state.Clock = clock;
+        using var rig = new RateRig(native);
+        for (var i = 0; i < 256; i++) rig.Send(rig.A); // the burst, every event delivered before the next is queued
+        Assert.False(rig.A.Peer.DeliveryOverflow);
+        Assert.Equal(256, rig.Count("aMessages"));
+        rig.Send(rig.A); // no clock advance: token 257 is the first refusal, with an empty delivery queue
+        Assert.True(rig.A.Peer.DeliveryOverflow);
+        Assert.Equal(256, rig.Count("aMessages"));
+        Assert.Equal("closed", rig.State("a"));
+    }
 
-        engine.Evaluate("""
-            var a = new RTCPeerConnection(), b = new RTCPeerConnection();
-            var chA = a.createDataChannel('chA');
-            var chB = b.createDataChannel('chB');
-            var aMessages = 0, bMessages = 0;
-            chA.onmessage = function() { aMessages++; };
-            chB.onmessage = function() { bMessages++; };
-            """);
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SustainedThousandMessagesPerSecondIsNotThrottled(bool native)
+    {
+        using var rig = new RateRig(native);
+        for (var i = 0; i < 3000; i++) { rig.Send(rig.A); rig.Clock.AdvanceSeconds(0.001); }
+        Assert.False(rig.A.Peer.DeliveryOverflow);
+        Assert.Equal(3000, rig.Count("aMessages"));
+        Assert.NotEqual("closed", rig.State("a"));
+    }
 
-        var chAVal = engine.Evaluate("chA.__nativeChannel");
-        var chBVal = engine.Evaluate("chB.__nativeChannel");
-        Assert.True(engine.TryGetHostTarget(chAVal, out var targetA));
-        Assert.True(engine.TryGetHostTarget(chBVal, out var targetB));
-        var leaseA = Assert.IsType<WebRtcBindingState.ChannelLease>(targetA);
-        var leaseB = Assert.IsType<WebRtcBindingState.ChannelLease>(targetB);
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MessageTokensRefillWithTheClock(bool native)
+    {
+        using var rig = new RateRig(native);
+        for (var i = 0; i < 256; i++) rig.Send(rig.A);
+        rig.Clock.AdvanceSeconds(0.05); // 50 tokens
+        for (var i = 0; i < 50; i++) rig.Send(rig.A);
+        Assert.False(rig.A.Peer.DeliveryOverflow);
+        rig.Send(rig.A); // the 51st has no token
+        Assert.True(rig.A.Peer.DeliveryOverflow);
+        Assert.Equal(306, rig.Count("aMessages"));
+    }
 
-        // Flood chA with 300 messages without advancing the clock (Burst is 256)
-        for (var i = 0; i < 300; i++)
-        {
-            leaseA.Channel.DeliverMessage($"msg{i}");
-        }
-
-        // chA should have overflowed the burst cap: peer A marked overflow
-        Assert.True(leaseA.Peer.DeliveryOverflow);
-
-        // Advance clock a bit so chB has a token
-        clock.AdvanceSeconds(0.1);
-        leaseB.Channel.DeliverMessage("sibling-ok");
-        Assert.False(leaseB.Peer.DeliveryOverflow);
-
-        // Process event loop turn
-        loop.SpinUntilIdle();
-
-        // chB should have received its message; chA is retired and peer A closed
-        Assert.Equal(1, engine.Evaluate("bMessages").AsNumber());
-        Assert.Equal(0, engine.Evaluate("aMessages").AsNumber());
-        Assert.Equal("closed", engine.Evaluate("a.connectionState").AsString());
-        Assert.NotEqual("closed", engine.Evaluate("b.connectionState").AsString());
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FloodingPeerRetiresItselfAndSiblingIsStillDelivered(bool native)
+    {
+        using var rig = new RateRig(native);
+        for (var i = 0; i < 257; i++) rig.Send(rig.A);
+        Assert.True(rig.A.Peer.DeliveryOverflow);
+        rig.Send(rig.B); // right after, same instant
+        Assert.False(rig.B.Peer.DeliveryOverflow);
+        Assert.Equal(1, rig.Count("bMessages"));
+        Assert.Equal("closed", rig.State("a"));
+        Assert.NotEqual("closed", rig.State("b"));
     }
 
     [Theory]

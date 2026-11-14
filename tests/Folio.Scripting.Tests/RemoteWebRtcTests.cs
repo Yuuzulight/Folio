@@ -447,34 +447,98 @@ public sealed class RemoteWebRtcTests
     [Fact]
     public void AggregateSctpReassemblyBudgetEnforcedAcrossPeersInDocument()
     {
-        // 4 KiB aggregate reassembly budget
-        var budget = new RtcMediaBudget(maxSctpReassemblyBytes: 4096);
+        // 3000 byte aggregate (1500 per peer): one ~1130 byte chunk per peer, so the third peer's chunk exceeds the aggregate.
+        var budget = new RtcMediaBudget(maxSctpReassemblyBytes: 3000);
+        var peers = new SctpReliableDelivery[3];
+        for (var i = 0; i < peers.Length; i++) { peers[i] = new SctpReliableDelivery(1, budget); peers[i].SetPeerInitialTsn(1); }
+        var chunks = SctpChunks(3000);
+        peers[0].Receive(chunks[0][1], chunks[0].AsSpan(4));
+        peers[1].Receive(chunks[0][1], chunks[0].AsSpan(4));
+        var held = budget.SctpReassemblyBytesInUse;
+        Assert.True(held > 2000);
+        Assert.Empty(peers[2].Receive(chunks[0][1], chunks[0].AsSpan(4))); // refused: aggregate would pass 3000
+        Assert.Equal(held, budget.SctpReassemblyBytesInUse);
+
+        peers[0].Clear(); // bytes are refunded, so the refused chunk is accepted on retransmission
+        peers[2].Receive(chunks[0][1], chunks[0].AsSpan(4));
+        Assert.Equal(held, budget.SctpReassemblyBytesInUse);
+
+        foreach (var peer in peers) peer.Clear();
+        Assert.Equal(0, budget.SctpReassemblyBytesInUse);
+    }
+
+    private static IReadOnlyList<byte[]> SctpChunks(int bytes, uint streamId = 0)
+    {
+        var sender = new SctpReliableDelivery();
+        return sender.Enqueue(1, (ushort)streamId, 53, new byte[bytes], 0);
+    }
+
+    private static void Feed(SctpReliableDelivery peer, IReadOnlyList<byte[]> chunks)
+    {
+        foreach (var chunk in chunks) peer.Receive(chunk[1], chunk.AsSpan(4));
+    }
+
+    [Fact]
+    public void SctpReassemblyBudgetReturnsToZeroAfterCompleteDelivery()
+    {
+        var budget = new RtcMediaBudget(maxSctpReassemblyBytes: 64 * 1024);
+        var peer = new SctpReliableDelivery(1, budget); peer.SetPeerInitialTsn(1);
+        var chunks = SctpChunks(3000);
+        Assert.True(chunks.Count > 1);
+        for (var i = 0; i < chunks.Count - 1; i++) { Assert.Empty(peer.Receive(chunks[i][1], chunks[i].AsSpan(4))); Assert.True(budget.SctpReassemblyBytesInUse > 0); }
+        var done = peer.Receive(chunks[^1][1], chunks[^1].AsSpan(4));
+        Assert.Single(done);
+        Assert.Equal(0, budget.SctpReassemblyBytesInUse);
+    }
+
+    [Fact]
+    public void RefusedSctpReserveHoldsNothingAndDoesNotUnderCountOtherPeers()
+    {
+        // Per-peer limit is half the aggregate, so peer1 alone may hold up to 2500 and then refuses the rest.
+        var budget = new RtcMediaBudget(maxSctpReassemblyBytes: 5000);
         var peer1 = new SctpReliableDelivery(1, budget); peer1.SetPeerInitialTsn(1);
         var peer2 = new SctpReliableDelivery(1, budget); peer2.SetPeerInitialTsn(1);
-
-        var sender = new SctpReliableDelivery();
-        // Generate fragments for a 3000-byte payload (~3 fragments of ~1120 bytes)
-        var chunks1 = sender.Enqueue(1, 0, 53, new byte[3000], 0);
-        // Feed chunks to peer1: chunk 0, 1 (around 2200 bytes total)
-        peer1.Receive(chunks1[0][1], chunks1[0].AsSpan(4));
-        peer1.Receive(chunks1[1][1], chunks1[1].AsSpan(4));
-        Assert.True(budget.SctpReassemblyBytesInUse > 2000);
-
-        // peer2 now receives chunks for another message
-        var chunks2 = sender.Enqueue(sender.NextTsn, 1, 53, new byte[3000], 0);
-        peer2.Receive(chunks2[0][1], chunks2[0].AsSpan(4));
-        // The next chunk exceeds budget (4096) and is dropped/not accepted into fragments
-        var dropped = peer2.Receive(chunks2[1][1], chunks2[1].AsSpan(4));
-        Assert.Empty(dropped);
-        Assert.True(budget.SctpReassemblyBytesInUse <= 4096);
-
-        // When peer1 is cleared, bytes are refunded
-        peer1.Clear();
-        Assert.True(budget.SctpReassemblyBytesInUse < 2000);
-
-        // Now peer2 can be cleared as well
+        var chunks = SctpChunks(9000);
+        peer1.Receive(chunks[0][1], chunks[0].AsSpan(4));
+        var held = budget.SctpReassemblyBytesInUse;
+        Assert.True(held > 0);
+        // peer2 fills toward its own cap; whatever is refused must leave the budget at exactly what peer2 accepted
+        var other = SctpChunks(9000);
+        var accepted = 0L;
+        foreach (var chunk in other)
+        {
+            var before = budget.SctpReassemblyBytesInUse;
+            peer2.Receive(chunk[1], chunk.AsSpan(4));
+            accepted += budget.SctpReassemblyBytesInUse - before;
+        }
+        Assert.True(accepted <= budget.SctpPeerReassemblyLimit);
+        Assert.Equal(held + accepted, budget.SctpReassemblyBytesInUse);
         peer2.Clear();
+        Assert.Equal(held, budget.SctpReassemblyBytesInUse); // a refused reserve released nothing it never held
+        peer1.Clear();
         Assert.Equal(0, budget.SctpReassemblyBytesInUse);
+    }
+
+    [Fact]
+    public void SctpReassemblyBudgetReturnsToZeroAfterClear()
+    {
+        var budget = new RtcMediaBudget(maxSctpReassemblyBytes: 64 * 1024);
+        var peer = new SctpReliableDelivery(1, budget); peer.SetPeerInitialTsn(1);
+        var chunks = SctpChunks(3000);
+        peer.Receive(chunks[0][1], chunks[0].AsSpan(4));
+        Assert.True(budget.SctpReassemblyBytesInUse > 0);
+        peer.Clear();
+        Assert.Equal(0, budget.SctpReassemblyBytesInUse);
+    }
+
+    [Fact]
+    public void OneSctpPeerCannotTakeMoreThanHalfTheAggregate()
+    {
+        var budget = new RtcMediaBudget(maxSctpReassemblyBytes: 4096);
+        var peer = new SctpReliableDelivery(1, budget); peer.SetPeerInitialTsn(1);
+        Feed(peer, SctpChunks(9000));
+        Assert.True(budget.SctpReassemblyBytesInUse <= 2048);
+        Assert.True(budget.SctpReassemblyBytesInUse > 0);
     }
 
     [Fact]

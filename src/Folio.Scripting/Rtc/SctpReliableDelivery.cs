@@ -365,11 +365,14 @@ internal sealed class SctpReliableDelivery(uint initialLocalTsn = 1, RtcMediaBud
         if (_received.Count >= MaxChunks || _ordered.Count + _fragments.Count >= MaxChunks ||
             (!_receiveSequences.ContainsKey(stream) && _receiveSequences.Count >= MaxChunks) ||
             payload.Length > MaxReceiveBytes - _receiveBytes ||
+            (budget is not null && payload.Length > budget.SctpPeerReassemblyLimit - _receiveBytes) ||
             (!unordered && (unchecked((short)(sequence - expected)) < 0 || _ordered.ContainsKey((stream, sequence)))))
             return ready;
         var fragment = new Fragment(tsn, stream, sequence, ppid, flags, payload.Slice(12).ToArray(), now);
         if (_fragments.TryGetValue(unchecked(tsn - 1), out var previous)) ValidateAdjacent(previous, fragment);
         if (_fragments.TryGetValue(unchecked(tsn + 1), out var nextFragment)) ValidateAdjacent(fragment, nextFragment);
+        // A refused fragment is neither stored nor acknowledged (not in _received), so the sender retransmits it later: the aggregate
+        // budget exerts backpressure and a silent per-document drop is only visible as a stalled transfer. Nothing is held for it.
         if (budget is not null && !budget.TryReserveSctpReassemblyBytes(payload.Length))
             return ready;
         _fragments.Add(tsn, fragment); _receiveBytes += payload.Length;
@@ -392,22 +395,26 @@ internal sealed class SctpReliableDelivery(uint initialLocalTsn = 1, RtcMediaBud
             if (parts.Count >= MaxChunks || !_fragments.TryGetValue(unchecked(current.Tsn + 1), out var following)) return ready;
             ValidateAdjacent(current, following); current = following;
         }
-        var data = new byte[total]; var destination = 0;
+        var data = new byte[total]; var destination = 0; var fragmentBytes = 0L;
         foreach (var part in parts)
         {
             part.Data.CopyTo(data, destination); destination += part.Data.Length;
             _fragments.Remove(part.Tsn); _receiveBytes -= part.Data.Length + 12;
-            budget?.ReleaseSctpReassemblyBytes(part.Data.Length + 12);
+            fragmentBytes += part.Data.Length + 12;
         }
         var message = new Message(start.Stream, start.Ppid, data, start.ReceivedAt);
-        if (start.Unordered) ready.Add(message);
+        if (start.Unordered) { budget?.ReleaseSctpReassemblyBytes(fragmentBytes); ready.Add(message); }
         else
         {
             expected = _receiveSequences.GetValueOrDefault(start.Stream);
             if (unchecked((short)(start.Sequence - expected)) < 0 || _ordered.ContainsKey((start.Stream, start.Sequence)))
+            {
+                budget?.ReleaseSctpReassemblyBytes(fragmentBytes);
                 throw new InvalidDataException("Conflicting SCTP message sequence.");
+            }
+            // The message's bytes are exactly what the fragments held, minus their per-chunk headers: swap atomically (never grows).
             _ordered.Add((start.Stream, start.Sequence), message); _receiveBytes += message.Data.Length + 12;
-            budget?.TryReserveSctpReassemblyBytes(message.Data.Length + 12);
+            budget?.ReplaceSctpReassemblyBytes(fragmentBytes, message.Data.Length + 12);
             stream = start.Stream;
             while (_ordered.Remove((stream, expected), out var next))
             {

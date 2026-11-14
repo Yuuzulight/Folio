@@ -443,7 +443,8 @@ internal sealed class UdpBroker : IDisposable
         {
             if (_queued + 1 > limit || _queuedBytes + cost > _options.MaxQueuedBytes)
             {
-                if (item.Datagram && _queuedBytes + cost <= _options.MaxQueuedBytes) { Interlocked.Increment(ref DroppedIncoming); return; }
+                // A datagram over either cap is lossy by nature: drop and count it. Only control events kill.
+                if (item.Datagram) { Interlocked.Increment(ref DroppedIncoming); return; }
             }
             else
             {

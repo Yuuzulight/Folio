@@ -15,9 +15,6 @@ internal sealed class WebRtcBindingState : IDisposable
     internal const int MaxDeliveryBytes = 1024 * 1024;
     internal const double MaxMessagesPerSecond = 1000;
     internal const double BurstMessages = 256;
-    private double _messageTokens = BurstMessages;
-    private long _lastMessageStamp;
-    private bool _hasMessageStamp;
     internal TimeProvider Clock { get; set; } = TimeProvider.System;
     private readonly LinkedList<Delivery> _deliveries = new();
     private int _deliveryCount;
@@ -231,19 +228,20 @@ internal sealed class WebRtcBindingState : IDisposable
     private bool IsDeliverable(PeerLease peer) => PermissionGranted() && !_deliveryStopped &&
         !peer.DeliveryOverflow && _peers.ContainsKey(peer.Id);
 
-    private bool TryTakeMessageToken()
+    /// <summary>The bucket belongs to the peer, so a flooding peer exhausts and retires only itself. Called under <c>_gate</c>.</summary>
+    private bool TryTakeMessageToken(PeerLease peer)
     {
         var now = Clock.GetTimestamp();
-        if (!_hasMessageStamp)
+        if (!peer.HasMessageStamp)
         {
-            _hasMessageStamp = true;
-            _lastMessageStamp = now;
+            peer.HasMessageStamp = true;
+            peer.LastMessageStamp = now;
         }
-        var seconds = (now - _lastMessageStamp) / (double)Clock.TimestampFrequency;
-        _lastMessageStamp = now;
-        _messageTokens = Math.Min(BurstMessages, _messageTokens + seconds * MaxMessagesPerSecond);
-        if (_messageTokens < 1) return false;
-        _messageTokens -= 1;
+        var seconds = (now - peer.LastMessageStamp) / (double)Clock.TimestampFrequency;
+        peer.LastMessageStamp = now;
+        peer.MessageTokens = Math.Min(BurstMessages, peer.MessageTokens + seconds * MaxMessagesPerSecond);
+        if (peer.MessageTokens < 1) return false;
+        peer.MessageTokens -= 1;
         return true;
     }
 
@@ -254,7 +252,7 @@ internal sealed class WebRtcBindingState : IDisposable
         lock (_gate)
         {
             if (!IsDeliverable(peer)) return;
-            if (_deliveryCount >= MaxDeliveryEvents || bytes > MaxDeliveryBytes - _deliveryBytes || (isMessage && !TryTakeMessageToken()))
+            if (_deliveryCount >= MaxDeliveryEvents || bytes > MaxDeliveryBytes - _deliveryBytes || (isMessage && !TryTakeMessageToken(peer)))
             {
                 peer.DeliveryOverflow = true;
                 RemoveDeliveries(peer);
@@ -524,6 +522,9 @@ internal sealed class WebRtcBindingState : IDisposable
         internal long Id { get; } = id;
         internal bool Released { get; set; }
         internal bool DeliveryOverflow { get; set; }
+        internal double MessageTokens { get; set; } = BurstMessages;
+        internal long LastMessageStamp { get; set; }
+        internal bool HasMessageStamp { get; set; }
         internal ScriptValue CloseCallback { get; set; } = ScriptValue.Undefined;
         internal bool TransportRegistered { get; set; }
         internal bool LocalCandidatesPublished { get; set; }
