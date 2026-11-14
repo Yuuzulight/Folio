@@ -4,6 +4,16 @@ using Folio.Scripting.Native;
 using Folio.ContentHost;
 
 // Dispatch before creating DOM, frame stores, script engines or content-session state.
+if (args.Length >= 1 && args[0].Equals("--broker", StringComparison.OrdinalIgnoreCase))
+{
+    var parentArg = args.SingleOrDefault(argument => argument.StartsWith("--arcana-parent-pid=", StringComparison.Ordinal));
+    if (args.Length != 2 || parentArg is null ||
+        !int.TryParse(parentArg["--arcana-parent-pid=".Length..], out var parentPid) || parentPid <= 0)
+        throw new ArgumentException("Broker mode requires --arcana-parent-pid=<pid>.");
+    await using var broker = new HeadlessContentBroker(parentPid);
+    await broker.RunAsync();
+    return;
+}
 if (args.Length == 1 && args[0] == "--gpu-webgl" && OperatingSystem.IsWindows())
 {
     // Separate GPU worker: executes WebGL command batches for one content process.
