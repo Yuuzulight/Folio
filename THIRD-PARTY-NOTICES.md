@@ -115,3 +115,17 @@ reference outputs from the RFC 8251 set, downloaded from
 `6b26a22f9ba87b2b836906a9bb7afec5f8e54d49553b1200382520ee6fedfa55`). `tools/make-opus-vectors.py` records the exact truncation.
 They are test inputs only, are not part of any package, and are published by the Opus project; I did not find a separate
 licence file with them.
+
+## H.264 decoder and test streams
+
+`src/Folio.Scripting/Rtc/H264*.cs` is Folio's managed decoder for the ITU-T H.264 / ISO/IEC 14496-10 Constrained Baseline
+subset and its RFC 6184 RTP depacketizer. It links no codec library and carries no ported codec source notice.
+
+`tests/Folio.Scripting.Tests/H264Fixtures.cs` embeds a few short test streams. They were encoded with x264 (CAVLC, no B
+frames, so Constrained Baseline); the x264 version string and options sit in each stream's SEI. The expected output hashes
+were produced by decoding the same streams with FFmpeg's H.264 decoder. x264 and FFmpeg are not part of this repository, are
+not distributed with it, and were used only to generate those fixtures. The streams are test inputs only and are not part of
+any package.
+
+H.264 is covered by patents licensed through pools such as Via LA (formerly MPEG LA). Folio does not grant a licence under
+them; anyone distributing a product that decodes H.264 is responsible for the licences that apply to them.

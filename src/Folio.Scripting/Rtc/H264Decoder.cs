@@ -53,7 +53,7 @@ internal sealed record H264DecoderLimits
 /// <see cref="Decode"/> call must carry whole access units (the depacketizer emits exactly that): the picture in progress is
 /// completed at the end of every call, so splitting one picture's slices across calls yields duplicate pictures.</para>
 /// </summary>
-internal sealed partial class H264Decoder : IVideoFrameDecoder
+internal sealed partial class H264Decoder : IVideoFrameDecoder, IDisposable
 {
     private sealed class Sps
     {
@@ -124,7 +124,30 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
     private sealed class BudgetExceeded : Exception;
     private long _work, _outputBytes;
 
-    internal H264Decoder(H264DecoderLimits? limits = null) => _limits = limits ?? new H264DecoderLimits();
+    private readonly RtcMediaBudget? _budget;
+    private long _reserved;
+
+    /// <param name="budget">When set, the memory the active SPS needs is reserved against the document's video budget and released on a size change or <see cref="Dispose"/>.</param>
+    internal H264Decoder(H264DecoderLimits? limits = null, RtcMediaBudget? budget = null)
+    {
+        _limits = limits ?? new H264DecoderLimits();
+        _budget = budget;
+    }
+
+    /// <summary>Releases the budget reservation and every buffer. The decoder must not be used afterwards.</summary>
+    public void Dispose()
+    {
+        _cur = null; _curHeader = _lastHeader = null;
+        _dpb.Clear(); _pool.Clear();
+        _haveKeyframe = false; _sps = null;
+        ReleaseReservation();
+    }
+
+    private void ReleaseReservation()
+    {
+        if (_reserved > 0) _budget?.ReleaseVideoBytes(_reserved);
+        _reserved = 0;
+    }
 
     public IReadOnlyList<DecodedVideoFrame> Decode(ReadOnlySpan<byte> annexB)
     {
@@ -465,9 +488,22 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder
 
     private void ActivateSps(Sps sps)
     {
-        _sps = sps;
         _pool.Clear();
         _dpb.Clear();
+        ReleaseReservation();
+        if (_budget is not null)
+        {
+            // Reference pictures, the pool of recycled ones and the current one (6 over the reference count), the per-macroblock
+            // state, up to three output frames in flight (4:2:0) and the RGBA conversion of the newest.
+            var total = (long)sps.MbW * sps.MbH * (384L * (sps.MaxRefFrames + 6) + 3 * 384 + 1024);
+            if (!_budget.TryReserveVideoBytes(total))
+            {
+                _sps = null; _haveKeyframe = false;
+                throw new H264Exception("exceeds the document video budget");
+            }
+            _reserved = total;
+        }
+        _sps = sps;
         _mbW = sps.MbW; _mbH = sps.MbH;
         AllocatePictureState();
     }

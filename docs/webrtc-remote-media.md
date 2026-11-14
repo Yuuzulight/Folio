@@ -102,15 +102,18 @@ I did not overclaim these:
 - Sending is not gated on the DTLS peer being the same one ICE selected after an ICE restart; restarts are not handled.
 - TURN relays (#782) are not involved; media uses whatever pair ICE selects.
 
-## Remote video (VP8)
+## Remote video (VP8 and H.264)
 
-Part of #719 and #704. A remote peer can send VP8; it is depacketized, decoded and shown in `<video srcObject>`, and
-`canvas.drawImage(video)` reads the same frame.
+Part of #719 and #704. A remote peer can send VP8 or H.264 (Constrained Baseline, see below); it is depacketized, decoded
+and shown in `<video srcObject>`, and `canvas.drawImage(video)` reads the same frame. Before the first decoded frame the
+element is black. The two codecs share one receiver base (`RtpVideoReceiver`: reorder buffer, NACK, key-frame requests, pixel
+rate cap), so everything in the table below applies to both unless a row says otherwise.
 
 ```
 SRTP -> RTP demux -> Vp8Receiver (RFC 7741 reassembly, loss timers) -> Vp8Decoder (RFC 6386) -> RGBA
+          \-> H264Receiver (reorder buffer, loss timers) -> H264Depacketizer (RFC 6184) -> H264Decoder -> RGBA
      -> RtcRemoteTrack.VideoFrame -> host sink -> media element (polled at paint, like a capture frame)
-     <- RTCP NACK / PLI / FIR from Vp8Receiver
+     <- RTCP NACK / PLI / FIR from the receiver
 ```
 
 | Piece | Where | Notes |
@@ -119,9 +122,11 @@ SRTP -> RTP demux -> Vp8Receiver (RFC 7741 reassembly, loss timers) -> Vp8Decode
 | Size caps | `RtcMediaBudget` | `MaxVideoPixels` (1920x1088) per picture and `maxVideoBytes` (64 MiB) per document, charged at each key frame that changes the size. The charge covers the four reference frames, mode info, one row of coefficients and an allowance of two RGBA output frames. **It does not cover** the receiver's packet buffer (up to 4 MiB per stream), the frame being assembled (up to 2 MiB per stream), the per-decoder copy of the compressed frame it decodes from (up to the frame size), or RGBA frames the host still holds; those are bounded per stream but not charged to the document. When a size change does not fit, the old buffers are freed before the new reservation is tried, so nothing uncharged is retained. A failed decode at an unchanged size keeps its buffers. |
 | Work bound | `Vp8Receiver` | Each stream may reconstruct 40 full-size pictures per second; pixels are charged by the picture a frame produces, not its byte size, so a 10-byte key frame at 1080p costs 2 million pixels. Frames over the allowance are dropped (an inter frame dropped this way asks for a key frame). A single call decodes at most 8 frames and converts only the newest one to RGBA. Decoding still runs under the connection's media lock, bounded by these limits, not outside it. |
 | `IMediaDecoder` | `Vp8MediaDecoder` | Decodes an IVF file (`video/x-ivf`, `video/ivf`, `video/vp8`) to timestamped frames under the caller's output budget. WebM/MP4 demuxing is not implemented. |
-| Depacketizer | `Vp8Receiver` | Payload descriptor with PictureID/TL0PICIDX/TID/KEYIDX, frames from packets by sequence and marker, 512 packets / 4 MiB buffered, 2 MiB per frame. |
-| Loss repair | `Vp8Receiver`, `RtcpCodec` | A hole older than 20 ms is NACKed (RFC 4585), at most 4 times 100 ms apart, 128 sequence numbers tracked, window 256. A hole older than 400 ms, a restart or overflow drops the frame, discards inter frames and requests a key frame with PLI (else FIR, RFC 5104), at most every 500 ms per stream (measured from the last request, a decoded key frame does not reset it) and at most one per 100 ms per document. All repair packets share a 50 per second document allowance so they cannot starve audio. A stream with no key frame 100 ms after its first packet asks for one. |
-| SDP | `RtcSdp`, controller | `m=video` with VP8, `rtcp-mux`, BUNDLE and `a=rtcp-fb` (`nack`, `nack pli`, `ccm fir`; others ignored). Feedback is sent only when both descriptions list it for the VP8 payload type. An answer takes the offered VP8 payload type (not RTX, H.264 or VP9); a section without VP8 is rejected. |
+| Depacketizer (VP8) | `Vp8Receiver` | Payload descriptor with PictureID/TL0PICIDX/TID/KEYIDX, frames from packets by sequence and marker, 512 packets / 4 MiB buffered, 2 MiB per frame. |
+| Loss repair | `RtpVideoReceiver`, `RtcpCodec` | A hole older than 20 ms is NACKed (RFC 4585), at most 4 times 100 ms apart, 128 sequence numbers tracked, window 256. A hole older than 400 ms, a restart or overflow drops the frame, discards inter frames and requests a key frame with PLI (else FIR, RFC 5104), at most every 500 ms per stream (measured from the last request, a decoded key frame does not reset it) and at most one per 100 ms per document. All repair packets share a 50 per second document allowance so they cannot starve audio. A stream with no key frame 100 ms after its first packet asks for one. For H.264 the key frame is an IDR picture. |
+| SDP | `RtcSdp`, controller | `m=video` with `rtcp-mux`, BUNDLE and `a=rtcp-fb` (`nack`, `nack pli`, `ccm fir`; others ignored). Folio offers VP8 (96), then H.264 `packetization-mode=1` with `profile-level-id` 42e01f (97) and 42001f (98), each with the same feedback list. Feedback is sent only when both descriptions list it for the payload type the stream uses. An answer picks one codec: the offered VP8 payload type when there is one (VP8 is preferred, whatever order the offer lists them in), otherwise the best decodable H.264 payload type (mode 1 before mode 0, then offer order), answered with the offered `profile-level-id` and mode. RTX, VP9 and undecodable H.264 payload types are never picked; a section with nothing decodable is rejected (port 0, out of the BUNDLE group). |
+| H.264 receiver | `H264Receiver`, `H264Depacketizer` | Packets are put back in order by the shared reorder buffer (512 packets / 4 MiB; reordering within the window costs nothing), fed in sequence to the depacketizer (single NAL, STAP-A, FU-A; 2 MiB per access unit) and every complete access unit is decoded. A picture that lost a packet is dropped whole, no later picture is shown until an IDR picture arrives, and a key frame is requested under the rules above (shared 100 ms and 50 per second document caps). The same pixel rate cap applies (40 pictures per second at the document's picture cap; a picture is charged at the last decoded size, or the cap before the first one, and any excess is charged afterwards). At most 8 access units per call; only the newest decoded picture of a call is converted to RGBA and delivered. A decode that drops a NAL unit, stops at a decoder budget or hits the decoder's catch-all discards that picture and waits for an IDR picture. After a restart or buffer overflow the first picture is dropped as well, because its head may be gone. |
+| H.264 memory | `H264Decoder`, `RtcMediaBudget` | The decoder reserves against the same per-document video budget when an SPS is activated: `macroblocks * (384 * (reference frames + 6) + 3 * 384 + 1024)` bytes, which covers the reference pictures, the recycled picture pool and the current one, three output frames in flight and the RGBA conversion. It is released on a size change, BYE, close, `inactive`/`recvonly` and port 0. A stream that does not fit is refused the way an oversized one is: nothing decodes, nothing stays reserved. `H264DecoderLimits` bound each decode call (frames, output bytes, NAL units, macroblock work, input bytes); a call cut short is counted in `BudgetStops`, and `UnexpectedErrors` counts decoder bugs. Both are exposed only as internal debug counters on `RtcRemoteTrack` (`VideoBudgetStops`, `VideoUnexpectedErrors`), never to script. |
 
 ### Releasing decoders
 
@@ -138,9 +143,39 @@ the I420 output). They and their `.md5` files come from the WebM project's offic
 budgets, BYE, fuzzed frames and RTP, RTCP round trips, SDP, the IVF adapter, and a sandboxed content-process test where
 VP8 arrives through the host UDP broker, appears in a `<video>` and is read back with `drawImage` and `getImageData`.
 
+H.264 (`RtcH264Tests`, `H264DecoderTests`, `H264DepacketizerTests`): the decoder is checked against checked-in x264 streams
+whose expected output was produced by FFmpeg's independent decoder (`H264Fixtures`). `RtcH264Tests` runs those streams
+through the engine over SRTP with a fake clock (no sleeping), at several MTUs with STAP-A and FU-A, and compares every
+delivered frame with a direct decode. It also covers reordering and duplicates, NACK with retransmission, an unrecovered
+loss followed by PLI and the next IDR picture, FIR-only and no-feedback negotiation, both codecs on one section, SDP
+negotiation with both codecs, one codec and none, release of the decoder memory on inactive/port 0/BYE/close, refusal by the
+memory and picture caps, the pixel rate cap, the decoder call budgets, and hostile RTP (FU-A without a start, truncated and
+oversized units, forbidden bits, random payloads, endless fragments, sequence jumps). `ContentHostPolicyTests` has the same
+broker round trip as VP8 with H.264; it needs the sandboxed content host (`dotnet build tools/Folio.ContentHost` first) and
+runs in CI.
+
+### H.264 support
+
+Decodable: **Constrained Baseline** (and Baseline without FMO/ASO): CAVLC, I and P slices, 4:2:0 8-bit, progressive frame
+coding, several slices per picture, several reference frames with list modification and sliding-window or adaptive reference
+marking, deblocking, cropping. Negotiated profiles are those whose `profile-level-id` names Baseline or Constrained Baseline
+(profile_idc 0x42, or 0x4d / 0x58 with constraint_set0); the level is not checked, Folio's limits are host policy.
+
+Not decodable. A NAL unit using any of these is dropped, the picture is discarded, an IDR picture is requested and the
+decoder keeps running:
+
+- CABAC (entropy_coding_mode 1), so Main and High streams.
+- B slices (and SP/SI slices), so no bidirectional prediction.
+- The High profiles and what only they add (8x8 transform, scaling matrices, monochrome, 4:2:2/4:4:4, bit depths above 8): an SPS whose profile_idc is not 66, 77 or 88 is refused. Weighted prediction is refused in the PPS.
+- Interlaced coding (field pictures, MBAFF).
+- FMO and ASO (slice groups, arbitrary slice order), redundant pictures.
+- Output reordering: output order is decode order, which is exact for Constrained Baseline.
+- Packetization mode 2 (STAP-B, MTAP, FU-B).
+- Loss concealment: a lost or damaged picture is never concealed, it is dropped.
+
 ### Not done
 
-- Sending video (above), simulcast, SVC, VP9, H.264, RTX, REMB/transport-cc, header extensions beyond skipping them.
+- Sending video (above), simulcast, SVC, VP9, H.264 beyond Constrained Baseline (above), RTX, REMB/transport-cc, header extensions beyond skipping them.
 - No playout delay or frame pacing: a frame is delivered when complete. Hosts repaint on their own schedule; there is no
   frame-arrived invalidation yet. The picture's scaling bits (display upscaling hint) are ignored.
 - Decoding is single-threaded and unoptimised C#; large pictures cost CPU on the content process.
