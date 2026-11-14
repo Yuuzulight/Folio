@@ -390,6 +390,34 @@ public sealed class IframeLifecycleTests
     }
 
     [Fact]
+    public void GrandchildIframeSharesTheRootConnectionCap()
+    {
+        var options = new FolioOptions
+        {
+            BaseUri = new Uri("https://parent.example/root/index.html"),
+            Capabilities = new FeatureCapabilities { Iframes = true, WebRtc = true },
+            Scripting = ScriptingPolicy.ContentProcess,
+            Limits = ResourceLimits.Default with { MaxWebRtcConnections = 2 }
+        };
+        using var document = Document.Parse("<iframe id='f' allow='webrtc'></iframe>", options);
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        try
+        {
+            var grandchild = "var pc = new RTCPeerConnection(); var err = ''; try { new RTCPeerConnection(); } catch(e) { err = e.name; } document.body.setAttribute('data-err', err);";
+            var child = "var pc = new RTCPeerConnection(); var g = document.createElement('iframe'); g.allow = 'webrtc'; g.srcdoc = '<script>' + "
+                + System.Text.Json.JsonSerializer.Serialize(grandchild) + " + '</' + 'script>'; document.body.appendChild(g);";
+            var childHtml = System.Text.Json.JsonSerializer.Serialize("<script>" + child + "</script>");
+            engine.Evaluate($"var f = document.getElementById('f'); f.srcdoc = {childHtml}; f.contentDocument.querySelector('iframe').contentDocument;");
+            var childDoc = Assert.IsType<Document>(document.GetElementById("f")!.Node.FramePresentation!.ChildDocument);
+            var grandchildDoc = Assert.IsType<Document>(childDoc.QuerySelector("iframe")!.Node.FramePresentation!.ChildDocument);
+            // Root scope holds 2 slots: the child's connection plus the grandchild's first; its second is over the cap.
+            Assert.Equal("QuotaExceededError", grandchildDoc.QuerySelector("body")!.GetAttribute("data-err"));
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Fact]
     public void ClosingIframeConnectionReleasesSlotForParent()
     {
         var options = new FolioOptions

@@ -109,29 +109,6 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
         return false;
     }
 
-    private HashSet<string>? GetFeaturePolicyOrigins(string feature)
-    {
-        var raw = Element.GetAttribute("allow");
-        if (string.IsNullOrWhiteSpace(raw)) return null;
-        foreach (var policy in raw.Split(';', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var tokens = policy.Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries);
-            if (tokens.Length <= 1 || !string.Equals(tokens[0], feature, StringComparison.OrdinalIgnoreCase)) continue;
-            var origins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var token in tokens.Skip(1))
-            {
-                if (token is "*" or "'self'" or "'src'" or "'none'") continue;
-                if (Uri.TryCreate(token.Trim('\''), UriKind.Absolute, out var uri))
-                {
-                    var origin = NetworkOrigin(uri);
-                    if (origin != "null") origins.Add(origin);
-                }
-            }
-            if (origins.Count > 0) return origins;
-        }
-        return null;
-    }
-
     private FeatureCapabilities ChildCapabilities
     {
         get
@@ -452,24 +429,8 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
         }
         var parent = ParentOptions;
         var childBase = inline is not null ? BaseUri : Uri.TryCreate(source, UriKind.Absolute, out var resolvedBase) ? resolvedBase : BaseUri;
-        HashSet<string> childAllowedOrigins;
-        var policyOrigins = GetFeaturePolicyOrigins("webrtc");
-        if (policyOrigins is not null)
-        {
-            childAllowedOrigins = policyOrigins;
-            if (parent?.WebRtcAllowedOrigins is not null)
-                childAllowedOrigins.IntersectWith(parent.WebRtcAllowedOrigins);
-            else
-                childAllowedOrigins.Clear();
-        }
-        else
-        {
-            childAllowedOrigins = parent?.WebRtcAllowedOrigins is not null
-                ? new HashSet<string>(parent.WebRtcAllowedOrigins, StringComparer.OrdinalIgnoreCase)
-                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if ((Origin == "null" || Origin != ParentOrigin) && parent?.WebRtcAllowedOrigins is not null)
-                childAllowedOrigins.IntersectWith(parent.WebRtcAllowedOrigins);
-        }
+        // The set holds ICE server endpoints (stun:/turn:), not web origins, so a child inherits the parent's set and never widens it.
+        var childAllowedOrigins = new HashSet<string>(parent is null ? [] : parent.WebRtcAllowedOrigins, StringComparer.OrdinalIgnoreCase);
         var options = parent is null ? new FolioOptions { BaseUri = childBase } : new FolioOptions
         {
             ArtifactId = parent.ArtifactId,

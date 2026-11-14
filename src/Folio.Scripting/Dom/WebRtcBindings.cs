@@ -44,6 +44,9 @@ internal sealed class WebRtcBindingState : IDisposable
 {
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FolioOptions, WebRtcDocumentScope> DocumentScopes = new();
 
+    // Scopes are keyed on FolioOptions identity: a root document and the child options IframeState builds for it
+    // share one scope only because the child is explicitly associated via AssociateScope. The time and maxConnections
+    // arguments apply only when the scope is first created for an options instance; later calls ignore them.
     internal static WebRtcDocumentScope GetOrCreateScope(FolioOptions options, TimeProvider? time = null, int? maxConnections = null) =>
         DocumentScopes.GetValue(options, opt => new WebRtcDocumentScope(maxConnections ?? opt.Limits.MaxWebRtcConnections, time));
 
@@ -125,10 +128,20 @@ internal sealed class WebRtcBindingState : IDisposable
         {
             if (_disposed || _deliveryStopped) throw WebIdlException.DomException("InvalidStateError", "The document is closed.");
             if (!_scope.TryAcquireConnection()) throw WebIdlException.DomException("QuotaExceededError", "The WebRTC peer connection limit has been exceeded.");
-            var lease = new PeerLease(this, ++_nextId, servers);
-            _peers.Add(lease.Id, lease);
-            try { return _engine.CreateHostObject(PeerTemplate, lease); }
-            catch { _peers.Remove(lease.Id); _scope.ReleaseConnection(); lease.Dispose(); throw; }
+            PeerLease? lease = null;
+            try
+            {
+                lease = new PeerLease(this, ++_nextId, servers);
+                _peers.Add(lease.Id, lease);
+                return _engine.CreateHostObject(PeerTemplate, lease);
+            }
+            catch
+            {
+                if (lease is not null) _peers.Remove(lease.Id);
+                _scope.ReleaseConnection();
+                lease?.Dispose();
+                throw;
+            }
         }
     }
 

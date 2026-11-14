@@ -105,30 +105,59 @@ public sealed class IframeAuditTests
     }
 
     [Fact]
-    public void CrossOriginIframeCannotGetBroaderWebRtcAllowedOriginsThanParent()
+    public void IframeInheritsParentIceEndpointsAndAllowTokensDoNotWidenThem()
     {
-        var (engine, document) = CreateEngineAndDocument(new FeatureCapabilities { Iframes = true, WebRtc = true },
-            new HashSet<string>(["https://allowed.example"], StringComparer.OrdinalIgnoreCase));
+        var parentEndpoints = new HashSet<string>(["stun:stun.example:3478", "turn:turn.example"], StringComparer.OrdinalIgnoreCase);
+        var (engine, document) = CreateEngineAndDocument(new FeatureCapabilities { Iframes = true, WebRtc = true }, parentEndpoints);
         try
         {
             engine.Evaluate("""
                 const frame = document.createElement('iframe');
                 frame.id = 'target';
                 frame.setAttribute('sandbox', 'allow-scripts');
-                frame.allow = "webrtc https://allowed.example https://other.example";
+                frame.allow = "webrtc https://other.example stun:evil.example:3478";
                 frame.srcdoc = "<p>child</p>";
                 document.body.appendChild(frame);
                 frame.contentWindow.document;
                 """);
             var childDoc = Assert.IsType<Document>(document.QuerySelector("#target")!.Node.FramePresentation!.ChildDocument);
-            Assert.Contains("https://allowed.example", childDoc.Options.WebRtcAllowedOrigins);
-            Assert.DoesNotContain("https://other.example", childDoc.Options.WebRtcAllowedOrigins);
+            Assert.True(parentEndpoints.SetEquals(childDoc.Options.WebRtcAllowedOrigins));
         }
         finally
         {
             DomBindings.Dispose(engine);
             document.Dispose();
         }
+    }
+
+    [Fact]
+    public void CrossOriginSrcIframeWithoutAllowDeniesRTCPeerConnection()
+    {
+        var loader = new CrossOriginLoader();
+        using var document = Document.Parse("<iframe id='f' sandbox='allow-scripts' src='https://other.example/page.html'></iframe>", new FolioOptions
+        {
+            BaseUri = new Uri("https://parent.example/"),
+            Capabilities = new FeatureCapabilities { Iframes = true, WebRtc = true },
+            Scripting = ScriptingPolicy.ContentProcess,
+            ResourceLoader = loader,
+        });
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("document.getElementById('f').contentDocument;");
+            var child = Assert.IsType<Document>(document.GetElementById("f")!.Node.FramePresentation!.ChildDocument);
+            Assert.Equal("NotSupportedError", child.QuerySelector("body")!.GetAttribute("data-res"));
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    private sealed class CrossOriginLoader : Folio.Resources.IResourceLoader
+    {
+        public Task<Folio.Resources.ResourceResponse?> LoadAsync(Folio.Resources.ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<Folio.Resources.ResourceResponse?>(Folio.Resources.ResourceResponse.Loaded(
+                System.Text.Encoding.UTF8.GetBytes("<script>var res=''; try { new RTCPeerConnection(); res='allowed'; } catch(e) { res=e.name; } document.body.setAttribute('data-res', res);</script>"),
+                "text/html"));
     }
 
     private static JintScriptEngine CreateEngine(FeatureCapabilities capabilities)
