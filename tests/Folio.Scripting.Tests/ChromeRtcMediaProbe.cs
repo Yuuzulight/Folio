@@ -81,6 +81,38 @@ internal static class ChromeRtcMediaProbe
         return map?[(map.IndexOf(' ') + 1)..];
     }
 
+    /// <summary>
+    /// Folio's own offer, reduced to one video codec. Chrome answering an offer that lists VP8 keeps sending VP8 even when its answer lists only H.264
+    /// (it fixes its send codec from the offer), so the codec under test has to be the only one offered.
+    /// </summary>
+    internal static string KeepVideoCodec(string sdp, string codec)
+    {
+        var lines = sdp.Split("\r\n"); var drop = new HashSet<string>(); var inVideo = false;
+        foreach (var line in lines)
+        {
+            if (line.StartsWith("m=", StringComparison.Ordinal)) inVideo = line.StartsWith("m=video ", StringComparison.Ordinal);
+            if (inVideo && line.StartsWith("a=rtpmap:", StringComparison.Ordinal))
+            {
+                var name = line[(line.IndexOf(' ') + 1)..].Split('/')[0];
+                if (!name.Equals(codec, StringComparison.OrdinalIgnoreCase)) drop.Add(line["a=rtpmap:".Length..line.IndexOf(' ')]);
+            }
+        }
+        var kept = new List<string>(); inVideo = false;
+        foreach (var line in lines)
+        {
+            if (line.StartsWith("m=", StringComparison.Ordinal)) inVideo = line.StartsWith("m=video ", StringComparison.Ordinal);
+            if (inVideo && line.StartsWith("m=", StringComparison.Ordinal))
+            {
+                var parts = line.Split(' ');
+                kept.Add(string.Join(' ', parts.Take(3).Concat(parts.Skip(3).Where(pt => !drop.Contains(pt)))));
+            }
+            else if (inVideo && (line.StartsWith("a=rtpmap:", StringComparison.Ordinal) || line.StartsWith("a=fmtp:", StringComparison.Ordinal) || line.StartsWith("a=rtcp-fb:", StringComparison.Ordinal))
+                     && drop.Contains(line[(line.IndexOf(':') + 1)..line.IndexOf(' ')])) { }
+            else kept.Add(line);
+        }
+        return string.Join("\r\n", kept);
+    }
+
     private static double LumaStdDev(MediaCaptureVideoFrame frame)
     {
         var span = frame.Rgba.Span; double sum = 0, sumSquares = 0; var n = span.Length / 4;
@@ -177,7 +209,11 @@ internal static class ChromeRtcMediaProbe
         // When Folio offers: 1 audio sender (sendrecv) and 1 video receiver (recvonly).
         // Folio offers VP8 and H.264 (Constrained Baseline); the page's setCodecPreferences / SDP filter selects the tested codec.
         var offer = folioAnswerer ? "" : await peer.CreateOfferAsync(hasDataChannels: false, audioSenders: 1, videoSenders: 0, audioReceivers: 0, videoReceivers: 1);
-        if (!folioAnswerer) peer.SetLocalDescription("offer", offer);
+        if (!folioAnswerer)
+        {
+            offer = KeepVideoCodec(offer, codec);
+            peer.SetLocalDescription("offer", offer);
+        }
 
         var evidenceRoot = Environment.GetEnvironmentVariable("FOLIO_RTC_PROBE_OUTPUT") ?? Path.GetTempPath();
         var profile = Path.Combine(Path.GetFullPath(evidenceRoot), "folio-rtc-media-chrome-" + codec.ToLowerInvariant() + "-" + (folioAnswerer ? "answerer-" : "offerer-") + Guid.NewGuid().ToString("N"));

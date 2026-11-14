@@ -309,6 +309,23 @@ public sealed class RtcH264Tests
     }
 
     [Fact]
+    public async Task TheProbeOfferCanBeReducedToOneVideoCodecAndStillParses()
+    {
+        using var peer = new RtcPeerConnectionController();
+        var offer = await peer.CreateOfferAsync(false, 1, 0, 0, 1);
+        var h264 = ChromeRtcMediaProbe.KeepVideoCodec(offer, "H264");
+        Assert.DoesNotContain("VP8", h264);
+        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 97 98\r\n", h264);
+        Assert.DoesNotContain("a=rtcp-fb:96", h264);
+        Assert.Equal("H264/90000", ChromeRtcMediaProbe.FirstCodec(h264, "video"));
+        var vp8 = ChromeRtcMediaProbe.KeepVideoCodec(offer, "VP8");
+        Assert.DoesNotContain("H264", vp8);
+        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 96\r\n", vp8);
+        Assert.Contains("m=audio", vp8);
+        Assert.Single(RtcSdp.Parse(vp8).Media.Where(m => m.Kind == "video"));
+    }
+
+    [Fact]
     public async Task AnOfferListsVp8ThenBothH264VariantsWithFeedbackAndRtcpMux()
     {
         using var offerer = new RtcPeerConnectionController();
