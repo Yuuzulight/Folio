@@ -93,20 +93,24 @@ internal sealed class H264Receiver : RtpVideoReceiver
 
     private void DeliverUnit(byte[] unit)
     {
-        var key = ContainsIdr(unit);
-        if (NeedKey && !key) { FramesDiscarded++; return; } // a picture predicted from a missing reference is worse than none
+        Classify(unit, out var key, out var slices, out var parameterSets);
+        // A picture predicted from a missing reference is worse than none. Parameter sets sent in an access unit of their own
+        // (an SPS and PPS before the IDR picture) still go to the decoder: they cost no picture work.
+        if (NeedKey && !key && !(parameterSets && !slices)) { FramesDiscarded++; return; }
         // The cost is the picture the decoder reconstructs, whatever the unit's byte size; the size is known once a picture decoded.
-        var estimate = _lastPixels > 0 ? _lastPixels : _maxPixels;
-        if (!TryChargePixels(estimate, Time.GetTimestamp()))
+        var estimate = slices ? (_lastPixels > 0 ? _lastPixels : _maxPixels) : 0;
+        if (slices && !TryChargePixels(estimate, Time.GetTimestamp()))
         {
             FramesRateLimited++; FramesDiscarded++;
             NeedKey = true; KeyRequestAfter = 0; // the dropped picture breaks the reference chain
             return;
         }
-        var dropped = _decoder.NalUnitsDropped; var stops = _decoder.BudgetStops; var unexpected = _decoder.UnexpectedErrors;
+        var dropped = _decoder.NalUnitsDropped; var stops = _decoder.BudgetStops; var unexpected = _decoder.UnexpectedErrors; var concealed = _decoder.PicturesConcealed;
         var frames = _decoder.Decode(unit);
-        if (_decoder.NalUnitsDropped != dropped || _decoder.BudgetStops != stops || _decoder.UnexpectedErrors != unexpected)
+        if (_decoder.NalUnitsDropped != dropped || _decoder.BudgetStops != stops || _decoder.UnexpectedErrors != unexpected || _decoder.PicturesConcealed != concealed)
         {
+            // A concealed picture is one where slices were missing without a sequence gap to show it, for example a stream joined in
+            // the middle of an IDR picture: it is never shown, and the next complete IDR picture starts the stream.
             // Unsupported tools, a corrupt NAL unit or a budget stop: the references may be damaged, so start over from an IDR picture.
             DecodeErrors++;
             NeedKey = true; KeyRequestAfter = 0;
@@ -121,16 +125,24 @@ internal sealed class H264Receiver : RtpVideoReceiver
         _pending = last; // earlier pictures of this call were superseded and are never converted
     }
 
-    /// <summary>True when the access unit holds an IDR slice (NAL unit type 5). Units from the depacketizer use 4-byte start codes.</summary>
-    internal static bool ContainsIdr(ReadOnlySpan<byte> unit)
+    /// <summary>What the access unit holds: an IDR slice (NAL type 5), any slice (1 or 5), an SPS or PPS (7 or 8). Units from the depacketizer use 4-byte start codes.</summary>
+    internal static void Classify(ReadOnlySpan<byte> unit, out bool idr, out bool slices, out bool parameterSets)
     {
+        idr = slices = parameterSets = false;
         for (var i = 0; i + 3 < unit.Length; i++)
         {
             if (unit[i + 2] > 1) { i += 2; continue; }
-            if (unit[i] == 0 && unit[i + 1] == 0 && unit[i + 2] == 1 && (unit[i + 3] & 0x1F) == 5) return true;
+            if (unit[i] != 0 || unit[i + 1] != 0 || unit[i + 2] != 1) continue;
+            switch (unit[i + 3] & 0x1F)
+            {
+                case 5: idr = slices = true; break;
+                case 1: slices = true; break;
+                case 7 or 8: parameterSets = true; break;
+            }
         }
-        return false;
     }
+
+    internal static bool ContainsIdr(ReadOnlySpan<byte> unit) { Classify(unit, out var idr, out _, out _); return idr; }
 
     /// <summary>BT.601 limited range, the same conversion the VP8 path uses.</summary>
     internal static byte[] ToRgba(DecodedVideoFrame frame)

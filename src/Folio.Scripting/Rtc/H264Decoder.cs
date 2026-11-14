@@ -115,6 +115,9 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder, IDisposable
     internal int PicturesDecoded { get; private set; }
     internal int NalUnitsDropped { get; private set; }
 
+    /// <summary>Pictures that were emitted with macroblocks no slice delivered (filled from the previous picture or grey). The RTP receiver discards those and asks for an IDR picture.</summary>
+    internal int PicturesConcealed { get; private set; }
+
     /// <summary>Times the catch-all in <see cref="Decode"/> fired and reset the decoder: each one is a decoder bug, never bad input.</summary>
     internal int UnexpectedErrors { get; private set; }
 
@@ -743,7 +746,7 @@ internal sealed partial class H264Decoder : IVideoFrameDecoder, IDisposable
         var h = _curHeader!;
         _cur = null;
         _lastHeader = null;
-        ConcealMissing(cur);
+        if (ConcealMissing(cur)) PicturesConcealed++;
         Deblock(cur);
         PicturesDecoded++;
         EmitFrame(cur);

@@ -357,7 +357,7 @@ public sealed class RtcVideoTests
         BinaryPrimitives.WriteUInt16LittleEndian(tiny.AsSpan(6), 1920); BinaryPrimitives.WriteUInt16LittleEndian(tiny.AsSpan(8), 1080);
         var time = new ManualTime();
         using var receiver = new Vp8Receiver(new Vp8Decoder(maxPixels: 1920 * 1088), time);
-        var output = new Vp8ReceiverOutput();
+        var output = new VideoReceiverOutput();
         var payload = new byte[tiny.Length + 1];
         payload[0] = 0x10; tiny.CopyTo(payload, 1);
         for (var i = 0; i < 1000; i++) receiver.Push(i, (uint)i, true, payload, time.GetTimestamp(), output); // no time passes
@@ -423,7 +423,7 @@ public sealed class RtcVideoTests
         var frames = Frames();
         var time = new ManualTime();
         using var receiver = new Vp8Receiver(new Vp8Decoder(maxPixels: 1 << 22), time);
-        var output = new Vp8ReceiverOutput();
+        var output = new VideoReceiverOutput();
         // Every second packet missing: 100 holes that cannot share bitmask items beyond 17 numbers each.
         for (var i = 0; i < 200; i += 2)
         {
@@ -509,7 +509,7 @@ public sealed class RtcVideoTests
         var decoder = new Vp8Decoder(maxPixels: 1 << 22);
         var time = new ManualTime();
         using var receiver = new Vp8Receiver(decoder, time);
-        var output = new Vp8ReceiverOutput();
+        var output = new VideoReceiverOutput();
         // A frame that never ends: 1000 byte packets without a marker, far beyond the 2 MiB frame limit and the buffer limit.
         var filler = new byte[1001]; filler[0] = 0x10;
         for (var i = 0; i < 3000; i++)

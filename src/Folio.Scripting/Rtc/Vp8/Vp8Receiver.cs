@@ -29,9 +29,6 @@ internal readonly record struct Vp8PayloadDescriptor(bool NonReference, bool Sta
     }
 }
 
-/// <summary>Kept for callers that name the VP8 receiver's output type; it is the shared <see cref="VideoReceiverOutput"/>.</summary>
-internal sealed class Vp8ReceiverOutput : VideoReceiverOutput;
-
 /// <summary>
 /// Reassembles VP8 frames from RTP packets (RFC 7741) and decodes them; reordering, NACK, keyframe requests and the decode
 /// work budget are the shared <see cref="RtpVideoReceiver"/>.

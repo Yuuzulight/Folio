@@ -276,7 +276,7 @@ public sealed class RtcH264Tests
         using var silent = new H264Link(Local(""), Remote(""));
         silent.Send(silent.Packetize(units[1]));
         silent.Advance(1500);
-        Assert.Empty(silent.Feedback().Where(p => p.Kind is RtcpKind.PictureLossIndication or RtcpKind.FullIntraRequest or RtcpKind.Nack));
+        Assert.DoesNotContain(silent.Feedback(), p => p.Kind is RtcpKind.PictureLossIndication or RtcpKind.FullIntraRequest or RtcpKind.Nack);
     }
 
     [Fact]
@@ -510,6 +510,66 @@ public sealed class RtcH264Tests
         Assert.True(starved.WaitingForKeyFrame);
     }
 
+    private static List<byte[]> Nals(List<byte[]> unit, params int[] types) => unit.Where(n => types.Contains(n[0] & 0x1F)).ToList();
+
+    [Fact]
+    public void ParameterSetsInAnAccessUnitOfTheirOwnReachTheDecoderBeforeTheIdrPicture()
+    {
+        var units = Units(H264Fixtures.QcifLife());
+        var expected = Reference(units);
+        using var link = new H264Link();
+        link.Send(link.Packetize(Nals(units[0], 7, 8)));                // SPS and PPS, marker-terminated, no slice
+        Assert.Empty(link.Delivered);
+        link.Send(link.Packetize(Nals(units[0], 1, 5)));                // the IDR slice without parameter sets
+        AssertFrames(expected, link.Delivered, 0);
+        Assert.Equal(1, link.Tracks[0].KeyFramesDecoded);
+        Assert.Equal(0, link.Tracks[0].VideoDecodeErrors);
+    }
+
+    [Fact]
+    public void AStreamJoinedInTheMiddleOfAnIdrPictureShowsNothingConcealedAndWaitsForACompleteOne()
+    {
+        var units = Units(H264Fixtures.CroppedSlices());                // four slices per picture, IDR every fourth
+        var expected = Reference(units);
+        using var link = new H264Link();
+        link.Send(link.Packetize(Nals(units[0], 7, 8)));
+        var slices = Nals(units[0], 5);
+        Assert.True(slices.Count >= 2);
+        link.Send(link.Packetize(slices.Skip(1).ToList()));             // the first slice never arrived: no sequence gap shows it
+        Assert.Empty(link.Delivered);                                   // the picture would have been concealed: not shown
+        Assert.Equal(1, link.Tracks[0].VideoDecodeErrors);
+        link.Send(link.Packetize(units[1]));                            // a P picture on top of it is not shown either
+        Assert.Empty(link.Delivered);
+        link.Advance(150);
+        Assert.Contains(link.Feedback(), p => p.Kind == RtcpKind.PictureLossIndication);
+        foreach (var unit in units.Skip(4)) link.Send(link.Packetize(unit));
+        AssertFrames(expected, link.Delivered, 4, 5, 6, 7);
+        Assert.Equal(0, link.Tracks[0].VideoUnexpectedErrors);
+    }
+
+    [Fact]
+    public void AnUnparsablePacketizationModeOrProfileLevelIdIsRefusedNotDefaulted()
+    {
+        static RtcCodec Codec(string fmtp) => RtcSdp.Parse("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 102\r\na=rtpmap:102 H264/90000\r\na=fmtp:102 " + fmtp + "\r\n").Media[0].CodecFor(102)!;
+        Assert.True(Codec("packetization-mode=1;profile-level-id=42e01f").IsDecodableH264);
+        Assert.True(Codec("profile-level-id=42E01F").IsDecodableH264);                  // case does not matter, mode defaults to 0
+        Assert.True(Codec("packetization-mode=0").IsDecodableH264);                     // absent profile means 42000a
+        foreach (var bad in new[] { "packetization-mode=one", "packetization-mode=", "packetization-mode=01", "packetization-mode=-1", "packetization-mode=1.0", "packetization-mode=2", "packetization-mode=10" })
+            Assert.False(Codec(bad + ";profile-level-id=42e01f").IsDecodableH264, bad);
+        foreach (var bad in new[] { "profile-level-id=", "profile-level-id=42e01", "profile-level-id=42e01f0", "profile-level-id=42e0zz", "profile-level-id=+2e01f", "profile-level-id=0x42e01", "profile-level-id=42e 01" })
+            Assert.False(Codec("packetization-mode=1;" + bad).IsDecodableH264, bad);
+    }
+
+    [Fact]
+    public async Task AnAnswerRejectsASectionWhoseOnlyH264PayloadHasAMalformedFmtp()
+    {
+        foreach (var fmtp in new[] { "packetization-mode=one;profile-level-id=42e01f", "packetization-mode=1;profile-level-id=42e01" })
+        {
+            var answer = await Answer(BrowserHead + "102" + BrowserTail + "a=rtpmap:102 H264/90000\r\na=fmtp:102 " + fmtp + "\r\n");
+            Assert.Contains("m=video 0 ", answer);
+        }
+    }
+
     // ---- hostile input ----
 
     [Fact]
@@ -605,7 +665,7 @@ public sealed class RtcH264Tests
     }
 
     [Fact]
-    public void AStreamSwitchingToAnotherCodecOnTheSameSsrcIsDropped()
+    public void AStreamSwitchingToAnotherCodecOnTheSameSsrcGetsAFreshReceiver()
     {
         var units = Units(H264Fixtures.QcifLife());
         var both = "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96 97\r\na=mid:v\r\na=recvonly\r\na=rtcp-mux\r\na=rtpmap:96 VP8/90000\r\na=rtpmap:97 H264/90000\r\n" +
@@ -613,8 +673,15 @@ public sealed class RtcH264Tests
         using var link = new H264Link(both, both.Replace("a=recvonly", "a=sendonly"));
         link.Send(link.Packetize(units[0]));
         Assert.Single(link.Delivered);
-        link.Send([link.Rtp([0x10, 1, 2, 3, 4], true, link.Timestamp, payloadType: 96)]); // a VP8 payload on the H.264 SSRC
+        Assert.True(link.Budget.VideoBytesInUse > 0);
+        // The same SSRC now carries the other codec (a renegotiation): the H.264 decoder and its budget go, a new receiver takes over.
+        link.Send([link.Rtp([0x10, 1, 2, 3, 4], true, link.Timestamp, payloadType: 96)]);
+        Assert.Equal(0, link.Budget.VideoBytesInUse);
         Assert.Single(link.Delivered);
-        Assert.True(link.Engine.RtpPacketsDropped > 0 || link.Tracks[0].PacketsDropped > 0);
+        // And back: H.264 decodes again from its next IDR picture.
+        link.Timestamp += 3000;
+        link.Send(link.Packetize(units[0]));
+        Assert.Equal(2, link.Delivered.Count);
+        Assert.True(link.Budget.VideoBytesInUse > 0);
     }
 }

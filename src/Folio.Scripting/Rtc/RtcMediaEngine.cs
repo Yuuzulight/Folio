@@ -331,6 +331,14 @@ internal sealed class RtcMediaEngine : IDisposable
         var ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(8));
         if (payloadLength < 0 || payloadLength > MaxPayloadBytes) { RtpPacketsDropped++; return; }
 
+        // A renegotiation can move an SSRC to another video codec: the old receiver (and its decoder budget) goes, a new one is made below.
+        if (_streams.TryGetValue(ssrc, out var existing) && existing.Video is not null
+            && existing.Section.ReceiveCodecs.FirstOrDefault(c => c.PayloadType == payloadType) is { IsVideoDecodable: true } switched
+            && switched.IsH264 != existing.VideoIsH264)
+        {
+            existing.Video.Dispose();
+            _streams.Remove(ssrc);
+        }
         if (!_streams.TryGetValue(ssrc, out var stream))
         {
             var section = SelectSection(ssrc, payloadType);
