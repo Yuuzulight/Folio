@@ -1,11 +1,54 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Folio.Imaging;
 
 namespace Folio.Scripting.Tests;
 
 public sealed class HeadlessContentBrokerLifetimeTests
 {
+    [Fact]
+    public async Task BrokerSnapshotObservesDomMutationAndScreenshotContainsRenderedPng()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var broker = StartBroker(Environment.ProcessId);
+        try
+        {
+            using (var hello = await ExchangeAsync(broker, 1, new { op = "hello" }))
+                Assert.True(hello.RootElement.GetProperty("ok").GetBoolean());
+            using (var load = await ExchangeAsync(broker, 2, new
+                       { op = "load", urlLabel = "fixture:broker-png-test", html = "<html><body><p id='status'>before</p><canvas id='paint' width='64' height='64'></canvas></body></html>" }))
+                Assert.True(load.RootElement.GetProperty("ok").GetBoolean());
+            using (var evaluate = await ExchangeAsync(broker, 3, new
+                       { op = "evaluate", expression = "var canvas=document.getElementById('paint'); var context=canvas.getContext('2d'); context.fillStyle='#256b33'; context.fillRect(0,0,32,32); document.getElementById('status').textContent='mutated by native JS'; 'mutation-complete'" }))
+                Assert.Equal("mutation-complete", evaluate.RootElement.GetProperty("value").GetString());
+            using (var snapshot = await ExchangeAsync(broker, 4, new { op = "snapshot" }))
+                Assert.Contains("mutated by native JS", snapshot.RootElement.GetProperty("snapshot").GetProperty("text").GetString());
+
+            using var screenshot = await ExchangeAsync(broker, 5, new { op = "screenshot" });
+            var root = screenshot.RootElement;
+            Assert.True(root.GetProperty("ok").GetBoolean());
+            Assert.Equal("image/png", root.GetProperty("mimeType").GetString());
+            var bytes = Convert.FromBase64String(root.GetProperty("data").GetString()!);
+            Assert.True(bytes.AsSpan().StartsWith(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }));
+            var image = ImageDecoder.Decode(bytes);
+            Assert.NotNull(image);
+            Assert.Equal(root.GetProperty("width").GetInt32(), image.Width);
+            Assert.Equal(root.GetProperty("height").GetInt32(), image.Height);
+            var paintedPixels = 0;
+            var nonWhitePixels = 0;
+            for (var offset = 0; offset < image.Pixels.Length; offset += 4)
+            {
+                if (image.Pixels[offset] == 37 && image.Pixels[offset + 1] == 107 && image.Pixels[offset + 2] == 51)
+                    paintedPixels++;
+                if (image.Pixels[offset] != 255 || image.Pixels[offset + 1] != 255 || image.Pixels[offset + 2] != 255)
+                    nonWhitePixels++;
+            }
+            Assert.True(paintedPixels > 0 || nonWhitePixels > 100, "The PNG did not contain the sandboxed page rendering.");
+        }
+        finally { KillTreeIfRunning(broker); }
+    }
+
     [Fact]
     public async Task BrokerExitsWhenParentExitsWhileWaitingForInput()
     {
@@ -77,6 +120,20 @@ public sealed class HeadlessContentBrokerLifetimeTests
         start.ArgumentList.Add("--broker");
         start.ArgumentList.Add($"--arcana-parent-pid={parentPid}");
         return Process.Start(start) ?? throw new InvalidOperationException("Unable to start Folio headless broker.");
+    }
+
+    private static async Task<JsonDocument> ExchangeAsync(Process broker, int id, object request)
+    {
+        var requestJson = JsonSerializer.Serialize(request);
+        using var requestDocument = JsonDocument.Parse(requestJson);
+        var properties = requestDocument.RootElement.EnumerateObject()
+            .ToDictionary(property => property.Name, property => (object?)property.Value.Clone());
+        properties["id"] = id;
+        await broker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(properties).AsMemory(), TestContext.Current.CancellationToken);
+        await broker.StandardInput.FlushAsync(TestContext.Current.CancellationToken);
+        var response = await broker.StandardOutput.ReadLineAsync(TestContext.Current.CancellationToken).AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        return JsonDocument.Parse(response ?? throw new InvalidOperationException("The Folio broker closed without a response."));
     }
 
     private static int[] GetDirectHostChildren(string hostPath, int parentPid)
