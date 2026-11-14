@@ -873,6 +873,7 @@ public class FolioView : Control
             var background = _document.Options.ColorScheme == ColorScheme.Dark ? new Paint(new Rgba(18 / 255f, 18 / 255f, 18 / 255f, 1f)) : new Paint(new Rgba(1f, 1f, 1f, 1f));
             var top = _scrollBar.Visible ? _scrollBar.Value : 0; // device pixels, whole
             var rasterChanged = _renderNeedsFull;
+            var changed = new Rectangle(0, 0, width, height); // the part of the surface that is not what the bitmap holds
             if (_renderNeedsFull || _renderedScale != PixelScale)
             {
                 rasterChanged = true;
@@ -889,6 +890,7 @@ public class FolioView : Control
             {
                 var damage = DisplayListPlayer.SnapToDevicePixels(pending, PixelScale); // whole device pixels: the integer scroll offset leaves them whole
                 rasterChanged = true;
+                changed = ChangedArea(damage, PixelScale, top, width, height);
                 var canvas = _renderSurface.Canvas;
                 canvas.Save();
                 canvas.Transform(RetainedScroll.Transform(PixelScale, top));
@@ -900,7 +902,7 @@ public class FolioView : Control
             _renderedTop = top;
             _renderedScale = PixelScale;
             if (rasterChanged)
-                CopySurfaceToBitmap(_renderSurface, _renderBitmap);
+                CopySurfaceToBitmap(_renderSurface, _renderBitmap, changed);
             _renderNeedsFull = false;
             _pendingDamage = null;
             e.Graphics.DrawImageUnscaled(_renderBitmap, 0, 0);
@@ -913,16 +915,23 @@ public class FolioView : Control
         }
     }
 
-    private static void CopySurfaceToBitmap(SoftwareRasterSurface surface, Bitmap bitmap)
+    /// <summary>The part of the bitmap a frame that only repainted <paramref name="damage"/> (layout units, snapped to device pixels) changes: its device rectangle at scroll <paramref name="top"/>, a pixel wider on every side (edge pixels the antialiasing touched).</summary>
+    internal static Rectangle ChangedArea(RectF damage, float scale, int top, int width, int height) =>
+        Rectangle.Intersect(new Rectangle(0, 0, width, height), Rectangle.FromLTRB(
+            (int)Math.Floor(damage.X * scale) - 1, (int)Math.Floor(damage.Y * scale) - top - 1,
+            (int)Math.Ceiling(damage.Right * scale) + 1, (int)Math.Ceiling(damage.Bottom * scale) - top + 1));
+
+    internal static void CopySurfaceToBitmap(SoftwareRasterSurface surface, Bitmap bitmap, Rectangle area)
     {
-        var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
-        var data = bitmap.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
+        if (area.Width <= 0 || area.Height <= 0)
+            return;
+        var data = bitmap.LockBits(area, ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
         try
         {
-            var rowBuffer = new byte[bitmap.Width * 4];
-            for (var y = 0; y < bitmap.Height; y++)
+            var rowBuffer = new byte[area.Width * 4];
+            for (var y = 0; y < area.Height; y++)
             {
-                surface.ReadBgraRow(y, rowBuffer);
+                surface.ReadBgraRow(area.Y + y, area.X, area.Width, rowBuffer);
                 Marshal.Copy(rowBuffer, 0, IntPtr.Add(data.Scan0, y * data.Stride), rowBuffer.Length);
             }
         }

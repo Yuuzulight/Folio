@@ -13,6 +13,9 @@ namespace Folio.Benchmarks;
 /// </summary>
 public static class Program
 {
+    // Rows with a copy: the copy here is a managed one of the raw damage rectangle, not FolioView's (a pixel wider, into a GDI+ bitmap).
+    private const string Approximate = "approximate (managed copy, raw damage rect)";
+
     public static int Main(string[] args)
     {
         if (args is ["bench", .. var rest])
@@ -68,6 +71,15 @@ public static class Program
             .AppendLine().AppendLine("| Document | Median ms | p95 ms | Paint-only |").AppendLine("|---|--:|--:|---|");
         foreach (var (name, html, held) in new[] { ("typical dashboard", FrameBenchmark.Typical, true), ("busy dashboard", FrameBenchmark.Busy, false) })
         {
+            if (held)
+            {
+                var before = FrameBenchmark.Measure(html, frames, FrameBenchmark.Presentation.Whole);
+                table.AppendLine($"| {name}, with a whole-surface copy (before): {Approximate} | {Ms(before.Median)} | {Ms(before.P95)} | {(before.PaintOnly ? "yes" : "no")} |");
+                var shipped = FrameBenchmark.Measure(html, frames, FrameBenchmark.Presentation.Damage);
+                table.AppendLine($"| {name}, with the damage-rect copy (after): {Approximate} | {Ms(shipped.Median)} | {Ms(shipped.P95)} | {(shipped.PaintOnly ? "yes" : "no")} |");
+                if (shipped.Median > FrameBenchmark.Target)
+                    warnings.Add($"Paint-only animation frames of the {name} with the bitmap copy are over the target: median {Ms(shipped.Median)} ms");
+            }
             var result = FrameBenchmark.Measure(html, frames);
             table.AppendLine($"| {name} | {Ms(result.Median)} | {Ms(result.P95)} | {(result.PaintOnly ? "yes" : "no")} |");
             if (held && (result.Median > FrameBenchmark.Target || !result.PaintOnly))
@@ -78,6 +90,12 @@ public static class Program
             .AppendLine().AppendLine("| Interaction | Median ms | p95 ms |").AppendLine("|---|--:|--:|");
         var hover = FrameBenchmark.MeasureHover(FrameBenchmark.HoverHtml, frames);
         table.AppendLine($"| card hover restyle | {Ms(hover.Median)} | {Ms(hover.P95)} |");
+        var hoverBefore = FrameBenchmark.MeasureHover(FrameBenchmark.HoverHtml, frames, FrameBenchmark.Presentation.Whole);
+        table.AppendLine($"| card hover restyle, with a whole-surface copy (before): {Approximate} | {Ms(hoverBefore.Median)} | {Ms(hoverBefore.P95)} |");
+        var hoverShipped = FrameBenchmark.MeasureHover(FrameBenchmark.HoverHtml, frames, FrameBenchmark.Presentation.Damage);
+        table.AppendLine($"| card hover restyle, with the damage-rect copy (after): {Approximate} | {Ms(hoverShipped.Median)} | {Ms(hoverShipped.P95)} |");
+        if (hoverShipped.Median > FrameBenchmark.HoverTarget)
+            warnings.Add($"Hover restyle of the dashboard with the bitmap copy is over the target: median {Ms(hoverShipped.Median)} ms (target {Ms(FrameBenchmark.HoverTarget)} ms)");
         if (hover.Median > FrameBenchmark.HoverTarget)
             warnings.Add($"Hover restyle of the dashboard is over the target: median {Ms(hover.Median)} ms (target {Ms(FrameBenchmark.HoverTarget)} ms)");
 
