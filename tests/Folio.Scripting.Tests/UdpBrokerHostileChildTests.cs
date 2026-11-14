@@ -77,19 +77,19 @@ public sealed class UdpBrokerHostileChildTests
     }
 
     [Fact]
-    public async Task FullSizeDatagramsOverTheByteCapAreDroppedAndCountedNotKilled()
+    public void FullSizeDatagramsOverTheByteCapAreDroppedAndCountedNotKilled()
     {
         var stalled = new ManualResetEventSlim();
+        var stuck = new ManualResetEventSlim();
         using var h = Harness(Roomy with { IncomingQueue = 256, MaxQueuedEvents = 512 }); // ~2 KiB each: the 512 KiB byte cap trips before the 256 count
-        var (_, port) = await h.Open();
-        h.Run(Permit);
-        h.Hook = _ => stalled.Wait(10_000);
-        using var peer = UdpBrokerTests.Peer();
+        h.Hook = _ => { stuck.Set(); stalled.Wait(10_000); };
         var packet = new byte[1500];
-        for (var i = 0; i < 300; i++) await peer.SendToAsync(packet, SocketFlags.None, new IPEndPoint(IPAddress.Loopback, port));
-        await WaitUntil(() => Interlocked.Read(ref h.Broker.DroppedIncoming) > 0);
+        h.Broker.InjectIncomingDatagram(1, packet);
+        Assert.True(stuck.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken)); // the pump is blocked inside the first write
+        for (var i = 0; i < 300; i++) h.Broker.InjectIncomingDatagram(1, packet);
         Assert.False(h.Broker.Dead);
-        Assert.Equal(1, h.Broker.OpenSockets);
+        Assert.True(Interlocked.Read(ref h.Broker.DroppedIncoming) > 0);
+        Assert.True(h.Broker.QueuedEvents < 256, "the byte cap, not the count cap, must have been what dropped");
         Assert.True(h.Broker.QueuedBytes <= 512 * 1024);
         stalled.Set();
     }

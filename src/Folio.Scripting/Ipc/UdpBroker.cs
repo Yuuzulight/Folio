@@ -433,6 +433,10 @@ internal sealed class UdpBroker : IDisposable
     /// <summary>Counts every event kind. Datagrams are dropped past <see cref="UdpBrokerOptions.IncomingQueue"/>; control events
     /// are never dropped silently, so exceeding <see cref="UdpBrokerOptions.MaxQueuedEvents"/> or <see cref="UdpBrokerOptions.MaxQueuedBytes"/>
     /// means the child is not draining and its UDP is killed.</summary>
+    /// <summary>Test seam: queues an incoming datagram exactly as the receive loop would, without a socket or OS buffering.</summary>
+    internal void InjectIncomingDatagram(long socketId, byte[] data) =>
+        Enqueue(new(Generation, "datagram", 0, socketId, null, new IPEndPoint(IPAddress.Loopback, 9), data, true));
+
     private void Enqueue(Event item)
     {
         if (Dead) return;
