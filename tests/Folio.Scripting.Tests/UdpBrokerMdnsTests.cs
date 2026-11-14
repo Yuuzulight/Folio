@@ -53,6 +53,11 @@ public sealed class UdpBrokerMdnsTests
     [InlineData("e3b0c442-98fc-1c14-9afb-f4c8996fb92.local", false)] // 35 chars
     [InlineData("e3b0c442-98fc-1c14-9afb-f4c8996fb9244.local", false)] // 37 chars
     [InlineData("e3b0c442-98fc-1c14-9afb-f4c8996fb924.com", false)] // non-.local
+    [InlineData("e3b0c442-98fc-1c14-9afb-f4c8996fb924.local\n", false)] // trailing newline
+    [InlineData("------------------------------------.local", false)] // 36 dashes
+    [InlineData("e3b0c442-98fc-1c14-9afb-f4c8996fb924-.local", false)]
+    [InlineData("e3b0c4-4298-fc1c-149a-fbf4c8996fb924.local", false)] // misplaced dashes
+    [InlineData("e3b0c44298fc1c149afbf4c8996fb9240000.local", false)] // no dashes
     [InlineData("foo.local", false)]
     [InlineData("..local", false)]
     [InlineData("e3b0c442-98fc-1c14-9afb-f4c8996fb924.sub.local", false)]
@@ -113,42 +118,118 @@ public sealed class UdpBrokerMdnsTests
         Assert.Equal(IPAddress.Parse("192.168.1.100"), address);
     }
 
+    private const string Name = "e3b0c442-98fc-1c14-9afb-f4c8996fb924.local";
+
+    private static byte[] EncodeName(string name)
+    {
+        var bytes = new List<byte>();
+        foreach (var label in name.Split('.'))
+        {
+            bytes.Add((byte)label.Length);
+            bytes.AddRange(System.Text.Encoding.ASCII.GetBytes(label));
+        }
+        bytes.Add(0);
+        return [.. bytes];
+    }
+
+    private static byte[] Ans(byte[] owner, ushort type, byte[] rdata, int rdLength = -1)
+    {
+        var b = new List<byte>(owner) { (byte)(type >> 8), (byte)type, 0x80, 0x01, 0, 0, 0, 120 };
+        var len = rdLength < 0 ? rdata.Length : rdLength;
+        b.Add((byte)(len >> 8)); b.Add((byte)len);
+        b.AddRange(rdata);
+        return [.. b];
+    }
+
+    private static readonly byte[] Ptr = [0xC0, 0x0C];
+
+    /// <summary>A well-formed legacy-unicast reply echoing the question, with the given ANCOUNT.</summary>
+    private static byte[] Reply(string question, int ancount, params byte[][] answers)
+    {
+        var b = new List<byte> { 0, 0, 0x84, 0, 0, 1, (byte)(ancount >> 8), (byte)ancount, 0, 0, 0, 0 };
+        b.AddRange(EncodeName(question));
+        b.AddRange([0, 1, 0x80, 1]);
+        foreach (var a in answers) b.AddRange(a);
+        return [.. b];
+    }
+
+    private static byte[] A(byte[] owner, params byte[] ip) => Ans(owner, 1, ip);
+
     [Fact]
     public void TryParseResponseRejectsHostileInputs()
     {
-        var name = "e3b0c442-98fc-1c14-9afb-f4c8996fb924.local";
+        // Sanity: the builders produce an accepted reply.
+        var good = Reply(Name, 1, A(Ptr, 192, 168, 1, 5));
+        Assert.True(MdnsClient.TryParseResponse(good, Name, out var ok));
+        Assert.Equal(IPAddress.Parse("192.168.1.5"), ok);
 
-        // Too short (< 12 bytes)
-        Assert.False(MdnsClient.TryParseResponse(new byte[11], name, out _));
+        byte[] With(int index, byte value) { var c = (byte[])good.Clone(); c[index] = value; return c; }
 
-        // Not a response (QR = 0)
-        Assert.False(MdnsClient.TryParseResponse(new byte[12], name, out _));
+        // Header
+        Assert.False(MdnsClient.TryParseResponse(new byte[11], Name, out _));
+        Assert.False(MdnsClient.TryParseResponse(With(2, 0x04), Name, out _)); // QR clear
+        Assert.False(MdnsClient.TryParseResponse(With(2, 0x8C), Name, out _)); // opcode 1
+        Assert.False(MdnsClient.TryParseResponse(With(3, 0x03), Name, out _)); // rcode NXDOMAIN
+        Assert.False(MdnsClient.TryParseResponse(With(1, 0x01), Name, out _)); // ID != 0
+        Assert.False(MdnsClient.TryParseResponse(With(5, 0), Name, out _)); // QDCOUNT 0 (no question echo)
+        Assert.False(MdnsClient.TryParseResponse(Reply(Name, 0), Name, out _)); // ANCOUNT 0
 
-        // Response but anCount = 0
-        var empty = new byte[12];
-        empty[2] = 0x80;
-        Assert.False(MdnsClient.TryParseResponse(empty, name, out _));
+        // Question echo mismatch
+        Assert.False(MdnsClient.TryParseResponse(Reply("00000000-0000-0000-0000-000000000000.local", 1, A(Ptr, 192, 168, 1, 5)), Name, out _));
+
+        // Answer owned by a different name
+        var other = EncodeName("00000000-0000-0000-0000-000000000000.local");
+        Assert.False(MdnsClient.TryParseResponse(Reply(Name, 1, A(other, 192, 168, 1, 5)), Name, out _));
+
+        // A after a CNAME: the A is owned by the CNAME target, which is not the queried name
+        var cname = Ans(Ptr, 5, other);
+        Assert.False(MdnsClient.TryParseResponse(Reply(Name, 2, cname, A(other, 192, 168, 1, 5)), Name, out _));
+        // ...but an A for the queried name after an unrelated record is still found
+        Assert.True(MdnsClient.TryParseResponse(Reply(Name, 2, cname, A(Ptr, 192, 168, 1, 6)), Name, out var afterCname));
+        Assert.Equal(IPAddress.Parse("192.168.1.6"), afterCname);
+
+        // Unusable addresses
+        Assert.False(MdnsClient.TryParseResponse(Reply(Name, 1, A(Ptr, 224, 0, 0, 251)), Name, out _)); // multicast
+        Assert.False(MdnsClient.TryParseResponse(Reply(Name, 1, A(Ptr, 127, 0, 0, 1)), Name, out _)); // loopback
+        Assert.False(MdnsClient.TryParseResponse(Reply(Name, 1, A(Ptr, 0, 0, 0, 0)), Name, out _)); // unspecified
+        // First usable matching A wins over an unusable one before it
+        Assert.True(MdnsClient.TryParseResponse(Reply(Name, 2, A(Ptr, 127, 0, 0, 1), A(Ptr, 10, 0, 0, 7)), Name, out var second));
+        Assert.Equal(IPAddress.Parse("10.0.0.7"), second);
+
+        // Truncated rdata (RDLENGTH 4 but only 2 bytes present)
+        Assert.False(MdnsClient.TryParseResponse(Reply(Name, 1, Ans(Ptr, 1, [192, 168], 4)), Name, out _));
+        // Wrong rdata length for an A record
+        Assert.False(MdnsClient.TryParseResponse(Reply(Name, 1, Ans(Ptr, 1, [192, 168, 1])), Name, out _));
 
         // Truncated question section
-        var truncatedQ = new byte[16];
-        truncatedQ[2] = 0x80;
-        truncatedQ[5] = 1; // QDCOUNT = 1
-        Assert.False(MdnsClient.TryParseResponse(truncatedQ, name, out _));
+        Assert.False(MdnsClient.TryParseResponse(good.AsSpan(0, 20), Name, out _));
 
-        // Malformed label length exceeding buffer
-        var badLen = new byte[20];
-        badLen[2] = 0x80;
-        badLen[5] = 1;
-        badLen[12] = 100; // label length 100 on 20-byte buffer
-        Assert.False(MdnsClient.TryParseResponse(badLen, name, out _));
+        // Bad label length (reserved 0x80 prefix, and a length that runs past the buffer)
+        Assert.False(MdnsClient.TryParseResponse(Reply(Name, 1, A([0x80, 0x01, 0], 192, 168, 1, 5)), Name, out _));
+        Assert.False(MdnsClient.TryParseResponse(Reply(Name, 1, A([60, 1, 2, 3], 192, 168, 1, 5)), Name, out _));
 
-        // Cyclic pointer loop in name
-        var loop = new byte[24];
-        loop[2] = 0x80;
-        loop[5] = 1;
-        loop[12] = 0xC0; loop[13] = 0x0C; // pointer to self
-        Assert.False(MdnsClient.TryParseResponse(loop, name, out _));
+        // Pointer loops: an owner pointing at itself, and a two-pointer cycle
+        var ownerAt = Reply(Name, 0).Length; // first answer's owner starts here
+        var selfLoop = Reply(Name, 1, A([0xC0, (byte)ownerAt], 192, 168, 1, 5));
+        Assert.False(MdnsClient.TryParseResponse(selfLoop, Name, out _));
+        var cycle = Reply(Name, 1, A([0xC0, (byte)(ownerAt + 2), 0xC0, (byte)ownerAt], 192, 168, 1, 5));
+        Assert.False(MdnsClient.TryParseResponse(cycle, Name, out _));
+
+        // Case-insensitive owner comparison
+        Assert.True(MdnsClient.TryParseResponse(Reply(Name, 1, A(EncodeName(Name.ToUpperInvariant()), 192, 168, 1, 5)), Name, out _));
     }
+
+    [Theory]
+    [InlineData("192.168.1.9", 5353, true)]
+    [InlineData("10.1.2.3", 5353, true)]
+    [InlineData("172.16.0.1", 5353, true)]
+    [InlineData("169.254.1.1", 5353, true)]
+    [InlineData("192.168.1.9", 5354, false)] // wrong source port
+    [InlineData("192.168.1.9", 40000, false)]
+    [InlineData("8.8.8.8", 5353, false)] // off-link
+    [InlineData("127.0.0.1", 5353, false)]
+    public void ReplySourceMustBeLanPort5353(string ip, int port, bool expected) =>
+        Assert.Equal(expected, MdnsClient.IsAcceptableSource(new IPEndPoint(IPAddress.Parse(ip), port)));
 
     [Fact]
     public async Task PolicyDefaultOffRefusesMdnsResolution()
@@ -240,6 +321,34 @@ public sealed class UdpBrokerMdnsTests
     }
 
     [Fact]
+    public async Task RepeatedNameDoesNotCountAgainstQuotaAndBeginDocumentCancelsLookup()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var options = new UdpBrokerOptions
+        {
+            AllowMdns = true,
+            MaxMdnsNames = 1,
+            MdnsTimeout = TimeSpan.FromSeconds(30),
+            MdnsResolver = async (_, token) =>
+            {
+                started.TrySetResult();
+                try { await Task.Delay(Timeout.Infinite, token); }
+                catch (OperationCanceledException) { cancelled.TrySetResult(); throw; }
+                return null;
+            }
+        };
+        using var h = new Harness(options);
+        h.Run("""{"op":"resolveMdns","token":40,"name":"00000000-0000-0000-0000-000000000001.local"}""");
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        // The same name again is not refused by the name quota (only the rate limiter and in-flight cap apply).
+        h.Run("""{"op":"resolveMdns","token":41,"name":"00000000-0000-0000-0000-000000000001.local"}""");
+        h.Broker.BeginDocument(h.Broker.Generation + 1);
+        await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(h.Snapshot(), e => e.TryGetProperty("reason", out var r) && r.GetString() == "mDNS resolve quota exceeded");
+    }
+
+    [Fact]
     public async Task StaleGenerationReturnsDocumentReplaced()
     {
         var options = new UdpBrokerOptions { AllowMdns = true };
@@ -326,7 +435,12 @@ public sealed class UdpBrokerMdnsTests
 
         public IPEndPoint Bind() => new(IPAddress.Any, 50000);
         public void SendTo(ReadOnlySpan<byte> datagram, IPEndPoint destination) { }
-        public int Receive(byte[] buffer, int timeoutMicroseconds, ref EndPoint remote) => -1;
+        public int Receive(byte[] buffer, int timeoutMicroseconds, ref EndPoint remote)
+        {
+            // Behave like a quiet socket: wait out the timeout so the receive loop never spins.
+            Thread.Sleep(Math.Min(timeoutMicroseconds / 1000, 25));
+            return -1;
+        }
 
         public Task<IPAddress?> ResolveMdnsAsync(string host, CancellationToken cancellation)
         {

@@ -15,7 +15,7 @@ internal static partial class MdnsClient
     public static readonly IPAddress MulticastAddress = IPAddress.Parse("224.0.0.251");
     public const int MaxPacketSize = 1500;
 
-    [GeneratedRegex(@"^[0-9a-f-]{36}\.local$", RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.local\z", RegexOptions.Compiled | RegexOptions.CultureInvariant)]
     public static partial Regex ValidMdnsNameRegex();
 
     /// <summary>Builds a standard DNS query for an A record of the specified name.</summary>
@@ -57,81 +57,101 @@ internal static partial class MdnsClient
         return packet;
     }
 
-    /// <summary>Parses an mDNS response for the first IPv4 Address (Type A) in the answer section.</summary>
+    /// <summary>
+    /// Parses a legacy-unicast mDNS reply (RFC 6762 section 6.7) to our one-shot A query. The header must be a plain response
+    /// (QR set, opcode 0, rcode 0, ID 0), the question must echo <paramref name="name"/> as an IN A question, and the first
+    /// A record whose owner name equals <paramref name="name"/> (case-insensitive) and whose address is not loopback, "this"
+    /// network, multicast/reserved, or link-local wins. CNAMEs are not followed: a record owned by any other name is ignored.
+    /// The host's own <see cref="UdpDestinationPolicy"/> (private ranges) is applied afterwards by the broker.
+    /// </summary>
     public static bool TryParseResponse(ReadOnlySpan<byte> data, string name, out IPAddress? address)
     {
         address = null;
         if (data.Length < 12) return false;
 
-        // Flags: QR bit must be set (response)
+        if (BinaryPrimitives.ReadUInt16BigEndian(data[0..2]) != 0) return false;
         var flags = BinaryPrimitives.ReadUInt16BigEndian(data[2..4]);
-        if ((flags & 0x8000) == 0) return false;
+        if ((flags & 0x8000) == 0 || ((flags >> 11) & 0xF) != 0 || (flags & 0xF) != 0) return false;
 
         var qdCount = BinaryPrimitives.ReadUInt16BigEndian(data[4..6]);
         var anCount = BinaryPrimitives.ReadUInt16BigEndian(data[6..8]);
-        if (anCount == 0) return false;
+        if (qdCount != 1 || anCount == 0) return false;
 
         var offset = 12;
+        if (!TryReadName(data, ref offset, out var qname) || !string.Equals(qname, name, StringComparison.OrdinalIgnoreCase)) return false;
+        if (offset + 4 > data.Length) return false;
+        if (BinaryPrimitives.ReadUInt16BigEndian(data.Slice(offset, 2)) != 1
+            || (BinaryPrimitives.ReadUInt16BigEndian(data.Slice(offset + 2, 2)) & 0x7FFF) != 1) return false;
+        offset += 4;
 
-        // Skip Question section
-        for (var i = 0; i < qdCount; i++)
+        for (var i = 0; i < anCount && i < 64; i++)
         {
-            if (!SkipName(data, ref offset)) return false;
-            if (offset + 4 > data.Length) return false;
-            offset += 4; // Skip QTYPE and QCLASS
-        }
-
-        // Parse Answer section (capped at at most 64 answers)
-        for (var i = 0; i < anCount && i < 64 && offset < data.Length; i++)
-        {
-            if (!SkipName(data, ref offset)) return false;
+            if (!TryReadName(data, ref offset, out var owner)) return false;
             if (offset + 10 > data.Length) return false;
 
             var type = BinaryPrimitives.ReadUInt16BigEndian(data.Slice(offset, 2));
             var cls = BinaryPrimitives.ReadUInt16BigEndian(data.Slice(offset + 2, 2)) & 0x7FFF; // Mask off cache-flush bit
-            offset += 8; // Type (2) + Class (2) + TTL (4)
-
-            var rdLength = BinaryPrimitives.ReadUInt16BigEndian(data.Slice(offset, 2));
-            offset += 2;
-
+            var rdLength = BinaryPrimitives.ReadUInt16BigEndian(data.Slice(offset + 8, 2));
+            offset += 10;
             if (offset + rdLength > data.Length) return false;
 
-            if (type == 1 && cls == 1 && rdLength == 4) // Type A, Class IN, IPv4 length 4
+            if (type == 1 && cls == 1 && rdLength == 4 && string.Equals(owner, name, StringComparison.OrdinalIgnoreCase))
             {
-                address = new IPAddress(data.Slice(offset, 4));
-                return true;
+                var candidate = new IPAddress(data.Slice(offset, 4));
+                if (IsUsableAnswer(candidate)) { address = candidate; return true; }
             }
-
             offset += rdLength;
         }
 
         return false;
     }
 
-    private static bool SkipName(ReadOnlySpan<byte> data, ref int offset)
+    private static bool IsUsableAnswer(IPAddress ip)
     {
-        var jumps = 0;
-        while (offset < data.Length && jumps < 128)
-        {
-            var len = data[offset];
-            if (len == 0)
-            {
-                offset++;
-                return true;
-            }
-            if ((len & 0xC0) == 0xC0) // Compression pointer
-            {
-                if (offset + 2 > data.Length) return false;
-                offset += 2;
-                return true;
-            }
-            if ((len & 0xC0) != 0) return false; // Reserved or invalid label format
+        Span<byte> b = stackalloc byte[4];
+        if (!ip.TryWriteBytes(b, out _)) return false;
+        return !(b[0] == 0 || b[0] == 127 || b[0] >= 224 || (b[0] == 169 && b[1] == 254));
+    }
 
-            if (offset + 1 + len > data.Length) return false;
-            offset += 1 + len;
-            jumps++;
+    /// <summary>A reply must come from mDNS port 5353 on a private or link-local IPv4 address (the multicast scope is the local link).</summary>
+    public static bool IsAcceptableSource(IPEndPoint source)
+    {
+        if (source.Port != MdnsPort || source.Address.AddressFamily != AddressFamily.InterNetwork) return false;
+        Span<byte> b = stackalloc byte[4];
+        if (!source.Address.TryWriteBytes(b, out _)) return false;
+        return b[0] == 10 || (b[0] == 172 && (b[1] & 0xF0) == 16) || (b[0] == 192 && b[1] == 168) || (b[0] == 169 && b[1] == 254);
+    }
+
+    /// <summary>Reads a possibly compressed name, advancing <paramref name="offset"/> past its first encoding. At most 16 pointer hops and 255 bytes.</summary>
+    private static bool TryReadName(ReadOnlySpan<byte> data, ref int offset, out string name)
+    {
+        name = "";
+        var pos = offset;
+        var end = -1; // where the stream continues after the first pointer
+        var hops = 0;
+        var sb = new System.Text.StringBuilder();
+        while (true)
+        {
+            if (pos >= data.Length) return false;
+            var len = data[pos];
+            if (len == 0) { pos++; break; }
+            if ((len & 0xC0) == 0xC0)
+            {
+                if (pos + 2 > data.Length || ++hops > 16) return false;
+                var target = ((len & 0x3F) << 8) | data[pos + 1];
+                if (end < 0) end = pos + 2;
+                pos = target;
+                continue;
+            }
+            if ((len & 0xC0) != 0 || pos + 1 + len > data.Length) return false;
+            if (sb.Length + len + 1 > 255) return false;
+            if (sb.Length > 0) sb.Append('.');
+            for (var i = 0; i < len; i++) sb.Append((char)data[pos + 1 + i]);
+            pos += 1 + len;
         }
-        return false;
+        offset = end >= 0 ? end : pos;
+        name = sb.ToString();
+        return true;
     }
 
     /// <summary>Sends an mDNS query and waits for a response up to the specified cancellation token.</summary>
@@ -142,6 +162,9 @@ internal static partial class MdnsClient
         try
         {
             using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            // RFC 6762 section 11: mDNS packets carry TTL 255. The egress interface is the OS default route's choice
+            // and a Windows firewall may drop the query or the unicast reply; failure just means "not resolved".
+            socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 255);
             socket.Bind(new IPEndPoint(IPAddress.Any, 0));
 
             var query = BuildQuery(name);
@@ -152,12 +175,13 @@ internal static partial class MdnsClient
             while (!cancellation.IsCancellationRequested)
             {
                 var result = await socket.ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), cancellation).ConfigureAwait(false);
-                if (TryParseResponse(buffer.AsSpan(0, result.ReceivedBytes), name, out var ip))
+                if (result.RemoteEndPoint is IPEndPoint source && IsAcceptableSource(source)
+                    && TryParseResponse(buffer.AsSpan(0, result.ReceivedBytes), name, out var ip))
                     return ip;
             }
         }
         catch (OperationCanceledException) { return null; }
-        catch (Exception) { return null; }
+        catch (Exception error) { System.Diagnostics.Debug.WriteLine($"mDNS lookup failed: {error.GetType().Name}: {error.Message}"); return null; }
 
         return null;
     }

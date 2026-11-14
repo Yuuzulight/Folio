@@ -123,6 +123,8 @@ internal sealed class UdpBroker : IDisposable
     private readonly HashSet<string> _resolvedNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _resolvedMdnsNames = [];
     private int _resolving, _resolvingMdns;
+    // Cancelled when the document is replaced or the broker is disposed, so in-flight multicast lookups stop early.
+    private CancellationTokenSource _mdnsCts = new();
     private readonly Action<JsonElement> _emit;
     private readonly object _gate = new();
     private readonly Dictionary<long, UdpSocketLease> _sockets = [];
@@ -374,14 +376,17 @@ internal sealed class UdpBroker : IDisposable
         string? reason = "lookup failed";
         var released = 0;
         Task<IPAddress?>? lookup = null;
+        CancellationToken document;
+        lock (_gate) document = _mdnsCts.Token;
         void Release() { if (Interlocked.Exchange(ref released, 1) == 0) lock (_gate) _resolvingMdns--; }
         try
         {
             using var timeout = new CancellationTokenSource(_options.MdnsTimeout, _options.Clock);
-            try { lookup = _options.MdnsResolver(name, timeout.Token); }
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, document);
+            try { lookup = _options.MdnsResolver(name, linked.Token); }
             catch { Release(); throw; }
             _ = lookup.ContinueWith(finished => { _ = finished.Exception; Release(); }, TaskScheduler.Default);
-            var ip = await lookup.WaitAsync(timeout.Token).ConfigureAwait(false);
+            var ip = await lookup.WaitAsync(linked.Token).ConfigureAwait(false);
             if (ip is not null && UdpDestinationPolicy.IsAllowed(new IPEndPoint(ip, 1), _options))
             {
                 answer = new IPEndPoint(ip, 0);
@@ -579,6 +584,7 @@ internal sealed class UdpBroker : IDisposable
         lock (_gate)
         {
             _generation = generation;
+            _mdnsCts.Cancel(); _mdnsCts.Dispose(); _mdnsCts = new();
             // Events still queued for the retired document no longer count against the new one's bound (the pump drops them).
             _epoch++; Volatile.Write(ref _queued, 0);
             _sentTo.Clear(); _permitted.Clear(); _resolvedNames.Clear(); _resolvedMdnsNames.Clear();
@@ -598,7 +604,7 @@ internal sealed class UdpBroker : IDisposable
 
     public void Dispose()
     {
-        lock (_gate) { if (_disposed) return; _disposed = true; _generation++; }
+        lock (_gate) { if (_disposed) return; _disposed = true; _generation++; _mdnsCts.Cancel(); }
         Kill();
         _events.Writer.TryComplete();
         try { _pump.Wait(TimeSpan.FromSeconds(2)); } catch (AggregateException) { }

@@ -526,8 +526,8 @@ internal sealed class IceAgent : IDisposable
         _ = CheckConnectivityAsync();
     }
 
-    private int _mdnsResolvingCount;
-    private const int MaxConcurrentMdnsResolutions = 4;
+    // At most 4 lookups run at once; further candidates wait for a slot within the same 3 s budget instead of being dropped.
+    private readonly SemaphoreSlim _mdnsSlots = new(4);
 
     private async Task ResolveMdnsCandidateAsync(IceCandidate candidate)
     {
@@ -535,15 +535,13 @@ internal sealed class IceAgent : IDisposable
         if (_transport is null && !BindSocket()) return;
         var transport = _transport;
         if (transport is null || _disposed) return;
-        lock (_gate)
-        {
-            if (_mdnsResolvingCount >= MaxConcurrentMdnsResolutions) return;
-            _mdnsResolvingCount++;
-        }
+        var slot = false;
         try
         {
             using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, _cts.Token);
+            await _mdnsSlots.WaitAsync(linked.Token).ConfigureAwait(false);
+            slot = true;
             var ip = await transport.ResolveMdnsAsync(candidate.Address, linked.Token).ConfigureAwait(false);
             if (ip is not null && !_disposed)
             {
@@ -554,7 +552,7 @@ internal sealed class IceAgent : IDisposable
         catch { }
         finally
         {
-            lock (_gate) _mdnsResolvingCount--;
+            if (slot) _mdnsSlots.Release();
         }
     }
 
