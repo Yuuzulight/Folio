@@ -127,8 +127,11 @@ internal sealed class RtcPeerConnectionController : IDisposable
     /// <summary>The i-th audio sender, in addTrack order, once an offer or answer has created it.</summary>
     public RtcLocalTrack? LocalAudioTrack(int index) { lock (_gate) return index >= 0 && index < _localAudio.Count ? _localAudio[index] : null; }
 
-    private static readonly RtcCodec[] AudioCodecs = [new(0, "PCMU", 8000, 1), new(8, "PCMA", 8000, 1)];
+    /// <summary>Folio receives mono or stereo Opus and sends mono (RFC 7587 parameters), with in-band FEC accepted.</summary>
+    internal const string OpusFmtp = "minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0";
+    private static readonly RtcCodec[] AudioCodecs = [new(111, "opus", 48000, 2) { Fmtp = OpusFmtp }, new(0, "PCMU", 8000, 1), new(8, "PCMA", 8000, 1)];
     private static readonly RtcCodec[] VideoCodecs = [new(96, "VP8", 90000, 1)];
+    private static readonly string[] VideoFeedback = ["nack", "nack pli", "ccm fir"];
 
     private RtcMediaDescription MediaSection(string kind, string mid, string direction, RtcLocalTrack? sender)
     {
@@ -137,6 +140,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
             Kind = kind, Port = 9, Protocol = "UDP/TLS/RTP/SAVPF", Mid = mid, Direction = direction, RtcpMux = true, Cname = Media.Cname
         };
         media.Codecs.AddRange(kind == "audio" ? AudioCodecs : VideoCodecs);
+        if (kind == "video") foreach (var feedback in VideoFeedback) media.AddFeedback(VideoCodecs[0].PayloadType, feedback);
         if (sender is not null) media.Ssrcs.Add(sender.Ssrc);
         return media;
     }
@@ -150,13 +154,14 @@ internal sealed class RtcPeerConnectionController : IDisposable
     {
         var midIndex = hasDataChannels ? 1 : 0;
         if (hasDataChannels) sdp.Media.Add(DataSection("0"));
-        // Folio sends and decodes G.711 audio only. Video sections keep the m-line order but are negotiated inactive.
+        // Folio sends and decodes Opus and G.711 audio and decodes VP8 video. It cannot send video, so every video section is
+        // offered recvonly (with NACK, PLI and FIR feedback); addTrack(video) is refused before it reaches this point.
         for (var i = 0; i < audioSenders && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
             sdp.Media.Add(MediaSection("audio", (midIndex++).ToString(), "sendrecv", LocalAudio(i)));
         for (var i = 0; i < audioReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
             sdp.Media.Add(MediaSection("audio", (midIndex++).ToString(), "recvonly", null));
         for (var i = 0; i < videoSenders + videoReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
-            sdp.Media.Add(MediaSection("video", (midIndex++).ToString(), "inactive", null));
+            sdp.Media.Add(MediaSection("video", (midIndex++).ToString(), "recvonly", null));
     }
 
     public async Task<string> CreateOfferAsync(bool hasDataChannels, int audioSenders, int videoSenders, int audioReceivers = 0, int videoReceivers = 0)
@@ -201,14 +206,30 @@ internal sealed class RtcPeerConnectionController : IDisposable
                     var offered = remote.Media[i];
                     var mid = offered.Mid ?? i.ToString();
                     if (offered.Kind == "application" && offered.Port != 0) { sdp.Media.Add(DataSection(mid)); continue; }
-                    var accepted = offered.Kind == "audio" && offered.Port != 0
-                        ? offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).Where(c => c is { IsG711: true }).Cast<RtcCodec>().ToArray()
-                        : [];
+                    var accepted = offered.Port == 0 ? [] : offered.Kind switch
+                    {
+                        "audio" => offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).Where(c => c is { IsG711: true } or { IsOpus: true }).Cast<RtcCodec>()
+                            .OrderBy(c => c.IsOpus ? 0 : 1).Select(c => c.IsOpus ? new RtcCodec(c.PayloadType, "opus", 48000, 2) { Fmtp = OpusFmtp } : c).ToArray(),
+                        "video" => offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).Where(c => c is { Name: "VP8", ClockRate: 90000 }).Cast<RtcCodec>().ToArray(),
+                        _ => [],
+                    };
                     if (accepted.Length == 0)
                     {
                         var rejected = new RtcMediaDescription { Kind = offered.Kind, Port = 0, Protocol = offered.Protocol, Mid = mid };
                         if (offered.Kind is "audio" or "video") rejected.Codecs.Add(offered.PayloadTypes.Count > 0 && offered.CodecFor(offered.PayloadTypes[0]) is { } first ? first : new RtcCodec(0, "PCMU", 8000, 1));
                         sdp.Media.Add(rejected);
+                        continue;
+                    }
+                    if (offered.Kind == "video")
+                    {
+                        // Receive only: the offered payload type, with the feedback mechanisms the offer also lists.
+                        var video = MediaSection("video", mid, offered.Sends ? "recvonly" : "inactive", null);
+                        video.Codecs.Clear(); video.Feedback.Clear();
+                        video.Codecs.Add(accepted[0]);
+                        foreach (var feedback in VideoFeedback)
+                            if (offered.HasFeedback(accepted[0].PayloadType, feedback switch { "nack pli" => "pli", "ccm fir" => "fir", _ => feedback }))
+                                video.AddFeedback(accepted[0].PayloadType, feedback);
+                        sdp.Media.Add(video);
                         continue;
                     }
                     var sender = offered.Receives && audioIndex < Math.Max(0, audioSenders) ? LocalAudio(audioIndex++) : null;

@@ -72,7 +72,7 @@ enabled.
   cap; G.711; RTCP build/parse and hostile input; SDP parse bounds and round trip; a two-engine loopback through fake
   transports on a manual clock covering PCMU and PCMA, reordering, loss and the 60 ms wait, receiver and sender reports
   (including DLSR), BYE, track/packet/byte budgets, garbage and authenticated-but-unusable packets, jitter bound, and
-  video being negotiated but not decoded.
+  video codecs Folio cannot decode (VP9) being negotiated but not decoded.
 - `SrtpMatchesRfc7714KnownAnswerVectors*`: the RFC 7714 section 16.1 (RTP) and 17.1 (RTCP) AEAD_AES_128_GCM vectors, byte for byte.
 - `ContentHostPolicyTests.ChildReceivesRemoteAudioOverSrtpThroughTheHostUdpBroker`: a real content-process child (no
   socket) negotiates a `recvonly` audio transceiver with an out-of-process controller, `ontrack` fires in script, SRTP
@@ -83,18 +83,14 @@ enabled.
 
 I did not overclaim these:
 
-- **Video.** Video sections are offered `inactive` and rejected in answers. If a peer negotiates video anyway, a track
-  is created and its packets are counted and reported in RTCP, but nothing is depacketized or decoded and no frame is
-  produced. There is no VP8/H.264 decoder or encoder behind `IMediaDecoder` (which decodes whole bounded resources, not
-  streams).
-- **Opus.** Browsers prefer Opus; Folio only speaks G.711. A browser offer always lists PCMU/PCMA too, so negotiation
-  succeeds at 8 kHz, but it is narrowband.
+- **Sending video.** Not supported yet. `addTrack(videoTrack)`, `addTransceiver(videoTrack)` and a `sendonly` video transceiver throw `NotSupportedError` on a network peer connection (in-document pairs are unchanged). There is no VP8 encoder. Our offers carry video as `recvonly` and answers as `recvonly` or `inactive`.
+- **Opus.** Added in stage 3 ([`webrtc-opus.md`](webrtc-opus.md)): 48 kHz Opus is preferred and G.711 remains the fallback.
 - **Browser interoperability is untested.** The SRTP packet format matches the RFC 7714 vectors and the DTLS key layout
   follows RFC 5764, but I have only run Folio against Folio end to end. The first run against a browser may expose a
   mismatch. The client-side `use_srtp` validation has no negative test yet.
 - **Only AEAD_AES_128_GCM** is offered in `use_srtp`. A peer that supports only the AES-CM/HMAC-SHA1 profiles cannot
   connect media (data channels are unaffected).
-- No MID header extension, no SSRC-less demux, no simulcast, no RTX/FEC/NACK/PLI, no congestion control or REMB.
+- No MID header extension, no SSRC-less demux, no simulcast, no RTX/FEC, no congestion control or REMB. (Video NACK/PLI/FIR exist: see Remote video below. Audio has none.)
 - The jitter buffer skips holes; there is no loss concealment (a lost packet is a 20 ms gap), no clock-drift
   compensation and no playout pacing. Audio is submitted as it is released.
 - The resampler is linear interpolation without an anti-alias filter, so 48 kHz capture aliases above 4 kHz.
@@ -105,3 +101,49 @@ I did not overclaim these:
 - Remote tracks have no `ended` event in script yet (the engine raises it on BYE and close).
 - Sending is not gated on the DTLS peer being the same one ICE selected after an ICE restart; restarts are not handled.
 - TURN relays (#782) are not involved; media uses whatever pair ICE selects.
+
+## Remote video (VP8)
+
+Part of #719 and #704. A remote peer can send VP8; it is depacketized, decoded and shown in `<video srcObject>`, and
+`canvas.drawImage(video)` reads the same frame.
+
+```
+SRTP -> RTP demux -> Vp8Receiver (RFC 7741 reassembly, loss timers) -> Vp8Decoder (RFC 6386) -> RGBA
+     -> RtcRemoteTrack.VideoFrame -> host sink -> media element (polled at paint, like a capture frame)
+     <- RTCP NACK / PLI / FIR from Vp8Receiver
+```
+
+| Piece | Where | Notes |
+| --- | --- | --- |
+| Decoder | `Rtc/Vp8/Vp8Decoder*.cs` | Key and inter frames, golden/altref with sign bias and copy flags, segmentation, token partitions, normal and simple loop filter, six-tap and bilinear prediction, versions 0-3. Ported from the RFC 6386 reference decoder; no unsafe code. Bounds-checked: a hostile frame returns a status (`Corrupt`, `Unsupported`, `TooLarge`, `NoReference`), never throws, and the decoder then needs a key frame. |
+| Size caps | `RtcMediaBudget` | `MaxVideoPixels` (1920x1088) per picture and `maxVideoBytes` (64 MiB) per document, charged at each key frame that changes the size. The charge covers the four reference frames, mode info, one row of coefficients and an allowance of two RGBA output frames. **It does not cover** the receiver's packet buffer (up to 4 MiB per stream), the frame being assembled (up to 2 MiB per stream), the per-decoder copy of the compressed frame it decodes from (up to the frame size), or RGBA frames the host still holds; those are bounded per stream but not charged to the document. When a size change does not fit, the old buffers are freed before the new reservation is tried, so nothing uncharged is retained. A failed decode at an unchanged size keeps its buffers. |
+| Work bound | `Vp8Receiver` | Each stream may reconstruct 40 full-size pictures per second; pixels are charged by the picture a frame produces, not its byte size, so a 10-byte key frame at 1080p costs 2 million pixels. Frames over the allowance are dropped (an inter frame dropped this way asks for a key frame). A single call decodes at most 8 frames and converts only the newest one to RGBA. Decoding still runs under the connection's media lock, bounded by these limits, not outside it. |
+| `IMediaDecoder` | `Vp8MediaDecoder` | Decodes an IVF file (`video/x-ivf`, `video/ivf`, `video/vp8`) to timestamped frames under the caller's output budget. WebM/MP4 demuxing is not implemented. |
+| Depacketizer | `Vp8Receiver` | Payload descriptor with PictureID/TL0PICIDX/TID/KEYIDX, frames from packets by sequence and marker, 512 packets / 4 MiB buffered, 2 MiB per frame. |
+| Loss repair | `Vp8Receiver`, `RtcpCodec` | A hole older than 20 ms is NACKed (RFC 4585), at most 4 times 100 ms apart, 128 sequence numbers tracked, window 256. A hole older than 400 ms, a restart or overflow drops the frame, discards inter frames and requests a key frame with PLI (else FIR, RFC 5104), at most every 500 ms per stream (measured from the last request, a decoded key frame does not reset it) and at most one per 100 ms per document. All repair packets share a 50 per second document allowance so they cannot starve audio. A stream with no key frame 100 ms after its first packet asks for one. |
+| SDP | `RtcSdp`, controller | `m=video` with VP8, `rtcp-mux`, BUNDLE and `a=rtcp-fb` (`nack`, `nack pli`, `ccm fir`; others ignored). Feedback is sent only when both descriptions list it for the VP8 payload type. An answer takes the offered VP8 payload type (not RTX, H.264 or VP9); a section without VP8 is rejected. |
+
+### Releasing decoders
+
+A decoder is released (and its bytes returned to the document budget) when its track ends (BYE), when the connection closes,
+when a renegotiated description stops the peer sending on it (`inactive` or `recvonly`), or when the section is rejected with
+port 0. A later `recvonly`/`sendrecv` section starts a new decoder at the next key frame.
+
+### Verification
+
+The decoder passes all 18 libvpx conformance vectors `vp80-00-comprehensive-001` to `018` bit-exactly (per-frame MD5 of
+the I420 output). They and their `.md5` files come from the WebM project's official test data,
+`https://storage.googleapis.com/downloads.webmproject.org/test_data/libvpx/`, and are checked in under
+`tests/Folio.Scripting.Tests/Vp8Vectors`. Other tests: engine loopback with packet loss, NACK and retransmission, PLI/FIR,
+budgets, BYE, fuzzed frames and RTP, RTCP round trips, SDP, the IVF adapter, and a sandboxed content-process test where
+VP8 arrives through the host UDP broker, appears in a `<video>` and is read back with `drawImage` and `getImageData`.
+
+### Not done
+
+- Sending video (above), simulcast, SVC, VP9, H.264, RTX, REMB/transport-cc, header extensions beyond skipping them.
+- No playout delay or frame pacing: a frame is delivered when complete. Hosts repaint on their own schedule; there is no
+  frame-arrived invalidation yet. The picture's scaling bits (display upscaling hint) are ignored.
+- Decoding is single-threaded and unoptimised C#; large pictures cost CPU on the content process.
+- Not tested against a browser sender; no real-world RTP capture is in the suite.
+- Colour conversion is BT.601 limited range.
+

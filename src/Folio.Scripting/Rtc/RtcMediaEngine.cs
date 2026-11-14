@@ -1,6 +1,8 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using Folio;
+using Folio.Scripting.Rtc.Opus;
+using Folio.Scripting.Rtc.Vp8;
 
 namespace Folio.Scripting.Rtc;
 
@@ -9,9 +11,17 @@ internal sealed class RtcRemoteTrack
 {
     public string Kind { get; }
     public string? Mid { get; }
-    /// <summary>True when Folio can turn this track's payload into frames (audio PCMU/PCMA). Video and Opus are negotiated but not decoded.</summary>
+    /// <summary>True when Folio can turn this track's payload into frames: audio Opus and PCMU/PCMA, and video VP8. Other video codecs are negotiated but not decoded.</summary>
     public bool Decodable { get; internal set; }
     public event Action<MediaAudioFrame>? AudioFrame;
+    /// <summary>A decoded video frame (RGBA, an immutable snapshot the receiver owns). Raised outside the engine's lock.</summary>
+    public event Action<MediaCaptureVideoFrame>? VideoFrame;
+    public long KeyFramesDecoded { get; internal set; }
+    public long NacksSent { get; internal set; }
+    public long KeyFrameRequestsSent { get; internal set; }
+    public long VideoFramesDiscarded { get; internal set; }
+    public int VideoWidth { get; internal set; }
+    public int VideoHeight { get; internal set; }
     public event Action? Ended;
     public long PacketsReceived { get; internal set; }
     public long BytesReceived { get; internal set; }
@@ -23,6 +33,7 @@ internal sealed class RtcRemoteTrack
 
     internal RtcRemoteTrack(string kind, string? mid) { Kind = kind; Mid = mid; }
     internal void RaiseAudio(MediaAudioFrame frame) => AudioFrame?.Invoke(frame);
+    internal void RaiseVideo(MediaCaptureVideoFrame frame) => VideoFrame?.Invoke(frame);
     internal void RaiseEnded() => Ended?.Invoke();
 }
 
@@ -36,6 +47,9 @@ internal sealed class RtcLocalTrack
     public long BytesSent { get; internal set; }
     internal int PayloadType = -1;
     internal bool ALaw;
+    internal bool Opus;
+    internal OpusEncoder? Encoder;
+    internal readonly float[] OpusPending = new float[OpusEncoder.FrameSamples];
     internal ushort Sequence;
     internal uint Timestamp;
     internal bool Marker = true;
@@ -88,11 +102,13 @@ internal sealed class RtcMediaEngine : IDisposable
     {
         public string Kind = "", Mid = "";
         public bool Receives, Sends;
+        public bool NackOk, PliOk, FirOk;
         public RtcRemoteTrack? Track;
         public readonly List<uint> DeclaredSsrcs = [];
         public readonly List<RtcCodec> ReceiveCodecs = [];
         public RtcCodec? SendCodec;
         public RtcLocalTrack? Local;
+        public int OpusChannels = 1;
     }
 
     private sealed class RecvStream
@@ -100,6 +116,10 @@ internal sealed class RtcMediaEngine : IDisposable
         public uint Ssrc;
         public Section Section = null!;
         public RtcCodec Codec = null!;
+        public OpusDecoder? Opus;
+        public int LastOpusSamples = 960;
+        public double OpusCreditMs = OpusBurstMs;
+        public long OpusCreditStamp;
         public bool Started;
         public ushort BaseSeq;
         public long MaxExt, Next;
@@ -110,6 +130,8 @@ internal sealed class RtcMediaEngine : IDisposable
         public uint LastSr;
         public long LastSrStamp;
         public readonly SortedDictionary<long, (byte[] Payload, long Arrival)> Buffer = [];
+        public Vp8Receiver? Video;
+        public byte FirSequence;
     }
 
     public RtcMediaEngine(TimeProvider? time = null, RtcMediaBudget? budget = null)
@@ -173,7 +195,13 @@ internal sealed class RtcMediaEngine : IDisposable
             for (var i = 0; i < _remote.Media.Count; i++)
             {
                 var remoteMedia = _remote.Media[i];
-                if (remoteMedia.Kind is not ("audio" or "video") || remoteMedia.Port == 0) continue;
+                if (remoteMedia.Kind is not ("audio" or "video")) continue;
+                if (remoteMedia.Port == 0)
+                {
+                    // Rejected or closed section: nothing arrives on it any more, so its decoders and their budget go now.
+                    if (_sections.FirstOrDefault(s => s.Mid == (remoteMedia.Mid ?? i.ToString())) is { } closed) { closed.Receives = false; ReleaseStreams(closed); }
+                    continue;
+                }
                 var mid = remoteMedia.Mid ?? i.ToString();
                 var section = _sections.FirstOrDefault(s => s.Mid == mid);
                 if (section is null)
@@ -193,9 +221,11 @@ internal sealed class RtcMediaEngine : IDisposable
                     section.Receives = localMedia.Receives && remoteMedia.Sends;
                     foreach (var pt in localMedia.PayloadTypes)
                         if (localMedia.CodecFor(pt) is { } codec) section.ReceiveCodecs.Add(codec);
+                    // a peer that declares sprop-stereo=1 may send stereo: decode to two channels then, otherwise mono
+                    section.OpusChannels = remoteMedia.PayloadTypes.Any(pt => remoteMedia.CodecFor(pt) is { IsOpus: true } r && r.FmtpParameter("sprop-stereo") == "1") ? 2 : 1;
                     if (localMedia.Sends && remoteMedia.Receives && remoteMedia.RtcpMux)
                         foreach (var pt in localMedia.PayloadTypes)
-                            if (remoteMedia.PayloadTypes.Contains(pt) && localMedia.CodecFor(pt) is { IsG711: true } codec) { section.SendCodec = codec; break; }
+                            if (remoteMedia.PayloadTypes.Contains(pt) && localMedia.CodecFor(pt) is { } codec && (codec.IsG711 || codec.IsOpus)) { section.SendCodec = codec; break; }
                 }
                 else section.Receives = remoteMedia.Sends; // answerer before its own description exists
                 if (section.Track is null && remoteMedia.Sends && _budget.TryAcquireTrack())
@@ -203,9 +233,19 @@ internal sealed class RtcMediaEngine : IDisposable
                     section.Track = new RtcRemoteTrack(section.Kind, mid);
                     raised.Add(section.Track);
                 }
+                section.NackOk = section.PliOk = section.FirOk = false;
+                if (section.Kind == "video" && section.ReceiveCodecs.FirstOrDefault(c => c.Name == "VP8") is { } vp8)
+                {
+                    // Feedback works only when both descriptions list it for the VP8 payload type. An answerer that has not
+                    // produced its own description yet assumes what the offer lists.
+                    bool Both(string mechanism) => remoteMedia.HasFeedback(vp8.PayloadType, mechanism) && (localMedia is null || localMedia.HasFeedback(vp8.PayloadType, mechanism));
+                    section.NackOk = Both("nack"); section.PliOk = Both("pli"); section.FirOk = Both("fir");
+                }
+                if (!section.Receives) ReleaseStreams(section); // inactive or sendonly now: free the decoder instead of holding it idle
                 if (section.Track is not null)
                 {
-                    section.Track.Decodable = section.Kind == "audio" && section.ReceiveCodecs.Any(c => c.IsG711);
+                    section.Track.Decodable = (section.Kind == "audio" && section.ReceiveCodecs.Any(c => c.IsG711 || c.IsOpus))
+                        || (section.Kind == "video" && section.ReceiveCodecs.Any(c => c.Name == "VP8"));
                     section.Track.ReceiveTypes.Clear();
                     section.Track.ReceiveTypes.AddRange(section.ReceiveCodecs.Select(c => c.PayloadType));
                 }
@@ -213,6 +253,15 @@ internal sealed class RtcMediaEngine : IDisposable
             foreach (var track in _locals) Bind(track);
         }
         foreach (var track in raised) OnRemoteTrack?.Invoke(track);
+    }
+
+    private void ReleaseStreams(Section section)
+    {
+        foreach (var (ssrc, stream) in _streams.Where(pair => ReferenceEquals(pair.Value.Section, section)).ToArray())
+        {
+            stream.Video?.Dispose();
+            _streams.Remove(ssrc);
+        }
     }
 
     private void Bind(RtcLocalTrack track)
@@ -225,6 +274,8 @@ internal sealed class RtcMediaEngine : IDisposable
         track.Mid = section.Mid;
         track.PayloadType = codec.PayloadType;
         track.ALaw = codec.Name == "PCMA";
+        track.Opus = codec.IsOpus;
+        if (track.Opus) track.Encoder ??= new OpusEncoder { Bitrate = 32000 };
     }
 
     /// <summary>Processes one datagram from the ICE transport that is RTP or RTCP. Malformed, unauthenticated, over-budget or unknown packets are dropped.</summary>
@@ -234,6 +285,8 @@ internal sealed class RtcMediaEngine : IDisposable
         if (!IsMediaDatagram(datagram) || datagram.Length > SrtpTransport.MaxPacketBytes) return;
         if (!_budget.TryConsume(receive: true, datagram.Length)) return;
         var frames = new List<(RtcRemoteTrack Track, MediaAudioFrame Frame)>();
+        (RtcRemoteTrack Track, MediaCaptureVideoFrame Frame)[] video;
+        byte[][] feedback;
         lock (_gate)
         {
             if (_disposed || _srtp is null) return;
@@ -245,8 +298,10 @@ internal sealed class RtcMediaEngine : IDisposable
             else if (_srtp.TryUnprotectRtp(datagram, out var rtp) && rtp is not null) HandleRtp(rtp);
             else RtpPacketsDropped++;
             Drain(frames);
+            TakePending(out video, out feedback);
         }
         Deliver(frames);
+        DeliverVideo(video, feedback);
     }
 
     private void HandleRtp(byte[] packet)
@@ -272,10 +327,13 @@ internal sealed class RtcMediaEngine : IDisposable
             var section = SelectSection(ssrc, payloadType);
             if (section?.Track is null || _streams.Count >= MaxStreams) { RtpPacketsDropped++; return; }
             stream = new RecvStream { Ssrc = ssrc, Section = section, Codec = section.ReceiveCodecs.First(c => c.PayloadType == payloadType) };
+            if (section.Kind == "video" && stream.Codec.Name == "VP8")
+                stream.Video = new Vp8Receiver(new Vp8Decoder(_budget.MaxVideoPixels, _budget), _time);
             _streams[ssrc] = stream;
         }
         var track = stream.Section.Track!;
         if (stream.Section.ReceiveCodecs.FirstOrDefault(c => c.PayloadType == payloadType) is not { } codec) { track.PacketsDropped++; RtpPacketsDropped++; return; }
+        if (stream.Video is not null && codec.Name != "VP8") { track.PacketsDropped++; RtpPacketsDropped++; return; }
         stream.Codec = codec;
 
         var now = _time.GetTimestamp();
@@ -302,7 +360,16 @@ internal sealed class RtcMediaEngine : IDisposable
         stream.PrevTransit = transit; stream.HasTransit = true;
 
         if (ext < stream.Next || stream.Buffer.ContainsKey(ext)) { track.PacketsDropped++; return; } // late or duplicate
-        if (!track.Decodable || !codec.IsG711) return; // negotiated and counted, but there is no decoder for this payload
+        if (stream.Video is { } receiver)
+        {
+            receiver.SupportsNack = stream.Section.NackOk;
+            receiver.SupportsKeyFrameRequest = stream.Section.PliOk || stream.Section.FirOk;
+            var output = new Vp8ReceiverOutput();
+            receiver.Push(ext, timestamp, (packet[1] & 0x80) != 0, packet.AsSpan(headerLength, payloadLength), now, output);
+            CollectVideo(stream, output);
+            return;
+        }
+        if (!track.Decodable || !(codec.IsG711 || codec.IsOpus)) return; // negotiated and counted, but there is no decoder for this payload
         stream.Buffer[ext] = (packet.AsSpan(headerLength, payloadLength).ToArray(), now);
         while (stream.Buffer.Count > MaxJitterPackets) // bounded: drop the oldest, counting the gap as loss
         {
@@ -327,24 +394,88 @@ internal sealed class RtcMediaEngine : IDisposable
         var now = _time.GetTimestamp();
         foreach (var stream in _streams.Values)
         {
+            var opusDecoded = 0;
             while (stream.Buffer.Count > 0)
             {
+                if (stream.Codec.IsOpus && opusDecoded >= MaxOpusPacketsPerDrain) break; // bounded work per lock hold; the rest drains on the next call
                 var first = stream.Buffer.First();
+                long gap = 0;
                 if (first.Key != stream.Next)
                 {
                     if (_time.GetElapsedTime(first.Value.Arrival, now) < JitterDelay) break;
-                    stream.Section.Track!.PacketsLost += first.Key - stream.Next;
+                    gap = first.Key - stream.Next;
+                    stream.Section.Track!.PacketsLost += gap;
                     stream.Next = first.Key; // waited long enough: skip the gap
                 }
                 stream.Buffer.Remove(first.Key);
                 stream.Next = first.Key + 1;
                 var payload = first.Value.Payload;
+                if (stream.Codec.IsOpus) { opusDecoded++; DrainOpus(stream, payload, (int)Math.Min(gap, MaxConcealedFrames), frames, now); continue; }
                 var samples = new float[payload.Length];
                 var alaw = stream.Codec.Name == "PCMA";
                 for (var i = 0; i < payload.Length; i++) samples[i] = (alaw ? G711.DecodeALaw(payload[i]) : G711.DecodeMuLaw(payload[i])) / 32768f;
                 stream.Section.Track!.FramesDelivered++;
                 frames.Add((stream.Section.Track, new MediaAudioFrame(stream.Codec.ClockRate, 1, samples)));
             }
+        }
+    }
+
+    /// <summary>Most frames concealed for one gap, whatever its length: a long gap is silence, not an invitation to decode for it.</summary>
+    internal const int MaxConcealedFrames = 3;
+    /// <summary>Opus packets decoded per stream in one pass under the engine lock.</summary>
+    internal const int MaxOpusPacketsPerDrain = 16;
+    /// <summary>Decoded (and concealed) audio allowed per stream: 1.25 times real time, with a burst that covers a full jitter buffer.</summary>
+    internal const double OpusAudioMsPerSecond = 1250, OpusBurstMs = 1500;
+
+    /// <summary>
+    /// Decodes one Opus packet. When packets were lost before it, the gap is concealed frame by frame, and the last lost frame is
+    /// recovered from this packet's in-band redundancy when it has any (RFC 6716 section 2.1.7).
+    /// </summary>
+    private void DrainOpus(RecvStream stream, byte[] payload, int lostFrames, List<(RtcRemoteTrack, MediaAudioFrame)> frames, long now)
+    {
+        var track = stream.Section.Track!;
+        try
+        {
+            var samples = OpusPacket.GetNbSamples(payload);
+            if (samples <= 0 || samples > 5760) { track.PacketsDropped++; return; }
+            // lost audio is assumed to last as long as the packet before the gap; never more than 120 ms in total
+            var lostSamples = Math.Clamp(stream.LastOpusSamples, 120, 5760);
+            lostFrames = Math.Min(lostFrames, 5760 / lostSamples);
+            // CPU ceiling: decoded and concealed audio per stream is limited to 1.25 times real time
+            var elapsedMs = stream.OpusCreditStamp == 0 ? 0 : _time.GetElapsedTime(stream.OpusCreditStamp, now).TotalMilliseconds;
+            stream.OpusCreditStamp = now == 0 ? 1 : now;
+            stream.OpusCreditMs = Math.Min(OpusBurstMs, stream.OpusCreditMs + elapsedMs * OpusAudioMsPerSecond / 1000.0);
+            var cost = (samples + (double)lostFrames * lostSamples) / 48.0;
+            if (cost > stream.OpusCreditMs)
+            {
+                lostFrames = 0;
+                cost = samples / 48.0;
+                if (cost > stream.OpusCreditMs) { track.PacketsDropped++; return; }
+            }
+            stream.OpusCreditMs -= cost;
+            var decoder = stream.Opus ??= new OpusDecoder(stream.Section.OpusChannels);
+            var channels = decoder.Channels;
+            for (var i = 0; i < lostFrames; i++)
+            {
+                var pcm = new float[lostSamples * channels];
+                // in-band redundancy only describes a frame of the packet's own duration
+                var n = i == lostFrames - 1 && OpusPacket.GetSamplesPerFrame(payload[0]) == lostSamples
+                    ? decoder.Decode(payload, pcm, lostSamples, fec: true)
+                    : decoder.Decode(default, pcm, lostSamples);
+                if (n > 0) { track.FramesDelivered++; frames.Add((track, new MediaAudioFrame(48000, channels, pcm.AsSpan(0, n * channels).ToArray()))); }
+            }
+            var output = new float[samples * channels];
+            var decoded = decoder.Decode(payload, output, samples);
+            if (decoded <= 0) { track.PacketsDropped++; decoder.Reset(); return; }
+            stream.LastOpusSamples = decoded;
+            track.FramesDelivered++;
+            frames.Add((track, new MediaAudioFrame(48000, channels, decoded == samples ? output : output.AsSpan(0, decoded * channels).ToArray())));
+        }
+        catch (Exception)
+        {
+            // an unexpected decoder fault must not stop the media plane; start the decoder over
+            track.PacketsDropped++;
+            stream.Opus = null;
         }
     }
 
@@ -373,8 +504,11 @@ internal sealed class RtcMediaEngine : IDisposable
                 foreach (var ssrc in packet.ByeSsrcs)
                 {
                     _srtp?.RemoveRemoteStream(ssrc); // the peer is done with this SSRC: free its SRTP slot
-                    if (_streams.Remove(ssrc, out var gone) && !_streams.Values.Any(s => s.Section == gone.Section))
-                        gone.Section.Track?.RaiseEnded();
+                    if (_streams.Remove(ssrc, out var gone))
+                    {
+                        gone.Video?.Dispose();
+                        if (!_streams.Values.Any(s => s.Section == gone.Section)) gone.Section.Track?.RaiseEnded();
+                    }
                 }
             }
         }
@@ -385,11 +519,23 @@ internal sealed class RtcMediaEngine : IDisposable
     {
         var frames = new List<(RtcRemoteTrack, MediaAudioFrame)>();
         byte[]? report = null;
+        (RtcRemoteTrack Track, MediaCaptureVideoFrame Frame)[] video;
+        byte[][] feedback;
         lock (_gate)
         {
             if (_disposed) return;
             Drain(frames);
             var now = _time.GetTimestamp();
+            foreach (var stream in _streams.Values.ToArray())
+            {
+                if (stream.Video is not { } receiver) continue;
+                receiver.SupportsNack = stream.Section.NackOk;
+                receiver.SupportsKeyFrameRequest = stream.Section.PliOk || stream.Section.FirOk;
+                var output = new Vp8ReceiverOutput();
+                receiver.Tick(now, output);
+                CollectVideo(stream, output);
+            }
+            TakePending(out video, out feedback);
             if (_srtp is not null && _time.GetElapsedTime(_lastReport, now) >= ReportInterval)
             {
                 _lastReport = now;
@@ -397,7 +543,59 @@ internal sealed class RtcMediaEngine : IDisposable
             }
         }
         Deliver(frames);
+        DeliverVideo(video, feedback);
         SendRtcp(report);
+    }
+
+    private readonly List<(RtcRemoteTrack Track, MediaCaptureVideoFrame Frame)> _pendingVideo = [];
+    private readonly List<byte[]> _pendingFeedback = [];
+
+    /// <summary>Moves a receiver's decoded frames and repair requests into the pending lists. Runs under the engine's lock.</summary>
+    private void CollectVideo(RecvStream stream, Vp8ReceiverOutput output)
+    {
+        var track = stream.Section.Track!;
+        var receiver = stream.Video!;
+        track.PacketsLost = Math.Max(track.PacketsLost, receiver.PacketsLost);
+        track.KeyFramesDecoded = receiver.KeyFramesDecoded;
+        track.VideoFramesDiscarded = receiver.FramesDiscarded;
+        foreach (var frame in output.Frames)
+        {
+            track.FramesDelivered++;
+            track.VideoWidth = frame.Width; track.VideoHeight = frame.Height;
+            _pendingVideo.Add((track, frame));
+        }
+        if (output.Nack.Count == 0 && !output.KeyFrameRequest) return;
+        // RFC 4585 feedback travels in a compound packet that starts with a receiver report and carries the CNAME.
+        var sender = _locals.FirstOrDefault()?.Ssrc ?? NonZeroRandomStable();
+        var parts = new List<byte[]> { RtcpCodec.BuildReport(sender, false, 0, 0, 0, 0, [], _cname) };
+        if (output.Nack.Count > 0 && stream.Section.NackOk && _budget.TryConsumeFeedback())
+        {
+            parts.Add(RtcpCodec.BuildNack(sender, stream.Ssrc, output.Nack));
+            track.NacksSent += output.Nack.Count;
+        }
+        if (output.KeyFrameRequest && _budget.TryConsumeKeyFrameRequest())
+        {
+            if (stream.Section.PliOk) { parts.Add(RtcpCodec.BuildPli(sender, stream.Ssrc)); track.KeyFrameRequestsSent++; }
+            else if (stream.Section.FirOk) { parts.Add(RtcpCodec.BuildFir(sender, stream.Ssrc, stream.FirSequence++)); track.KeyFrameRequestsSent++; }
+        }
+        if (parts.Count == 1) return;
+        _pendingFeedback.Add(parts.SelectMany(part => part).ToArray());
+    }
+
+    private void TakePending(out (RtcRemoteTrack Track, MediaCaptureVideoFrame Frame)[] video, out byte[][] feedback)
+    {
+        video = _pendingVideo.Count == 0 ? [] : _pendingVideo.ToArray();
+        feedback = _pendingFeedback.Count == 0 ? [] : _pendingFeedback.ToArray();
+        _pendingVideo.Clear(); _pendingFeedback.Clear();
+    }
+
+    private void DeliverVideo((RtcRemoteTrack Track, MediaCaptureVideoFrame Frame)[] video, byte[][] feedback)
+    {
+        foreach (var (track, frame) in video)
+        {
+            try { track.RaiseVideo(frame); } catch { /* a sink fault must not stop the media plane */ }
+        }
+        foreach (var packet in feedback) SendRtcp(packet);
     }
 
     private byte[]? BuildReport(long now)
@@ -445,7 +643,8 @@ internal sealed class RtcMediaEngine : IDisposable
         {
             if (_disposed || _srtp is null || track.Released || track.PayloadType < 0) return 0;
             // ponytail: linear interpolation, no anti-alias low-pass; add a polyphase filter if 48 kHz capture aliasing matters.
-            var step = sampleRate / 8000.0;
+            // Opus runs at 48 kHz (a 48 kHz capture passes through unchanged); G.711 at 8 kHz.
+            var step = sampleRate / (track.Opus ? 48000.0 : 8000.0);
             var n = interleaved.Length / channels;
             var p = track.Phase; // position of the next output relative to this call's first frame; frame -1 is the carried sample
             while (p < n - 1)
@@ -478,6 +677,7 @@ internal sealed class RtcMediaEngine : IDisposable
     private void Push(RtcLocalTrack track, float sample, List<byte[]> packets)
     {
         if (float.IsNaN(sample)) sample = 0;
+        if (track.Opus) { PushOpus(track, sample, packets); return; }
         track.Pending[track.PendingCount++] = (short)Math.Clamp((int)Math.Round(sample * 32767f), short.MinValue, short.MaxValue);
         if (track.PendingCount < SamplesPerPacket) return;
         track.PendingCount = 0;
@@ -492,6 +692,27 @@ internal sealed class RtcMediaEngine : IDisposable
         for (var i = 0; i < SamplesPerPacket; i++) rtp[12 + i] = track.ALaw ? G711.EncodeALaw(track.Pending[i]) : G711.EncodeMuLaw(track.Pending[i]);
         track.PacketsSent++;
         track.BytesSent += SamplesPerPacket;
+        packets.Add(_srtp!.ProtectRtp(rtp));
+    }
+
+    private void PushOpus(RtcLocalTrack track, float sample, List<byte[]> packets)
+    {
+        track.OpusPending[track.PendingCount++] = Math.Clamp(sample, -1f, 1f);
+        if (track.PendingCount < OpusEncoder.FrameSamples) return;
+        track.PendingCount = 0;
+        Span<byte> payload = stackalloc byte[OpusEncoder.MaxBytes + 1];
+        var length = track.Encoder!.Encode(track.OpusPending, payload, out _);
+        var rtp = new byte[12 + length];
+        rtp[0] = 0x80;
+        rtp[1] = (byte)(track.PayloadType | (track.Marker ? 0x80 : 0));
+        track.Marker = false;
+        BinaryPrimitives.WriteUInt16BigEndian(rtp.AsSpan(2), track.Sequence++);
+        BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(4), track.Timestamp);
+        BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(8), track.Ssrc);
+        track.Timestamp += OpusEncoder.FrameSamples;
+        payload[..length].CopyTo(rtp.AsSpan(12));
+        track.PacketsSent++;
+        track.BytesSent += length;
         packets.Add(_srtp!.ProtectRtp(rtp));
     }
 
@@ -523,6 +744,7 @@ internal sealed class RtcMediaEngine : IDisposable
             tracks = _sections.Select(s => s.Track).Where(t => t is not null).Select(t => t!).ToArray();
             release = tracks.Length + _locals.Count(l => !l.Released);
             foreach (var local in _locals) local.Released = true;
+            foreach (var stream in _streams.Values) stream.Video?.Dispose();
             _streams.Clear();
         }
         for (var i = 0; i < release; i++) _budget.ReleaseTrack();

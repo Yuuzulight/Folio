@@ -38,6 +38,7 @@ Child to host, `UdpCommand`:
   whitespace forms), `data` is strict base64.
 - `{op:"permit", gen, host}`: allow unsolicited inbound datagrams from this address (same address policy; see below).
 - `{op:"close", gen, id}`.
+- `{op:"resolve", gen, token, name}`: resolve a DNS name in the host (see "Name resolution").
 
 Host to child, `UdpEvent`:
 
@@ -46,6 +47,7 @@ Host to child, `UdpEvent`:
   waiting out the check timeout. The host enforces the policy regardless.
 - `{op:"failed", token, reason}`: not granted, quota exceeded, or bind failed.
 - `{op:"datagram", id, host, port, data}`.
+- `{op:"resolved", token, host, reason}`: the answer to `resolve`; `host` is an IPv4 literal, or null with a `reason`.
 - `{op:"closed", id, reason}`: revoked, document replaced, closed by the child, or the broker was disposed.
 
 UDP frames are small. A frame over 8 KiB is read only as far as a 32-byte prefix first: if the prefix says it is a
@@ -92,6 +94,7 @@ quota below. A binary framing is a later optimisation.
 | Outgoing queue | 64 datagrams per socket; overflow drops and counts (the budget is refunded) |
 | Incoming datagram queue | 256 datagrams towards the child; overflow drops and counts |
 | All queued events | 512, control events included |
+| Name lookups | 16 distinct names per document, burst of 8 refilling at 2 per second, 4 in flight (the rest are refused, not queued), 5 s each |
 
 The limiters belong to the broker (the process), not to a socket or document; a replaced document receives fresh
 ones at most once per second. If the child stops reading its pipe, the event queue reaches 512, the broker closes
@@ -101,6 +104,32 @@ the socket (host) or fails the connection (child).
 
 Counters (`Denied`, `Oversize`, `RateLimited`, `DroppedOutgoing`, `DroppedIncoming`, `Malformed`, `SendFailed`) are
 available to the host and tests.
+
+## Name resolution
+
+The content process has no DNS, so `IIceTransport.ResolveAsync` asks the host (`resolve`). The default transport uses the
+local resolver and behaves as before. The host answers only when the capability is on and the name is a valid DNS name
+of at most 253 characters; IP literals are never sent (the agent uses them directly). `ContentProcessClient` also
+requires the name to be the host part of an entry in `WebRtcAllowedOrigins` (`stun:` or `turn:`), so the page cannot use
+the host as a general resolver. A broker created without an allowlist denies every name. The in-flight slot is held until the
+OS lookup itself returns, not merely until the child was answered with a timeout. The answer is the first IPv4 address the destination policy would accept for a `send`: a name
+that points at loopback, a private range or any other denied range (rebinding, misconfiguration) resolves to nothing, unless
+the embedder opted in to that range for sockets. A lookup that fails, times out or is refused is an answer too; the child
+never waits on silence, and a stale-generation `resolve` is answered with a refusal.
+
+## TURN
+
+`TurnClient` owns no socket. It sends to the configured server through the agent's `IIceTransport`, so in the sandbox every
+Allocate, Refresh, CreatePermission, ChannelBind, Send indication and ChannelData travels as an ordinary `send` and is
+subject to the same destination policy and quotas; the server's replies come back as ordinary datagrams. The server
+address is checked with `CanSendTo` before an allocation is attempted. Timers (retransmission, refresh) run on an injected
+`TimeProvider`.
+
+Relayed peers are outside the host's destination policy. The host sees only datagrams to the TURN server; the peer addresses
+inside XOR-PEER-ADDRESS (CreatePermission, ChannelBind, Send indications) are chosen by the page from remote SDP and are not
+checked by the broker. What a TURN server will relay to is enforced by that server. The client additionally refuses to
+request relaying to multicast, unspecified or non-public peers unless the TURN server itself is on a non-public network, but
+that is a courtesy in the child, not a host guarantee.
 
 ## Lifetimes, failure and revocation
 
@@ -134,9 +163,8 @@ reach us by initiating from an address we never learned stays unreachable, which
 
 ## Remains for later stages
 
-1. **STUN/TURN names.** Resolving an allowed STUN hostname still happens in the child. It fails inside the AppContainer
-   (no DNS), so server-reflexive candidates are not gathered there yet. A host-side `resolve` that accepts only
-   names in `WebRtcAllowedOrigins` would also let the host require that TURN/STUN destinations match that list.
+1. **Destination allowlist.** Names are now resolved by the host and only for allowlisted servers, but `send` itself
+   is still not restricted to the addresses those names resolved to (peer addresses come from remote SDP).
 2. **Interface candidates.** Host candidates are enumerated by the child and are advisory only. The host should report
    the interfaces it permits.
 3. **mDNS and IPv6**, TURN relay allocation and TCP candidates.

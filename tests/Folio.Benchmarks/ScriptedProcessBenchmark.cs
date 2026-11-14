@@ -429,8 +429,8 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
         }
 
         var shared = freshOnly ? null : await StartWarm();
-        Console.WriteLine("| Artifact | First frame ms | Working set MiB | Result |");
-        Console.WriteLine("|---|---:|---:|---|");
+        Console.WriteLine("| Artifact | First frame ms | Working set MiB | Limit ms / MiB | Result |");
+        Console.WriteLine("|---|---:|---:|---:|---|");
         var measured = 0;
         var failed = 0;
         var unqualified = 0;
@@ -455,13 +455,13 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                 if (urls.Length == 0)
                 {
                     if (compiled is null) continue;
-                    Console.WriteLine($"| {id} | — | — | Compiled page references no pinned library |");
+                    Console.WriteLine($"| {id} | — | — | — | Compiled page references no pinned library |");
                     unqualified++;
                     continue;
                 }
                 if (urls.Any(url => !cache.ContainsKey(url)))
                 {
-                    Console.WriteLine($"| {id} | — | — | Unavailable in the pinned cache |");
+                    Console.WriteLine($"| {id} | — | — | — | Unavailable in the pinned cache |");
                     unqualified++;
                     continue;
                 }
@@ -531,7 +531,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                         // The content host died or hung on this artifact: report it and carry on with a new shared process.
                         measured++;
                         failed++;
-                        Console.WriteLine($"| {id} | — | — | Content host failed: {error.GetType().Name} |");
+                        Console.WriteLine($"| {id} | — | — | — | Content host failed: {error.GetType().Name} |");
                         if (owned is not null) { await owned.DisposeAsync(); owned = null; }
                         if (shared is not null)
                         {
@@ -547,7 +547,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                     if (freshError is not null)
                     {
                         failed++;
-                        Console.WriteLine($"| {id} | — | — | Fresh process: {Cell(freshError)} |");
+                        Console.WriteLine($"| {id} | — | — | — | Fresh process: {Cell(freshError)} |");
                         continue;
                     }
                     if (profile && frame.Payload.TryGetProperty("timings", out var timings))
@@ -555,14 +555,15 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                     try
                     {
                         Validate(frame, client);
-                        var within = elapsed <= TargetWarmFirstPaint && workingSet <= TargetWorkingSet;
+                        var limits = LibraryLimits(category);
+                        var within = elapsed <= limits.FirstFrame && workingSet <= limits.WorkingSet;
                         if (!within) failed++;
-                        Console.WriteLine(FormattableString.Invariant($"| {id} | {elapsed.TotalMilliseconds:F1} | {workingSet / (1024.0 * 1024):F1} | {(within ? "Pass" : "Over budget")} |"));
+                        Console.WriteLine(FormattableString.Invariant($"| {id} | {elapsed.TotalMilliseconds:F1} | {workingSet / (1024.0 * 1024):F1} | {limits.FirstFrame.TotalMilliseconds:F0} / {limits.WorkingSet / (1024 * 1024)} | {(within ? "Pass" : "Over budget")} |"));
                     }
                     catch (InvalidDataException error)
                     {
                         failed++;
-                        Console.WriteLine($"| {id} | — | — | {Cell(error.Message)} |");
+                        Console.WriteLine($"| {id} | — | — | — | {Cell(error.Message)} |");
                     }
                 }
                 finally { if (owned is not null) await owned.DisposeAsync(); }
@@ -572,6 +573,14 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
         Console.WriteLine($"Measured {measured} pinned-library artifacts. Failures: {failed}. Unqualified: {unqualified}.");
         return measured > 0 && failed == 0 && unqualified == 0 ? 0 : 1;
     }
+
+    // Proposed 1.0 start-up limits per pinned-library class (docs/start-up-limits.md); D2/D3/D6 keep the ordinary 50 ms / 80 MiB.
+    private static (TimeSpan FirstFrame, long WorkingSet) LibraryLimits(int category) => category switch
+    {
+        4 or 5 => (TimeSpan.FromMilliseconds(60), 85L * 1024 * 1024),
+        7 => (TimeSpan.FromMilliseconds(180), 130L * 1024 * 1024),
+        _ => (TargetWarmFirstPaint, TargetWorkingSet),
+    };
 
     private const string WarmUpPage = "<!doctype html><p>Warm up the content process.</p>";
 
