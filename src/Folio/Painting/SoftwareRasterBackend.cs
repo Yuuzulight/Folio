@@ -45,10 +45,16 @@ public sealed class SoftwareRasterSurface : IRasterSurface
     public byte[] PremultipliedPixels => _pixels.Data;
 
     /// <summary>Row <paramref name="row"/> as BGRA bytes (what a 32bpp premultiplied Windows bitmap holds), into <paramref name="destination"/>.</summary>
-    internal void ReadBgraRow(int row, byte[] destination)
+    internal void ReadBgraRow(int row, byte[] destination) => ReadBgraRow(row, 0, Width, destination);
+
+    /// <summary>
+    /// The <paramref name="count"/> pixels of row <paramref name="row"/> from column <paramref name="left"/>, as BGRA bytes, into the start of
+    /// <paramref name="destination"/> (a sub-rectangle of the frame is presented without touching the rest).
+    /// </summary>
+    internal void ReadBgraRow(int row, int left, int count, byte[] destination)
     {
-        var stride = Width * 4;
-        var source = _pixels.Data.AsSpan(row * stride, stride);
+        var stride = count * 4;
+        var source = _pixels.Data.AsSpan((row * Width + left) * 4, stride);
         var x = 0;
         if (System.Runtime.Intrinsics.Vector128.IsHardwareAccelerated)
         {
