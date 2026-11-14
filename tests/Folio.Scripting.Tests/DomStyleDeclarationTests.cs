@@ -714,6 +714,20 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void SharedWorkerDeniesRTCPeerConnection()
+    {
+        using var engine = new JintScriptEngine();
+        using var loop = new HtmlEventLoop(engine, new VirtualEventLoopClock());
+        DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true, WebRtc = true }
+        }), eventLoop: loop);
+        var source = "onconnect=function(e){const p=e.ports[0];p.start();p.postMessage(typeof RTCPeerConnection === 'undefined');};";
+        engine.Evaluate($"const shared=new SharedWorker('data:text/javascript,{Uri.EscapeDataString(source)}'); let sharedAnswer=null; shared.port.onmessage=e=>sharedAnswer=e.data; shared.port.start(); true");
+        Assert.True(WaitFor(() => engine.Evaluate("sharedAnswer === true").AsBoolean(), loop));
+    }
+
+    [Fact]
     public void SharedWorkerReusesTheRuntimeAndConnectsMessagePorts()
     {
         using var denied = new JintScriptEngine();

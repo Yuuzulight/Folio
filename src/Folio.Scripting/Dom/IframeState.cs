@@ -48,6 +48,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
         ParentOptions = parentOptions;
         ParentLoop = parentLoop;
         _aggregateBudget = parentOptions is null ? null : GetOrCreateBudget(parentOptions);
+        _webrtcScope = parentOptions is null ? null : WebRtcBindingState.GetOrCreateScope(parentOptions);
         _checkPermission = checkPermission;
         _capabilities = parentOptions?.Capabilities ?? FeatureCapabilities.Default;
         element.FramePresentation = this;
@@ -168,6 +169,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
     private ScriptValue _childParentWindow = ScriptValue.Undefined;
     private readonly List<ScriptValue> _childMessageListeners = [];
     private readonly AggregateBudget? _aggregateBudget;
+    private readonly WebRtcDocumentScope? _webrtcScope;
     private bool _aggregateSlot;
     private string? _loadedSource;
     private bool _loadDispatched;
@@ -265,6 +267,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
                 if (listener.IsFunction) child.Call(listener, ScriptValue.Undefined, [message]);
             if (ParentLoop is null) MessagePortEndpoint.DrainAll(Engine);
             if (_childLoop is null) MessagePortEndpoint.DrainAll(child);
+            _childLoop?.SpinUntilIdle();
         }
         catch { }
     }
@@ -328,6 +331,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
         var engine = _childEngine;
         var loop = _childLoop;
         var document = ChildRenderDocument;
+        if (loop is not null) ParentLoop?.RemoveChildLoop(loop);
         _childRunner = null;
         _childEngine = null;
         _childLoop = null;
@@ -425,6 +429,8 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
         }
         var parent = ParentOptions;
         var childBase = inline is not null ? BaseUri : Uri.TryCreate(source, UriKind.Absolute, out var resolvedBase) ? resolvedBase : BaseUri;
+        // The set holds ICE server endpoints (stun:/turn:), not web origins, so a child inherits the parent's set and never widens it.
+        var childAllowedOrigins = new HashSet<string>(parent is null ? [] : parent.WebRtcAllowedOrigins, StringComparer.OrdinalIgnoreCase);
         var options = parent is null ? new FolioOptions { BaseUri = childBase } : new FolioOptions
         {
             ArtifactId = parent.ArtifactId,
@@ -449,11 +455,13 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
             ResourceLoader = parent.ResourceLoader,
             ResourceInterceptor = parent.ResourceInterceptor,
             UserStyleSheet = parent.UserStyleSheet,
-            WebRtcAllowedOrigins = parent.WebRtcAllowedOrigins,
+            WebRtcAllowedOrigins = childAllowedOrigins,
             CollectDiagnostics = parent.CollectDiagnostics,
         };
         if (_aggregateBudget is not null)
             AssociateBudget(options, _aggregateBudget);
+        if (_webrtcScope is not null)
+            WebRtcBindingState.AssociateScope(options, _webrtcScope);
         Document childDocument;
         try { childDocument = Document.Parse(html, options); }
         catch { Fail(FallbackReason.DecodeFailed); return; }
@@ -476,6 +484,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
                 if (!IsCurrent()) return;
                 childLoop = new HtmlEventLoop(childEngine);
                 _childLoop = childLoop;
+                ParentLoop?.AddChildLoop(childLoop);
                 ScriptGlobalsInstaller.Install(childLoop, childEngine);
                 DomBindings.Install(childEngine, childDocument, eventLoop: childLoop);
                 InstallChildWindowBridge(childEngine);
@@ -493,7 +502,11 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
             {
                 // Reentrant navigation may already own newer fields. Retire only this startup's resources.
                 if (ReferenceEquals(_childEngine, childEngine)) _childEngine = null;
-                if (ReferenceEquals(_childLoop, childLoop)) _childLoop = null;
+                if (ReferenceEquals(_childLoop, childLoop))
+                {
+                    if (childLoop is not null) ParentLoop?.RemoveChildLoop(childLoop);
+                    _childLoop = null;
+                }
                 if (ReferenceEquals(_childRunner, childRunner)) _childRunner = null;
                 if (ReferenceEquals(ChildRenderDocument, childDocument))
                 {
