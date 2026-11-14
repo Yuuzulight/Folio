@@ -656,4 +656,23 @@ public sealed class ServiceWorkerCapabilityTests
 
         Assert.True(lease!.IsActive);
     }
+
+    [Fact]
+    public void ServiceWorkerDeniesRTCPeerConnection()
+    {
+        using var document = Folio.Document.Parse("<p>service worker</p>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new TestServiceWorkerLoader("self.addEventListener('fetch', e => e.respondWith(new Response(typeof RTCPeerConnection + ':' + (typeof RTCPeerConnection === 'undefined'))));"),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true, WebRtc = true }
+        });
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        Assert.True(engine.Evaluate("navigator.serviceWorker.register('rtc-isolated.js'); true").AsBoolean());
+        engine.PerformMicrotaskCheckpoint();
+
+        var response = document.Options.ResourceInterceptor!.Intercept(new ResourceRequest("https://worker.example/offline.txt", ResourceKind.Document));
+        Assert.NotNull(response);
+        Assert.Equal("undefined:true", Encoding.UTF8.GetString(response!.Data!));
+    }
 }
