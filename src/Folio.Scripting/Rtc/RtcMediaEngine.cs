@@ -42,10 +42,10 @@ internal sealed class RtcRemoteTrack
     internal void RaiseEnded() => Ended?.Invoke();
 }
 
-/// <summary>A local audio sender. Created by <see cref="RtcMediaEngine.AddLocalAudio"/>; packets leave through <see cref="RtcMediaEngine.OnPacketToSend"/>.</summary>
+/// <summary>A local audio or video sender. Created by <see cref="RtcMediaEngine.AddLocalAudio"/> or <see cref="RtcMediaEngine.AddLocalVideo"/>; packets leave through <see cref="RtcMediaEngine.OnPacketToSend"/>.</summary>
 internal sealed class RtcLocalTrack
 {
-    public string Kind => "audio";
+    public string Kind { get; }
     public string? Mid { get; internal set; }
     public uint Ssrc { get; }
     public long PacketsSent { get; internal set; }
@@ -63,7 +63,14 @@ internal sealed class RtcLocalTrack
     internal readonly short[] Pending = new short[RtcMediaEngine.SamplesPerPacket];
     internal int PendingCount;
     internal bool Released;
-    internal RtcLocalTrack(uint ssrc) { Ssrc = ssrc; Timestamp = (uint)RandomNumberGenerator.GetInt32(int.MaxValue); Sequence = (ushort)RandomNumberGenerator.GetInt32(0x8000); }
+    internal RtpVideoSender? VideoSender;
+    internal RtcLocalTrack(string kind, uint ssrc)
+    {
+        Kind = kind;
+        Ssrc = ssrc;
+        Timestamp = (uint)RandomNumberGenerator.GetInt32(int.MaxValue);
+        Sequence = (ushort)RandomNumberGenerator.GetInt32(0x8000);
+    }
 }
 
 /// <summary>
@@ -167,7 +174,22 @@ internal sealed class RtcMediaEngine : IDisposable
         lock (_gate)
         {
             if (_disposed) { _budget.ReleaseTrack(); return null; }
-            var track = new RtcLocalTrack(NonZeroRandom());
+            var track = new RtcLocalTrack("audio", NonZeroRandom());
+            _locals.Add(track);
+            Bind(track);
+            return track;
+        }
+    }
+
+    /// <summary>Creates a sender for the next video section that Folio may send on. Returns null when the track budget is exhausted.</summary>
+    public RtcLocalTrack? AddLocalVideo()
+    {
+        if (!_budget.TryAcquireTrack()) return null;
+        lock (_gate)
+        {
+            if (_disposed) { _budget.ReleaseTrack(); return null; }
+            var track = new RtcLocalTrack("video", NonZeroRandom());
+            track.VideoSender = new RtpVideoSender(track, _time, _budget);
             _locals.Add(track);
             Bind(track);
             return track;
@@ -180,6 +202,7 @@ internal sealed class RtcMediaEngine : IDisposable
         {
             if (!_locals.Remove(track) || track.Released) return;
             track.Released = true;
+            track.VideoSender = null;
             foreach (var section in _sections) if (section.Local == track) section.Local = null;
         }
         _budget.ReleaseTrack();
@@ -233,7 +256,11 @@ internal sealed class RtcMediaEngine : IDisposable
                     section.OpusChannels = remoteMedia.PayloadTypes.Any(pt => remoteMedia.CodecFor(pt) is { IsOpus: true } r && r.FmtpParameter("sprop-stereo") == "1") ? 2 : 1;
                     if (localMedia.Sends && remoteMedia.Receives && remoteMedia.RtcpMux)
                         foreach (var pt in localMedia.PayloadTypes)
-                            if (remoteMedia.PayloadTypes.Contains(pt) && localMedia.CodecFor(pt) is { } codec && (codec.IsG711 || codec.IsOpus)) { section.SendCodec = codec; break; }
+                            if (remoteMedia.PayloadTypes.Contains(pt) && localMedia.CodecFor(pt) is { } codec)
+                            {
+                                if (section.Kind == "audio" && (codec.IsG711 || codec.IsOpus)) { section.SendCodec = codec; break; }
+                                if (section.Kind == "video" && codec.IsVp8) { section.SendCodec = codec; break; }
+                            }
                 }
                 else section.Receives = remoteMedia.Sends; // answerer before its own description exists
                 if (section.Track is null && remoteMedia.Sends && _budget.TryAcquireTrack())
@@ -277,14 +304,17 @@ internal sealed class RtcMediaEngine : IDisposable
     {
         if (track.Released) return;
         var section = _sections.FirstOrDefault(s => s.Local == track)
-            ?? _sections.FirstOrDefault(s => s.Kind == "audio" && s.Local is null && s.SendCodec is not null);
+            ?? _sections.FirstOrDefault(s => s.Kind == track.Kind && s.Local is null && s.SendCodec is not null);
         if (section is null || section.SendCodec is not { } codec) return;
         section.Local = track;
         track.Mid = section.Mid;
         track.PayloadType = codec.PayloadType;
-        track.ALaw = codec.Name == "PCMA";
-        track.Opus = codec.IsOpus;
-        if (track.Opus) track.Encoder ??= new OpusEncoder { Bitrate = 32000 };
+        if (track.Kind == "audio")
+        {
+            track.ALaw = codec.Name == "PCMA";
+            track.Opus = codec.IsOpus;
+            if (track.Opus) track.Encoder ??= new OpusEncoder { Bitrate = 32000 };
+        }
     }
 
     /// <summary>Processes one datagram from the ICE transport that is RTP or RTCP. Malformed, unauthenticated, over-budget or unknown packets are dropped.</summary>
@@ -519,11 +549,22 @@ internal sealed class RtcMediaEngine : IDisposable
         RtcpPacketsReceived++;
         LastReports = packets;
         var now = _time.GetTimestamp();
+        var retransmits = new List<byte[]>();
         foreach (var packet in packets)
         {
             if (packet.Kind == RtcpKind.SenderReport && _streams.TryGetValue(packet.Ssrc, out var stream))
             {
                 stream.LastSr = packet.NtpMiddle; stream.LastSrStamp = now;
+            }
+            else if (packet.Kind == RtcpKind.Nack)
+            {
+                var track = _locals.FirstOrDefault(t => t.Kind == "video" && t.Ssrc == packet.MediaSsrc);
+                track?.VideoSender?.HandleNack(packet.NackSequences, retransmits);
+            }
+            else if (packet.Kind is RtcpKind.PictureLossIndication or RtcpKind.FullIntraRequest)
+            {
+                var track = _locals.FirstOrDefault(t => t.Kind == "video" && t.Ssrc == packet.MediaSsrc);
+                track?.VideoSender?.RequestKeyFrame();
             }
             else if (packet.Kind == RtcpKind.Bye)
             {
@@ -537,6 +578,10 @@ internal sealed class RtcMediaEngine : IDisposable
                     }
                 }
             }
+        }
+        foreach (var packet in retransmits)
+        {
+            if (_budget.TryConsume(receive: false, packet.Length)) Send(packet);
         }
     }
 
@@ -630,7 +675,7 @@ internal sealed class RtcMediaEngine : IDisposable
 
     private byte[]? BuildReport(long now)
     {
-        var sender = _locals.FirstOrDefault(t => t.PacketsSent > 0);
+        var senders = _locals.Where(t => t.PacketsSent > 0).ToArray();
         var blocks = new List<RtcpReportBlock>();
         foreach (var stream in _streams.Values.Take(RtcpCodec.MaxBlocks))
         {
@@ -645,10 +690,21 @@ internal sealed class RtcMediaEngine : IDisposable
             var dlsr = stream.LastSrStamp == 0 ? 0u : (uint)(_time.GetElapsedTime(stream.LastSrStamp, now).TotalSeconds * 65536);
             blocks.Add(new RtcpReportBlock(stream.Ssrc, fraction, lost, (uint)stream.MaxExt, (uint)stream.Jitter, stream.LastSr, dlsr));
         }
-        if (sender is null && blocks.Count == 0) return null;
-        var ssrc = sender?.Ssrc ?? _locals.FirstOrDefault()?.Ssrc ?? NonZeroRandomStable();
+        if (senders.Length == 0 && blocks.Count == 0) return null;
         var ntp = ToNtp(_time.GetUtcNow());
-        return RtcpCodec.BuildReport(ssrc, sender is not null, ntp, sender?.Timestamp ?? 0, (uint)(sender?.PacketsSent ?? 0), (uint)(sender?.BytesSent ?? 0), blocks, _cname);
+        if (senders.Length <= 1)
+        {
+            var sender = senders.FirstOrDefault();
+            var ssrc = sender?.Ssrc ?? _locals.FirstOrDefault()?.Ssrc ?? NonZeroRandomStable();
+            return RtcpCodec.BuildReport(ssrc, sender is not null, ntp, sender?.Timestamp ?? 0, (uint)(sender?.PacketsSent ?? 0), (uint)(sender?.BytesSent ?? 0), blocks, _cname);
+        }
+        var parts = new List<byte[]>();
+        for (var i = 0; i < senders.Length; i++)
+        {
+            var s = senders[i];
+            parts.Add(RtcpCodec.BuildReport(s.Ssrc, true, ntp, s.Timestamp, (uint)s.PacketsSent, (uint)s.BytesSent, i == 0 ? blocks : [], _cname));
+        }
+        return parts.SelectMany(p => p).ToArray();
     }
 
     private uint _reporterSsrc;
@@ -659,6 +715,39 @@ internal sealed class RtcMediaEngine : IDisposable
         var seconds = (ulong)(time.ToUnixTimeSeconds() + 2_208_988_800L);
         var fraction = (ulong)(time.Ticks % TimeSpan.TicksPerSecond) * (1UL << 32) / (ulong)TimeSpan.TicksPerSecond;
         return (long)(seconds << 32 | fraction);
+    }
+
+    /// <summary>
+    /// Encodes and sends an RGBA video frame on a local video track using VP8.
+    /// Returns the number of packets emitted; zero when track is unbound, transport not ready, or budget refused.
+    /// </summary>
+    public int SendVideo(RtcLocalTrack track, ReadOnlySpan<byte> rgba, int width, int height, long captureSequence = 0)
+    {
+        if (track.Kind != "video" || rgba.Length == 0 || width <= 0 || height <= 0 || (long)width * height != rgba.Length / 4 || rgba.Length % 4 != 0) return 0;
+        RtpVideoSender? sender;
+        lock (_gate)
+        {
+            if (_disposed || _srtp is null || track.Released || track.PayloadType < 0) return 0;
+            sender = track.VideoSender;
+        }
+        if (sender is null) return 0;
+        // the encode is the slow part and runs outside the lock so incoming datagrams are not held up behind it
+        if (sender.Encode(rgba, width, height, captureSequence) is not { } frame) return 0;
+        List<byte[]> packets;
+        lock (_gate)
+        {
+            if (_disposed || _srtp is null || track.Released) return 0;
+            packets = sender.Packetize(frame, _srtp);
+        }
+        var sent = 0;
+        foreach (var packet in packets)
+        {
+            if (!_budget.TryConsume(receive: false, packet.Length)) break;
+            Send(packet);
+            sent++;
+        }
+        sender.CompleteFrame(sent == packets.Count);
+        return sent;
     }
 
     /// <summary>

@@ -183,7 +183,7 @@ public sealed class ContentHostPolicyTests
         }
         Assert.Equal("176x144:" + want, pixel);
         Assert.Equal("video", Value(await Exchange(client, new { script = "info" })));
-        Assert.Equal("NotSupportedError", Value(await Exchange(client, new { script = "sendError" })));
+        Assert.Equal("none", Value(await Exchange(client, new { script = "sendError" })));
     }
 
     // The same path for H.264: the child offers VP8 and H.264, the remote peer is left with H.264 only, so the answer picks it, and

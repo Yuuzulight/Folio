@@ -83,7 +83,7 @@ enabled.
 
 I did not overclaim these:
 
-- **Sending video.** Not supported yet. `addTrack(videoTrack)`, `addTransceiver(videoTrack)` and a `sendonly` video transceiver throw `NotSupportedError` on a network peer connection (in-document pairs are unchanged). There is no VP8 encoder. Our offers carry video as `recvonly` and answers as `recvonly` or `inactive`.
+- **Sending video.** Supported via `Vp8Encoder` and `RtpVideoSender` (RFC 7741). Every frame is an intra (key) frame at a low quality setting, so each sent frame carries its own picture and a lost packet costs one frame; there is no inter-frame coding. Frames are scaled to fit <= 640x360, sent at most 15 per second, and a camera frame that has not changed (same capture sequence) is not sent again. RTCP PLI and FIR requests are charged to the document's key frame request budget and only force a resend of an unchanged picture. NACK retransmits come from a 128-packet send history, with at most 32 distinct sequences per request, 3 retransmits per packet, no repeat within 100 ms, and 100 per second per stream. Only VP8 is sent: an H.264-only offer gets no video from Folio, but an offer that lists VP8 anywhere is answered with VP8. Interoperability with browsers is not verified for sent video: the encoder output decodes with Folio's own VP8 decoder, and I have not yet checked it against a browser decoder.
 - **Opus.** Added in stage 3 ([`webrtc-opus.md`](webrtc-opus.md)): 48 kHz Opus is preferred and G.711 remains the fallback.
 - **Browser interoperability is untested.** The SRTP packet format matches the RFC 7714 vectors and the DTLS key layout
   follows RFC 5764, but I have only run Folio against Folio end to end. The first run against a browser may expose a
