@@ -183,7 +183,17 @@ loopback transport used by tests and offline artifacts. `FolioOptions.WebRtcAllo
 limits ICE server URLs, and the capability is disabled by default. Real network
 transport is intentionally host-owned: a future transport adapter can route
 packets through the host the same way resource loads are routed, without giving
-the content process direct network access.
+the content process direct network access. Stage 1 is described in
+[`webrtc-host-udp.md`](webrtc-host-udp.md): the host owns every UDP socket and the content process
+reaches the network only through it.
+
+The ICE agent includes a UDP-only TURN client (RFC 8656, long-term credentials,
+ChannelData). `turn:` URLs must appear in `WebRtcAllowedOrigins` exactly like
+STUN URLs; credentials are only ever sent to that server. `turns:` and
+`transport=tcp` are parsed and skipped, ALTERNATE-SERVER (300) is refused, and
+relaying toward loopback/private peers is refused unless the TURN server is
+itself on such a network. It sends through the agent's socket abstraction, so it
+moves behind the host-mediated socket together with the rest of ICE (#719).
 
 ### Image codecs not built in-house
 

@@ -50,6 +50,9 @@ public class FolioView : Control
     private Bitmap? _renderBitmap;
     private bool _renderNeedsFull = true;
     private RectF? _pendingDamage;
+    // What the render surface shows: the device scroll offset and scale of its last frame (see RetainedScroll).
+    private int _renderedTop;
+    private float _renderedScale;
     private float _contentHeight;
     private float _laidOutWidth = -1;
     private float _zoom = 1f;
@@ -88,7 +91,7 @@ public class FolioView : Control
     public FolioView()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-        _scrollBar.ValueChanged += (_, _) => { _renderNeedsFull = true; _pendingDamage = null; Invalidate(); };
+        _scrollBar.ValueChanged += (_, _) => Invalidate(); // OnPaint shifts the rendered frame or repaints it in full
         Controls.Add(_scrollBar);
         Controls.Add(_mediaCaptureIndicator);
         _mediaCaptureIndicator.BringToFront();
@@ -868,29 +871,38 @@ public class FolioView : Control
                 _pendingDamage = null;
             }
             var background = _document.Options.ColorScheme == ColorScheme.Dark ? new Paint(new Rgba(18 / 255f, 18 / 255f, 18 / 255f, 1f)) : new Paint(new Rgba(1f, 1f, 1f, 1f));
-            var canvas = _renderSurface.Canvas;
-            canvas.Save();
-            canvas.Transform(System.Numerics.Matrix3x2.CreateTranslation(0, -ScrollTop) * System.Numerics.Matrix3x2.CreateScale(PixelScale));
-
+            var top = _scrollBar.Visible ? _scrollBar.Value : 0; // device pixels, whole
             var rasterChanged = _renderNeedsFull;
-            if (_renderNeedsFull)
+            var changed = new Rectangle(0, 0, width, height); // the part of the surface that is not what the bitmap holds
+            if (_renderNeedsFull || _renderedScale != PixelScale)
             {
-                canvas.FillRoundedRect(new RoundedRect(new RectF(0, ScrollTop, width / PixelScale, height / PixelScale), default), background);
-                DisplayListPlayer.Replay(_list!, canvas, new RectF(0, ScrollTop, width / PixelScale, height / PixelScale));
+                rasterChanged = true;
+                RetainedScroll.Repaint(_list!, _renderSurface, PixelScale, top, background);
+            }
+            else if (top != _renderedTop)
+            {
+                // Only the page scrolled, unless damage is waiting too: then the frame is not the one the damage is for.
+                rasterChanged = true;
+                if (_pendingDamage is not null || !RetainedScroll.TryScroll(_list!, _renderSurface, PixelScale, _renderedTop, top, background))
+                    RetainedScroll.Repaint(_list!, _renderSurface, PixelScale, top, background);
             }
             else if (_pendingDamage is { } pending && pending.Width > 0 && pending.Height > 0)
             {
-                var damage = DisplayListPlayer.SnapToDevicePixels(pending, PixelScale, ScrollTop);
+                var damage = DisplayListPlayer.SnapToDevicePixels(pending, PixelScale); // whole device pixels: the integer scroll offset leaves them whole
                 rasterChanged = true;
+                changed = ChangedArea(damage, PixelScale, top, width, height);
+                var canvas = _renderSurface.Canvas;
                 canvas.Save();
+                canvas.Transform(RetainedScroll.Transform(PixelScale, top));
                 canvas.ClipRoundedRect(new RoundedRect(damage, default));
                 canvas.FillRoundedRect(new RoundedRect(damage, default), background);
                 DisplayListPlayer.Replay(_list!, canvas, damage);
                 canvas.Restore();
             }
-            canvas.Restore();
+            _renderedTop = top;
+            _renderedScale = PixelScale;
             if (rasterChanged)
-                CopySurfaceToBitmap(_renderSurface, _renderBitmap);
+                CopySurfaceToBitmap(_renderSurface, _renderBitmap, changed);
             _renderNeedsFull = false;
             _pendingDamage = null;
             e.Graphics.DrawImageUnscaled(_renderBitmap, 0, 0);
@@ -903,36 +915,24 @@ public class FolioView : Control
         }
     }
 
-    private static void CopySurfaceToBitmap(SoftwareRasterSurface surface, Bitmap bitmap)
+    /// <summary>The part of the bitmap a frame that only repainted <paramref name="damage"/> (layout units, snapped to device pixels) changes: its device rectangle at scroll <paramref name="top"/>, a pixel wider on every side (edge pixels the antialiasing touched).</summary>
+    internal static Rectangle ChangedArea(RectF damage, float scale, int top, int width, int height) =>
+        Rectangle.Intersect(new Rectangle(0, 0, width, height), Rectangle.FromLTRB(
+            (int)Math.Floor(damage.X * scale) - 1, (int)Math.Floor(damage.Y * scale) - top - 1,
+            (int)Math.Ceiling(damage.Right * scale) + 1, (int)Math.Ceiling(damage.Bottom * scale) - top + 1));
+
+    internal static void CopySurfaceToBitmap(SoftwareRasterSurface surface, Bitmap bitmap, Rectangle area)
     {
-        var src = surface.PremultipliedPixels;
-        var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
-        var data = bitmap.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
+        if (area.Width <= 0 || area.Height <= 0)
+            return;
+        var data = bitmap.LockBits(area, ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
         try
         {
-            var rowBytes = bitmap.Width * 4;
-            var rowBuffer = new byte[rowBytes];
-            var bgraOrder = Vector128.Create((byte)2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
-            for (var y = 0; y < bitmap.Height; y++)
+            var rowBuffer = new byte[area.Width * 4];
+            for (var y = 0; y < area.Height; y++)
             {
-                var srcRow = src.AsSpan(y * rowBytes, rowBytes);
-                var x = 0;
-                if (Vector128.IsHardwareAccelerated)
-                {
-                    for (; x <= rowBytes - Vector128<byte>.Count; x += Vector128<byte>.Count)
-                    {
-                        var rgba = Vector128.LoadUnsafe(ref MemoryMarshal.GetReference(srcRow), (nuint)x);
-                        Vector128.Shuffle(rgba, bgraOrder).StoreUnsafe(ref rowBuffer[0], (nuint)x);
-                    }
-                }
-                for (; x < rowBytes; x += 4)
-                {
-                    rowBuffer[x] = srcRow[x + 2];
-                    rowBuffer[x + 1] = srcRow[x + 1];
-                    rowBuffer[x + 2] = srcRow[x];
-                    rowBuffer[x + 3] = srcRow[x + 3];
-                }
-                Marshal.Copy(rowBuffer, 0, IntPtr.Add(data.Scan0, y * data.Stride), rowBytes);
+                surface.ReadBgraRow(area.Y + y, area.X, area.Width, rowBuffer);
+                Marshal.Copy(rowBuffer, 0, IntPtr.Add(data.Scan0, y * data.Stride), rowBuffer.Length);
             }
         }
         finally

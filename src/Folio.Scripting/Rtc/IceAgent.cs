@@ -30,13 +30,29 @@ internal sealed class IceAgent : IDisposable
     public event Action<string>? OnConnectionStateChanged;
     public event Action<byte[]>? OnDatagramReceived;
     internal event Action? OnMaintenance;
+    // Clock for consent freshness, the maintenance tick and STUN retransmission. Tests substitute a manual clock
+    // and drive the tick themselves with RunMaintenance (AutoMaintenance = false).
+    internal TimeProvider Clock { get; init; } = TimeProvider.System;
+    internal bool AutoMaintenance { get; init; } = true;
+    internal void RunMaintenance()
+    {
+        MaintainConsent(); OnMaintenance?.Invoke();
+        foreach (var turn in _turnClients) turn.Maintain();
+    }
+    // Resolves once the connectivity-check pass that is running (or queued) has finished.
+    internal async Task WhenChecksIdleAsync(CancellationToken cancellationToken)
+    {
+        await _checkSerial.WaitAsync(cancellationToken).ConfigureAwait(false);
+        _checkSerial.Release();
+    }
 
     private readonly List<IceCandidate> _localCandidates = [];
     private readonly List<IceCandidate> _remoteCandidates = [];
     private readonly List<CandidatePair> _pairs = [];
     private CandidatePair? _selectedPair;
 
-    private Socket? _socket;
+    private IIceTransport? _transport;
+    private readonly IIceTransport? _suppliedTransport;
     private int _localPort;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _gate = new();
@@ -44,12 +60,26 @@ internal sealed class IceAgent : IDisposable
     private IReadOnlyList<string> _iceServers;
     private readonly SemaphoreSlim _checkSerial = new(1, 1);
     private Thread? _receiveThread;
+    private TurnClient[] _turnClients = [];
+    private readonly Dictionary<IceCandidate, TurnClient> _relayClients = [];
+    /// <summary>Advertise and use only relay candidates (iceTransportPolicy "relay").</summary>
+    internal bool RelayOnly { get; set; }
+    internal TimeSpan TurnRequestTimeout { get; set; } = TimeSpan.FromMilliseconds(500);
+    internal TimeSpan TurnPermissionRefreshInterval { get; set; } = TimeSpan.FromMinutes(4);
+    internal TimeSpan TurnRetryBackoff { get; set; } = TimeSpan.FromSeconds(1);
+    /// <summary>Time source for TURN timers (retransmission, refresh); tests substitute a fake one.</summary>
+    internal TimeProvider TurnClock { get => _turnClock ?? Clock; set => _turnClock = value; }
+    private TimeProvider? _turnClock;
+    internal IReadOnlyList<string> TurnSkipReasons { get { lock (_gate) return _turnSkipReasons.ToArray(); } }
+    private readonly List<string> _turnSkipReasons = [];
+    internal int LocalPort => _localPort;
     internal bool IsReceivePumpAlive => _receiveThread?.IsAlive == true;
 
     public IReadOnlyList<IceCandidate> LocalCandidates { get { lock (_gate) return _localCandidates.ToArray(); } }
 
-    public IceAgent(IReadOnlyList<string>? iceServers = null)
+    public IceAgent(IReadOnlyList<string>? iceServers = null, IIceTransport? transport = null)
     {
+        _suppliedTransport = transport;
         LocalUfrag = GenerateRandomString(8);
         LocalPassword = GenerateRandomString(24);
         Span<byte> tieBreakerBytes = stackalloc byte[8];
@@ -63,7 +93,7 @@ internal sealed class IceAgent : IDisposable
         lock (_gate)
         {
             if (_disposed) return false;
-            if (GatheringState != "new") return _iceServers.SequenceEqual(servers, StringComparer.OrdinalIgnoreCase);
+            if (GatheringState != "new") return _iceServers.SequenceEqual(servers, ServerEntryComparer.Instance);
             _iceServers = servers;
             return true;
         }
@@ -82,6 +112,69 @@ internal sealed class IceAgent : IDisposable
         if (Uri.CheckHostName(host) is not (UriHostNameType.Dns or UriHostNameType.IPv4)) return false;
         return colon < 0 || (int.TryParse(address.AsSpan(colon + 1), NumberStyles.None, CultureInfo.InvariantCulture, out port)
             && port is > 0 and <= 65535);
+    }
+
+    internal const char CredentialSeparator = '\u0001';
+    private const int MaxTurnServers = 4;
+
+    /// <summary>Appends TURN credentials to an ICE server URL for <see cref="TrySetIceServers"/> (kept out of any logging).</summary>
+    internal static string WithCredentials(string url, string username, string credential) =>
+        $"{url}{CredentialSeparator}{username}{CredentialSeparator}{credential}";
+
+    /// <summary>URL part case-insensitive; TURN username and credential compared exactly.</summary>
+    internal sealed class ServerEntryComparer : IEqualityComparer<string>
+    {
+        internal static readonly ServerEntryComparer Instance = new();
+        public bool Equals(string? x, string? y)
+        {
+            if (x is null || y is null) return x is null && y is null;
+            var (ux, uy) = (UrlOf(x), UrlOf(y));
+            return string.Equals(ux, uy, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(x[ux.Length..], y[uy.Length..], StringComparison.Ordinal);
+        }
+        public int GetHashCode(string value) => StringComparer.OrdinalIgnoreCase.GetHashCode(UrlOf(value));
+    }
+
+    internal static string UrlOf(string entry)
+    {
+        var at = entry.IndexOf(CredentialSeparator);
+        return at < 0 ? entry : entry[..at];
+    }
+
+    /// <summary>
+    /// Parses <c>turn:host[:port][?transport=udp]</c> (RFC 7065). Returns true for any well-formed turn/turns URL;
+    /// <paramref name="skipReason"/> says why a well-formed server is nevertheless not used (TCP, TLS, no credentials).
+    /// </summary>
+    internal static bool TryParseTurnServer(string entry, out string host, out int port, out string username, out string credential, out string? skipReason)
+    {
+        host = ""; port = 3478; username = credential = ""; skipReason = null;
+        var parts = entry.Split(CredentialSeparator);
+        if (parts.Length is not (1 or 3)) return false;
+        if (parts.Length == 3) (username, credential) = (parts[1], parts[2]);
+        var url = parts[0];
+        var tls = url.StartsWith("turns:", StringComparison.OrdinalIgnoreCase);
+        if (!tls && !url.StartsWith("turn:", StringComparison.OrdinalIgnoreCase)) return false;
+        var address = url[(tls ? 6 : 5)..];
+        string? transport = null;
+        var query = address.IndexOf('?');
+        if (query >= 0)
+        {
+            var pair = address[(query + 1)..];
+            address = address[..query];
+            if (!pair.StartsWith("transport=", StringComparison.OrdinalIgnoreCase)) return false;
+            transport = pair[10..].ToLowerInvariant();
+            if (transport is not ("udp" or "tcp")) return false;
+        }
+        var colon = address.IndexOf(':');
+        host = colon < 0 ? address : address[..colon];
+        if (Uri.CheckHostName(host) is not (UriHostNameType.Dns or UriHostNameType.IPv4)) return false;
+        if (tls) port = 5349;
+        if (colon >= 0 && !(int.TryParse(address.AsSpan(colon + 1), NumberStyles.None, CultureInfo.InvariantCulture, out port) && port is > 0 and <= 65535)) return false;
+        skipReason = tls ? "turns: (TLS) is not supported; only UDP transport to the TURN server is implemented"
+            : transport == "tcp" ? "transport=tcp is not supported; only UDP transport to the TURN server is implemented"
+            : username.Length == 0 || credential.Length == 0 ? "TURN requires a username and credential"
+            : null;
+        return true;
     }
 
     private static string GenerateRandomString(int length)
@@ -103,9 +196,13 @@ internal sealed class IceAgent : IDisposable
         }
         OnGatheringStateChanged?.Invoke("gathering");
 
-        BindSocket();
-        GatherHostCandidates();
-        await GatherServerReflexiveCandidatesAsync().ConfigureAwait(false);
+        var bound = BindSocket();
+        if (bound)
+        {
+            PermitRemoteCandidates();
+            GatherHostCandidates();
+            await Task.WhenAll(GatherServerReflexiveCandidatesAsync(), GatherRelayCandidatesAsync()).ConfigureAwait(false);
+        }
 
         lock (_gate)
         {
@@ -115,24 +212,43 @@ internal sealed class IceAgent : IDisposable
             FormPairs();
         }
         OnGatheringStateChanged?.Invoke("complete");
+        if (!bound)
+        {
+            // No transport (for example the host refused a socket): nothing can ever connect.
+            lock (_gate) { if (_disposed) return; ConnectionState = "failed"; }
+            OnConnectionStateChanged?.Invoke("failed");
+            return;
+        }
         _ = CheckConnectivityAsync();
     }
 
-    private void BindSocket()
+    private bool BindSocket()
     {
         lock (_gate)
         {
-            if (_socket is not null) return;
-            _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            _socket.Bind(new IPEndPoint(IPAddress.Any, 0));
-            _localPort = ((IPEndPoint)_socket.LocalEndPoint!).Port;
+            if (_transport is not null) return true;
+            if (_disposed) return false;
+            IIceTransport? transport = null;
+            try
+            {
+                transport = _suppliedTransport ?? IceTransportProvider.Create();
+                _localPort = transport.Bind().Port;
+            }
+            catch (Exception error) when (error is SocketException or IOException or InvalidOperationException or TimeoutException or ObjectDisposedException)
+            {
+                transport?.Dispose();
+                return false;
+            }
+            _transport = transport;
             _receiveThread = new Thread(ReceiveLoop) { IsBackground = true, Name = "Folio ICE receive" };
             _receiveThread.Start();
+            return true;
         }
     }
 
     private void GatherHostCandidates()
     {
+        if (RelayOnly) return;
         var addresses = new HashSet<IPAddress>();
         try
         {
@@ -174,7 +290,7 @@ internal sealed class IceAgent : IDisposable
 
     private async Task GatherServerReflexiveCandidatesAsync()
     {
-        if (_iceServers.Count == 0) return;
+        if (_iceServers.Count == 0 || RelayOnly) return;
         var budget = TimeSpan.FromSeconds(2);
         var started = Stopwatch.GetTimestamp();
         using var deadline = new CancellationTokenSource(budget);
@@ -186,8 +302,7 @@ internal sealed class IceAgent : IDisposable
             try
             {
                 using var lookup = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, deadline.Token);
-                var ipAddresses = await Dns.GetHostAddressesAsync(host, lookup.Token).ConfigureAwait(false);
-                var ipv4 = ipAddresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+                var ipv4 = await ResolveAsync(host, lookup.Token).ConfigureAwait(false);
                 if (ipv4 is null) continue;
                 var remaining = budget - Stopwatch.GetElapsedTime(started);
                 if (remaining <= TimeSpan.Zero) break;
@@ -221,17 +336,115 @@ internal sealed class IceAgent : IDisposable
         }
     }
 
+    private async Task GatherRelayCandidatesAsync()
+    {
+        string[] servers;
+        lock (_gate) servers = _iceServers.ToArray();
+        var started = 0;
+        var tasks = new List<Task>();
+        foreach (var entry in servers)
+        {
+            if (!TryParseTurnServer(entry, out var host, out var port, out var username, out var credential, out var skip)) continue;
+            if (skip is not null) { lock (_gate) _turnSkipReasons.Add($"{UrlOf(entry)}: {skip}"); continue; }
+            if (started++ >= MaxTurnServers) break;
+            tasks.Add(GatherRelayAsync(host, port, username, credential));
+        }
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
+
+    private async Task GatherRelayAsync(string host, int port, string username, string credential)
+    {
+        TurnClient? client = null;
+        try
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            deadline.CancelAfter(TimeSpan.FromSeconds(5));
+            var transport = _transport;
+            if (transport is null) return;
+            var ipv4 = await ResolveAsync(host, deadline.Token).ConfigureAwait(false);
+            if (ipv4 is null) return;
+            // The host policy allowlists a name or literal. A name that resolves to a loopback/private/reserved
+            // address (rebinding, misconfiguration) is refused; only an allowlisted IP literal may be non-public,
+            // which is also the only case where relaying toward non-public peers is permitted.
+            if (TurnClient.IsNonPublic(ipv4) && !IPAddress.TryParse(host, out _))
+            {
+                lock (_gate) _turnSkipReasons.Add($"turn:{host}: resolved to a non-public address");
+                return;
+            }
+            var server = new IPEndPoint(ipv4, port);
+            if (!transport.CanSendTo(server))
+            {
+                lock (_gate) _turnSkipReasons.Add($"turn:{host}: the host does not allow datagrams to this server");
+                return;
+            }
+            client = new TurnClient(server, username, credential, transport, TurnClock)
+            {
+                RequestTimeout = TurnRequestTimeout,
+                PermissionRefreshInterval = TurnPermissionRefreshInterval,
+                RetryBackoff = TurnRetryBackoff
+            };
+            lock (_gate)
+            {
+                if (_disposed) { client.Dispose(); client = null; return; }
+                _turnClients = [.. _turnClients, client];
+            }
+            var owned = client;
+            client.OnPeerData += (peer, data) => ProcessDatagram(data, peer, owned);
+            if (!await client.AllocateAsync(deadline.Token).ConfigureAwait(false) || client.Relayed is not { } relayed) return;
+            var related = RelayOnly ? null : client.Mapped;
+            var candidate = new IceCandidate
+            {
+                Foundation = $"relay{_turnClients.Length}",
+                Component = 1,
+                Protocol = "udp",
+                Priority = IceCandidate.ComputePriority("relay", 1),
+                Address = relayed.Address.ToString(),
+                Port = relayed.Port,
+                Type = "relay",
+                RelatedAddress = related?.Address.ToString() ?? IPAddress.Any.ToString(),
+                RelatedPort = related?.Port ?? 0,
+                UsernameFragment = LocalUfrag
+            };
+            lock (_gate)
+            {
+                if (_disposed) return;
+                _localCandidates.Add(candidate);
+                _relayClients[candidate] = client;
+            }
+            client = null; // ownership moved to the agent
+            OnCandidateGathered?.Invoke(candidate);
+        }
+        catch { }
+        finally
+        {
+            if (client is not null)
+            {
+                lock (_gate) _turnClients = _turnClients.Where(c => !ReferenceEquals(c, client)).ToArray();
+                client.Dispose();
+            }
+        }
+    }
+
+    // Names are resolved by the transport: in the sandbox that is the host, never the content process.
+    private async Task<IPAddress?> ResolveAsync(string host, CancellationToken cancellation)
+    {
+        if (IPAddress.TryParse(host, out var literal)) return literal.AddressFamily == AddressFamily.InterNetwork ? literal : null;
+        var transport = _transport;
+        return transport is null ? null : await transport.ResolveAsync(host, cancellation).ConfigureAwait(false);
+    }
+
     private async Task<(StunMessage? Message, EndPoint? From)> SendStunRequestAsync(
         byte[] request, byte[] transactionId, IPEndPoint destination, TimeSpan timeout, byte[]? integrityKey = null,
-        Action<StunMessage>? validatedResponse = null)
+        Action<StunMessage>? validatedResponse = null, TurnClient? relay = null)
     {
-        if (_socket is null) return (null, null);
+        var transport = _transport;
+        if (transport is null) return (null, null);
         var tcs = new TaskCompletionSource<(StunMessage, EndPoint)>(TaskCreationOptions.RunContinuationsAsynchronously);
         var responseAccepted = 0;
 
-        void Handler(StunMessage msg, EndPoint from)
+        void Handler(StunMessage msg, EndPoint from, TurnClient? via)
         {
-            if (from.Equals(destination) && msg.Type is StunMessage.BindingResponse or StunMessage.BindingErrorResponse &&
+            if (from.Equals(destination) && ReferenceEquals(via, relay) && msg.Type is StunMessage.BindingResponse or StunMessage.BindingErrorResponse &&
                 msg.TransactionId.Span.SequenceEqual(transactionId) &&
                 (integrityKey is null || (msg.VerifyIntegritySha1(integrityKey) && msg.VerifyFingerprint())) &&
                 Interlocked.CompareExchange(ref responseAccepted, 1, 0) == 0)
@@ -251,7 +464,7 @@ internal sealed class IceAgent : IDisposable
         try
         {
             var attempts = integrityKey is null ? 1 : 3;
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * ((1 << attempts) - 1)));
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * ((1 << attempts) - 1)), Clock);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, timeoutCts.Token);
             using (linked.Token.Register(() =>
             {
@@ -263,8 +476,10 @@ internal sealed class IceAgent : IDisposable
             {
                 for (var attempt = 0; attempt < attempts; attempt++)
                 {
-                    await _socket.SendToAsync(request, SocketFlags.None, destination, linked.Token).ConfigureAwait(false);
-                    var retry = Task.Delay(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * (1 << attempt)), linked.Token);
+                    linked.Token.ThrowIfCancellationRequested();
+                    if (relay is null) transport.SendTo(request, destination);
+                    else relay.SendToPeer(destination, request);
+                    var retry = Task.Delay(TimeSpan.FromMilliseconds(timeout.TotalMilliseconds * (1 << attempt)), Clock, linked.Token);
                     if (await Task.WhenAny(tcs.Task, retry).ConfigureAwait(false) == tcs.Task)
                     {
                         var result = await tcs.Task.ConfigureAwait(false);
@@ -287,7 +502,7 @@ internal sealed class IceAgent : IDisposable
         }
     }
 
-    private readonly List<Action<StunMessage, EndPoint>> _pendingStunRequests = [];
+    private readonly List<Action<StunMessage, EndPoint, TurnClient?>> _pendingStunRequests = [];
 
     public void AddRemoteCandidate(IceCandidate candidate)
     {
@@ -300,7 +515,29 @@ internal sealed class IceAgent : IDisposable
             _remoteCandidates.Add(candidate);
             FormPairs();
         }
+        PermitRemoteCandidates();
+        // Relay permissions are per peer IP and must exist before the TURN server forwards anything from it.
+        if (IPAddress.TryParse(candidate.Address, out var peerIp))
+            foreach (var client in _turnClients) _ = client.EnsurePermissionAsync(peerIp);
         _ = CheckConnectivityAsync();
+    }
+
+    private readonly HashSet<IPAddress> _permitted = [];
+
+    // A host-mediated transport only delivers datagrams from addresses we sent to or authorised, and a peer's first
+    // check can arrive before ours leaves, so every remote candidate address is authorised. Called outside the gate.
+    private void PermitRemoteCandidates()
+    {
+        var transport = _transport;
+        if (transport is null) return;
+        IPAddress[] fresh;
+        lock (_gate)
+            fresh = _remoteCandidates.Select(c => IPAddress.TryParse(c.Address, out var ip) ? ip : null)
+                .Where(ip => ip is not null && ip.AddressFamily == AddressFamily.InterNetwork && _permitted.Add(ip)).ToArray()!;
+        foreach (var address in fresh)
+        {
+            try { transport.Permit(address); } catch (Exception error) when (error is ObjectDisposedException or IOException) { }
+        }
     }
 
     private void FormPairs()
@@ -311,11 +548,12 @@ internal sealed class IceAgent : IDisposable
             {
                 if (!string.Equals(local.Protocol, remote.Protocol, StringComparison.OrdinalIgnoreCase)) continue;
                 if (!IPAddress.TryParse(remote.Address, out var remoteIp)) continue;
+                _relayClients.TryGetValue(local, out var relay);
 
                 var remoteEp = new IPEndPoint(remoteIp, remote.Port);
                 if (_pairs.Any(p => p.Local == local && p.RemoteEndPoint.Equals(remoteEp))) continue;
 
-                var pair = new CandidatePair(local, remoteEp, local.Priority, remote.Priority, IsControlling);
+                var pair = new CandidatePair(local, remoteEp, local.Priority, remote.Priority, IsControlling) { Relay = relay };
                 if (_pairs.Count >= 512) return;
                 _pairs.Add(pair);
             }
@@ -356,6 +594,9 @@ internal sealed class IceAgent : IDisposable
         {
             // A role switch re-prioritised the pairs and queued a fresh pass; this snapshot is stale.
             if (_disposed || Volatile.Read(ref _roleEpoch) != epoch) break;
+            // A relayed pair leaves through the TURN server, whose address was vetted when it was gathered.
+            if (pair.Relay is null && _transport is { } route && !route.CanSendTo(pair.RemoteEndPoint)) continue;
+            if (pair.Relay is not null && !await pair.Relay.EnsurePermissionAsync(pair.RemoteEndPoint.Address).ConfigureAwait(false)) continue;
             try
             {
                 StunMessage? response = null;
@@ -365,7 +606,7 @@ internal sealed class IceAgent : IDisposable
                     var role = IsControlling;
                     var (request, transactionId, key) = BuildBindingRequest(pair, role, nominate: role);
                     (response, _) = await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint,
-                        TimeSpan.FromMilliseconds(500), key, message => AcceptConnectivityResponse(pair, message)).ConfigureAwait(false);
+                        TimeSpan.FromMilliseconds(500), key, message => AcceptConnectivityResponse(pair, message), pair.Relay).ConfigureAwait(false);
                     if (response is null || !response.TryErrorCode(out var code) || code != 487) break;
                     lock (_gate)
                     {
@@ -427,24 +668,24 @@ internal sealed class IceAgent : IDisposable
 
     private void ConfirmConsent()
     {
-        var now = Stopwatch.GetTimestamp();
+        var now = Clock.GetTimestamp();
         Volatile.Write(ref _consentConfirmed, now);
         if (Volatile.Read(ref _consentNextCheck) == 0) Volatile.Write(ref _consentNextCheck, now + NextConsentDelay());
     }
 
     private long NextConsentDelay() =>
-        (long)(ConsentInterval.TotalSeconds * (0.8 + 0.4 * Random.Shared.NextDouble()) * Stopwatch.Frequency);
+        (long)(ConsentInterval.TotalSeconds * (0.8 + 0.4 * Random.Shared.NextDouble()) * Clock.TimestampFrequency);
 
     private void MaintainConsent()
     {
         CandidatePair? pair;
         var expired = false;
-        var now = Stopwatch.GetTimestamp();
+        var now = Clock.GetTimestamp();
         lock (_gate)
         {
             if (_disposed || ConnectionState != "connected" || _selectedPair is null) return;
             pair = _selectedPair;
-            if (Stopwatch.GetElapsedTime(Volatile.Read(ref _consentConfirmed), now) > ConsentTimeout)
+            if (Clock.GetElapsedTime(Volatile.Read(ref _consentConfirmed), now) > ConsentTimeout)
             {
                 _selectedPair = null;
                 ConnectionState = "failed";
@@ -458,8 +699,10 @@ internal sealed class IceAgent : IDisposable
         }
         if (now < Volatile.Read(ref _consentNextCheck) || Interlocked.Exchange(ref _consentInFlight, 1) != 0) return;
         Volatile.Write(ref _consentNextCheck, now + NextConsentDelay());
-        _ = CheckConsentAsync(pair);
+        ConsentCheck = CheckConsentAsync(pair);
     }
+
+    internal Task ConsentCheck { get; private set; } = Task.CompletedTask;
 
     private async Task CheckConsentAsync(CandidatePair pair)
     {
@@ -467,7 +710,7 @@ internal sealed class IceAgent : IDisposable
         {
             var (request, transactionId, key) = BuildBindingRequest(pair, IsControlling, nominate: false);
             await SendStunRequestAsync(request, transactionId, pair.RemoteEndPoint, TimeSpan.FromMilliseconds(500), key,
-                response => { if (response.Type == StunMessage.BindingResponse) ConfirmConsent(); }).ConfigureAwait(false);
+                response => { if (response.Type == StunMessage.BindingResponse) ConfirmConsent(); }, pair.Relay).ConfigureAwait(false);
         }
         finally { Volatile.Write(ref _consentInFlight, 0); }
     }
@@ -495,47 +738,75 @@ internal sealed class IceAgent : IDisposable
     {
         var buffer = new byte[65536];
         EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
-        var maintenance = Stopwatch.GetTimestamp();
+        var maintenance = Clock.GetTimestamp();
+        var errors = 0;
 
         while (!_cts.IsCancellationRequested)
         {
             try
             {
-                var socket = _socket;
-                if (socket is null) break;
-                if (Stopwatch.GetElapsedTime(maintenance) >= TimeSpan.FromMilliseconds(250))
-                { maintenance = Stopwatch.GetTimestamp(); MaintainConsent(); OnMaintenance?.Invoke(); }
+                var transport = _transport;
+                if (transport is null) break;
+                if (AutoMaintenance && Clock.GetElapsedTime(maintenance) >= TimeSpan.FromMilliseconds(250))
+                { maintenance = Clock.GetTimestamp(); RunMaintenance(); }
                 // Socket completions and transport retry timers must not wait
                 // behind synchronous page work on the shared CLR thread pool.
-                if (!socket.Poll(250000, SelectMode.SelectRead)) continue;
-                var received = socket.ReceiveFrom(buffer, SocketFlags.None, ref remoteEp);
+                var received = transport.Receive(buffer, 250000, ref remoteEp);
+                if (received < 0) continue;
                 var bytes = buffer.AsSpan(0, received);
 
-                if (StunMessage.TryParse(bytes, out var stun))
-                {
-                    HandleStunMessage(stun, remoteEp);
-                }
-                else
-                {
-                    // Non-STUN datagram: DTLS or SRTP packet
-                    lock (_gate)
-                        if (_selectedPair is null || !_selectedPair.RemoteEndPoint.Equals(remoteEp)) continue;
-                    var copy = bytes.ToArray();
-                    OnDatagramReceived?.Invoke(copy);
-                }
+                // Only the configured TURN server's own datagrams are unwrapped; its STUN replies never reach ICE checks.
+                var consumed = false;
+                foreach (var turn in _turnClients)
+                    if (turn.Server.Equals(remoteEp) && turn.TryHandleDatagram(bytes)) { consumed = true; break; }
+                if (!consumed) ProcessDatagram(bytes, remoteEp, null);
+                errors = 0;
             }
             catch (OperationCanceledException) { break; }
-            catch (ObjectDisposedException) { break; }
-            catch { }
+            catch (ObjectDisposedException) { FailTransport(); break; } // the host closed the socket (revocation, replacement, quota)
+            catch
+            {
+                // A persistent fault must not spin: back off, then give up and fail the connection.
+                if (++errors > 50) { FailTransport(); break; }
+                if (errors > 5) Thread.Sleep(Math.Min(errors * 5, 100));
+            }
         }
     }
 
-    private void HandleStunMessage(StunMessage msg, EndPoint from)
+    // The transport is gone without this agent closing it: the connection fails once, and the consent loop (which runs
+    // on the receive thread) ends with the thread.
+    private void FailTransport()
+    {
+        lock (_gate)
+        {
+            if (_disposed || ConnectionState is "failed" or "closed") return;
+            _selectedPair = null;
+            ConnectionState = "failed";
+        }
+        OnConnectionStateChanged?.Invoke("failed");
+    }
+
+    // A datagram from a peer, received directly (via == null) or unwrapped from a TURN relay.
+    private void ProcessDatagram(ReadOnlySpan<byte> bytes, EndPoint remoteEp, TurnClient? via)
+    {
+        if (StunMessage.TryParse(bytes, out var stun))
+        {
+            HandleStunMessage(stun, remoteEp, via);
+            return;
+        }
+        // Non-STUN datagram: DTLS or SRTP packet
+        lock (_gate)
+            if (_selectedPair is null || !_selectedPair.RemoteEndPoint.Equals(remoteEp) || !ReferenceEquals(_selectedPair.Relay, via)) return;
+        var copy = bytes.ToArray();
+        OnDatagramReceived?.Invoke(copy);
+    }
+
+    private void HandleStunMessage(StunMessage msg, EndPoint from, TurnClient? via)
     {
         // Notify any pending request waiters
-        Action<StunMessage, EndPoint>[] handlers;
+        Action<StunMessage, EndPoint, TurnClient?>[] handlers;
         lock (_gate) handlers = _pendingStunRequests.ToArray();
-        foreach (var handler in handlers) handler(msg, from);
+        foreach (var handler in handlers) handler(msg, from, via);
 
         if (msg.Type == StunMessage.BindingRequest)
         {
@@ -582,7 +853,8 @@ internal sealed class IceAgent : IDisposable
                     {
                         var err = StunMessage.Encode(StunMessage.BindingErrorResponse, msg.TransactionId.Span,
                             [(StunMessage.ErrorCode, StunMessage.EncodeErrorCode(487, "Role Conflict"))], Encoding.UTF8.GetBytes(LocalPassword));
-                        _socket?.SendTo(err, ep);
+                        if (via is not null) via.SendToPeer(ep, err);
+                        else _transport?.SendTo(err, ep);
                         return;
                     }
                     var xorAddr = new byte[8];
@@ -597,7 +869,8 @@ internal sealed class IceAgent : IDisposable
                     };
 
                     var resp = StunMessage.Encode(StunMessage.BindingResponse, msg.TransactionId.Span, attrs, Encoding.UTF8.GetBytes(LocalPassword));
-                    _socket?.SendTo(resp, ep);
+                    if (via is not null) via.SendToPeer(ep, resp);
+                    else _transport?.SendTo(resp, ep);
                     // An authenticated check proves the peer's source address,
                     // including when SDP deliberately hides it behind mDNS.
                     AddRemoteCandidate(new IceCandidate
@@ -613,7 +886,7 @@ internal sealed class IceAgent : IDisposable
                     var nominated = false;
                     lock (_gate)
                     {
-                        var pair = _pairs.FirstOrDefault(candidate => candidate.RemoteEndPoint.Equals(ep));
+                        var pair = _pairs.FirstOrDefault(candidate => candidate.RemoteEndPoint.Equals(ep) && ReferenceEquals(candidate.Relay, via));
                         if (!_disposed && !IsControlling && pair is not null &&
                             msg.TryAttribute(StunMessage.UseCandidate, out var useCandidate) && useCandidate.IsEmpty && _selectedPair is null)
                         {
@@ -631,10 +904,12 @@ internal sealed class IceAgent : IDisposable
     public void SendDatagram(ReadOnlySpan<byte> datagram)
     {
         var pair = _selectedPair;
-        if (pair is null || _socket is null) return;
+        var transport = _transport;
+        if (pair is null || transport is null) return;
         try
         {
-            _socket.SendTo(datagram.ToArray(), pair.RemoteEndPoint);
+            if (pair.Relay is not null) pair.Relay.SendToPeer(pair.RemoteEndPoint, datagram);
+            else transport.SendTo(datagram, pair.RemoteEndPoint);
         }
         catch { }
     }
@@ -652,10 +927,13 @@ internal sealed class IceAgent : IDisposable
             ConnectionState = "closed";
             GatheringState = "complete";
         }
+        // Best-effort Refresh with LIFETIME 0 while the transport is still open.
+        foreach (var turn in _turnClients) turn.Dispose();
+        _turnClients = [];
         _cts.Cancel();
         _cts.Dispose();
-        _socket?.Dispose();
-        _socket = null;
+        _transport?.Dispose();
+        _transport = null;
         OnConnectionStateChanged?.Invoke("closed");
     }
 
@@ -667,6 +945,7 @@ internal sealed class IceAgent : IDisposable
         public IceCandidate Local { get; } = local;
         public IPEndPoint RemoteEndPoint { get; } = remoteEndPoint;
         public CandidatePairState State { get; set; } = CandidatePairState.Waiting;
+        public TurnClient? Relay { get; init; }
         public long Priority { get; private set; } = ComputePriority(localPref, remotePref, controlling);
 
         private static long ComputePriority(long g, long d, bool controlling)

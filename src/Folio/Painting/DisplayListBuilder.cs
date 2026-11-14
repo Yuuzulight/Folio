@@ -26,7 +26,7 @@ internal static class DisplayListBuilder
                                     IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null, Selection? selection = null,
                                     CaretInfo? caret = null, Func<string, RectF, IReadOnlyList<GlyphRun>>? labels = null)
     {
-        var list = new DisplayList();
+        var list = new DisplayList { ViewportAnchored = AnyViewportAnchored(initialContainingBlock) };
         if (StackingTree(initialContainingBlock, deviceScale, scrollOffsets) is not { Owner: { } rootBox } rootContext)
             return list;
 
@@ -45,6 +45,20 @@ internal static class DisplayListBuilder
         Walk(rootContext, emitter);
         emitter.Finish();
         return list;
+    }
+
+    // Whether any box, whatever it paints (nothing, text only, an image), is fixed or sticky: found from the fragment
+    // tree rather than from what gets painted, so that no kind of box is missed.
+    private static bool AnyViewportAnchored(Fragment fragment)
+    {
+        if (fragment.Box is { Style.Box.Position: Position.Fixed or Position.Sticky })
+            return true;
+        if (!System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())
+            return true;
+        foreach (var child in fragment.Children)
+            if (AnyViewportAnchored(child.Fragment))
+                return true;
+        return false;
     }
 
     /// <summary>A box's clip-path as a clip item, with its basic shape resolved against its reference box.</summary>

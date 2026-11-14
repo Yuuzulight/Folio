@@ -21,6 +21,10 @@ public sealed partial class ContentHostSession : IAsyncDisposable
     private readonly IMediaAudioOutput? _mediaAudioOutput;
     // Set by the parent-side client, never from incoming child messages. Low-level sessions can own their own policy.
     internal Func<FeatureCapabilities>? HostCapabilities { get; set; }
+    /// <summary>Parent side: receives child UDP commands on the reader thread. Must not block.</summary>
+    internal Action<JsonElement>? UdpCommandHandler { get; set; }
+    /// <summary>Child side: receives host UDP events on the reader thread, so a document waiting for a socket cannot deadlock the dispatcher.</summary>
+    internal Action<JsonElement>? UdpEventHandler { get; set; }
     private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _mediaCaptureRequests = new();
     private readonly ConcurrentDictionary<long, TaskCompletionSource<MediaDecodeResult?>> _mediaDecodeRequests = new();
     private readonly ConcurrentDictionary<long, TaskCompletionSource<ResourceResponse>> _resourceRequests = new();
@@ -108,6 +112,8 @@ public sealed partial class ContentHostSession : IAsyncDisposable
                 else if (message.Kind == ContentMessageKind.MediaCapabilitiesResponse) CompleteMediaCapabilities(message);
                 else if (message.Kind == ContentMessageKind.MediaCaptureResponse) CompleteMediaCapture(message);
                 else if (message.Kind == ContentMessageKind.StorageResponse) CompleteStorage(message);
+                else if (message.Kind == ContentMessageKind.UdpCommand) RunUdpHandler(UdpCommandHandler, message);
+                else if (message.Kind == ContentMessageKind.UdpEvent) RunUdpHandler(UdpEventHandler, message);
                 else
                 {
                     var bytes = Encoding.UTF8.GetByteCount(message.Payload.GetRawText()) + 256;
@@ -136,6 +142,13 @@ public sealed partial class ContentHostSession : IAsyncDisposable
         finally { DisposeStorage(); }
         if (readerError is OperationCanceledException && dispatchError is not null) ExceptionDispatchInfo.Capture(dispatchError).Throw();
         if (readerError is not null) ExceptionDispatchInfo.Capture(readerError).Throw();
+    }
+
+    private static void RunUdpHandler(Action<JsonElement>? handler, ContentMessage message)
+    {
+        // Without a handler (or a faulty one) the message is dropped; UDP is best effort and never faults the connection.
+        try { handler?.Invoke(message.Payload); }
+        catch (Exception error) when (error is not OutOfMemoryException) { }
     }
 
     private async ValueTask DispatchAsync(ContentMessage message, CancellationToken cancellationToken)
@@ -286,6 +299,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             WriteAsync(ContentMessageKind.MediaDecodeRequest, sequence, new Dictionary<string, object?> { ["data"] = Convert.ToBase64String(data.Span), ["contentType"] = contentType, ["video"] = video, ["maxOutputBytes"] = maxOutputBytes }, timeout.Token).AsTask().GetAwaiter().GetResult();
             return completion.Task.WaitAsync(timeout.Token).GetAwaiter().GetResult();
         }
+        catch (IOException) when (_connectionClosed) { return null; }
         finally { _mediaDecodeRequests.TryRemove(sequence, out _); _requestSlots.Release(); }
     }
 
@@ -417,6 +431,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             await WriteAsync(ContentMessageKind.ResourceRequest, sequence, new Dictionary<string, object?> { ["url"] = request.Url, ["kind"] = (int)request.Kind, ["integrity"] = request.Integrity }, timeout.Token).ConfigureAwait(false);
             return await completion.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
         }
+        catch (IOException) when (_connectionClosed) { return ResourceResponse.Refused("The content connection closed."); }
         finally { _resourceRequests.TryRemove(sequence, out _); _requestSlots.Release(); }
     }
 
@@ -459,14 +474,17 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             JsonElement json => json.Clone(),
             _ => ScriptJson.SerializeToElement(payload),
         };
-        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        // Disposal races a write in flight; that is an ordinary closed connection, not a fault.
+        try { await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        catch (ObjectDisposedException) { throw new IOException("The content connection closed."); }
         try
         {
             await ContentTransport.WriteAsync(_output, new ContentMessage(kind, sequence, element), cancellationToken).ConfigureAwait(false);
         }
+        catch (ObjectDisposedException) { throw new IOException("The content connection closed."); }
         finally
         {
-            _writeGate.Release();
+            try { _writeGate.Release(); } catch (ObjectDisposedException) { }
         }
     }
 

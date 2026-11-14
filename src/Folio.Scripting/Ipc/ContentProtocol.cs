@@ -34,6 +34,10 @@ public enum ContentMessageKind
     /// channel. Host-owned; the host replaces the worker a bounded number of times per content process.
     /// </summary>
     GpuRestore,
+    /// <summary>Content process to host: a host-mediated UDP command (open, send, close). Handled by the host's UdpBroker; see docs/webrtc-host-udp.md.</summary>
+    UdpCommand,
+    /// <summary>Host to content process: a host-mediated UDP event (opened, failed, datagram, closed).</summary>
+    UdpEvent,
 }
 
 public sealed record ContentMessage(ContentMessageKind Kind, long Sequence, JsonElement Payload, int Version = 1)
@@ -118,6 +122,21 @@ public static class ContentTransport
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>The largest UDP command or event frame accepted. Larger frames of those kinds are refused before they are allocated.</summary>
+    public const int MaxUdpMessageBytes = 8 * 1024;
+
+    // Reads the number in {"Kind":N, ...} from the start of a frame payload.
+    private static bool TryReadLeadingKind(ReadOnlySpan<byte> payload, out int kind)
+    {
+        kind = 0;
+        ReadOnlySpan<byte> start = "{\"Kind\":"u8;
+        if (!payload.StartsWith(start)) return false;
+        var digits = 0;
+        for (var i = start.Length; i < payload.Length && payload[i] is >= (byte)'0' and <= (byte)'9' && digits < 4; i++, digits++)
+            kind = kind * 10 + (payload[i] - '0');
+        return digits > 0 && start.Length + digits < payload.Length && payload[start.Length + digits] == (byte)',';
+    }
+
     public static async ValueTask<ContentMessage?> ReadAsync(Stream stream, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -125,10 +144,30 @@ public static class ContentTransport
         if (!await ReadExactlyAsync(stream, header, cancellationToken).ConfigureAwait(false)) return null;
         var length = BinaryPrimitives.ReadInt32LittleEndian(header);
         if (length < 0 || length > ContentProtocol.MaxPayloadBytes) throw new InvalidDataException("Invalid content protocol frame length.");
-        var frame = new byte[sizeof(int) + length];
+        byte[] frame;
+        if (length > MaxUdpMessageBytes)
+        {
+            // UDP traffic is tiny. Our serializer writes the kind first, so a large frame must say what it is before
+            // the rest is allocated; a large UDP frame, or one that hides its kind, closes the connection.
+            var prefix = new byte[Math.Min(length, 32)];
+            if (!await ReadExactlyAsync(stream, prefix, cancellationToken).ConfigureAwait(false)) throw new EndOfStreamException();
+            if (!TryReadLeadingKind(prefix, out var kind) || kind == (int)ContentMessageKind.UdpCommand || kind == (int)ContentMessageKind.UdpEvent)
+                throw new InvalidDataException("Oversize or unclassifiable UDP content frame.");
+            frame = new byte[sizeof(int) + length];
+            prefix.CopyTo(frame, sizeof(int));
+            if (length > prefix.Length && !await ReadExactlyAsync(stream, frame.AsMemory(sizeof(int) + prefix.Length), cancellationToken).ConfigureAwait(false)) throw new EndOfStreamException();
+        }
+        else
+        {
+            frame = new byte[sizeof(int) + length];
+            if (!await ReadExactlyAsync(stream, frame.AsMemory(sizeof(int)), cancellationToken).ConfigureAwait(false)) throw new EndOfStreamException();
+        }
         header.CopyTo(frame, 0);
-        if (!await ReadExactlyAsync(stream, frame.AsMemory(sizeof(int)), cancellationToken).ConfigureAwait(false)) throw new EndOfStreamException();
         if (!ContentProtocol.TryDecode(frame, out var message) || message is null) throw new InvalidDataException("Invalid content protocol frame.");
+        // The prefix check above cannot see a duplicate "Kind" later in the frame (the last one wins when decoding), so the
+        // decoded kind is the authority: a UDP message over the cap is refused however it was framed.
+        if (length > MaxUdpMessageBytes && message.Kind is ContentMessageKind.UdpCommand or ContentMessageKind.UdpEvent)
+            throw new InvalidDataException("Oversize UDP content frame.");
         return message;
     }
 
