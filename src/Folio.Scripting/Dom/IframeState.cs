@@ -290,6 +290,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
                 if (listener.IsFunction) child.Call(listener, ScriptValue.Undefined, [message]);
             if (ParentLoop is null) MessagePortEndpoint.DrainAll(Engine);
             if (_childLoop is null) MessagePortEndpoint.DrainAll(child);
+            _childLoop?.SpinUntilIdle();
         }
         catch { }
     }
@@ -353,6 +354,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
         var engine = _childEngine;
         var loop = _childLoop;
         var document = ChildRenderDocument;
+        if (loop is not null) ParentLoop?.RemoveChildLoop(loop);
         _childRunner = null;
         _childEngine = null;
         _childLoop = null;
@@ -521,6 +523,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
                 if (!IsCurrent()) return;
                 childLoop = new HtmlEventLoop(childEngine);
                 _childLoop = childLoop;
+                ParentLoop?.AddChildLoop(childLoop);
                 ScriptGlobalsInstaller.Install(childLoop, childEngine);
                 DomBindings.Install(childEngine, childDocument, eventLoop: childLoop);
                 InstallChildWindowBridge(childEngine);
@@ -538,7 +541,11 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
             {
                 // Reentrant navigation may already own newer fields. Retire only this startup's resources.
                 if (ReferenceEquals(_childEngine, childEngine)) _childEngine = null;
-                if (ReferenceEquals(_childLoop, childLoop)) _childLoop = null;
+                if (ReferenceEquals(_childLoop, childLoop))
+                {
+                    if (childLoop is not null) ParentLoop?.RemoveChildLoop(childLoop);
+                    _childLoop = null;
+                }
                 if (ReferenceEquals(_childRunner, childRunner)) _childRunner = null;
                 if (ReferenceEquals(ChildRenderDocument, childDocument))
                 {

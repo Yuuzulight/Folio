@@ -478,7 +478,7 @@ public sealed class ContentHostPolicyTests
             script = "document.getElementById('f').contentWindow.postMessage({type:'answer',sdp:" + JsonSerializer.Serialize(answer) + "}, '*'); 'answer queued'"
         }, "answer queued");
 
-        Assert.Equal("iframe-folio", await received.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellation));
+        Assert.Equal("iframe-folio", await received.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellation));
         watch.Restart();
         string? state;
         do

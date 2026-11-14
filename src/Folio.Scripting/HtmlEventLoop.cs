@@ -14,6 +14,7 @@ public sealed class HtmlEventLoop : IDisposable
     private readonly Queue<Action> _microtasks = new();
     private readonly List<ScheduledTimer> _timers = new();
     private readonly List<AnimationFrameCallbackEntry> _animationCallbacks = new();
+    private readonly List<HtmlEventLoop> _childLoops = [];
     private int _nextTimerId = 1;
     private int _nextRafId = 1;
     private long _nextTaskSeq = 1;
@@ -367,6 +368,9 @@ public sealed class HtmlEventLoop : IDisposable
         }
     }
 
+    internal void AddChildLoop(HtmlEventLoop child) { lock (_childLoops) _childLoops.Add(child); }
+    internal void RemoveChildLoop(HtmlEventLoop child) { lock (_childLoops) _childLoops.Remove(child); }
+
     /// <summary>
     /// Returns true if there are no pending tasks, microtasks, timers, or animation frame callbacks in the loop.
     /// </summary>
@@ -392,12 +396,28 @@ public sealed class HtmlEventLoop : IDisposable
             if (_animationCallbacks.Any(c => !c.Cancelled))
                 return false;
         }
+        lock (_childLoops)
+        {
+            for (var i = 0; i < _childLoops.Count; i++)
+                if (!_childLoops[i].IsIdle())
+                    return false;
+        }
         return true;
     }
 
     public bool HasAnimationFrameCallbacks
     {
-        get { lock (_animationCallbacks) return _animationCallbacks.Any(callback => !callback.Cancelled); }
+        get
+        {
+            lock (_animationCallbacks)
+                if (_animationCallbacks.Any(callback => !callback.Cancelled)) return true;
+            lock (_childLoops)
+            {
+                for (var i = 0; i < _childLoops.Count; i++)
+                    if (_childLoops[i].HasAnimationFrameCallbacks) return true;
+            }
+            return false;
+        }
     }
 
     /// <summary>
@@ -412,7 +432,22 @@ public sealed class HtmlEventLoop : IDisposable
             : long.MinValue;
         while (turns < maxTurns)
         {
-            if (!RunOneTurn())
+            var executed = RunOneTurn();
+            if (executed) turns++;
+
+            List<HtmlEventLoop>? children = null;
+            lock (_childLoops) if (_childLoops.Count > 0) children = [.._childLoops];
+            if (children is not null)
+            {
+                foreach (var child in children)
+                {
+                    if (turns >= maxTurns) break;
+                    var childTurns = child.SpinUntilIdle(maxTurns - turns);
+                    if (childTurns > 0) { executed = true; turns += childTurns; }
+                }
+            }
+
+            if (!executed)
             {
                 if (waitForTimers is null || IsIdle())
                     break;
@@ -429,7 +464,6 @@ public sealed class HtmlEventLoop : IDisposable
                 Thread.Sleep(1);
                 continue;
             }
-            turns++;
         }
         return turns;
     }
@@ -445,8 +479,13 @@ public sealed class HtmlEventLoop : IDisposable
                 if (!timer.Cancelled && timer.DueTimeMs <= maxDue)
                     return true;
             }
-            return false;
         }
+        lock (_childLoops)
+        {
+            for (var i = 0; i < _childLoops.Count; i++)
+                if (_childLoops[i].HasTimersDueWithin(windowMs)) return true;
+        }
+        return false;
     }
 
     public event Action<Exception>? UncaughtException;
@@ -463,6 +502,7 @@ public sealed class HtmlEventLoop : IDisposable
         if (_disposed)
             return;
         _disposed = true;
+        lock (_childLoops) { _childLoops.Clear(); }
         lock (_timers) { _timers.Clear(); }
         lock (_microtasks) { _microtasks.Clear(); }
         lock (_animationCallbacks) { _animationCallbacks.Clear(); }
