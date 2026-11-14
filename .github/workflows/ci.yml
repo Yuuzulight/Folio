@@ -36,6 +36,11 @@ jobs:
 
       - run: dotnet build Folio.slnx -c Release -p:FolioOracleHost=false -p:FolioWasmOracle=false
 
+      # The production projects' package graph (direct and transitive) must hold none of the superseded packages.
+      - name: Verify production package graph excludes superseded dependencies
+        shell: pwsh
+        run: pwsh -File tools/check-production-packages.ps1
+
       # The dependency-first path is allowed during development, but the Folio-owned replacement track is a hard
       # completion gate. Keep the roadmap from regressing to the old optional-track wording.
       - name: Enforce Folio-owned replacement gate
@@ -172,13 +177,35 @@ jobs:
           FOLIO_CONFORMANCE_ENGINE: native
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance --strict D8
 
-      # The Folio-owned engine must keep the canvas animation budget; the command
-      # exits non-zero when any D5/D7 artifact exceeds the 16.7 ms p95 target.
-      - name: Native canvas frame budget
+      # Script-driven canvas frames are budgeted on the NativeAOT build a host ships (native engine only), not under
+      # tiered JIT, whose first-use compilation alone costs about a frame on a cold runner. The probe is published
+      # NativeAOT first, then run; it exits non-zero when any D5/D7 artifact exceeds the 16.7 ms p95 target.
+      - name: Publish NativeAOT canvas frame probe
         if: always() && matrix.os == 'windows-latest'
+        run: dotnet publish tools/Folio.CanvasFrameProbe -c Release -r win-x64 --self-contained true -p:PublishAot=true -o artifacts/canvas-frame-probe
+      - name: Native canvas frame budget (NativeAOT)
+        if: always() && matrix.os == 'windows-latest'
+        run: artifacts/canvas-frame-probe/Folio.Benchmarks.exe 30
+
+      # The same artifacts under tiered JIT, for the record only: it never fails the build (continue-on-error) and
+      # its table is uploaded as canvas-frames-jit.
+      - name: Native canvas frame times (JIT, informational)
+        if: always() && matrix.os == 'windows-latest'
+        continue-on-error: true
+        shell: pwsh
         env:
           FOLIO_CONFORMANCE_ENGINE: native
-        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll canvas-frames 30
+        run: |
+          New-Item -ItemType Directory -Force artifacts/canvas-frames-jit | Out-Null
+          dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll canvas-frames 30 | Tee-Object artifacts/canvas-frames-jit/canvas-frames-jit.txt
+          exit $LASTEXITCODE
+      - name: Upload JIT canvas frame times
+        if: always() && matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: canvas-frames-jit
+          path: artifacts/canvas-frames-jit/
+          if-no-files-found: ignore
 
       # Direct, in-process remote and GPU worker WebGL frames; fails when the worker's p95 is over 16.7 ms.
       - name: WebGL frame budget through the GPU worker
@@ -197,14 +224,22 @@ jobs:
       # M4 scripted startup, first-paint and content-process working-set evidence.
       # Target misses and invalid/empty frames fail the production acceptance gate.
       # Qualify the shipped NativeAOT image, isolated from developer/oracle build intermediates.
+      # Runs after earlier failures too, so the guard below reports "did not run" only when this really did not.
       - name: Publish content host for scripted benchmarks
-        if: matrix.os == 'windows-latest'
+        id: publish-content-host
+        if: always() && matrix.os == 'windows-latest'
         run: pwsh -File tools/publish-content-host.ps1
       - name: Verify production publish excludes superseded dependencies
-        if: matrix.os == 'windows-latest'
+        if: always() && matrix.os == 'windows-latest'
         shell: pwsh
+        env:
+          PUBLISH_OUTCOME: ${{ steps.publish-content-host.outcome }}
         run: |
           $publish = Join-Path $env:GITHUB_WORKSPACE 'artifacts/content-host'
+          if (-not (Test-Path -LiteralPath $publish)) {
+            Write-Error "artifacts/content-host is missing: the content host publish step $($env:PUBLISH_OUTCOME), so the dependency gate could not check anything."
+            exit 1
+          }
           $superseded = Get-ChildItem -Path $publish -File -Recurse |
             Where-Object { $_.Name -match '^(Jint|Folio\.Scripting\.Jint|Wasmtime|SkiaSharp|libSkiaSharp|HarfBuzzSharp|libHarfBuzzSharp|av_libglesv2|av_libegl|Avalonia\.Angle)(\.|$)' }
           if ($superseded) {
