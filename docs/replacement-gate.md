@@ -400,6 +400,7 @@ Performance and visual verification:
 - Interactive frame benchmarks meet budgets: animation frames at 4.2 ms median / 5.0 ms p95
   (target <= 8.0 ms), hover restyle at 3.3 ms median / 3.8 ms p95 (target <= 4.0 ms), scroll
   frames at 6.3 ms median / 6.7 ms p95 (target <= 8.0 ms).
+  These animation and hover figures are raster-only; the benchmark rows labelled "approximate (managed copy, raw damage rect)" add an approximate copy into the control's bitmap (managed, raw damage rectangle), and the raster-only rows remain for continuity.
 - Software raster conformance suite passes 100% (40/40 software raster tests and 100% across
   all D1-D14 and S1-S6 conformance artifacts).
 - SkiaSharp remains available behind IRasterBackend for explicit comparison and fallback

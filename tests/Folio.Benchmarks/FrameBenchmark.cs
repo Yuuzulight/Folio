@@ -94,6 +94,8 @@ internal static class FrameBenchmark
             var (left, top, right, bottom) = presentation == Presentation.Whole ? (0, 0, surface.Width, surface.Height)
                 : (Math.Max(0, (int)MathF.Floor(area.X) - 1), Math.Max(0, (int)MathF.Floor(area.Y) - 1),
                     Math.Min(surface.Width, (int)MathF.Ceiling(area.Right) + 1), Math.Min(surface.Height, (int)MathF.Ceiling(area.Bottom) + 1));
+            if (right <= left || bottom <= top)
+                return;
             for (var y = top; y < bottom; y++)
             {
                 surface.ReadBgraRow(y, left, right - left, _row);

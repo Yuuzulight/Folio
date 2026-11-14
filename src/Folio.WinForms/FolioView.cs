@@ -890,10 +890,7 @@ public class FolioView : Control
             {
                 var damage = DisplayListPlayer.SnapToDevicePixels(pending, PixelScale); // whole device pixels: the integer scroll offset leaves them whole
                 rasterChanged = true;
-                // A frame that only repainted the damage changes the bitmap only there (a pixel on its edge too).
-                changed = Rectangle.Intersect(changed, Rectangle.FromLTRB(
-                    (int)Math.Floor(damage.X * PixelScale) - 1, (int)Math.Floor(damage.Y * PixelScale) - top - 1,
-                    (int)Math.Ceiling(damage.Right * PixelScale) + 1, (int)Math.Ceiling(damage.Bottom * PixelScale) - top + 1));
+                changed = ChangedArea(damage, PixelScale, top, width, height);
                 var canvas = _renderSurface.Canvas;
                 canvas.Save();
                 canvas.Transform(RetainedScroll.Transform(PixelScale, top));
@@ -918,7 +915,13 @@ public class FolioView : Control
         }
     }
 
-    private static void CopySurfaceToBitmap(SoftwareRasterSurface surface, Bitmap bitmap, Rectangle area)
+    /// <summary>The part of the bitmap a frame that only repainted <paramref name="damage"/> (layout units, snapped to device pixels) changes: its device rectangle at scroll <paramref name="top"/>, a pixel wider on every side (edge pixels the antialiasing touched).</summary>
+    internal static Rectangle ChangedArea(RectF damage, float scale, int top, int width, int height) =>
+        Rectangle.Intersect(new Rectangle(0, 0, width, height), Rectangle.FromLTRB(
+            (int)Math.Floor(damage.X * scale) - 1, (int)Math.Floor(damage.Y * scale) - top - 1,
+            (int)Math.Ceiling(damage.Right * scale) + 1, (int)Math.Ceiling(damage.Bottom * scale) - top + 1));
+
+    internal static void CopySurfaceToBitmap(SoftwareRasterSurface surface, Bitmap bitmap, Rectangle area)
     {
         if (area.Width <= 0 || area.Height <= 0)
             return;

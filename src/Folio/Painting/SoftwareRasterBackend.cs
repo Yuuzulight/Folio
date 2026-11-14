@@ -53,6 +53,10 @@ public sealed class SoftwareRasterSurface : IRasterSurface
     /// </summary>
     internal void ReadBgraRow(int row, int left, int count, byte[] destination)
     {
+        // Not checked by the span alone: a span running off the right edge would read the start of the next row.
+        if ((uint)row >= (uint)Height) throw new ArgumentOutOfRangeException(nameof(row));
+        if (left < 0 || count < 0 || left > Width - count) throw new ArgumentOutOfRangeException(nameof(count), "The pixels must lie within the row.");
+        if (destination.Length < count * 4) throw new ArgumentException("The destination is too short.", nameof(destination));
         var stride = count * 4;
         var source = _pixels.Data.AsSpan((row * Width + left) * 4, stride);
         var x = 0;
