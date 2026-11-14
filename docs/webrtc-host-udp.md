@@ -92,12 +92,16 @@ quota below. A binary framing is a later optimisation.
 | Socket opens | burst of 4, refilling at 1 per second |
 | Commands, any kind | burst of 500, 2000 per second, charged before its fields are read |
 | Outgoing queue | 64 datagrams per socket; overflow drops and counts (the budget is refunded) |
-| Incoming datagram queue | 256 datagrams towards the child; overflow drops and counts |
-| All queued events | 512, control events included |
+| Incoming datagram queue | 256 datagrams towards the child; a datagram that would pass either the 256 count or the byte cap below is dropped and counted (`DroppedIncoming`), never fatal |
+| All queued events | 512 events or 512 KiB estimated payload, control events included; passing either with a control event kills the broker (`Dead`) |
+| Child-side incoming queue | 512 KiB of datagram payload per transport (and the 256-datagram channel); overflow drops and counts (`DroppedIncoming` on the transport) |
+| SCTP reassembly | 4 MiB aggregate per document across all peers, at most half of it (2 MiB) per peer; a refused fragment is not acknowledged, so the sender retransmits (backpressure, no data is accepted and lost) |
+| DTLS handshake reassembly | 1 MiB aggregate per document across all peers, on top of 256 KiB per handshake; over the limit the handshake fails |
+| Data channel messages | 1000 per second per peer, burst of 256; a peer that exceeds it is retired, siblings are unaffected |
 | Name lookups | 16 distinct names per document, burst of 8 refilling at 2 per second, 4 in flight (the rest are refused, not queued), 5 s each |
 
 The limiters belong to the broker (the process), not to a socket or document; a replaced document receives fresh
-ones at most once per second. If the child stops reading its pipe, the event queue reaches 512, the broker closes
+ones at most once per second. If the child stops reading its pipe, the event queue reaches 512 events or 512 KiB payload, the broker closes
 every socket and refuses further commands until the next document (`Dead`). The broker never writes to the pipe while
 holding a lock, so a stalled child blocks only its own event pump. A persistent receive error backs off and then closes
 the socket (host) or fails the connection (child).

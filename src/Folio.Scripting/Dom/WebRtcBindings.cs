@@ -13,6 +13,9 @@ internal sealed class WebRtcBindingState : IDisposable
     private readonly Dictionary<long, PeerLease> _peers = [];
     internal const int MaxDeliveryEvents = 256;
     internal const int MaxDeliveryBytes = 1024 * 1024;
+    internal const double MaxMessagesPerSecond = 1000;
+    internal const double BurstMessages = 256;
+    internal TimeProvider Clock { get; set; } = TimeProvider.System;
     private readonly LinkedList<Delivery> _deliveries = new();
     private int _deliveryCount;
     private int _deliveryBytes;
@@ -225,14 +228,31 @@ internal sealed class WebRtcBindingState : IDisposable
     private bool IsDeliverable(PeerLease peer) => PermissionGranted() && !_deliveryStopped &&
         !peer.DeliveryOverflow && _peers.ContainsKey(peer.Id);
 
-    private void QueuePeer(PeerLease peer, Action action, int bytes = 0)
+    /// <summary>The bucket belongs to the peer, so a flooding peer exhausts and retires only itself. Called under <c>_gate</c>.</summary>
+    private bool TryTakeMessageToken(PeerLease peer)
+    {
+        var now = Clock.GetTimestamp();
+        if (!peer.HasMessageStamp)
+        {
+            peer.HasMessageStamp = true;
+            peer.LastMessageStamp = now;
+        }
+        var seconds = (now - peer.LastMessageStamp) / (double)Clock.TimestampFrequency;
+        peer.LastMessageStamp = now;
+        peer.MessageTokens = Math.Min(BurstMessages, peer.MessageTokens + seconds * MaxMessagesPerSecond);
+        if (peer.MessageTokens < 1) return false;
+        peer.MessageTokens -= 1;
+        return true;
+    }
+
+    private void QueuePeer(PeerLease peer, Action action, int bytes = 0, bool isMessage = false)
     {
         var loop = _context.OwnerEventLoop;
         if (loop is null) return;
         lock (_gate)
         {
             if (!IsDeliverable(peer)) return;
-            if (_deliveryCount >= MaxDeliveryEvents || bytes > MaxDeliveryBytes - _deliveryBytes)
+            if (_deliveryCount >= MaxDeliveryEvents || bytes > MaxDeliveryBytes - _deliveryBytes || (isMessage && !TryTakeMessageToken(peer)))
             {
                 peer.DeliveryOverflow = true;
                 RemoveDeliveries(peer);
@@ -343,7 +363,7 @@ internal sealed class WebRtcBindingState : IDisposable
         return _engine.CreateHostObject(ChannelTemplate, new ChannelLease(this, peer, channel));
     }
 
-    private sealed class ChannelLease
+    internal sealed class ChannelLease
     {
         internal WebRtcBindingState Owner { get; }
         internal PeerLease Peer { get; }
@@ -363,7 +383,7 @@ internal sealed class WebRtcBindingState : IDisposable
             var payload = value is string text ? ScriptValue.FromString(text)
                 : value is byte[] bytes ? Owner._engine.CreateArrayBuffer(bytes) : ScriptValue.Undefined;
             Owner._engine.Call(Callback, ScriptValue.Undefined, [ScriptValue.FromString(kind), payload]);
-        }, value switch { string text => 2 * text.Length, byte[] bytes => bytes.Length, _ => 0 });
+        }, value switch { string text => 2 * text.Length, byte[] bytes => bytes.Length, _ => 0 }, isMessage: kind == "message");
         internal void Send(ScriptValue value)
         {
             lock (Owner._gate)
@@ -496,12 +516,15 @@ internal sealed class WebRtcBindingState : IDisposable
     public void Dispose() { lock (_gate) _disposed = true; CloseAll(); }
 
     private static readonly HostObjectTemplate PeerTemplate = new("RTCPeerConnectionLease");
-    private sealed class PeerLease(WebRtcBindingState owner, long id, string[] servers) : IDisposable
+    internal sealed class PeerLease(WebRtcBindingState owner, long id, string[] servers) : IDisposable
     {
         internal WebRtcBindingState Owner { get; } = owner;
         internal long Id { get; } = id;
         internal bool Released { get; set; }
         internal bool DeliveryOverflow { get; set; }
+        internal double MessageTokens { get; set; } = BurstMessages;
+        internal long LastMessageStamp { get; set; }
+        internal bool HasMessageStamp { get; set; }
         internal ScriptValue CloseCallback { get; set; } = ScriptValue.Undefined;
         internal bool TransportRegistered { get; set; }
         internal bool LocalCandidatesPublished { get; set; }
@@ -727,7 +750,7 @@ RTCPeerConnection.prototype.createDataChannel = function(label, options) {
 };
 RTCPeerConnection.prototype.close = function() { retire(this,false); };
 function transportChannel(owner, nativeChannel) {
-    var listeners={}, binaryType='arraybuffer', channel={label:nativeChannel.label,protocol:nativeChannel.protocol,ordered:true};
+    var listeners={}, binaryType='arraybuffer', channel={label:nativeChannel.label,protocol:nativeChannel.protocol,ordered:true,__nativeChannel:nativeChannel};
     Object.defineProperty(channel,'binaryType',{get:function(){return binaryType;},set:function(value){value=String(value);if(value==='blob'||value==='arraybuffer')binaryType=value;}});
     Object.defineProperty(channel,'id',{get:function(){return nativeChannel.id;}});
     Object.defineProperty(channel,'readyState',{get:function(){return nativeChannel.readyState;}});

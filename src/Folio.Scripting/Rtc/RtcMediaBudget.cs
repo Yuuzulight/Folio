@@ -10,8 +10,8 @@ internal sealed class RtcMediaBudget
     private readonly object _gate = new();
     private readonly TimeProvider _time;
     private readonly int _maxTracks, _packetsPerSecond, _bytesPerSecond;
-    private readonly long _maxVideoBytes;
-    private long _videoBytes;
+    private readonly long _maxVideoBytes, _maxSctpReassemblyBytes, _maxDtlsReassemblyBytes;
+    private long _videoBytes, _sctpReassemblyBytes, _dtlsReassemblyBytes;
     private readonly Bucket _rx = new(), _tx = new();
     private int _tracks;
 
@@ -25,11 +25,20 @@ internal sealed class RtcMediaBudget
     /// <summary>Video decoder memory (reference frames, mode info, output frames) currently reserved by this document.</summary>
     internal long VideoBytesInUse { get { lock (_gate) return _videoBytes; } }
 
+    /// <summary>SCTP data channel reassembly memory currently reserved by this document in aggregate.</summary>
+    internal long SctpReassemblyBytesInUse { get { lock (_gate) return _sctpReassemblyBytes; } }
+
+    /// <summary>DTLS handshake fragment reassembly memory currently reserved by this document in aggregate.</summary>
+    internal long DtlsReassemblyBytesInUse { get { lock (_gate) return _dtlsReassemblyBytes; } }
+
     public RtcMediaBudget(TimeProvider? time = null, int maxTracks = 16, int packetsPerSecond = 4000, int bytesPerSecond = 4 * 1024 * 1024,
-        long maxVideoBytes = 64L * 1024 * 1024, int maxVideoPixels = 1920 * 1088)
+        long maxVideoBytes = 64L * 1024 * 1024, int maxVideoPixels = 1920 * 1088,
+        long maxSctpReassemblyBytes = 4L * 1024 * 1024, long maxDtlsReassemblyBytes = 1024 * 1024)
     {
         _maxVideoBytes = Math.Max(0, maxVideoBytes);
         MaxVideoPixels = Math.Max(256, maxVideoPixels);
+        _maxSctpReassemblyBytes = Math.Max(0, maxSctpReassemblyBytes);
+        _maxDtlsReassemblyBytes = Math.Max(0, maxDtlsReassemblyBytes);
         _time = time ?? TimeProvider.System;
         _maxTracks = Math.Max(0, maxTracks);
         _packetsPerSecond = Math.Max(1, packetsPerSecond);
@@ -101,6 +110,44 @@ internal sealed class RtcMediaBudget
     }
 
     public void ReleaseVideoBytes(long bytes) { lock (_gate) _videoBytes = Math.Max(0, _videoBytes - Math.Max(0, bytes)); }
+
+    /// <summary>Reserves SCTP data channel reassembly memory against the document aggregate budget.</summary>
+    public bool TryReserveSctpReassemblyBytes(long bytes)
+    {
+        if (bytes < 0) return false;
+        lock (_gate)
+        {
+            if (_sctpReassemblyBytes + bytes > _maxSctpReassemblyBytes) return false;
+            _sctpReassemblyBytes += bytes;
+            return true;
+        }
+    }
+
+    /// <summary>Each peer may hold at most half the aggregate SCTP budget, so one peer cannot starve its siblings. A fragment over the
+    /// limit is refused unacknowledged (the sender retransmits), which is backpressure rather than data loss.</summary>
+    internal long SctpPeerReassemblyLimit => _maxSctpReassemblyBytes / 2;
+
+    /// <summary>Swaps a held reservation for a smaller or equal one in a single step so the total never drifts.</summary>
+    public void ReplaceSctpReassemblyBytes(long release, long reserve)
+    {
+        lock (_gate) _sctpReassemblyBytes = Math.Max(0, _sctpReassemblyBytes - Math.Max(0, release) + Math.Max(0, reserve));
+    }
+
+    public void ReleaseSctpReassemblyBytes(long bytes) { lock (_gate) _sctpReassemblyBytes = Math.Max(0, _sctpReassemblyBytes - Math.Max(0, bytes)); }
+
+    /// <summary>Reserves DTLS handshake reassembly memory against the document aggregate budget.</summary>
+    public bool TryReserveDtlsReassemblyBytes(long bytes)
+    {
+        if (bytes < 0) return false;
+        lock (_gate)
+        {
+            if (_dtlsReassemblyBytes + bytes > _maxDtlsReassemblyBytes) return false;
+            _dtlsReassemblyBytes += bytes;
+            return true;
+        }
+    }
+
+    public void ReleaseDtlsReassemblyBytes(long bytes) { lock (_gate) _dtlsReassemblyBytes = Math.Max(0, _dtlsReassemblyBytes - Math.Max(0, bytes)); }
 
     /// <summary>Charges one datagram of the given size against the receive or send bucket (one second of burst).</summary>
     public bool TryConsume(bool receive, int bytes)

@@ -38,8 +38,8 @@ internal sealed class RtcPeerConnectionController : IDisposable
         Media = new RtcMediaEngine(time, mediaBudget);
         Media.OnPacketToSend += bytes => Ice.SendDatagram(bytes);
         Media.OnRemoteTrack += track => OnRemoteTrack?.Invoke(track);
-        Dtls = new DtlsTransport(TimeProvider.System, enableRetryTimer: false);
-        Sctp = new SctpDataChannel(TimeProvider.System, enableRetryTimer: false);
+        Dtls = new DtlsTransport(time ?? TimeProvider.System, enableRetryTimer: false, mediaBudget);
+        Sctp = new SctpDataChannel(time ?? TimeProvider.System, enableRetryTimer: false, mediaBudget);
         Ice.OnMaintenance += () =>
         {
             Dtls.RetryDueFlight(); Sctp.RetryDueHandshake(); Sctp.RetryDueData(); Media.Tick();
