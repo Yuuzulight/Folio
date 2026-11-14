@@ -51,6 +51,60 @@ public sealed class ContentHostPolicyTests
         await ExchangeRtcDataThroughTheHostBroker(client);
     }
 
+    // Remote audio end to end: a peer outside the sandbox sends G.711 over SRTP; the child (no socket) receives it through the
+    // host UDP broker, surfaces ontrack, and its SRTCP receiver report comes back through the same broker.
+    [Fact(Timeout = 60000)]
+    public async Task ChildReceivesRemoteAudioOverSrtpThroughTheHostUdpBroker()
+    {
+        await using var client = Start(new FolioOptions());
+        client.UdpOptions = new UdpBrokerOptions { AllowLoopback = true };
+        using var remote = new RtcPeerConnectionController();
+        await Exchange(client, new
+        {
+            html = "<body></body>",
+            capabilities = new FeatureCapabilities { WebRtc = true },
+            script = """
+                var offer='', error='', tracks=[];
+                var pc=new RTCPeerConnection();
+                pc.ontrack=function(event){tracks.push(event.track.kind+':'+event.streams.length);};
+                pc.addTransceiver('audio',{direction:'recvonly'});
+                pc.createOffer().then(function(description){
+                    return pc.setLocalDescription(description).then(function(){offer=description.sdp;});
+                }).catch(function(e){error=String(e);});
+                'started'
+                """
+        }, "started");
+        var description = Value(await Exchange(client, new { script = "error?'ERROR:'+error:offer" }));
+        Assert.StartsWith("v=0", description);
+        Assert.Contains("m=audio 9 UDP/TLS/RTP/SAVPF 0 8", description);
+        Assert.Contains("a=recvonly", description);
+        remote.SetRemoteDescription("offer", description!);
+        var answer = await remote.CreateAnswerAsync(false, 1, 0);
+        Assert.Contains("a=sendonly", answer);
+        remote.SetLocalDescription("answer", answer);
+        await Exchange(client, new
+        {
+            script = "pc.setRemoteDescription({type:'answer',sdp:" + JsonSerializer.Serialize(answer) + "}).catch(function(e){error=String(e);});'queued'"
+        }, "queued");
+
+        var cancellation = TestContext.Current.CancellationToken;
+        var sender = remote.LocalAudioTrack(0)!;
+        var tone = Enumerable.Range(0, 160).Select(i => (float)(0.4 * Math.Sin(2 * Math.PI * 440 * i / 8000))).ToArray();
+        var watch = Stopwatch.StartNew();
+        RtcpPacket? report = null;
+        while (report is null && watch.Elapsed < TimeSpan.FromSeconds(20))
+        {
+            if (remote.Dtls.State == "connected") remote.Media.SendAudio(sender, tone, 8000, 1);
+            report = remote.Media.LastReports.FirstOrDefault(r => r.Kind == RtcpKind.ReceiverReport && r.Blocks.Count > 0);
+            await Task.Delay(20, cancellation);
+        }
+        Assert.NotNull(report);
+        var block = report.Blocks[0];
+        Assert.Equal(sender.Ssrc, block.Ssrc);          // the child reported on the SSRC it unprotected
+        // A report block only exists for a stream the child has received packets on, so this proves reception without depending on the random sequence base.
+        Assert.Equal("audio:1", Value(await Exchange(client, new { script = "error?'ERROR:'+error:tracks.join(',')" })));
+    }
+
     [Fact(Timeout = 60000)]
     public async Task HostBrokerDeniesLoopbackPeersByDefaultSoNothingConnects()
     {
