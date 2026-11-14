@@ -10,6 +10,7 @@ Supported operations:
 - `load` takes inline `html` and an optional `urlLabel` (`about:blank` or a `fixture:` label). It returns the current script result, rendered display-item count, diagnostics, worker sequence, and any shared canvas-frame information.
 - `evaluate` evaluates an expression in the current document and returns the same render result.
 - `snapshot` returns the Arcana page snapshot shape. Element references remain stable for the page process lifetime and are not reused when a document is replaced.
+- `screenshot` evaluates a no-op against the current document, validates the latest host-owned RGBA frame and its sequence, then returns that real frame as PNG bytes in `data` (base64), with `mimeType`, `width`, `height`, and `sequence` metadata. The response is derived from the content worker frame; it is not a placeholder or a second renderer.
 - `close` stops the page worker and exits the broker.
 
-There is no resource loader, network capability, navigation to remote URLs, persistent storage, cookie jar, or browser session. Page actions and screenshots return the stable `unsupported` error code until their behavior is implemented and verified. `fixture:` is a document label; it does not trigger a fetch.
+There is no resource loader, network capability, navigation to remote URLs, persistent storage, cookie jar, or browser session. Page actions return the stable `unsupported` error code until their behavior is implemented and verified. `fixture:` is a document label; it does not trigger a fetch. Evaluate JavaScript and then request a snapshot to observe DOM changes.

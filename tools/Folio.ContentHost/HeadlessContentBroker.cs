@@ -4,6 +4,8 @@ using System.Text.RegularExpressions;
 using System.Diagnostics;
 using System.Text.Json.Serialization;
 using System.Text.Json.Nodes;
+using System.IO.Compression;
+using System.Buffers.Binary;
 using Folio.Scripting.Ipc;
 
 namespace Folio.ContentHost;
@@ -291,8 +293,24 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             normalized = normalized with { Url = _urlLabel };
             return new BrokerSnapshotResponse(IdOrNull(id, hasId), true, normalized, sequence);
         }
-        if (operation.Equals("screenshot", StringComparison.OrdinalIgnoreCase) ||
-            operation.Equals("click", StringComparison.OrdinalIgnoreCase) ||
+        if (operation.Equals("screenshot", StringComparison.OrdinalIgnoreCase))
+        {
+            EnsureLoaded();
+            var frame = await ExchangeAsync(ContentMessageKind.Load,
+                new JsonObject { ["script"] = "document.documentElement ? document.documentElement.outerHTML.length : 0", ["url"] = _urlLabel },
+                ContentMessageKind.Frame, cancellationToken).ConfigureAwait(false);
+            var sequence = GetWorkerSequence(frame.Payload);
+            if (sequence <= _lastWorkerSequence) throw new BrokerRequestException("engine_error", "Folio returned a stale content-process response.");
+            _lastWorkerSequence = sequence;
+            var captured = CaptureCanvasFrame(frame.Payload)
+                ?? throw new BrokerRequestException("engine_error", "Folio did not provide a rendered frame for this page.");
+            if (captured.Pixels is null)
+                throw new BrokerRequestException("engine_error", "Folio has not rendered a page frame yet.");
+            var png = BrokerPngEncoder.EncodeRgba8(captured.Pixels, captured.Frame.Width, captured.Frame.Height, captured.Frame.Stride);
+            return new BrokerScreenshotResponse(IdOrNull(id, hasId), true, "image/png", captured.Frame.Width,
+                captured.Frame.Height, captured.Frame.Sequence, Convert.ToBase64String(png));
+        }
+        if (operation.Equals("click", StringComparison.OrdinalIgnoreCase) ||
             operation.Equals("fill", StringComparison.OrdinalIgnoreCase) ||
             operation.Equals("select", StringComparison.OrdinalIgnoreCase) ||
             operation.Equals("press", StringComparison.OrdinalIgnoreCase) ||
@@ -386,12 +404,12 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
         var canvasCommands = frame.Payload.TryGetProperty("canvasCommands", out var canvasValue) && canvasValue.TryGetInt32(out var commandCount) ? commandCount : 0;
         var diagnostics = frame.Payload.TryGetProperty("diagnostics", out var diagnosticsValue) && diagnosticsValue.ValueKind == JsonValueKind.Array
             ? diagnosticsValue.EnumerateArray().Select(item => item.GetString() ?? "").ToArray() : [];
-        var canvasFrame = ReadCanvasFrame(frame.Payload);
+        var canvasFrame = CaptureCanvasFrame(frame.Payload)?.Frame;
         return Task.FromResult<object>(new BrokerFrameResponse(IdOrNull(id, hasId), true, _urlLabel, value,
             displayItems, canvasCommands, diagnostics, sequence, displayItems > 0, canvasFrame));
     }
 
-    private BrokerCanvasFrame? ReadCanvasFrame(JsonElement payload)
+    private CapturedCanvasFrame? CaptureCanvasFrame(JsonElement payload)
     {
         if (_client is null || !payload.TryGetProperty("canvasFrame", out var descriptor) || descriptor.ValueKind != JsonValueKind.Object)
             return null;
@@ -402,7 +420,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
         var describedSequence = descriptor.TryGetProperty("sequence", out var sequenceElement) && sequenceElement.TryGetInt64(out var parsedSequence) ? parsedSequence : 0;
         if (!string.Equals(path, _client.FramePath, StringComparison.Ordinal) || !CanvasFrameStore.IsValidDescriptor(width, height, stride))
             throw new BrokerRequestException("engine_error", "Folio returned an invalid rendered-frame descriptor.");
-        if (describedSequence <= 0) return new BrokerCanvasFrame(describedSequence, width, height, stride, null);
+        if (describedSequence <= 0) return new CapturedCanvasFrame(new BrokerCanvasFrame(describedSequence, width, height, stride, null), null);
 
         using var reader = new CanvasFrameStore(path!, width, height, stride);
         var pixels = reader.ReadLatest(out var actualSequence);
@@ -411,7 +429,8 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
         var outside = ReadPixel(pixels, stride, width, height, 100, 100);
         var background = ReadPixel(pixels, stride, width, height, width - 1, height - 1);
         var changedPixels = CountPixelsDifferentFrom(pixels, stride, width, height, background);
-        return new BrokerCanvasFrame(actualSequence, width, height, stride, new BrokerPixelProbe(inside, outside, changedPixels));
+        return new CapturedCanvasFrame(new BrokerCanvasFrame(actualSequence, width, height, stride,
+            new BrokerPixelProbe(inside, outside, changedPixels)), pixels);
     }
 
     private static int CountPixelsDifferentFrom(byte[] pixels, int stride, int width, int height, int[] background)
@@ -464,6 +483,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             BrokerHelloResponse value => JsonSerializer.Serialize(value, HeadlessContentHostBrokerJsonContext.Default.BrokerHelloResponse),
             BrokerFrameResponse value => JsonSerializer.Serialize(value, HeadlessContentHostBrokerJsonContext.Default.BrokerFrameResponse),
             BrokerSnapshotResponse value => JsonSerializer.Serialize(value, HeadlessContentHostBrokerJsonContext.Default.BrokerSnapshotResponse),
+            BrokerScreenshotResponse value => JsonSerializer.Serialize(value, HeadlessContentHostBrokerJsonContext.Default.BrokerScreenshotResponse),
             BrokerSimpleResponse value => JsonSerializer.Serialize(value, HeadlessContentHostBrokerJsonContext.Default.BrokerSimpleResponse),
             BrokerErrorResponse value => JsonSerializer.Serialize(value, HeadlessContentHostBrokerJsonContext.Default.BrokerErrorResponse),
             _ => throw new InvalidOperationException("Unknown broker response type.")
@@ -477,6 +497,8 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
         public string Code { get; } = code;
     }
 
+    private sealed record CapturedCanvasFrame(BrokerCanvasFrame Frame, byte[]? Pixels);
+
 }
 
 internal sealed record SnapshotResponse(
@@ -489,6 +511,7 @@ internal sealed record BrokerFrameResponse(JsonElement Id, bool Ok, string Url, 
 internal sealed record BrokerCanvasFrame(long Sequence, int Width, int Height, int Stride, BrokerPixelProbe? PixelProbe);
 internal sealed record BrokerPixelProbe(int[] Inside, int[] Outside, int ChangedPixels);
 internal sealed record BrokerSnapshotResponse(JsonElement Id, bool Ok, SnapshotResponse Snapshot, long Sequence);
+internal sealed record BrokerScreenshotResponse(JsonElement Id, bool Ok, string MimeType, int Width, int Height, long Sequence, string Data);
 internal sealed record BrokerSimpleResponse(JsonElement Id, bool Ok);
 internal sealed record BrokerError(string Code, string Message);
 internal sealed record BrokerErrorResponse(JsonElement Id, bool Ok, BrokerError Error);
@@ -498,6 +521,59 @@ internal sealed record BrokerErrorResponse(JsonElement Id, bool Ok, BrokerError 
 [JsonSerializable(typeof(BrokerHelloResponse))]
 [JsonSerializable(typeof(BrokerFrameResponse))]
 [JsonSerializable(typeof(BrokerSnapshotResponse))]
+[JsonSerializable(typeof(BrokerScreenshotResponse))]
 [JsonSerializable(typeof(BrokerSimpleResponse))]
 [JsonSerializable(typeof(BrokerErrorResponse))]
 internal partial class HeadlessContentHostBrokerJsonContext : JsonSerializerContext;
+
+internal static class BrokerPngEncoder
+{
+    private static ReadOnlySpan<byte> Signature => [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    public static byte[] EncodeRgba8(byte[] rgba, int width, int height, int stride)
+    {
+        if (!CanvasFrameStore.IsValidDescriptor(width, height, stride) || rgba.Length != checked(stride * height))
+            throw new InvalidDataException("Invalid RGBA frame for PNG encoding.");
+        using var output = new MemoryStream();
+        output.Write(Signature);
+        var header = new byte[13];
+        BinaryPrimitives.WriteUInt32BigEndian(header, (uint)width);
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(4), (uint)height);
+        header[8] = 8;
+        header[9] = 6;
+        WriteChunk(output, "IHDR", header);
+
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            var rowBytes = checked(width * 4);
+            for (var y = 0; y < height; y++)
+            {
+                zlib.WriteByte(0);
+                zlib.Write(rgba, checked(y * stride), rowBytes);
+            }
+        }
+        WriteChunk(output, "IDAT", compressed.ToArray());
+        WriteChunk(output, "IEND", []);
+        return output.ToArray();
+    }
+
+    private static void WriteChunk(Stream output, string type, byte[] data)
+    {
+        Span<byte> length = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(length, (uint)data.Length);
+        output.Write(length);
+        var typeBytes = Encoding.ASCII.GetBytes(type);
+        output.Write(typeBytes);
+        output.Write(data);
+        var crc = 0xFFFFFFFFu;
+        foreach (var value in typeBytes.Concat(data))
+        {
+            crc ^= value;
+            for (var bit = 0; bit < 8; bit++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        }
+        Span<byte> checksum = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(checksum, ~crc);
+        output.Write(checksum);
+    }
+}
