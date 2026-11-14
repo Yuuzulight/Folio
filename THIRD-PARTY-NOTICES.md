@@ -49,14 +49,15 @@ reproduced here. See RFC 6386 for it.
 (the MD5 of each decoded I420 frame). They were downloaded unmodified from the WebM project's libvpx test data:
 `https://storage.googleapis.com/downloads.webmproject.org/test_data/libvpx/`. They are test inputs only, are not part of any
 package, and are copyright the WebM project / Google. I did not find a separate license file in that download location; they
-are published as test data of libvpx, which is BSD-3-Clause licensed.
+are published as test data of libvpx, which is BSD-3-Clause licensed (that licence and the libvpx patent grant are not
+reproduced here).
 
 ## Opus codec (RFC 6716, libopus 1.5.2)
 
-`src/Folio.Scripting/Rtc/Opus/` is a C# translation of the Opus reference implementation (libopus 1.5.2, the RFC 6716
-reference decoder): the range coder, SILK, CELT (bands, PVQ, rate allocation, MDCT post-processing, concealment) and the
-top-level decoder. The tables in `SilkTables.cs` and `CeltModeTables.cs` were extracted from the libopus sources by script. The
-encoder reuses that band coder. The licence of libopus (its `COPYING` file, verbatim) follows:
+`src/Folio.Scripting/Rtc/Opus/` is a C# translation of the Opus reference implementation (libopus 1.5.2, which implements RFC 6716): the
+range coder, SILK, CELT (bands, PVQ, rate allocation, MDCT post-processing, concealment) and the top-level decoder. The
+FFT under the MDCT is a small transform written for this port and is not translated. The tables in `SilkTables.cs` and `CeltModeTables.cs` were extracted from the libopus sources by script. The
+encoder reuses that band coder; its analysis-free front end is new. The licence of libopus (its `COPYING` file, verbatim) follows:
 
 ```
 Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic,
@@ -105,7 +106,9 @@ Broadcom Corporation:
 https://datatracker.ietf.org/ipr/1526/
 ```
 
-The patent licences named in that file are not reproduced here; see the URLs it gives.
+The patent licences named in that file are not reproduced here; see the URLs it gives. The copyright line above was
+copied from libopus 1.5.2's `COPYING` as recorded in `docs/webrtc-opus.md`; it was not re-compared against upstream when
+this notice was last revised.
 
 ## Opus conformance test vectors
 
@@ -119,7 +122,11 @@ licence file with them.
 ## H.264 decoder and test streams
 
 `src/Folio.Scripting/Rtc/H264*.cs` is Folio's managed decoder for the ITU-T H.264 / ISO/IEC 14496-10 Constrained Baseline
-subset and its RFC 6184 RTP depacketizer. It links no codec library and carries no ported codec source notice.
+subset and its RFC 6184 RTP depacketizer. It is written against the specification: the source comments cite its clauses
+(for example 8.2.4 and 8.2.5), and the CAVLC code tables in `H264Tables.cs` are the specification's tables 9-5, 9-7, 9-8, 9-9
+and 9-10. It links no codec library and its source files carry no copyright notice from any other codec. I have not
+compared it with any other decoder's source, so no statement is made here about a clean-room process, and the repository
+holds no JVT conformance bitstreams: the decoder is checked only against the x264 streams described below.
 
 `tests/Folio.Scripting.Tests/H264Fixtures.cs` embeds a few short test streams. They were encoded with x264 (CAVLC, no B
 frames, so Constrained Baseline); the x264 version string and options sit in each stream's SEI. The expected output hashes
