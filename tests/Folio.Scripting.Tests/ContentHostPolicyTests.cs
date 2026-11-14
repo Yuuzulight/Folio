@@ -186,6 +186,106 @@ public sealed class ContentHostPolicyTests
         Assert.Equal("NotSupportedError", Value(await Exchange(client, new { script = "sendError" })));
     }
 
+    // The same path for H.264: the child offers VP8 and H.264, the remote peer is left with H.264 only, so the answer picks it, and
+    // Constrained Baseline pictures (x264 fixture) travel as RTP through the host broker onto a <video srcObject> and a canvas.
+    [Fact(Timeout = 90000)]
+    public async Task ChildRendersRemoteH264VideoInAVideoElementAndCanvas()
+    {
+        var units = H264DecoderTests.AccessUnits(H264Fixtures.QcifLife());
+        var reference = new H264Decoder();
+        DecodedVideoFrame? last = null;
+        foreach (var unit in units) foreach (var frame in reference.Decode(H264DecoderTests.AnnexB(unit))) last = frame;
+        var expected = H264Receiver.ToRgba(last!);
+        const int x = 64, y = 48;
+        var offsetPixel = (y * 128 + x) * 4;
+        var want = $"{expected[offsetPixel]},{expected[offsetPixel + 1]},{expected[offsetPixel + 2]}";
+
+        await using var client = Start(new FolioOptions());
+        client.UdpOptions = new UdpBrokerOptions { AllowLoopback = true };
+        using var remote = new RtcPeerConnectionController();
+        await Exchange(client, new
+        {
+            html = "<body></body>",
+            capabilities = new FeatureCapabilities { WebRtc = true, Media = true },
+            script = """
+                var offer='', error='', info='', video=document.createElement('video'), stream=null;
+                var pc=new RTCPeerConnection();
+                pc.ontrack=function(event){ stream=event.streams[0]; video.srcObject=stream; info=event.track.kind; };
+                pc.addTransceiver('video',{direction:'recvonly'});
+                pc.createOffer().then(function(d){return pc.setLocalDescription(d).then(function(){offer=d.sdp;});}).catch(function(e){error=String(e);});
+                'started'
+                """
+        }, "started");
+        var description = Value(await Exchange(client, new { script = "error?'ERROR:'+error:offer" }));
+        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 96 97 98", description);
+        Assert.Contains("packetization-mode=1;profile-level-id=42e01f", description);
+        // A peer that only has H.264: take VP8 out of the offer.
+        var h264Only = string.Join("\r\n", description!.Split("\r\n").Where(line => !line.StartsWith("a=rtpmap:96 ") && !line.StartsWith("a=rtcp-fb:96 ") && !line.StartsWith("a=fmtp:96 ")))
+            .Replace("SAVPF 96 97 98", "SAVPF 97 98");
+        remote.SetRemoteDescription("offer", h264Only);
+        var answer = await remote.CreateAnswerAsync(false, 0, 0);
+        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 97", answer);
+        Assert.Contains("a=rtpmap:97 H264/90000", answer);
+        Assert.DoesNotContain("VP8", answer);
+        Assert.Contains("a=inactive", answer); // Folio cannot send video
+        answer = answer.Replace("a=inactive", "a=sendonly"); // this test injects the RTP a real sender would produce
+        remote.SetLocalDescription("answer", answer);
+        await Exchange(client, new
+        {
+            script = "pc.setRemoteDescription({type:'answer',sdp:" + JsonSerializer.Serialize(answer) + "}).catch(function(e){error=String(e);});'queued'"
+        }, "queued");
+
+        var cancellation = TestContext.Current.CancellationToken;
+        var watch = Stopwatch.StartNew();
+        while (remote.Dtls.State != "connected" && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
+        Assert.Equal("connected", remote.Dtls.State);
+        ushort sequence = 1; uint timestamp = 1000;
+        var ssrc = 0xBEEFu;
+        string? pixel = null;
+        const string probe = "(function(){ if(error) return 'ERROR:'+error; if(!video.videoWidth) return 'none'; var c=document.createElement('canvas'); c.width=128; c.height=96; var g=c.getContext('2d'); g.drawImage(video,0,0); var d=g.getImageData(64,48,1,1).data; return video.videoWidth+'x'+video.videoHeight+':'+d[0]+','+d[1]+','+d[2]; })()";
+        for (var round = 0; pixel is null && round < 40; round++)
+        {
+            foreach (var unit in units)
+            {
+                // Single NAL unit packets, and FU-A for the NAL units above 1000 bytes (RFC 6184 packetization mode 1).
+                var payloads = new List<byte[]>();
+                foreach (var nal in unit)
+                {
+                    if (nal.Length <= 1000) { payloads.Add(nal); continue; }
+                    var body = nal.AsSpan(1);
+                    for (var offset = 0; offset < body.Length; offset += 998)
+                    {
+                        var length = Math.Min(998, body.Length - offset);
+                        var fragment = new byte[2 + length];
+                        fragment[0] = (byte)((nal[0] & 0xE0) | 28);
+                        fragment[1] = (byte)((offset == 0 ? 0x80 : 0) | (offset + length == body.Length ? 0x40 : 0) | (nal[0] & 0x1F));
+                        body.Slice(offset, length).CopyTo(fragment.AsSpan(2));
+                        payloads.Add(fragment);
+                    }
+                }
+                for (var i = 0; i < payloads.Count; i++)
+                {
+                    var rtp = new byte[12 + payloads[i].Length];
+                    rtp[0] = 0x80; rtp[1] = (byte)(97 | (i == payloads.Count - 1 ? 0x80 : 0));
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(rtp.AsSpan(2), sequence++);
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(4), timestamp);
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(8), ssrc);
+                    payloads[i].CopyTo(rtp, 12);
+                    remote.Ice.SendDatagram(remote.Srtp!.ProtectRtp(rtp));
+                }
+                timestamp += 3000;
+                await Task.Delay(5, cancellation);
+            }
+            await Task.Delay(50, cancellation);
+            var seen = Value(await Exchange(client, new { script = probe }));
+            if (seen == "128x96:" + want) pixel = seen;
+            else Assert.False(seen is not null && seen.StartsWith("ERROR"), seen);
+            if (watch.Elapsed > TimeSpan.FromSeconds(60)) break;
+        }
+        Assert.Equal("128x96:" + want, pixel);
+        Assert.Equal("video", Value(await Exchange(client, new { script = "info" })));
+    }
+
     [Fact(Timeout = 60000)]
     public async Task HostBrokerDeniesLoopbackPeersByDefaultSoNothingConnects()
     {

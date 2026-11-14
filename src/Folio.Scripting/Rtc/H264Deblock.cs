@@ -5,13 +5,16 @@ internal sealed partial class H264Decoder
 {
     private readonly int[] _bs = new int[4];
 
-    private void ConcealMissing(Picture cur)
+    /// <summary>Fills macroblocks no slice delivered. True when there were any.</summary>
+    private bool ConcealMissing(Picture cur)
     {
+        var any = false;
         var source = _dpb.Count > 0 ? _dpb[^1] : null;
         var stride = _mbW * 16; var cs = _mbW * 8;
         for (var mb = 0; mb < _mbCount; mb++)
         {
             if (_sliceOf[mb] >= 0) continue;
+            any = true;
             _kind[mb] = KindInter;
             var mx = mb % _mbW; var my = mb / _mbW;
             for (var r = 0; r < 16; r++)
@@ -26,6 +29,7 @@ internal sealed partial class H264Decoder
                 else { Array.Fill(cur.U, (byte)128, o, 8); Array.Fill(cur.V, (byte)128, o, 8); }
             }
         }
+        return any;
     }
 
     private void Deblock(Picture cur)

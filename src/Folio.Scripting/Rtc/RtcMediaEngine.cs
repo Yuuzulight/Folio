@@ -11,7 +11,7 @@ internal sealed class RtcRemoteTrack
 {
     public string Kind { get; }
     public string? Mid { get; }
-    /// <summary>True when Folio can turn this track's payload into frames: audio Opus and PCMU/PCMA, and video VP8. Other video codecs are negotiated but not decoded.</summary>
+    /// <summary>True when Folio can turn this track's payload into frames: audio Opus and PCMU/PCMA, and video VP8 and H.264 Constrained Baseline. Other video codecs are negotiated but not decoded.</summary>
     public bool Decodable { get; internal set; }
     public event Action<MediaAudioFrame>? AudioFrame;
     /// <summary>A decoded video frame (RGBA, an immutable snapshot the receiver owns). Raised outside the engine's lock.</summary>
@@ -21,6 +21,11 @@ internal sealed class RtcRemoteTrack
     public long KeyFrameRequestsSent { get; internal set; }
     public long VideoFramesDiscarded { get; internal set; }
     public int VideoWidth { get; internal set; }
+    /// <summary>H.264 decode calls cut short by a per-call work or output budget. Debug statistics only: never exposed to script.</summary>
+    internal int VideoBudgetStops { get; set; }
+    /// <summary>Times the H.264 decoder's catch-all fired (a decoder bug, never bad input). Debug statistics only: never exposed to script.</summary>
+    internal int VideoUnexpectedErrors { get; set; }
+    internal long VideoDecodeErrors { get; set; }
     public int VideoHeight { get; internal set; }
     public event Action? Ended;
     public long PacketsReceived { get; internal set; }
@@ -102,7 +107,9 @@ internal sealed class RtcMediaEngine : IDisposable
     {
         public string Kind = "", Mid = "";
         public bool Receives, Sends;
-        public bool NackOk, PliOk, FirOk;
+        /// <summary>RTCP feedback both descriptions list, by payload type of a decodable video codec.</summary>
+        public readonly Dictionary<int, (bool Nack, bool Pli, bool Fir)> VideoFeedback = [];
+        public (bool Nack, bool Pli, bool Fir) FeedbackFor(int payloadType) => VideoFeedback.TryGetValue(payloadType, out var f) ? f : default;
         public RtcRemoteTrack? Track;
         public readonly List<uint> DeclaredSsrcs = [];
         public readonly List<RtcCodec> ReceiveCodecs = [];
@@ -130,7 +137,8 @@ internal sealed class RtcMediaEngine : IDisposable
         public uint LastSr;
         public long LastSrStamp;
         public readonly SortedDictionary<long, (byte[] Payload, long Arrival)> Buffer = [];
-        public Vp8Receiver? Video;
+        public RtpVideoReceiver? Video;
+        public bool VideoIsH264;
         public byte FirSequence;
     }
 
@@ -233,19 +241,20 @@ internal sealed class RtcMediaEngine : IDisposable
                     section.Track = new RtcRemoteTrack(section.Kind, mid);
                     raised.Add(section.Track);
                 }
-                section.NackOk = section.PliOk = section.FirOk = false;
-                if (section.Kind == "video" && section.ReceiveCodecs.FirstOrDefault(c => c.Name == "VP8") is { } vp8)
-                {
-                    // Feedback works only when both descriptions list it for the VP8 payload type. An answerer that has not
-                    // produced its own description yet assumes what the offer lists.
-                    bool Both(string mechanism) => remoteMedia.HasFeedback(vp8.PayloadType, mechanism) && (localMedia is null || localMedia.HasFeedback(vp8.PayloadType, mechanism));
-                    section.NackOk = Both("nack"); section.PliOk = Both("pli"); section.FirOk = Both("fir");
-                }
+                section.VideoFeedback.Clear();
+                if (section.Kind == "video")
+                    foreach (var video in section.ReceiveCodecs.Where(c => c.IsVideoDecodable))
+                    {
+                        // Feedback works only when both descriptions list it for the payload type. An answerer that has not
+                        // produced its own description yet assumes what the offer lists.
+                        bool Both(string mechanism) => remoteMedia.HasFeedback(video.PayloadType, mechanism) && (localMedia is null || localMedia.HasFeedback(video.PayloadType, mechanism));
+                        section.VideoFeedback[video.PayloadType] = (Both("nack"), Both("pli"), Both("fir"));
+                    }
                 if (!section.Receives) ReleaseStreams(section); // inactive or sendonly now: free the decoder instead of holding it idle
                 if (section.Track is not null)
                 {
                     section.Track.Decodable = (section.Kind == "audio" && section.ReceiveCodecs.Any(c => c.IsG711 || c.IsOpus))
-                        || (section.Kind == "video" && section.ReceiveCodecs.Any(c => c.Name == "VP8"));
+                        || (section.Kind == "video" && section.ReceiveCodecs.Any(c => c.IsVideoDecodable));
                     section.Track.ReceiveTypes.Clear();
                     section.Track.ReceiveTypes.AddRange(section.ReceiveCodecs.Select(c => c.PayloadType));
                 }
@@ -322,18 +331,32 @@ internal sealed class RtcMediaEngine : IDisposable
         var ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(8));
         if (payloadLength < 0 || payloadLength > MaxPayloadBytes) { RtpPacketsDropped++; return; }
 
+        // A renegotiation can move an SSRC to another video codec: the old receiver (and its decoder budget) goes, a new one is made below.
+        if (_streams.TryGetValue(ssrc, out var existing) && existing.Video is not null
+            && existing.Section.ReceiveCodecs.FirstOrDefault(c => c.PayloadType == payloadType) is { IsVideoDecodable: true } switched
+            && switched.IsH264 != existing.VideoIsH264)
+        {
+            existing.Video.Dispose();
+            _streams.Remove(ssrc);
+        }
         if (!_streams.TryGetValue(ssrc, out var stream))
         {
             var section = SelectSection(ssrc, payloadType);
             if (section?.Track is null || _streams.Count >= MaxStreams) { RtpPacketsDropped++; return; }
             stream = new RecvStream { Ssrc = ssrc, Section = section, Codec = section.ReceiveCodecs.First(c => c.PayloadType == payloadType) };
-            if (section.Kind == "video" && stream.Codec.Name == "VP8")
+            if (section.Kind == "video" && stream.Codec.IsVp8)
                 stream.Video = new Vp8Receiver(new Vp8Decoder(_budget.MaxVideoPixels, _budget), _time);
+            else if (section.Kind == "video" && stream.Codec.IsH264)
+            {
+                var limits = new H264DecoderLimits { MaxMacroblocks = _budget.MaxVideoPixels / 256 };
+                stream.Video = new H264Receiver(new H264Decoder(limits, _budget), _time, _budget.MaxVideoPixels);
+                stream.VideoIsH264 = true;
+            }
             _streams[ssrc] = stream;
         }
         var track = stream.Section.Track!;
         if (stream.Section.ReceiveCodecs.FirstOrDefault(c => c.PayloadType == payloadType) is not { } codec) { track.PacketsDropped++; RtpPacketsDropped++; return; }
-        if (stream.Video is not null && codec.Name != "VP8") { track.PacketsDropped++; RtpPacketsDropped++; return; }
+        if (stream.Video is not null && (!codec.IsVideoDecodable || codec.IsH264 != stream.VideoIsH264)) { track.PacketsDropped++; RtpPacketsDropped++; return; }
         stream.Codec = codec;
 
         var now = _time.GetTimestamp();
@@ -362,10 +385,13 @@ internal sealed class RtcMediaEngine : IDisposable
         if (ext < stream.Next || stream.Buffer.ContainsKey(ext)) { track.PacketsDropped++; return; } // late or duplicate
         if (stream.Video is { } receiver)
         {
-            receiver.SupportsNack = stream.Section.NackOk;
-            receiver.SupportsKeyFrameRequest = stream.Section.PliOk || stream.Section.FirOk;
-            var output = new Vp8ReceiverOutput();
-            receiver.Push(ext, timestamp, (packet[1] & 0x80) != 0, packet.AsSpan(headerLength, payloadLength), now, output);
+            var feedback = stream.Section.FeedbackFor(codec.PayloadType);
+            receiver.SupportsNack = feedback.Nack;
+            receiver.SupportsKeyFrameRequest = feedback.Pli || feedback.Fir;
+            var output = new VideoReceiverOutput();
+            var marker = (packet[1] & 0x80) != 0;
+            if (receiver is H264Receiver h264) h264.Push(ext, timestamp, marker, packet.AsSpan(headerLength, payloadLength), now, output);
+            else ((Vp8Receiver)receiver).Push(ext, timestamp, marker, packet.AsSpan(headerLength, payloadLength), now, output);
             CollectVideo(stream, output);
             return;
         }
@@ -529,9 +555,10 @@ internal sealed class RtcMediaEngine : IDisposable
             foreach (var stream in _streams.Values.ToArray())
             {
                 if (stream.Video is not { } receiver) continue;
-                receiver.SupportsNack = stream.Section.NackOk;
-                receiver.SupportsKeyFrameRequest = stream.Section.PliOk || stream.Section.FirOk;
-                var output = new Vp8ReceiverOutput();
+                var repair = stream.Section.FeedbackFor(stream.Codec.PayloadType);
+                receiver.SupportsNack = repair.Nack;
+                receiver.SupportsKeyFrameRequest = repair.Pli || repair.Fir;
+                var output = new VideoReceiverOutput();
                 receiver.Tick(now, output);
                 CollectVideo(stream, output);
             }
@@ -551,13 +578,15 @@ internal sealed class RtcMediaEngine : IDisposable
     private readonly List<byte[]> _pendingFeedback = [];
 
     /// <summary>Moves a receiver's decoded frames and repair requests into the pending lists. Runs under the engine's lock.</summary>
-    private void CollectVideo(RecvStream stream, Vp8ReceiverOutput output)
+    private void CollectVideo(RecvStream stream, VideoReceiverOutput output)
     {
         var track = stream.Section.Track!;
         var receiver = stream.Video!;
         track.PacketsLost = Math.Max(track.PacketsLost, receiver.PacketsLost);
         track.KeyFramesDecoded = receiver.KeyFramesDecoded;
         track.VideoFramesDiscarded = receiver.FramesDiscarded;
+        track.VideoDecodeErrors = receiver.DecodeErrors;
+        if (receiver is H264Receiver h264) { track.VideoBudgetStops = h264.BudgetStops; track.VideoUnexpectedErrors = h264.UnexpectedErrors; }
         foreach (var frame in output.Frames)
         {
             track.FramesDelivered++;
@@ -568,15 +597,16 @@ internal sealed class RtcMediaEngine : IDisposable
         // RFC 4585 feedback travels in a compound packet that starts with a receiver report and carries the CNAME.
         var sender = _locals.FirstOrDefault()?.Ssrc ?? NonZeroRandomStable();
         var parts = new List<byte[]> { RtcpCodec.BuildReport(sender, false, 0, 0, 0, 0, [], _cname) };
-        if (output.Nack.Count > 0 && stream.Section.NackOk && _budget.TryConsumeFeedback())
+        var allowed = stream.Section.FeedbackFor(stream.Codec.PayloadType);
+        if (output.Nack.Count > 0 && allowed.Nack && _budget.TryConsumeFeedback())
         {
             parts.Add(RtcpCodec.BuildNack(sender, stream.Ssrc, output.Nack));
             track.NacksSent += output.Nack.Count;
         }
         if (output.KeyFrameRequest && _budget.TryConsumeKeyFrameRequest())
         {
-            if (stream.Section.PliOk) { parts.Add(RtcpCodec.BuildPli(sender, stream.Ssrc)); track.KeyFrameRequestsSent++; }
-            else if (stream.Section.FirOk) { parts.Add(RtcpCodec.BuildFir(sender, stream.Ssrc, stream.FirSequence++)); track.KeyFrameRequestsSent++; }
+            if (allowed.Pli) { parts.Add(RtcpCodec.BuildPli(sender, stream.Ssrc)); track.KeyFrameRequestsSent++; }
+            else if (allowed.Fir) { parts.Add(RtcpCodec.BuildFir(sender, stream.Ssrc, stream.FirSequence++)); track.KeyFrameRequestsSent++; }
         }
         if (parts.Count == 1) return;
         _pendingFeedback.Add(parts.SelectMany(part => part).ToArray());
