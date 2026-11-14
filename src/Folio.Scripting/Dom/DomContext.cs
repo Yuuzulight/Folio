@@ -693,7 +693,8 @@ internal sealed class DomContext : IFetchContext
             soundEnabled: Capabilities.Sound, checkSoundPermission: () => CheckCapability("Sound", Capabilities.Sound),
             checkMediaPermission: () => CheckCapability("Media", Capabilities.Media),
             captureFrame: MediaCaptureProvider is null ? null : track => CaptureState?.CurrentVideoFrame(Engine.GetProperty(track, "_captureToken")),
-            captureAudio: MediaCaptureProvider is null ? null : track => CaptureState?.OpenAudioReader(Engine.GetProperty(track, "_captureToken")), deferLoad: true);
+            captureAudio: MediaCaptureProvider is null ? null : track => CaptureState?.OpenAudioReader(Engine.GetProperty(track, "_captureToken")),
+            remoteVideo: track => WebRtcState?.RemoteVideo(Engine.GetProperty(track, "_remoteVideoToken")) ?? (false, null), deferLoad: true);
         _media[element] = state;
         state.Initialize();
         if (element.GetAttribute("autoplay") is not null) state.Play(autoplay: true);

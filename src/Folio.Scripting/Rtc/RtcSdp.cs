@@ -170,6 +170,17 @@ internal sealed class RtcSdp
                         currentMedia.RtpMaps[mapped] = new RtcCodec(mapped, spec[0].ToUpperInvariant(), clock,
                             spec.Length > 2 && int.TryParse(spec[2], out var channels) && channels is > 0 and <= 8 ? channels : 1);
                 }
+                else if (currentMedia is not null && attrName.Equals("rtcp-fb", StringComparison.OrdinalIgnoreCase))
+                {
+                    // a=rtcp-fb:<pt|*> <type> [<subtype>] (RFC 4585 section 4.2). Only what Folio acts on is kept, and bounded.
+                    var parts = attrValue.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length is 2 or 3 && (parts[0] == "*" || int.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out _)))
+                    {
+                        var key = parts[0] == "*" ? -1 : int.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
+                        var feedback = string.Join(' ', parts.Skip(1)).ToLowerInvariant();
+                        if (feedback is "nack" or "nack pli" or "ccm fir") currentMedia.AddFeedback(key, feedback);
+                    }
+                }
                 else if (currentMedia is not null && attrName.Equals("ssrc", StringComparison.OrdinalIgnoreCase))
                 {
                     var id = attrValue.Split(' ', 2)[0];
@@ -241,6 +252,9 @@ internal sealed class RtcSdp
                     if (codec.Channels > 1) sb.Append('/').Append(codec.Channels);
                     sb.Append("\r\n");
                 }
+                foreach (var codec in m.Codecs)
+                    if (m.Feedback.TryGetValue(codec.PayloadType, out var feedback))
+                        foreach (var item in feedback) sb.Append("a=rtcp-fb:").Append(codec.PayloadType).Append(' ').Append(item).Append("\r\n");
                 foreach (var ssrc in m.Ssrcs)
                     sb.Append("a=ssrc:").Append(ssrc).Append(" cname:").Append(m.Cname ?? "folio").Append("\r\n");
             }
@@ -291,6 +305,23 @@ internal sealed class RtcMediaDescription
     /// <summary>Codecs to write when generating SDP.</summary>
     public List<RtcCodec> Codecs { get; } = [];
     public List<uint> Ssrcs { get; } = [];
+    internal const int MaxFeedbackEntries = 64;
+    /// <summary>RTCP feedback (a=rtcp-fb) per payload type; key -1 stands for "*", every payload type.</summary>
+    public Dictionary<int, List<string>> Feedback { get; } = [];
+
+    internal void AddFeedback(int payloadType, string feedback)
+    {
+        if (Feedback.Values.Sum(list => list.Count) >= MaxFeedbackEntries) return;
+        if (!Feedback.TryGetValue(payloadType, out var list)) Feedback[payloadType] = list = [];
+        if (!list.Contains(feedback)) list.Add(feedback);
+    }
+
+    /// <summary>True when the section lists the feedback mechanism ("nack", "pli" or "fir") for the payload type or for "*".</summary>
+    internal bool HasFeedback(int payloadType, string mechanism)
+    {
+        var wanted = mechanism switch { "pli" => "nack pli", "fir" => "ccm fir", _ => mechanism };
+        return (Feedback.TryGetValue(payloadType, out var own) && own.Contains(wanted)) || (Feedback.TryGetValue(-1, out var all) && all.Contains(wanted));
+    }
 
     /// <summary>The codec for a payload type, from a=rtpmap or the RFC 3551 static assignments Folio understands.</summary>
     internal RtcCodec? CodecFor(int payloadType) => RtpMaps.TryGetValue(payloadType, out var mapped) ? mapped : payloadType switch

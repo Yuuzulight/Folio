@@ -10,6 +10,8 @@ internal sealed class RtcMediaBudget
     private readonly object _gate = new();
     private readonly TimeProvider _time;
     private readonly int _maxTracks, _packetsPerSecond, _bytesPerSecond;
+    private readonly long _maxVideoBytes;
+    private long _videoBytes;
     private readonly Bucket _rx = new(), _tx = new();
     private int _tracks;
 
@@ -17,8 +19,17 @@ internal sealed class RtcMediaBudget
 
     internal long DroppedPackets { get; private set; }
 
-    public RtcMediaBudget(TimeProvider? time = null, int maxTracks = 16, int packetsPerSecond = 4000, int bytesPerSecond = 4 * 1024 * 1024)
+    /// <summary>The largest picture (width x height) a remote video decoder may allocate for.</summary>
+    internal int MaxVideoPixels { get; }
+
+    /// <summary>Video decoder memory (reference frames, mode info, output frames) currently reserved by this document.</summary>
+    internal long VideoBytesInUse { get { lock (_gate) return _videoBytes; } }
+
+    public RtcMediaBudget(TimeProvider? time = null, int maxTracks = 16, int packetsPerSecond = 4000, int bytesPerSecond = 4 * 1024 * 1024,
+        long maxVideoBytes = 64L * 1024 * 1024, int maxVideoPixels = 1920 * 1088)
     {
+        _maxVideoBytes = Math.Max(0, maxVideoBytes);
+        MaxVideoPixels = Math.Max(256, maxVideoPixels);
         _time = time ?? TimeProvider.System;
         _maxTracks = Math.Max(0, maxTracks);
         _packetsPerSecond = Math.Max(1, packetsPerSecond);
@@ -36,6 +47,60 @@ internal sealed class RtcMediaBudget
     }
 
     public void ReleaseTrack() { lock (_gate) if (_tracks > 0) _tracks--; }
+
+    /// <summary>Reserves decoder memory against the document's video budget. False (and nothing reserved) when it would not fit.</summary>
+    public bool TryReserveVideoBytes(long bytes)
+    {
+        if (bytes < 0) return false;
+        lock (_gate)
+        {
+            if (_videoBytes + bytes > _maxVideoBytes) return false;
+            _videoBytes += bytes;
+            return true;
+        }
+    }
+
+    // Repair requests (NACK, PLI, FIR) share the send path with audio. They get their own small allowance, document-wide, so a lossy
+    // or hostile video stream cannot use up the send budget, and key frame requests are at least KeyFrameRequestSpacing apart.
+    internal const int FeedbackPerSecond = 50;
+    internal static readonly TimeSpan KeyFrameRequestSpacing = TimeSpan.FromMilliseconds(100);
+    private double _feedbackTokens = FeedbackPerSecond;
+    private long _feedbackStamp;
+    private bool _feedbackStarted;
+    private long _lastKeyFrameRequest;
+    private bool _keyFrameRequested;
+
+    /// <summary>Charges one repair-request packet against the document's feedback allowance.</summary>
+    public bool TryConsumeFeedback()
+    {
+        lock (_gate)
+        {
+            var now = _time.GetTimestamp();
+            if (!_feedbackStarted) { _feedbackStarted = true; _feedbackStamp = now; }
+            else
+            {
+                _feedbackTokens = Math.Min(FeedbackPerSecond, _feedbackTokens + Math.Max(0, (double)(now - _feedbackStamp) / _time.TimestampFrequency) * FeedbackPerSecond);
+                _feedbackStamp = now;
+            }
+            if (_feedbackTokens < 1) return false;
+            _feedbackTokens--;
+            return true;
+        }
+    }
+
+    /// <summary>Allows a key frame request (PLI or FIR) if no other went out in the last <see cref="KeyFrameRequestSpacing"/>, anywhere in the document.</summary>
+    public bool TryConsumeKeyFrameRequest()
+    {
+        lock (_gate)
+        {
+            var now = _time.GetTimestamp();
+            if (_keyFrameRequested && _time.GetElapsedTime(_lastKeyFrameRequest, now) < KeyFrameRequestSpacing) return false;
+            _keyFrameRequested = true; _lastKeyFrameRequest = now;
+        }
+        return TryConsumeFeedback();
+    }
+
+    public void ReleaseVideoBytes(long bytes) { lock (_gate) _videoBytes = Math.Max(0, _videoBytes - Math.Max(0, bytes)); }
 
     /// <summary>Charges one datagram of the given size against the receive or send bucket (one second of burst).</summary>
     public bool TryConsume(bool receive, int bytes)

@@ -105,6 +105,87 @@ public sealed class ContentHostPolicyTests
         Assert.Equal("audio:1", Value(await Exchange(client, new { script = "error?'ERROR:'+error:tracks.join(',')" })));
     }
 
+    // Remote video end to end: VP8 over SRTP through the host broker into the sandboxed child, onto a <video srcObject>,
+    // and from the video into a canvas with drawImage.
+    [Fact(Timeout = 90000)]
+    public async Task ChildRendersRemoteVp8VideoInAVideoElementAndCanvas()
+    {
+        var frames = Vp8DecoderTests.IvfFrames(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Vp8Vectors", "vp80-00-comprehensive-001.ivf")), out _, out _);
+        using var reference = new Folio.Scripting.Rtc.Vp8.Vp8Decoder(1 << 22);
+        byte[]? expected = null;
+        foreach (var frame in frames) { reference.Decode(frame); expected = reference.ToRgba(); }
+        const int x = 88, y = 72;
+        var offsetPixel = (y * 176 + x) * 4;
+        var want = $"{expected![offsetPixel]},{expected[offsetPixel + 1]},{expected[offsetPixel + 2]}";
+
+        await using var client = Start(new FolioOptions());
+        client.UdpOptions = new UdpBrokerOptions { AllowLoopback = true };
+        using var remote = new RtcPeerConnectionController();
+        await Exchange(client, new
+        {
+            html = "<body></body>",
+            capabilities = new FeatureCapabilities { WebRtc = true, Media = true },
+            script = """
+                var offer='', error='', info='', video=document.createElement('video'), stream=null;
+                var pc=new RTCPeerConnection();
+                pc.ontrack=function(event){ stream=event.streams[0]; video.srcObject=stream; info=event.track.kind; };
+                pc.addTransceiver('video',{direction:'recvonly'});
+                pc.createOffer().then(function(d){return pc.setLocalDescription(d).then(function(){offer=d.sdp;});}).catch(function(e){error=String(e);});
+                var sendError='';
+                try { pc.addTrack(new MediaStreamTrack('video')); sendError='none'; } catch(e) { sendError=e.name; }
+                'started'
+                """
+        }, "started");
+        var description = Value(await Exchange(client, new { script = "error?'ERROR:'+error:offer" }));
+        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 96", description);
+        Assert.Contains("a=rtcp-fb:96 nack pli", description);
+        remote.SetRemoteDescription("offer", description!);
+        var answer = await remote.CreateAnswerAsync(false, 0, 0);
+        Assert.Contains("a=inactive", answer); // Folio cannot send video
+        answer = answer.Replace("a=inactive", "a=sendonly"); // this test injects the RTP a real sender would produce
+        remote.SetLocalDescription("answer", answer);
+        await Exchange(client, new
+        {
+            script = "pc.setRemoteDescription({type:'answer',sdp:" + JsonSerializer.Serialize(answer) + "}).catch(function(e){error=String(e);});'queued'"
+        }, "queued");
+
+        var cancellation = TestContext.Current.CancellationToken;
+        var watch = Stopwatch.StartNew();
+        while (remote.Dtls.State != "connected" && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
+        Assert.Equal("connected", remote.Dtls.State);
+        ushort sequence = 1; uint timestamp = 1000;
+        var ssrc = 0xABCDu;
+        string? pixel = null;
+        const string probe = "(function(){ if(error) return 'ERROR:'+error; if(!video.videoWidth) return 'none'; var c=document.createElement('canvas'); c.width=176; c.height=144; var g=c.getContext('2d'); g.drawImage(video,0,0); var d=g.getImageData(" + "88,72" + ",1,1).data; return video.videoWidth+'x'+video.videoHeight+':'+d[0]+','+d[1]+','+d[2]; })()";
+        for (var round = 0; pixel is null && round < 40; round++)
+        {
+            foreach (var frame in frames)
+            {
+                for (var offset = 0; offset < frame.Length; offset += 1000)
+                {
+                    var length = Math.Min(1000, frame.Length - offset);
+                    var rtp = new byte[13 + length];
+                    rtp[0] = 0x80; rtp[1] = (byte)(96 | (offset + length == frame.Length ? 0x80 : 0));
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(rtp.AsSpan(2), sequence++);
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(4), timestamp);
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(8), ssrc);
+                    rtp[12] = (byte)(offset == 0 ? 0x10 : 0);
+                    frame.AsSpan(offset, length).CopyTo(rtp.AsSpan(13));
+                    remote.Ice.SendDatagram(remote.Srtp!.ProtectRtp(rtp));
+                }
+                timestamp += 3000;
+                await Task.Delay(5, cancellation);
+            }
+            var seen = Value(await Exchange(client, new { script = probe }));
+            if (seen is not null && seen.StartsWith("176x144:")) pixel = seen;
+            else Assert.False(seen is not null && seen.StartsWith("ERROR"), seen);
+            if (watch.Elapsed > TimeSpan.FromSeconds(60)) break;
+        }
+        Assert.Equal("176x144:" + want, pixel);
+        Assert.Equal("video", Value(await Exchange(client, new { script = "info" })));
+        Assert.Equal("NotSupportedError", Value(await Exchange(client, new { script = "sendError" })));
+    }
+
     [Fact(Timeout = 60000)]
     public async Task HostBrokerDeniesLoopbackPeersByDefaultSoNothingConnects()
     {
