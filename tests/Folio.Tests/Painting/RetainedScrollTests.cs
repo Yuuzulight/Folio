@@ -149,9 +149,7 @@ public class RetainedScrollTests
         ["fixed-svg"] = () => Prefixed("<svg style='position: fixed; bottom: 20px; right: 20px' width=60 height=40><rect width=60 height=40 fill=teal /></svg>"),
         ["sticky"] = () => Prefixed("<p style='position: sticky; top: 0'>sticky text only</p>"),
         ["fixed-nested"] = () => Prefixed("<div style='overflow: auto; height: 200px; width: 300px; position: relative'><div style='position: fixed; top: 5px'>inside a scroller</div><div style='height: 900px'>x</div></div>"),
-        // "emoji" drops the text-shadow on purpose: a blurred shadow can differ by one level between a shift and a repaint
-        // (see ShadowBlurErrorIsBoundedToOneLevelAndDoesNotAccumulate), and these cases assert exact bytes, so this page keeps only exact ink.
-        // "glyphs" keeps the shadow and is checked against the one-level bound instead.
+        // "emoji" drops the text-shadow only to keep that page's ink to emoji; shadows are checked by ShadowBlurIsByteIdenticalToARepaintAtAnyOffset.
         ["glyphs"] = BigGlyphs, ["emoji"] = () => BigGlyphs().Replace("text-shadow", "outline-offset"), ["emoji-free-glyphs"] = () => BigGlyphs().Replace("😀", "e"),
         ["saturate"] = () => Filtered("saturate(.5)"),
         ["blur"] = () => Filtered("blur(3px)"),
@@ -292,21 +290,21 @@ public class RetainedScrollTests
             Assert.True(translated.PremultipliedPixels.AsSpan().SequenceEqual(scrolled.PremultipliedPixels), Differences(translated, scrolled));
     }
 
-    // The one known inexactness: a blur of 2px or more (a soft shadow) is box passes with running sums, so a shifted row can
-    // differ from a repainted one by a level. It must stay that one level, in a single shift and over many, since a row is painted once.
+    // A soft shadow is blurred by box passes with running sums; the sums are exact (GaussianBlur quantizes each pass), so a shifted
+    // row is the same bytes as a repainted one, wherever the blurred mask was cropped.
     [Fact]
-    public void ShadowBlurErrorIsBoundedToOneLevelAndDoesNotAccumulate()
+    public void ShadowBlurIsByteIdenticalToARepaintAtAnyOffset()
     {
         const float scale = 1.5f;
         var list = ListOf("glyphs", 600, scale); // 4px text-shadow
         using var scrolled = new SoftwareRasterSurface(800, 600);
         using var fresh = new SoftwareRasterSurface(800, 600);
-        foreach (var delta in new[] { 1, 17, 101, -333 })
+        foreach (var delta in new[] { 1, 2, 3, 7, 17, 53, 101, 211, -1, -5, -29, -333 })
         {
             RetainedScroll.Repaint(list, scrolled, scale, 701, White);
             Assert.True(Scroll(list, scrolled, 701, 701 + delta, scale));
             RetainedScroll.Repaint(list, fresh, scale, 701 + delta, White);
-            Assert.True(MaxDifference(fresh, scrolled) <= 1, $"shadow {delta:+0;-0}: {Differences(fresh, scrolled)}");
+            Assert.True(MaxDifference(fresh, scrolled) == 0, $"shadow {delta:+0;-0}: {Differences(fresh, scrolled)}");
         }
 
         foreach (var (page, pageScale) in new[] { ("glyphs", 1.5f), ("mixed", 1.25f) })
@@ -324,7 +322,7 @@ public class RetainedScrollTests
                 top = next;
             }
             RetainedScroll.Repaint(many, fresh, pageScale, top, White);
-            Assert.True(MaxDifference(fresh, scrolled) <= 1, $"{page} x{pageScale}: drifted, {Differences(fresh, scrolled)}");
+            Assert.True(MaxDifference(fresh, scrolled) == 0, $"{page} x{pageScale}: drifted, {Differences(fresh, scrolled)}");
         }
     }
 
