@@ -85,9 +85,10 @@ I did not overclaim these:
 
 - **Sending video.** Supported via `Vp8Encoder` and `RtpVideoSender` (RFC 7741). Every frame is an intra (key) frame at a low quality setting, so each sent frame carries its own picture and a lost packet costs one frame; there is no inter-frame coding. Frames are scaled to fit <= 640x360, sent at most 15 per second, and a camera frame that has not changed (same capture sequence) is not sent again. RTCP PLI and FIR requests are charged to the document's key frame request budget and only force a resend of an unchanged picture. NACK retransmits come from a 128-packet send history, with at most 32 distinct sequences per request, 3 retransmits per packet, no repeat within 100 ms, and 100 per second per stream. Only VP8 is sent: an H.264-only offer gets no video from Folio, but an offer that lists VP8 anywhere is answered with VP8. Interoperability with browsers is not verified for sent video: the encoder output decodes with Folio's own VP8 decoder, and I have not yet checked it against a browser decoder.
 - **Opus.** Added in stage 3 ([`webrtc-opus.md`](webrtc-opus.md)): 48 kHz Opus is preferred and G.711 remains the fallback.
-- **Browser interoperability is untested.** The SRTP packet format matches the RFC 7714 vectors and the DTLS key layout
-  follows RFC 5764, but I have only run Folio against Folio end to end. The first run against a browser may expose a
-  mismatch. The client-side `use_srtp` validation has no negative test yet.
+- **Browser interoperability.** Verified in CI against headless Google Chrome (`ChromeRtcMediaProbe`):
+  - Chrome to Folio: `ontrack` fires, 48 kHz Opus audio frames are received, decoded video frames (VP8 and H.264 Constrained Baseline) are non-empty, non-black, and change over time for both Folio offerer and Folio answerer roles.
+  - Folio to Chrome: outbound 48 kHz Opus sine tone verified via Chrome `inbound-rtp` stats (`packetsReceived` and `totalSamplesReceived` advance, `audioLevel > 0`).
+  - Negative test: client-side `use_srtp` validation rejects unsupported profiles and malformed lengths (`DtlsClientRejectsUnsupportedSrtpProfile`).
 - **Only AEAD_AES_128_GCM** is offered in `use_srtp`. A peer that supports only the AES-CM/HMAC-SHA1 profiles cannot
   connect media (data channels are unaffected).
 - No MID header extension, no SSRC-less demux, no simulcast, no RTX/FEC, no congestion control or REMB. (Video NACK/PLI/FIR exist: see Remote video below. Audio has none.)
