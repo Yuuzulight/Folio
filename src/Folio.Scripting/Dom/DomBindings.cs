@@ -324,6 +324,7 @@ public static class DomBindings
         if (Contexts.TryGetValue(engine, out var context))
         {
             context.InputRouter = document.Input;
+            context.HostedDocument = document;
             if (document.Options.ResourceInterceptor is null)
                 document.Options.ResourceInterceptor = context.CreateServiceWorkerResourceInterceptor();
         }

@@ -87,6 +87,8 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
     private string _urlLabel = "about:blank";
     private long _lastWorkerSequence;
     private int _referenceCounter;
+    private double _pointerX;
+    private double _pointerY;
     private bool _closed;
     private bool _disposed;
 
@@ -310,11 +312,39 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             return new BrokerScreenshotResponse(IdOrNull(id, hasId), true, "image/png", captured.Frame.Width,
                 captured.Frame.Height, captured.Frame.Sequence, Convert.ToBase64String(png));
         }
+        switch (operation)
+        {
+            case "click-at":
+                var x = RequiredFiniteNumber(request, "x");
+                var y = RequiredFiniteNumber(request, "y");
+                await SendInputAsync(new JsonObject { ["type"] = "pointerdown", ["x"] = x, ["y"] = y, ["button"] = 0, ["buttons"] = 1 }, cancellationToken).ConfigureAwait(false);
+                await SendInputAsync(new JsonObject { ["type"] = "pointerup", ["x"] = x, ["y"] = y, ["button"] = 0 }, cancellationToken).ConfigureAwait(false);
+                _pointerX = x;
+                _pointerY = y;
+                return new BrokerSimpleResponse(IdOrNull(id, hasId), true);
+            case "press":
+                var key = RequiredString(request, "key");
+                if (string.IsNullOrWhiteSpace(key)) throw new BrokerRequestException("invalid_request", "key must not be empty.");
+                await SendInputAsync(new JsonObject { ["type"] = "keydown", ["key"] = key }, cancellationToken).ConfigureAwait(false);
+                await SendInputAsync(new JsonObject { ["type"] = "keyup", ["key"] = key }, cancellationToken).ConfigureAwait(false);
+                return new BrokerSimpleResponse(IdOrNull(id, hasId), true);
+            case "type":
+                await SendInputAsync(new JsonObject { ["type"] = "textinput", ["text"] = RequiredPayloadString(request, "text") }, cancellationToken).ConfigureAwait(false);
+                return new BrokerSimpleResponse(IdOrNull(id, hasId), true);
+            case "scroll":
+                await SendInputAsync(new JsonObject
+                {
+                    ["type"] = "wheel",
+                    ["x"] = _pointerX,
+                    ["y"] = _pointerY,
+                    ["deltaX"] = RequiredFiniteNumber(request, "deltaX"),
+                    ["deltaY"] = RequiredFiniteNumber(request, "deltaY")
+                }, cancellationToken).ConfigureAwait(false);
+                return new BrokerSimpleResponse(IdOrNull(id, hasId), true);
+        }
         if (operation.Equals("click", StringComparison.OrdinalIgnoreCase) ||
             operation.Equals("fill", StringComparison.OrdinalIgnoreCase) ||
             operation.Equals("select", StringComparison.OrdinalIgnoreCase) ||
-            operation.Equals("press", StringComparison.OrdinalIgnoreCase) ||
-            operation.Equals("scroll", StringComparison.OrdinalIgnoreCase) ||
             operation.Equals("upload", StringComparison.OrdinalIgnoreCase))
             throw new BrokerRequestException("unsupported", $"The {operation} operation is not supported by this Folio broker.");
         if (operation.Equals("close", StringComparison.OrdinalIgnoreCase))
@@ -323,6 +353,23 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             return new BrokerSimpleResponse(IdOrNull(id, hasId), true);
         }
         throw new BrokerRequestException("unsupported", $"The {operation} operation is not supported by this Folio broker.");
+    }
+
+    private async Task SendInputAsync(JsonObject input, CancellationToken cancellationToken)
+    {
+        EnsureLoaded();
+        var frame = await ExchangeAsync(ContentMessageKind.Input, input, ContentMessageKind.Frame, cancellationToken).ConfigureAwait(false);
+        var sequence = GetWorkerSequence(frame.Payload);
+        if (sequence <= _lastWorkerSequence) throw new BrokerRequestException("engine_error", "Folio returned a stale input response.");
+        _lastWorkerSequence = sequence;
+    }
+
+    private static double RequiredFiniteNumber(JsonElement request, string name)
+    {
+        if (request.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Number &&
+            property.TryGetDouble(out var number) && double.IsFinite(number) && double.Abs(number) <= float.MaxValue)
+            return number;
+        throw new BrokerRequestException("invalid_request", $"{name} must be a finite viewport coordinate or wheel delta.");
     }
 
     private Task EnsureClientAsync()
@@ -386,6 +433,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
 
     private ValueTask OnContentMessageAsync(ContentMessage message, CancellationToken cancellationToken)
     {
+        if (message.Kind == ContentMessageKind.Frame && GetWorkerSequence(message.Payload) == 0) return ValueTask.CompletedTask;
         if (message.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic or ContentMessageKind.Hello)
             _pendingReply?.TrySetResult(message);
         return ValueTask.CompletedTask;
@@ -424,7 +472,8 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
 
         using var reader = new CanvasFrameStore(path!, width, height, stride);
         var pixels = reader.ReadLatest(out var actualSequence);
-        if (actualSequence != describedSequence) throw new BrokerRequestException("engine_error", "Folio's rendered-frame sequence did not match its descriptor.");
+        // The content worker can publish another frame between acknowledging a request and our read.
+        if (actualSequence < describedSequence) throw new BrokerRequestException("engine_error", "Folio's rendered-frame sequence did not match its descriptor.");
         var inside = ReadPixel(pixels, stride, width, height, 16, 16);
         var outside = ReadPixel(pixels, stride, width, height, 100, 100);
         var background = ReadPixel(pixels, stride, width, height, width - 1, height - 1);
