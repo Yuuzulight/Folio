@@ -6,11 +6,15 @@ using Folio.ContentHost;
 // Dispatch before creating DOM, frame stores, script engines or content-session state.
 if (args.Length >= 1 && args[0].Equals("--broker", StringComparison.OrdinalIgnoreCase))
 {
-    var parentArg = args.SingleOrDefault(argument => argument.StartsWith("--arcana-parent-pid=", StringComparison.Ordinal));
-    if (args.Length != 2 || parentArg is null ||
-        !int.TryParse(parentArg["--arcana-parent-pid=".Length..], out var parentPid) || parentPid <= 0)
+    var parentArgs = args.Skip(1).Where(argument => argument.StartsWith("--arcana-parent-pid=", StringComparison.Ordinal)).ToArray();
+    var originArgs = args.Skip(1).Where(argument => argument.StartsWith("--allow-origin=", StringComparison.Ordinal)).ToArray();
+    if (parentArgs.Length != 1 || args.Length != 1 + parentArgs.Length + originArgs.Length ||
+        parentArgs[0].Length == "--arcana-parent-pid=".Length ||
+        !int.TryParse(parentArgs[0]["--arcana-parent-pid=".Length..], out var parentPid) || parentPid <= 0 ||
+        originArgs.Any(argument => argument.Length == "--allow-origin=".Length))
         throw new ArgumentException("Broker mode requires --arcana-parent-pid=<pid>.");
-    await using var broker = new HeadlessContentBroker(parentPid);
+    await using var broker = new HeadlessContentBroker(parentPid,
+        originArgs.Select(argument => argument["--allow-origin=".Length..]));
     await broker.RunAsync();
     return;
 }

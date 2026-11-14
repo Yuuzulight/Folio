@@ -99,7 +99,9 @@ public class AllowlistTests
         server.Routes["https://fonts.example/v1/b.woff2"] = () => Ok(Font, "font/woff2");
         server.Routes["https://fonts.example/v1/c.woff2"] = () => Redirect("https://tracker.example/v1/c.woff2");
 
-        Assert.True(Load(loader, "https://fonts.example/v1/a.woff2")!.Succeeded);
+        var redirected = Load(loader, "https://fonts.example/v1/a.woff2")!;
+        Assert.True(redirected.Succeeded);
+        Assert.Equal("https://fonts.example/v1/b.woff2", redirected.FinalUrl);
         Assert.Contains("not allowed", Load(loader, "https://fonts.example/v1/c.woff2")!.Error);
         Assert.DoesNotContain(server.Requests, r => r.RequestUri!.Host == "tracker.example");
     }

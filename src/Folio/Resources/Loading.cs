@@ -25,7 +25,11 @@ public sealed record ResourceResponse(byte[]? Data, string? ContentType, string?
 {
     public bool Succeeded => Data is not null;
 
-    public static ResourceResponse Loaded(byte[] data, string? contentType = null) => new(data, contentType, null);
+    /// <summary>The final URL after redirects, when the host loader can report it.</summary>
+    public string? FinalUrl { get; init; }
+
+    public static ResourceResponse Loaded(byte[] data, string? contentType = null, string? finalUrl = null) =>
+        new(data, contentType, null) { FinalUrl = finalUrl };
 
     public static ResourceResponse Refused(string reason) => new(null, null, reason);
 }
