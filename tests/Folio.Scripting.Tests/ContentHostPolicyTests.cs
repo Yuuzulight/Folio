@@ -168,8 +168,10 @@ public sealed class ContentHostPolicyTests
 
         var cancellation = TestContext.Current.CancellationToken;
         var watch = Stopwatch.StartNew();
-        while (remote.Dtls.State != "connected" && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
+        // Dtls.State flips to "connected" before OnStateChanged derives the SRTP keys, so wait for the transport itself.
+        while (remote.Srtp is null && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
         Assert.Equal("connected", remote.Dtls.State);
+        Assert.NotNull(remote.Srtp);
         ushort sequence = 1; uint timestamp = 1000;
         var ssrc = 0xABCDu;
         string? pixel = null;
@@ -193,8 +195,9 @@ public sealed class ContentHostPolicyTests
                 timestamp += 3000;
                 await Task.Delay(5, cancellation);
             }
+            await Task.Delay(50, cancellation);
             var seen = Value(await Exchange(client, new { script = probe }));
-            if (seen is not null && seen.StartsWith("176x144:")) pixel = seen;
+            if (seen == "176x144:" + want) pixel = seen; // the last frame sent, not the first decoded picture
             else Assert.False(seen is not null && seen.StartsWith("ERROR"), seen);
             if (watch.Elapsed > TimeSpan.FromSeconds(60)) break;
         }
@@ -254,8 +257,10 @@ public sealed class ContentHostPolicyTests
 
         var cancellation = TestContext.Current.CancellationToken;
         var watch = Stopwatch.StartNew();
-        while (remote.Dtls.State != "connected" && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
+        // Dtls.State flips to "connected" before OnStateChanged derives the SRTP keys, so wait for the transport itself.
+        while (remote.Srtp is null && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
         Assert.Equal("connected", remote.Dtls.State);
+        Assert.NotNull(remote.Srtp);
         ushort sequence = 1; uint timestamp = 1000;
         var ssrc = 0xBEEFu;
         string? pixel = null;
