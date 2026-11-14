@@ -477,7 +477,7 @@ public sealed class RtcMediaTests
     }
 
     [Fact]
-    public void VideoAndOpusAreNegotiatedButNotDecoded()
+    public void UnsupportedVideoCodecsAreNegotiatedButNotDecoded()
     {
         var time = new ManualTime();
         var engine = new RtcMediaEngine(time);
@@ -485,8 +485,8 @@ public sealed class RtcMediaTests
         engine.OnRemoteTrack += tracks.Add;
         var (a, b) = SrtpPair(); using var _a = a; using var _b = b;
         engine.SetSrtp(b);
-        var offer = RtcSdp.Parse("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:v\r\na=sendonly\r\na=rtcp-mux\r\na=rtpmap:96 VP8/90000\r\n");
-        var local = RtcSdp.Parse("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:v\r\na=recvonly\r\na=rtcp-mux\r\na=rtpmap:96 VP8/90000\r\n");
+        var offer = RtcSdp.Parse("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:v\r\na=sendonly\r\na=rtcp-mux\r\na=rtpmap:96 VP9/90000\r\n");
+        var local = RtcSdp.Parse("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:v\r\na=recvonly\r\na=rtcp-mux\r\na=rtpmap:96 VP9/90000\r\n");
         engine.Apply(null, offer); engine.Apply(local, null);
         var track = Assert.Single(tracks);
         Assert.Equal("video", track.Kind);
