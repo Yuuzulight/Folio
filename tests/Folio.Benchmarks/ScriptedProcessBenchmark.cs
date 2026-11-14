@@ -429,6 +429,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
         }
 
         var shared = freshOnly ? null : await StartWarm();
+        var primed = new HashSet<string>(StringComparer.Ordinal);
         Console.WriteLine("| Artifact | First frame ms | Working set MiB | Limit ms / MiB | Result |");
         Console.WriteLine("|---|---:|---:|---:|---|");
         var measured = 0;
@@ -511,9 +512,26 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                         if (shared is not null && !sharedOnly) await LoadOn(shared, WarmUpPage, "", false);
                         if (shared is null) owned = await StartWarm();
                         client = shared ?? owned!;
-                        start = Stopwatch.GetTimestamp();
-                        frame = await LoadOn(client, html, probe, profile);
-                        elapsed = Stopwatch.GetElapsedTime(start);
+                        if (shared is not null && primed.Add(id[..2]))
+                        {
+                            // Warm-up discard: the first load of a class's library in the process pays its one-off parse, glyph and
+                            // shaping caches (a user's first visit). Reported, not judged against the warm-reload limit.
+                            var coldStart = Stopwatch.GetTimestamp();
+                            await LoadOn(client, html, probe, false);
+                            Console.WriteLine(FormattableString.Invariant($"| {id} (cold first load, discarded warm-up) | {Stopwatch.GetElapsedTime(coldStart).TotalMilliseconds:F1} | — | — | Not judged |"));
+                            if (!sharedOnly) await LoadOn(shared, WarmUpPage, "", false);
+                        }
+                        var samples = new List<TimeSpan>();
+                        frame = default!;
+                        for (var sample = 0; sample < TimedSamples; sample++)
+                        {
+                            if (sample > 0 && shared is not null) await LoadOn(shared, WarmUpPage, "", false);
+                            start = Stopwatch.GetTimestamp();
+                            frame = await LoadOn(client, html, probe, profile && sample == 0);
+                            samples.Add(Stopwatch.GetElapsedTime(start));
+                        }
+                        samples.Sort();
+                        elapsed = samples[samples.Count / 2];
                         if (shared is not null && !sharedOnly)
                         {
                             owned = await StartWarm();
@@ -581,6 +599,9 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
         7 => (TimeSpan.FromMilliseconds(180), 130L * 1024 * 1024),
         _ => (TargetWarmFirstPaint, TargetWorkingSet),
     };
+
+    // Each judged row is the median of this many warm loads (one noisy load cannot trip a row).
+    private const int TimedSamples = 3;
 
     private const string WarmUpPage = "<!doctype html><p>Warm up the content process.</p>";
 

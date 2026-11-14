@@ -30,6 +30,8 @@ public static class Program
             return ScrollScales(scrollRest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 5);
         if (args is ["firstpaint", .. var firstPaintRest])
             return FirstPaintBenchmark.TryParse(firstPaintRest, out var rounds, out var only) ? FirstPaintBenchmark.Run(rounds, only) : 2;
+        if (args is ["blur", .. var blurRest])
+            return BlurBenchmark.Run(blurRest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 15);
         if (args is ["gpu"])
             return GpuProcessBenchmark.RunAsync().GetAwaiter().GetResult();
         if (args is ["wasm", .. var wasmRest])
