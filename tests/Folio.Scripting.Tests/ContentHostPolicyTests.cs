@@ -43,12 +43,29 @@ public sealed class ContentHostPolicyTests
         await ExchangeRtcDataThroughTheHostBroker(client);
     }
 
+    [Fact(Skip = "Requires the published Windows content host.", SkipUnless = nameof(HasPublishedWindowsHost), Timeout = 60000)]
+    public async Task PublishedHostIframeWithFeaturePolicyExchangesRtcDataWithAnIndependentLocalPeer()
+    {
+        _ = TestContext.Current.CancellationToken;
+        await using var client = Start(new FolioOptions());
+        WorkerIsolationCapabilityMatrixTests.AssertRestricted(client.Process);
+        await ExchangeIframeRtcDataThroughTheHostBroker(client);
+    }
+
     // The same exchange against whichever host the run selected, so it also covers the developer build in seconds.
     [Fact(Timeout = 60000)]
     public async Task ChildExchangesRtcDataWithALocalPeerThroughTheHostUdpBroker()
     {
         await using var client = Start(new FolioOptions());
         await ExchangeRtcDataThroughTheHostBroker(client);
+    }
+
+    [Fact(Timeout = 60000)]
+    public async Task IframeWithFeaturePolicyExchangesRtcDataWithALocalPeerThroughTheHostUdpBroker()
+    {
+        _ = TestContext.Current.CancellationToken;
+        await using var client = Start(new FolioOptions());
+        await ExchangeIframeRtcDataThroughTheHostBroker(client);
     }
 
     // Remote audio end to end: a peer outside the sandbox sends G.711 over SRTP; the child (no socket) receives it through the
@@ -389,6 +406,114 @@ public sealed class ContentHostPolicyTests
         });
         Assert.Equal("closed:closed:InvalidStateError", Value(revoked));
         Assert.Equal(0, client.UdpOpenSockets); // revocation closed the host-owned socket too
+    }
+
+    private static async Task ExchangeIframeRtcDataThroughTheHostBroker(ContentProcessClient client)
+    {
+        client.UdpOptions = new UdpBrokerOptions { AllowLoopback = true };
+        using var remote = new RtcPeerConnectionController();
+        var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        remote.OnDataChannel += channel => channel.OnMessage += payload =>
+        {
+            if (payload is not string text) return;
+            channel.Send("reply:" + text);
+            received.TrySetResult(text);
+        };
+
+        await Exchange(client, new
+        {
+            html = "<body><iframe id='f' allow='webrtc'></iframe></body>",
+            capabilities = new FeatureCapabilities { Iframes = true, WebRtc = true },
+            script = """
+                var frame = document.getElementById('f');
+                frame.srcdoc = "<script>" +
+                    "var offer='', error='', reply='';" +
+                    "var pc=new RTCPeerConnection(), channel=pc.createDataChannel('iframe-host');" +
+                    "channel.onopen=function(){channel.send('iframe-folio');};" +
+                    "channel.onmessage=function(event){reply=event.data; document.body.setAttribute('data-reply', event.data);};" +
+                    "pc.createOffer().then(function(description){" +
+                        "return pc.setLocalDescription(description).then(function(){offer=description.sdp; document.body.setAttribute('data-offer', offer);});" +
+                    "}).catch(function(e){error=String(e); document.body.setAttribute('data-error', error);});" +
+                    "onmessage=function(e){" +
+                        "if(e.data && e.data.type==='answer'){" +
+                            "pc.setRemoteDescription(e.data).catch(function(err){document.body.setAttribute('data-error', String(err));});" +
+                        "}" +
+                    "};" +
+                    "</" + "script>";
+                frame.contentDocument;
+                'started'
+                """
+        }, "started");
+
+        var cancellation = TestContext.Current.CancellationToken;
+        var watch = Stopwatch.StartNew();
+        string? description = null;
+        do
+        {
+            description = Value(await Exchange(client, new
+            {
+                script = """
+                    (function(){
+                        var f = document.getElementById('f');
+                        if (!f || !f.contentDocument || !f.contentDocument.body) return '';
+                        var err = f.contentDocument.body.getAttribute('data-error');
+                        if (err) return 'ERROR:' + err;
+                        return f.contentDocument.body.getAttribute('data-offer') || '';
+                    })()
+                    """
+            }));
+            if (!string.IsNullOrEmpty(description)) break;
+            await Task.Delay(25, cancellation);
+        } while (watch.Elapsed < TimeSpan.FromSeconds(10));
+
+        Assert.NotNull(description);
+        Assert.StartsWith("v=0", description);
+        Assert.NotEmpty(RtcSdp.Parse(description).TransportCandidates);
+        remote.SetRemoteDescription("offer", description);
+        var answer = await remote.CreateAnswerAsync(true, 0, 0);
+        remote.SetLocalDescription("answer", answer);
+
+        await Exchange(client, new
+        {
+            script = "document.getElementById('f').contentWindow.postMessage({type:'answer',sdp:" + JsonSerializer.Serialize(answer) + "}, '*'); 'answer queued'"
+        }, "answer queued");
+
+        Assert.Equal("iframe-folio", await received.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellation));
+        watch.Restart();
+        string? state;
+        do
+        {
+            state = Value(await Exchange(client, new
+            {
+                script = """
+                    (function(){
+                        var f = document.getElementById('f');
+                        if (!f || !f.contentDocument || !f.contentDocument.body) return '';
+                        var err = f.contentDocument.body.getAttribute('data-error');
+                        if (err) return 'ERROR:' + err;
+                        return f.contentDocument.body.getAttribute('data-reply') || '';
+                    })()
+                    """
+            }));
+            if (!string.IsNullOrEmpty(state)) break;
+            await Task.Delay(25, cancellation);
+        } while (watch.Elapsed < TimeSpan.FromSeconds(10));
+
+        Assert.Equal("reply:iframe-folio", state);
+        Assert.Equal("connected", remote.Dtls.State);
+
+        await client.UpdateCapabilitiesAsync(FeatureCapabilities.Default, cancellation);
+        var revoked = await Exchange(client, new
+        {
+            script = """
+                (function(){
+                    var f = document.getElementById('f');
+                    return (f && f.contentDocument) ? 'present' : 'revoked';
+                })()
+                """
+        });
+        Assert.Equal("revoked", Value(revoked));
+        Assert.Equal(0, client.UdpOpenSockets);
     }
 
     [Fact]

@@ -5,10 +5,57 @@ using Folio.Scripting.Ipc;
 
 namespace Folio.Scripting.Dom;
 
+internal sealed class WebRtcDocumentScope
+{
+    private readonly object _gate = new();
+    private readonly int _maxConnections;
+    private int _activeConnections;
+
+    public RtcMediaBudget MediaBudget { get; }
+
+    public WebRtcDocumentScope(int maxConnections, TimeProvider? time = null)
+    {
+        _maxConnections = Math.Max(0, maxConnections);
+        MediaBudget = new RtcMediaBudget(time);
+    }
+
+    public bool TryAcquireConnection()
+    {
+        lock (_gate)
+        {
+            if (_activeConnections >= _maxConnections) return false;
+            _activeConnections++;
+            return true;
+        }
+    }
+
+    public void ReleaseConnection()
+    {
+        lock (_gate)
+        {
+            _activeConnections = Math.Max(0, _activeConnections - 1);
+        }
+    }
+
+    public int ActiveConnections { get { lock (_gate) return _activeConnections; } }
+}
+
 internal sealed class WebRtcBindingState : IDisposable
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FolioOptions, WebRtcDocumentScope> DocumentScopes = new();
+
+    internal static WebRtcDocumentScope GetOrCreateScope(FolioOptions options, TimeProvider? time = null, int? maxConnections = null) =>
+        DocumentScopes.GetValue(options, opt => new WebRtcDocumentScope(maxConnections ?? opt.Limits.MaxWebRtcConnections, time));
+
+    internal static void AssociateScope(FolioOptions options, WebRtcDocumentScope scope)
+    {
+        DocumentScopes.Remove(options);
+        DocumentScopes.Add(options, scope);
+    }
+
     private readonly IScriptEngine _engine;
     internal readonly DomContext _context;
+    private readonly WebRtcDocumentScope _scope;
     private readonly object _gate = new();
     private readonly Dictionary<long, PeerLease> _peers = [];
     internal const int MaxDeliveryEvents = 256;
@@ -21,8 +68,8 @@ internal sealed class WebRtcBindingState : IDisposable
     private sealed record Delivery(PeerLease Peer, Action? Callback, int Bytes);
     private long _nextId;
     private bool _disposed;
-    // One budget per document: live tracks and per-direction packet/byte rates across every peer connection.
-    private readonly RtcMediaBudget _mediaBudget = new();
+    // Shared media budget across top-level document and all iframes.
+    internal RtcMediaBudget MediaBudget => _scope.MediaBudget;
     private readonly object _audioGate = new();
     private readonly Dictionary<long, RemoteVideoSink> _videoSinks = [];
     private long _nextVideoId;
@@ -61,7 +108,12 @@ internal sealed class WebRtcBindingState : IDisposable
         lock (_gate) peers = _peers.Values.ToArray();
         return string.Join("; ", peers.Select(peer => $"peer={peer.Id},ice={peer.Controller.IceConnectionState},dtls={peer.Controller.Dtls.State},sctp=[{peer.Controller.Sctp.GetDiagnostics()}]"));
     }
-    internal WebRtcBindingState(IScriptEngine engine, DomContext context) { _engine = engine; _context = context; }
+    internal WebRtcBindingState(IScriptEngine engine, DomContext context, WebRtcDocumentScope? scope = null)
+    {
+        _engine = engine;
+        _context = context;
+        _scope = scope ?? (context.ParentOptions is { } options ? GetOrCreateScope(options, maxConnections: context.MaxWebRtcConnections) : new WebRtcDocumentScope(context.MaxWebRtcConnections));
+    }
     private bool PermissionGranted() => !_disposed && _context.Capabilities.WebRtc && !_context.ScriptFeaturesDisposed;
     private void EnsurePermission() { if (!PermissionGranted()) { _context.CheckCapability("WebRTC", false); throw WebIdlException.DomException("NotSupportedError", "WebRTC is disabled by the host."); } }
 
@@ -72,11 +124,11 @@ internal sealed class WebRtcBindingState : IDisposable
         lock (_gate)
         {
             if (_disposed || _deliveryStopped) throw WebIdlException.DomException("InvalidStateError", "The document is closed.");
-            if (_peers.Count >= _context.MaxWebRtcConnections) throw WebIdlException.DomException("QuotaExceededError", "The WebRTC peer connection limit has been exceeded.");
+            if (!_scope.TryAcquireConnection()) throw WebIdlException.DomException("QuotaExceededError", "The WebRTC peer connection limit has been exceeded.");
             var lease = new PeerLease(this, ++_nextId, servers);
             _peers.Add(lease.Id, lease);
             try { return _engine.CreateHostObject(PeerTemplate, lease); }
-            catch { _peers.Remove(lease.Id); lease.Dispose(); throw; }
+            catch { _peers.Remove(lease.Id); _scope.ReleaseConnection(); lease.Dispose(); throw; }
         }
     }
 
@@ -279,9 +331,16 @@ internal sealed class WebRtcBindingState : IDisposable
             }
             delivery = first.Value;
             _deliveries.RemoveFirst();
-            deliver = delivery.Callback is null
-                ? _peers.Remove(delivery.Peer.Id) && PermissionGranted()
-                : IsDeliverable(delivery.Peer);
+            if (delivery.Callback is null)
+            {
+                if (_peers.Remove(delivery.Peer.Id))
+                {
+                    _scope.ReleaseConnection();
+                    deliver = PermissionGranted();
+                }
+                else deliver = false;
+            }
+            else deliver = IsDeliverable(delivery.Peer);
         }
         try
         {
@@ -409,6 +468,7 @@ internal sealed class WebRtcBindingState : IDisposable
         lock (_gate)
         {
             removed = _peers.Remove(lease.Id);
+            if (removed) _scope.ReleaseConnection();
             RemoveDeliveries(lease);
         }
         if (removed) lease.Dispose();
@@ -478,6 +538,7 @@ internal sealed class WebRtcBindingState : IDisposable
         {
             peers = _peers.Values.ToArray();
             _peers.Clear();
+            for (var i = 0; i < peers.Length; i++) _scope.ReleaseConnection();
             RemoveDeliveries(null);
             foreach (var peer in peers) peer.Released = true;
         }
@@ -507,7 +568,7 @@ internal sealed class WebRtcBindingState : IDisposable
         internal bool LocalCandidatesPublished { get; set; }
         internal List<long> VideoSinkIds { get; } = [];
         internal ScriptValue TransportCallback { get; set; } = ScriptValue.Undefined;
-        internal RtcPeerConnectionController Controller { get; } = new(servers, owner._mediaBudget);
+        internal RtcPeerConnectionController Controller { get; } = new(servers, owner.MediaBudget);
         private readonly List<CaptureAudioReader> _readers = [];
         private Timer? _pump;
         private const int MaxSenders = 4;

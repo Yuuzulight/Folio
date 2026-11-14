@@ -361,4 +361,126 @@ public sealed class IframeLifecycleTests
         }
         finally { DomBindings.Dispose(engine); }
     }
+
+    [Fact]
+    public void ParentAndChildIframeShareTopLevelConnectionCap()
+    {
+        var options = new FolioOptions
+        {
+            BaseUri = new Uri("https://parent.example/root/index.html"),
+            Capabilities = new FeatureCapabilities { Iframes = true, WebRtc = true },
+            Scripting = ScriptingPolicy.ContentProcess,
+            Limits = ResourceLimits.Default with { MaxWebRtcConnections = 2 }
+        };
+        using var document = Document.Parse("<iframe id='f' allow='webrtc'></iframe>", options);
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("var parentPc = new RTCPeerConnection();");
+            engine.Evaluate("""
+                var f = document.getElementById('f');
+                f.srcdoc = "<script>var childPc = new RTCPeerConnection(); var childSecondError = ''; try { new RTCPeerConnection(); } catch(e) { childSecondError = e.name; } document.body.setAttribute('data-second', childSecondError);</script>";
+                f.contentDocument;
+                """);
+            Assert.Equal("QuotaExceededError", engine.Evaluate("f.contentDocument.body.getAttribute('data-second')").AsString());
+            Assert.Equal("QuotaExceededError", engine.Evaluate("try { new RTCPeerConnection(); 'allowed'; } catch(e) { e.name; }").AsString());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Fact]
+    public void ClosingIframeConnectionReleasesSlotForParent()
+    {
+        var options = new FolioOptions
+        {
+            BaseUri = new Uri("https://parent.example/root/index.html"),
+            Capabilities = new FeatureCapabilities { Iframes = true, WebRtc = true },
+            Scripting = ScriptingPolicy.ContentProcess,
+            Limits = ResourceLimits.Default with { MaxWebRtcConnections = 2 }
+        };
+        using var document = Document.Parse("<iframe id='f' allow='webrtc'></iframe>", options);
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("var parentPc = new RTCPeerConnection();");
+            engine.Evaluate("""
+                var f = document.getElementById('f');
+                f.srcdoc = "<script>var childPc = new RTCPeerConnection(); onmessage = function(e) { if (e.data === 'close') { childPc.close(); document.body.setAttribute('data-closed', childPc.connectionState); } };</script>";
+                f.contentDocument;
+                """);
+            Assert.Equal("QuotaExceededError", engine.Evaluate("try { new RTCPeerConnection(); 'allowed'; } catch(e) { e.name; }").AsString());
+            engine.Evaluate("f.contentWindow.postMessage('close', '*');");
+            Assert.Equal("closed", engine.Evaluate("f.contentDocument.body.getAttribute('data-closed')").AsString());
+            Assert.Equal("new", engine.Evaluate("var parentPc2 = new RTCPeerConnection(); parentPc2.connectionState;").AsString());
+            Assert.Equal("QuotaExceededError", engine.Evaluate("try { new RTCPeerConnection(); 'allowed'; } catch(e) { e.name; }").AsString());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Fact]
+    public void IframeNavigationTearsDownChildPeerConnectionsAndReleasesSlots()
+    {
+        var options = new FolioOptions
+        {
+            BaseUri = new Uri("https://parent.example/root/index.html"),
+            Capabilities = new FeatureCapabilities { Iframes = true, WebRtc = true },
+            Scripting = ScriptingPolicy.ContentProcess,
+            Limits = ResourceLimits.Default with { MaxWebRtcConnections = 2 }
+        };
+        using var document = Document.Parse("<iframe id='f' allow='webrtc'></iframe>", options);
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("var parentPc = new RTCPeerConnection();");
+            engine.Evaluate("""
+                var f = document.getElementById('f');
+                f.srcdoc = "<script>var childPc = new RTCPeerConnection();</script>";
+                f.contentDocument;
+                """);
+            Assert.Equal("QuotaExceededError", engine.Evaluate("try { new RTCPeerConnection(); 'allowed'; } catch(e) { e.name; }").AsString());
+
+            engine.Evaluate("f.srcdoc = '<p>navigated</p>'; f.contentDocument;");
+
+            Assert.Equal("new", engine.Evaluate("var parentPc2 = new RTCPeerConnection(); parentPc2.connectionState;").AsString());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Fact]
+    public void RevokingWebRtcCapabilityCascadesToNestedIframePeers()
+    {
+        var options = new FolioOptions
+        {
+            BaseUri = new Uri("https://parent.example/root/index.html"),
+            Capabilities = new FeatureCapabilities { Iframes = true, WebRtc = true },
+            Scripting = ScriptingPolicy.ContentProcess,
+            Limits = ResourceLimits.Default with { MaxWebRtcConnections = 4 }
+        };
+        using var document = Document.Parse("<iframe id='f' allow='webrtc'></iframe>", options);
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("var parentPc = new RTCPeerConnection();");
+            engine.Evaluate("""
+                var f = document.getElementById('f');
+                f.srcdoc = "<script>var childPc = new RTCPeerConnection(); childPc.onconnectionstatechange = function() { document.body.setAttribute('data-state', childPc.connectionState); }; onmessage = function(e) { var res = ''; try { new RTCPeerConnection(); res = 'allowed'; } catch(err) { res = err.name; } document.body.setAttribute('data-probe', res); };</script>";
+                f.contentDocument;
+                """);
+            Assert.Equal("new", engine.Evaluate("parentPc.connectionState").AsString());
+
+            DomBindings.UpdateCapabilities(engine, new FeatureCapabilities { Iframes = true, WebRtc = false });
+
+            Assert.Equal("closed", engine.Evaluate("parentPc.connectionState").AsString());
+            Assert.Equal("closed", engine.Evaluate("f.contentDocument.body.getAttribute('data-state')").AsString());
+
+            Assert.Equal("NotSupportedError", engine.Evaluate("try { new RTCPeerConnection(); 'allowed'; } catch(e) { e.name; }").AsString());
+            engine.Evaluate("f.contentWindow.postMessage('probe', '*');");
+            Assert.Equal("NotSupportedError", engine.Evaluate("f.contentDocument.body.getAttribute('data-probe')").AsString());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
 }
