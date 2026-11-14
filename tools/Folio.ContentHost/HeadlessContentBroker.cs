@@ -472,7 +472,8 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
 
         using var reader = new CanvasFrameStore(path!, width, height, stride);
         var pixels = reader.ReadLatest(out var actualSequence);
-        if (actualSequence != describedSequence) throw new BrokerRequestException("engine_error", "Folio's rendered-frame sequence did not match its descriptor.");
+        // The content worker can publish another frame between acknowledging a request and our read.
+        if (actualSequence < describedSequence) throw new BrokerRequestException("engine_error", "Folio's rendered-frame sequence did not match its descriptor.");
         var inside = ReadPixel(pixels, stride, width, height, 16, 16);
         var outside = ReadPixel(pixels, stride, width, height, 100, 100);
         var background = ReadPixel(pixels, stride, width, height, width - 1, height - 1);
