@@ -213,6 +213,7 @@ public sealed class RtcMediaTests
         badProfile[idx + 7] = 0x01; // unsupported profile
         var ex = Assert.Throws<CryptographicException>(() => client.ProcessIncomingDatagram(badProfile));
         Assert.Contains("unsupported SRTP profile", ex.Message);
+        Assert.DoesNotContain("length", ex.Message);
 
         // Malformed length on a fresh client is also rejected
         using var client2 = new DtlsTransport(clock, false);
@@ -222,7 +223,8 @@ public sealed class RtcMediaTests
         var badLength = (byte[])serverHello.Clone();
         badLength[idx + 3] = 0x04;
         var ex2 = Assert.Throws<CryptographicException>(() => client2.ProcessIncomingDatagram(badLength));
-        Assert.Contains("unsupported SRTP profile", ex2.Message);
+        Assert.Contains("malformed use_srtp extension (length)", ex2.Message);
+        Assert.DoesNotContain("unsupported SRTP profile", ex2.Message);
     }
 
     [Fact]

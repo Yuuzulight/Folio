@@ -360,9 +360,11 @@ public sealed class RtcH264Tests
 
         // Mode 0 alone is answered as mode 0; no fmtp at all means Baseline level 1 in mode 0.
         var mode0 = await Answer(BrowserHead + "102" + BrowserTail + "a=rtpmap:102 H264/90000\r\na=fmtp:102 packetization-mode=0;profile-level-id=42001f\r\n");
-        Assert.Contains("a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f\r\n", mode0);
+        Assert.Contains("a=fmtp:102 packetization-mode=0;profile-level-id=42001f\r\n", mode0);   // level-asymmetry-allowed is echoed only when offered
         var bare = await Answer(BrowserHead + "102" + BrowserTail + "a=rtpmap:102 H264/90000\r\n");
-        Assert.Contains("a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42000a\r\n", bare);
+        Assert.Contains("a=fmtp:102 packetization-mode=0;profile-level-id=42000a\r\n", bare);
+        var asymmetric = await Answer(BrowserHead + "102" + BrowserTail + "a=rtpmap:102 H264/90000\r\na=fmtp:102 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f\r\n");
+        Assert.Contains("a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f\r\n", asymmetric);
 
         // Main and High profile payload types are not decodable and are never picked, even when listed first.
         var mixed = await Answer(BrowserHead + "101 102" + BrowserTail +
