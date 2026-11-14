@@ -20,6 +20,8 @@ internal sealed record UdpBrokerOptions
     public int IncomingQueue { get; init; } = 256;
     /// <summary>All events queued towards the child (control events included). Past this the child is not draining and its UDP is killed.</summary>
     public int MaxQueuedEvents { get; init; } = 512;
+    /// <summary>Total bytes across all events queued towards the child. Past this the child is not draining and its UDP is killed.</summary>
+    public int MaxQueuedBytes { get; init; } = 512 * 1024;
     /// <summary>Every command, of any kind, costs one token before it is decoded.</summary>
     public double CommandsPerSecond { get; init; } = 2000;
     public double BurstCommands { get; init; } = 500;
@@ -112,7 +114,8 @@ internal sealed class UdpRateLimiter(double bytesPerSecond, double burstBytes, d
 /// into the Load, so a command from a replaced document is refused.
 /// Wire (JSON payloads): commands {op:"open",gen,token} {op:"send",gen,id,host,port,data(base64)} {op:"permit",gen,host}
 /// {op:"close",gen,id} {op:"resolve",gen,token,name}; events {op:"opened",token,id,port,allowLoopback,allowPrivate} {op:"failed",token,reason}
-/// {op:"datagram",id,host,port,data} {op:"closed",id,reason} {op:"resolved",token,host|null,reason|null}.
+/// {op:"datagram",id,host,port,data} {op:"closed",id,reason} {op:"resolved",token,host|null,reason|null} {op:"resolvedMdns",token,host|null,reason|null}
+/// (resolvedMdns is a non-datagram control event: it counts against MaxQueuedEvents and, via EstimatedBytes, MaxQueuedBytes).
 /// Inbound datagrams are delivered only from addresses the child has sent to, or has permitted.
 /// </summary>
 internal sealed class UdpBroker : IDisposable
@@ -133,7 +136,7 @@ internal sealed class UdpBroker : IDisposable
     private readonly Task _pump;
     private UdpRateLimiter _outLimit, _inLimit, _commandLimit, _openLimit, _resolveLimit;
     private long _nextId, _generation, _limiterStamp;
-    private int _queued, _dead;
+    private int _queued, _queuedBytes, _dead;
     private long _epoch; // guarded by _gate
     private bool _disposed;
 
@@ -145,6 +148,8 @@ internal sealed class UdpBroker : IDisposable
     public bool Dead => Volatile.Read(ref _dead) != 0;
     /// <summary>Events accepted but not yet handed to the transport.</summary>
     public int QueuedEvents => Volatile.Read(ref _queued);
+    /// <summary>Bytes of events accepted but not yet handed to the transport.</summary>
+    public int QueuedBytes => Volatile.Read(ref _queuedBytes);
     /// <summary>Test seam: while set and incomplete, send loops hold their datagrams so queue limits can be observed.</summary>
     internal Task? SendPause;
 
@@ -169,6 +174,7 @@ internal sealed class UdpBroker : IDisposable
     {
         /// <summary>The queue-accounting epoch this event was counted in; see <see cref="BeginDocument"/>.</summary>
         public long Epoch { get; init; }
+        public int EstimatedBytes => (Data is not null ? (Data.Length * 4 / 3 + 128) : ((Text?.Length ?? 0) + 128));
     }
 
     private sealed class UdpSocketLease(long id, Socket socket, int queue) : IDisposable
@@ -504,18 +510,32 @@ internal sealed class UdpBroker : IDisposable
     }
 
     /// <summary>Counts every event kind. Datagrams are dropped past <see cref="UdpBrokerOptions.IncomingQueue"/>; control events
-    /// are never dropped silently, so exceeding <see cref="UdpBrokerOptions.MaxQueuedEvents"/> means the child is not draining and its UDP is killed.</summary>
+    /// are never dropped silently, so exceeding <see cref="UdpBrokerOptions.MaxQueuedEvents"/> or <see cref="UdpBrokerOptions.MaxQueuedBytes"/>
+    /// means the child is not draining and its UDP is killed.</summary>
+    /// <summary>Test seam: queues an incoming datagram exactly as the receive loop would, without a socket or OS buffering.</summary>
+    internal void InjectIncomingDatagram(long socketId, byte[] data) =>
+        Enqueue(new(Generation, "datagram", 0, socketId, null, new IPEndPoint(IPAddress.Loopback, 9), data, true));
+
     private void Enqueue(Event item)
     {
         if (Dead) return;
         var limit = item.Datagram ? _options.IncomingQueue : _options.MaxQueuedEvents;
+        var cost = item.EstimatedBytes;
         // Counting and epoch capture are atomic with BeginDocument, which restarts the count for the new document.
         lock (_gate)
         {
-            if (_queued + 1 > limit) { if (item.Datagram) { Interlocked.Increment(ref DroppedIncoming); return; } }
+            if (_queued + 1 > limit || _queuedBytes + cost > _options.MaxQueuedBytes)
+            {
+                // A datagram over either cap is lossy by nature: drop and count it. Only control events kill.
+                if (item.Datagram) { Interlocked.Increment(ref DroppedIncoming); return; }
+            }
             else
             {
-                if (_events.Writer.TryWrite(item with { Epoch = _epoch })) Interlocked.Increment(ref _queued);
+                if (_events.Writer.TryWrite(item with { Epoch = _epoch }))
+                {
+                    Interlocked.Increment(ref _queued);
+                    Interlocked.Add(ref _queuedBytes, cost);
+                }
                 return;
             }
         }
@@ -534,7 +554,14 @@ internal sealed class UdpBroker : IDisposable
     {
         await foreach (var item in _events.Reader.ReadAllAsync().ConfigureAwait(false))
         {
-            lock (_gate) { if (item.Epoch == _epoch) Interlocked.Decrement(ref _queued); }
+            lock (_gate)
+            {
+                if (item.Epoch == _epoch)
+                {
+                    Interlocked.Decrement(ref _queued);
+                    Interlocked.Add(ref _queuedBytes, -item.EstimatedBytes);
+                }
+            }
             if (Dead) continue;
             if (item.Generation != 0 && item.Generation != Generation) continue; // a retired document
             try { _emit(Serialize(item)); }
@@ -586,7 +613,7 @@ internal sealed class UdpBroker : IDisposable
             _generation = generation;
             _mdnsCts.Cancel(); _mdnsCts.Dispose(); _mdnsCts = new();
             // Events still queued for the retired document no longer count against the new one's bound (the pump drops them).
-            _epoch++; Volatile.Write(ref _queued, 0);
+            _epoch++; Volatile.Write(ref _queued, 0); Volatile.Write(ref _queuedBytes, 0);
             _sentTo.Clear(); _permitted.Clear(); _resolvedNames.Clear(); _resolvedMdnsNames.Clear();
             Interlocked.Exchange(ref _dead, 0);
             var now = System.Diagnostics.Stopwatch.GetTimestamp();

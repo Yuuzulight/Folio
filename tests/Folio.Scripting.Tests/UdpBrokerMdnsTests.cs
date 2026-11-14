@@ -349,6 +349,15 @@ public sealed class UdpBrokerMdnsTests
     }
 
     [Fact]
+    public void ResolvedMdnsCountsAsControlEventAgainstQueuedByteBudget()
+    {
+        // A control event whose estimated size exceeds the byte budget kills the broker, as for any other non-datagram event.
+        using var h = new Harness(new UdpBrokerOptions { AllowMdns = false, MaxQueuedBytes = 64 });
+        h.Run("""{"op":"resolveMdns","token":50,"name":"e3b0c442-98fc-1c14-9afb-f4c8996fb924.local"}""");
+        Assert.True(h.Broker.Dead);
+    }
+
+    [Fact]
     public async Task StaleGenerationReturnsDocumentReplaced()
     {
         var options = new UdpBrokerOptions { AllowMdns = true };

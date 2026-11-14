@@ -371,6 +371,40 @@ internal sealed record RtcCodec(int PayloadType, string Name, int ClockRate, int
         return null;
     }
 
+    internal bool IsVp8 => Name == "VP8";
+
+    /// <summary>H.264 at the 90000 Hz video clock, whatever its profile; <see cref="IsDecodableH264"/> says whether Folio can decode it.</summary>
+    internal bool IsH264 => Name == "H264" && ClockRate == 90000;
+
+    /// <summary>A video codec the media engine decodes: VP8, or H.264 Constrained Baseline in packetization mode 0 or 1.</summary>
+    internal bool IsVideoDecodable => IsVp8 || IsDecodableH264;
+
+    /// <summary>The a=fmtp profile-level-id (RFC 6184 section 8.1); a missing one means 42000a, Baseline level 1.</summary>
+    internal string H264ProfileLevelId => FmtpParameter("profile-level-id")?.ToLowerInvariant() ?? "42000a";
+
+    /// <summary>The a=fmtp packetization-mode: 0 (single NAL) when absent. Folio decodes 0 and 1 (single NAL, STAP-A, FU-A); mode 2 interleaving is not supported.</summary>
+    internal int H264PacketizationMode => FmtpParameter("packetization-mode") is not { } mode ? 0
+        : mode.Length == 1 && mode[0] is >= '0' and <= '9' ? mode[0] - '0' : -1; // -1: present but not a single digit
+
+    /// <summary>
+    /// True for H.264 whose profile-level-id names Baseline or Constrained Baseline (profile_idc 0x42, or 0x4d / 0x58 with
+    /// constraint_set0 set, RFC 6184 section 8.1) in packetization mode 0 or 1. The level is not checked: Folio's limits are
+    /// host policy, not a level conformance rule.
+    /// </summary>
+    internal bool IsDecodableH264
+    {
+        get
+        {
+            if (!IsH264 || H264PacketizationMode is not (0 or 1)) return false;
+            // A present profile-level-id must be exactly six hex digits (RFC 6184); anything else is refused, not defaulted.
+            var text = H264ProfileLevelId;
+            if (text.Length != 6 || !text.All(Uri.IsHexDigit)) return false;
+            var id = Convert.ToInt32(text, 16);
+            var profile = id >> 16 & 0xFF; var constraints = id >> 8 & 0xFF;
+            return profile == 0x42 || (profile is 0x4D or 0x58 && (constraints & 0x80) != 0);
+        }
+    }
+
     /// <summary>PCMU or PCMA at exactly 8000 Hz mono. A peer's rtpmap claiming another clock rate is not G.711 as Folio decodes it.</summary>
     internal bool IsG711 => Name is "PCMU" or "PCMA" && ClockRate == 8000 && Channels == 1;
 }

@@ -357,7 +357,7 @@ public sealed class RtcVideoTests
         BinaryPrimitives.WriteUInt16LittleEndian(tiny.AsSpan(6), 1920); BinaryPrimitives.WriteUInt16LittleEndian(tiny.AsSpan(8), 1080);
         var time = new ManualTime();
         using var receiver = new Vp8Receiver(new Vp8Decoder(maxPixels: 1920 * 1088), time);
-        var output = new Vp8ReceiverOutput();
+        var output = new VideoReceiverOutput();
         var payload = new byte[tiny.Length + 1];
         payload[0] = 0x10; tiny.CopyTo(payload, 1);
         for (var i = 0; i < 1000; i++) receiver.Push(i, (uint)i, true, payload, time.GetTimestamp(), output); // no time passes
@@ -423,7 +423,7 @@ public sealed class RtcVideoTests
         var frames = Frames();
         var time = new ManualTime();
         using var receiver = new Vp8Receiver(new Vp8Decoder(maxPixels: 1 << 22), time);
-        var output = new Vp8ReceiverOutput();
+        var output = new VideoReceiverOutput();
         // Every second packet missing: 100 holes that cannot share bitmask items beyond 17 numbers each.
         for (var i = 0; i < 200; i += 2)
         {
@@ -509,7 +509,7 @@ public sealed class RtcVideoTests
         var decoder = new Vp8Decoder(maxPixels: 1 << 22);
         var time = new ManualTime();
         using var receiver = new Vp8Receiver(decoder, time);
-        var output = new Vp8ReceiverOutput();
+        var output = new VideoReceiverOutput();
         // A frame that never ends: 1000 byte packets without a marker, far beyond the 2 MiB frame limit and the buffer limit.
         var filler = new byte[1001]; filler[0] = 0x10;
         for (var i = 0; i < 3000; i++)
@@ -594,7 +594,7 @@ public sealed class RtcVideoTests
     {
         using var offerer = new RtcPeerConnectionController();
         var offer = await offerer.CreateOfferAsync(false, 0, 0, 0, 1);
-        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 96\r\n", offer);
+        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 96 97 98\r\n", offer); // VP8 first, then H.264 (RtcH264Tests covers those)
         Assert.Contains("a=recvonly\r\n", offer);
         Assert.Contains("a=rtpmap:96 VP8/90000\r\n", offer);
         Assert.Contains("a=rtcp-fb:96 nack\r\n", offer);
@@ -623,9 +623,9 @@ public sealed class RtcVideoTests
         Assert.DoesNotContain("transport-cc", answer);
         Assert.Contains("a=group:BUNDLE 0\r\n", answer);
 
-        // A video section without VP8 is rejected and leaves the bundle group.
+        // A video section without a decodable codec is rejected and leaves the bundle group.
         using var other = new RtcPeerConnectionController();
-        other.SetRemoteDescription("offer", browser.Replace("120 121", "").Replace("a=rtpmap:120 VP8/90000", "a=rtpmap:120 VP9/90000"));
+        other.SetRemoteDescription("offer", browser.Replace("102 120 121", "120").Replace("a=rtpmap:102 H264/90000\r\n", "").Replace("a=rtpmap:120 VP8/90000", "a=rtpmap:120 VP9/90000"));
         var rejected = await other.CreateAnswerAsync(false, 0, 0);
         Assert.Contains("m=video 0 ", rejected);
         Assert.DoesNotContain("a=group:BUNDLE 0", rejected);
