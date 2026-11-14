@@ -68,6 +68,7 @@ public sealed class TurnClientTests
     {
         using var server = new FakeTurnServer { StaleNonceOnce = true };
         using var agent = Agent(server);
+        agent.TurnClock = new TurnTransportTests.ManualClock(); // the server answers at once; a slow runner must not retransmit
         await agent.StartGatheringAsync();
         Assert.Single(agent.LocalCandidates, c => c.Type == "relay");
         Assert.Equal(3, server.Allocates); // challenge, stale (438), retried with the fresh nonce
@@ -133,16 +134,11 @@ public sealed class TurnClientTests
             Foundation = "1", Component = 1, Protocol = "udp", Priority = 100, Type = "host", Address = "127.0.0.1", Port = 9
         });
         await Yield(() => server.PermissionRequests >= 1);
-        Assert.Equal(0, server.Refreshes);
-        // The maintenance tick is real (the receive loop), but only fires work the clock says is due.
-        clock.Advance(TimeSpan.FromMilliseconds(400));
-        await Yield(() => server.PermissionRequests >= 2);
-        clock.Advance(TimeSpan.FromMilliseconds(400));
-        await Yield(() => server.PermissionRequests >= 3);
-        clock.Advance(TimeSpan.FromSeconds(1)); // 2 s lifetime: due after 1 s
-        await Yield(() => server.Refreshes >= 1);
-        clock.Advance(TimeSpan.FromSeconds(1));
-        await Yield(() => server.Refreshes >= 2);
+        Assert.Equal(0, server.Refreshes); // no time has passed on the clock
+        // The maintenance tick is real (the receive loop) but only fires work the clock says is due. A refresh sets its next
+        // deadline when its response is processed, so each wait keeps moving the clock instead of advancing once.
+        await Yield(() => { clock.Advance(TimeSpan.FromMilliseconds(400)); return server.PermissionRequests >= 3; });
+        await Yield(() => { clock.Advance(TimeSpan.FromSeconds(1)); return server.Refreshes >= 2; });
         Assert.All(server.RefreshLifetimes, lifetime => Assert.Equal(600u, lifetime));
     }
 
@@ -354,6 +350,7 @@ public sealed class TurnClientTests
     {
         using var server = new FakeTurnServer { AlwaysStale = true };
         using var agent = Agent(server);
+        agent.TurnClock = new TurnTransportTests.ManualClock(); // the server answers at once; a slow runner must not retransmit
         await agent.StartGatheringAsync();
         Assert.DoesNotContain(agent.LocalCandidates, c => c.Type == "relay");
         await Task.Delay(500, TestContext.Current.CancellationToken);
