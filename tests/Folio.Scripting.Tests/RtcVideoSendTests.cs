@@ -267,7 +267,8 @@ public sealed class RtcVideoSendTests
         Assert.Single(sdp.Media);
         var videoSection = sdp.Media[0];
         Assert.Equal("video", videoSection.Kind);
-        // Section must be rejected because Folio does not send H.264
-        Assert.Equal(0, videoSection.Port);
+        // Folio does not send H.264; it refuses to send and answers recvonly without a local send SSRC
+        Assert.Equal("recvonly", videoSection.Direction);
+        Assert.Empty(videoSection.Ssrcs);
     }
 }
