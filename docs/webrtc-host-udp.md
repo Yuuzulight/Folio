@@ -39,6 +39,7 @@ Child to host, `UdpCommand`:
 - `{op:"permit", gen, host}`: allow unsolicited inbound datagrams from this address (same address policy; see below).
 - `{op:"close", gen, id}`.
 - `{op:"resolve", gen, token, name}`: resolve a DNS name in the host (see "Name resolution").
+- `{op:"resolveMdns", gen, token, name}`: resolve an mDNS .local hostname candidate in the host (see "mDNS candidate resolution").
 
 Host to child, `UdpEvent`:
 
@@ -48,6 +49,7 @@ Host to child, `UdpEvent`:
 - `{op:"failed", token, reason}`: not granted, quota exceeded, or bind failed.
 - `{op:"datagram", id, host, port, data}`.
 - `{op:"resolved", token, host, reason}`: the answer to `resolve`; `host` is an IPv4 literal, or null with a `reason`.
+- `{op:"resolvedMdns", token, host, reason}`: the answer to `resolveMdns`; `host` is an IPv4 literal, or null with a `reason`.
 - `{op:"closed", id, reason}`: revoked, document replaced, closed by the child, or the broker was disposed.
 
 UDP frames are small. A frame over 8 KiB is read only as far as a 32-byte prefix first: if the prefix says it is a
@@ -117,6 +119,17 @@ that points at loopback, a private range or any other denied range (rebinding, m
 the embedder opted in to that range for sockets. A lookup that fails, times out or is refused is an answer too; the child
 never waits on silence, and a stale-generation `resolve` is answered with a refusal.
 
+### mDNS candidate resolution
+
+Browsers hide private host IP addresses behind `<uuid>.local` hostnames (RFC 6762). The content process cannot resolve multicast DNS directly. Instead, `IIceTransport.ResolveMdnsAsync` asks the host via `{op:"resolveMdns", gen, token, name}`.
+
+- **Policy default OFF:** Embedders opt in via `FolioOptions.WebRtcAllowMdns` (or `UdpBrokerOptions.AllowMdns`). Disabled by default.
+- **Strict syntax:** Accepts only lower-case UUID hostnames matching `^[0-9a-f-]{36}\.local$`. Any other name is rejected with "invalid mDNS name".
+- **Destination policy enforcement:** The resolved IP must pass `UdpDestinationPolicy.IsAllowed`. Since mDNS typically resolves to LAN/private addresses (RFC 1918), `AllowPrivate` must also be granted by the host to permit private IP results.
+- **Quotas:** At most 8 distinct mDNS names per document (`MaxMdnsNames`), up to 4 concurrent in-flight lookups (`MaxResolvesInFlight`), and a 2-second timeout (`MdnsTimeout`). Rate limits share the broker's resolve limiter.
+- **Always answered:** Every lookup is answered (`resolvedMdns`), including timeouts, policy refusals, and stale generations ("the document was replaced").
+- **Privacy note:** Emitting an mDNS query sends a UDP multicast datagram on `224.0.0.251:5353` across the host's local network for a name chosen by the remote peer.
+
 ## TURN
 
 `TurnClient` owns no socket. It sends to the configured server through the agent's `IIceTransport`, so in the sandbox every
@@ -167,6 +180,6 @@ reach us by initiating from an address we never learned stays unreachable, which
    is still not restricted to the addresses those names resolved to (peer addresses come from remote SDP).
 2. **Interface candidates.** Host candidates are enumerated by the child and are advisory only. The host should report
    the interfaces it permits.
-3. **mDNS and IPv6**, TURN relay allocation and TCP candidates.
+3. **IPv6**, TURN relay allocation and TCP candidates (mDNS .local candidate resolution is supported).
 4. **Binary framing** and flow control (for example back-pressure to `bufferedAmount`) instead of drop-and-count.
 5. **Per-origin or per-user budgets** across documents, and an embedder-facing option for allowing private ranges.

@@ -76,6 +76,8 @@ internal sealed class IceAgent : IDisposable
     internal bool IsReceivePumpAlive => _receiveThread?.IsAlive == true;
 
     public IReadOnlyList<IceCandidate> LocalCandidates { get { lock (_gate) return _localCandidates.ToArray(); } }
+    internal IReadOnlyList<IceCandidate> RemoteCandidates { get { lock (_gate) return _remoteCandidates.ToArray(); } }
+    internal bool HasCandidatePair(IPEndPoint remote) { lock (_gate) return _pairs.Any(p => p.RemoteEndPoint.Equals(remote)); }
 
     public IceAgent(IReadOnlyList<string>? iceServers = null, IIceTransport? transport = null)
     {
@@ -519,7 +521,41 @@ internal sealed class IceAgent : IDisposable
         // Relay permissions are per peer IP and must exist before the TURN server forwards anything from it.
         if (IPAddress.TryParse(candidate.Address, out var peerIp))
             foreach (var client in _turnClients) _ = client.EnsurePermissionAsync(peerIp);
+        else if (candidate.Address.EndsWith(".local", StringComparison.OrdinalIgnoreCase))
+            _ = ResolveMdnsCandidateAsync(candidate);
         _ = CheckConnectivityAsync();
+    }
+
+    private int _mdnsResolvingCount;
+    private const int MaxConcurrentMdnsResolutions = 4;
+
+    private async Task ResolveMdnsCandidateAsync(IceCandidate candidate)
+    {
+        if (_disposed) return;
+        if (_transport is null && !BindSocket()) return;
+        var transport = _transport;
+        if (transport is null || _disposed) return;
+        lock (_gate)
+        {
+            if (_mdnsResolvingCount >= MaxConcurrentMdnsResolutions) return;
+            _mdnsResolvingCount++;
+        }
+        try
+        {
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, _cts.Token);
+            var ip = await transport.ResolveMdnsAsync(candidate.Address, linked.Token).ConfigureAwait(false);
+            if (ip is not null && !_disposed)
+            {
+                var resolved = candidate with { Address = ip.ToString() };
+                AddRemoteCandidate(resolved);
+            }
+        }
+        catch { }
+        finally
+        {
+            lock (_gate) _mdnsResolvingCount--;
+        }
     }
 
     private readonly HashSet<IPAddress> _permitted = [];

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Folio.Scripting.Ipc;
 
 namespace Folio.Scripting.Rtc;
 
@@ -25,6 +26,10 @@ internal interface IIceTransport : IDisposable
     /// host-mediated transport asks the host, so a sandboxed content process never resolves names itself. Null when it cannot.</summary>
     async Task<IPAddress?> ResolveAsync(string host, CancellationToken cancellation) =>
         (await Dns.GetHostAddressesAsync(host, cancellation).ConfigureAwait(false)).FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+
+    /// <summary>Resolves a .local mDNS hostname candidate to an IPv4 address. Direct transport uses MdnsClient.ResolveAsync; mediated transport asks the host.</summary>
+    Task<IPAddress?> ResolveMdnsAsync(string host, CancellationToken cancellation) =>
+        MdnsClient.ResolveAsync(host, cancellation);
 
     /// <summary>Waits up to the timeout for a datagram. Returns its length, or -1 on timeout.
     /// Throws <see cref="ObjectDisposedException"/> once the transport is closed.</summary>
