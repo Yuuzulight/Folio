@@ -371,10 +371,10 @@ internal sealed record RtcCodec(int PayloadType, string Name, int ClockRate, int
         return null;
     }
 
-    internal bool IsVp8 => Name == "VP8";
+    internal bool IsVp8 => Name.Equals("VP8", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>H.264 at the 90000 Hz video clock, whatever its profile; <see cref="IsDecodableH264"/> says whether Folio can decode it.</summary>
-    internal bool IsH264 => Name == "H264" && ClockRate == 90000;
+    internal bool IsH264 => Name.Equals("H264", StringComparison.OrdinalIgnoreCase) &&ClockRate == 90000;
 
     /// <summary>A video codec the media engine decodes: VP8, or H.264 Constrained Baseline in packetization mode 0 or 1.</summary>
     internal bool IsVideoDecodable => IsVp8 || IsDecodableH264;
