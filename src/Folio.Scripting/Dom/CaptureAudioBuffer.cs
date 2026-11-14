@@ -154,3 +154,20 @@ internal sealed class CaptureAudioReader(CaptureAudioBuffer buffer, Func<bool> l
     internal void Skip() => buffer.Skip(_cursor);
     public void Dispose() { _disposed = true; Skip(); }
 }
+
+/// <summary>Reader for camera video frames; lifetime belongs to one sender or element.</summary>
+internal sealed class CaptureVideoReader(Func<MediaCaptureVideoFrame?> getFrame, Func<bool> live) : IDisposable
+{
+    private bool _disposed;
+    internal bool IsLive => !_disposed && live();
+    internal bool Read(out MediaCaptureVideoFrame frame)
+    {
+        frame = default;
+        if (_disposed || !live()) return false;
+        var current = getFrame();
+        if (current is not { IsValid: true } valid) return false;
+        frame = valid;
+        return true;
+    }
+    public void Dispose() => _disposed = true;
+}

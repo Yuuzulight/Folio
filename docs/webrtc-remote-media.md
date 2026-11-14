@@ -83,7 +83,7 @@ enabled.
 
 I did not overclaim these:
 
-- **Sending video.** Not supported yet. `addTrack(videoTrack)`, `addTransceiver(videoTrack)` and a `sendonly` video transceiver throw `NotSupportedError` on a network peer connection (in-document pairs are unchanged). There is no VP8 encoder. Our offers carry video as `recvonly` and answers as `recvonly` or `inactive`.
+- **Sending video.** Supported via `Vp8Encoder` and `RtpVideoSender` (RFC 7741). Captured frames are downscaled to fit <= 640x360 and rate-capped at <= 15 fps. Keyframes are sent initially and on demand when RTCP PLI or FIR requests arrive (throttled by 100 ms spacing). NACK requests retransmit from a 128-packet send history buffer. Only VP8 is supported for sending; if a peer only offers H.264, Folio refuses to send video for that section.
 - **Opus.** Added in stage 3 ([`webrtc-opus.md`](webrtc-opus.md)): 48 kHz Opus is preferred and G.711 remains the fallback.
 - **Browser interoperability is untested.** The SRTP packet format matches the RFC 7714 vectors and the DTLS key layout
   follows RFC 5764, but I have only run Folio against Folio end to end. The first run against a browser may expose a

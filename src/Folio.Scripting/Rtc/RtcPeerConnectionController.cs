@@ -113,6 +113,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
     }
 
     private readonly List<RtcLocalTrack> _localAudio = [];
+    private readonly List<RtcLocalTrack> _localVideo = [];
 
     private RtcLocalTrack? LocalAudio(int index)
     {
@@ -126,6 +127,19 @@ internal sealed class RtcPeerConnectionController : IDisposable
 
     /// <summary>The i-th audio sender, in addTrack order, once an offer or answer has created it.</summary>
     public RtcLocalTrack? LocalAudioTrack(int index) { lock (_gate) return index >= 0 && index < _localAudio.Count ? _localAudio[index] : null; }
+
+    private RtcLocalTrack? LocalVideo(int index)
+    {
+        while (_localVideo.Count <= index)
+        {
+            if (Media.AddLocalVideo() is not { } track) return null;
+            _localVideo.Add(track);
+        }
+        return _localVideo[index];
+    }
+
+    /// <summary>The i-th video sender, in addTrack order, once an offer or answer has created it.</summary>
+    public RtcLocalTrack? LocalVideoTrack(int index) { lock (_gate) return index >= 0 && index < _localVideo.Count ? _localVideo[index] : null; }
 
     /// <summary>Folio receives mono or stereo Opus and sends mono (RFC 7587 parameters), with in-band FEC accepted.</summary>
     internal const string OpusFmtp = "minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0";
@@ -154,13 +168,13 @@ internal sealed class RtcPeerConnectionController : IDisposable
     {
         var midIndex = hasDataChannels ? 1 : 0;
         if (hasDataChannels) sdp.Media.Add(DataSection("0"));
-        // Folio sends and decodes Opus and G.711 audio and decodes VP8 video. It cannot send video, so every video section is
-        // offered recvonly (with NACK, PLI and FIR feedback); addTrack(video) is refused before it reaches this point.
         for (var i = 0; i < audioSenders && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
             sdp.Media.Add(MediaSection("audio", (midIndex++).ToString(), "sendrecv", LocalAudio(i)));
         for (var i = 0; i < audioReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
             sdp.Media.Add(MediaSection("audio", (midIndex++).ToString(), "recvonly", null));
-        for (var i = 0; i < videoSenders + videoReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
+        for (var i = 0; i < videoSenders && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
+            sdp.Media.Add(MediaSection("video", (midIndex++).ToString(), "sendrecv", LocalVideo(i)));
+        for (var i = 0; i < videoReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
             sdp.Media.Add(MediaSection("video", (midIndex++).ToString(), "recvonly", null));
     }
 
@@ -201,6 +215,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
             {
                 // An answer mirrors the offer: same sections, same order, same mids (RFC 3264). Sections Folio cannot serve are rejected.
                 var audioIndex = 0;
+                var videoIndex = 0;
                 for (var i = 0; i < remote.Media.Count; i++)
                 {
                     var offered = remote.Media[i];
@@ -222,8 +237,15 @@ internal sealed class RtcPeerConnectionController : IDisposable
                     }
                     if (offered.Kind == "video")
                     {
-                        // Receive only: the offered payload type, with the feedback mechanisms the offer also lists.
-                        var video = MediaSection("video", mid, offered.Sends ? "recvonly" : "inactive", null);
+                        var videoSender = offered.Receives && videoIndex < Math.Max(0, videoSenders) ? LocalVideo(videoIndex++) : null;
+                        var videoDirection = (videoSender is not null, offered.Sends) switch
+                        {
+                            (true, true) => "sendrecv",
+                            (true, false) => "sendonly",
+                            (false, true) => "recvonly",
+                            _ => "inactive"
+                        };
+                        var video = MediaSection("video", mid, videoDirection, videoSender);
                         video.Codecs.Clear(); video.Feedback.Clear();
                         video.Codecs.Add(accepted[0]);
                         foreach (var feedback in VideoFeedback)

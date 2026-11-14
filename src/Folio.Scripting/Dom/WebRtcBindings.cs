@@ -428,13 +428,21 @@ internal sealed class WebRtcBindingState : IDisposable
         return lease.Controller.CreateOfferAsync(hasDataChannels, audioCount, videoCount, audioReceivers, videoReceivers).GetAwaiter().GetResult();
     }
 
-    /// <summary>Feeds a granted microphone track to the next audio sender of this peer. The reader honours the track's enabled/muted/ended state.</summary>
-    internal void AttachSender(ScriptValue value, ScriptValue captureToken)
+    /// <summary>Feeds a granted camera or microphone track to the next sender of this peer. The reader honours the track's enabled/muted/ended state.</summary>
+    internal void AttachSender(ScriptValue value, ScriptValue captureToken, string? kind = null)
     {
         if (_context.OwnerEventLoop is null || !PermissionGranted() ||
             !_engine.TryGetHostTarget(value, out var target) || target is not PeerLease lease || !ReferenceEquals(lease.Owner, this)) return;
-        if (_context.CaptureState?.OpenAudioReader(captureToken) is not { } reader) return;
-        if (!lease.AttachReader(reader)) reader.Dispose();
+        if (kind == "video" || (kind is null && _context.CaptureState?.TrackKind(captureToken) == "video"))
+        {
+            if (_context.CaptureState?.OpenVideoReader(captureToken) is not { } videoReader) return;
+            if (!lease.AttachVideoReader(videoReader)) videoReader.Dispose();
+        }
+        else
+        {
+            if (_context.CaptureState?.OpenAudioReader(captureToken) is not { } reader) return;
+            if (!lease.AttachReader(reader)) reader.Dispose();
+        }
     }
 
     internal string CreateAnswer(ScriptValue value, bool hasDataChannels, int audioCount, int videoCount)
@@ -509,6 +517,8 @@ internal sealed class WebRtcBindingState : IDisposable
         internal ScriptValue TransportCallback { get; set; } = ScriptValue.Undefined;
         internal RtcPeerConnectionController Controller { get; } = new(servers, owner._mediaBudget);
         private readonly List<CaptureAudioReader> _readers = [];
+        private readonly List<CaptureVideoReader> _videoReaders = [];
+        private long _lastVideoPump;
         private Timer? _pump;
         private const int MaxSenders = 4;
 
@@ -525,6 +535,17 @@ internal sealed class WebRtcBindingState : IDisposable
             }
         }
 
+        internal bool AttachVideoReader(CaptureVideoReader reader)
+        {
+            lock (_readers)
+            {
+                if (Released || _videoReaders.Count >= MaxSenders) return false;
+                _videoReaders.Add(reader);
+                _pump ??= new Timer(_ => { try { Pump(); } finally { Rearm(); } }, null, 20, Timeout.Infinite);
+                return true;
+            }
+        }
+
         private void Rearm()
         {
             lock (_readers) { if (!Released) try { _pump?.Change(20, Timeout.Infinite); } catch (ObjectDisposedException) { } }
@@ -532,15 +553,43 @@ internal sealed class WebRtcBindingState : IDisposable
 
         private void Pump()
         {
-            CaptureAudioReader[] readers;
-            lock (_readers) readers = Released ? [] : _readers.ToArray();
-            for (var index = 0; index < readers.Length; index++)
+            CaptureAudioReader[] audioReaders;
+            CaptureVideoReader[] videoReaders;
+            lock (_readers)
+            {
+                audioReaders = Released ? [] : _readers.ToArray();
+                videoReaders = Released ? [] : _videoReaders.ToArray();
+            }
+            for (var index = 0; index < audioReaders.Length; index++)
             {
                 var local = Controller.LocalAudioTrack(index);
                 for (var reads = 0; reads < 12; reads++)
                 {
-                    if (!readers[index].Read(0.02, out var frame)) break;
+                    if (!audioReaders[index].Read(0.02, out var frame)) break;
                     if (local is not null) Controller.Media.SendAudio(local, frame.Samples.Span, frame.SampleRate, frame.Channels);
+                }
+            }
+            if (videoReaders.Length > 0)
+            {
+                var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                if (_lastVideoPump == 0 || System.Diagnostics.Stopwatch.GetElapsedTime(_lastVideoPump, now).TotalMilliseconds >= 60)
+                {
+                    _lastVideoPump = now;
+                    for (var index = 0; index < videoReaders.Length; index++)
+                    {
+                        var reader = videoReaders[index];
+                        if (!reader.IsLive)
+                        {
+                            lock (_readers) _videoReaders.Remove(reader);
+                            reader.Dispose();
+                            continue;
+                        }
+                        var local = Controller.LocalVideoTrack(index);
+                        if (local is not null && reader.Read(out var frame))
+                        {
+                            Controller.Media.SendVideo(local, frame.Rgba.Span, frame.Width, frame.Height);
+                        }
+                    }
                 }
             }
         }
@@ -554,6 +603,8 @@ internal sealed class WebRtcBindingState : IDisposable
                 _pump?.Dispose(); _pump = null;
                 foreach (var reader in _readers) reader.Dispose();
                 _readers.Clear();
+                foreach (var reader in _videoReaders) reader.Dispose();
+                _videoReaders.Clear();
             }
             CloseCallback = ScriptValue.Undefined;
             TransportCallback = ScriptValue.Undefined;
@@ -579,7 +630,7 @@ internal sealed class WebRtcBindingState : IDisposable
             .DefineMethod("release", (_, _, a) => { if (a.Length > 0) state.Release(a[0]); return ScriptValue.Undefined; })
             .DefineMethod("allowOrigin", (_, _, a) => ScriptValue.FromBoolean(a.Length > 0 && state.AllowOrigin(a[0].AsString() ?? "")))
             .DefineMethod("createOffer", (_, _, a) => ScriptValue.FromString(a.Length > 0 ? state.CreateOffer(a[0], a.Length > 1 && a[1].AsBoolean(), a.Length > 2 ? (int)a[2].AsNumber() : 0, a.Length > 3 ? (int)a[3].AsNumber() : 0, a.Length > 4 ? (int)a[4].AsNumber() : 0, a.Length > 5 ? (int)a[5].AsNumber() : 0) : ""))
-            .DefineMethod("attachSender", (_, _, a) => { if (a.Length > 1) state.AttachSender(a[0], a[1]); return ScriptValue.Undefined; })
+            .DefineMethod("attachSender", (_, _, a) => { if (a.Length > 2) state.AttachSender(a[0], a[1], a[2].AsString()); else if (a.Length > 1) state.AttachSender(a[0], a[1]); return ScriptValue.Undefined; })
             .DefineMethod("createAnswer", (_, _, a) => ScriptValue.FromString(a.Length > 0 ? state.CreateAnswer(a[0], a.Length > 1 && a[1].AsBoolean(), a.Length > 2 ? (int)a[2].AsNumber() : 0, a.Length > 3 ? (int)a[3].AsNumber() : 0) : ""))
             .DefineMethod("setLocalDescription", (_, _, a) => { if (a.Length > 2) state.SetLocalDescription(a[0], a[1].AsString() ?? "", a[2].AsString() ?? ""); return ScriptValue.Undefined; })
             .DefineMethod("setRemoteDescription", (_, _, a) => { if (a.Length > 2) state.SetRemoteDescription(a[0], a[1].AsString() ?? "", a[2].AsString() ?? ""); return ScriptValue.Undefined; })
@@ -697,11 +748,11 @@ RTCPeerConnection.prototype.setLocalDescription = function(description) {
 };
 RTCPeerConnection.prototype.setRemoteDescription = function(description) { var dead=asyncDead(this); if(dead)return dead; if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); if (!description || (description.type !== 'offer' && description.type !== 'answer' && description.type !== 'rollback')) return Promise.reject(new TypeError('The session description type is invalid.')); var lease=token(this); this.remoteDescription = description; host.setRemoteDescription(lease, description.type, description.sdp || ''); if (this.remoteDescription.type === 'answer') { this.signalingState = 'stable'; this._dispatch('signalingstatechange', {}); this.iceConnectionState = 'connected'; this._dispatch('iceconnectionstatechange', {}); this.connectionState = 'connected'; this._dispatch('connectionstatechange', {}); var peer = null; for (var peerIndex = 0; peerIndex < __folio_webrtc_peers.length; peerIndex++) { var candidate = __folio_webrtc_peers[peerIndex]; if (candidate !== this && candidate.connectionState !== 'closed' && ((this.localDescription && this.localDescription.type === 'offer' && candidate.remoteDescription && candidate.remoteDescription.type === 'offer') || (this.remoteDescription && this.remoteDescription.type === 'offer' && candidate.localDescription && candidate.localDescription.type === 'offer'))) { peer = candidate; break; } } if (peer) { this._peer = peer; peer._peer = this; __folio_pair_channels(this, peer); __folio_pair_channels(peer, this); peer._senders.forEach(function(sender) { if (sender.track && this.ontrack) this._dispatch('track', { type: 'track', target: this, track: sender.track, transceiver: null, streams: [new MediaStream([sender.track])] }); }, this); } if (this.ontrack && !(host.transportEnabled() && !this._peer)) this._transceivers.forEach(function(transceiver) { if (transceiver.stopped) return; var track = transceiver.receiver.track; this._dispatch('track', { type: 'track', target: this, track: track, transceiver: transceiver, streams: [new MediaStream([track])] }); }, this); } return Promise.resolve(); };
 RTCPeerConnection.prototype.addIceCandidate = function(candidate) { var dead=asyncDead(this); if(dead)return dead; if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); if (candidate !== null && candidate !== undefined && typeof candidate !== 'string' && (!candidate || candidate.candidate === undefined || typeof candidate.candidate !== 'string')) return Promise.reject(new TypeError('The ICE candidate is invalid.')); var lease=token(this); var candStr = typeof candidate === 'string' ? candidate : (candidate && candidate.candidate ? candidate.candidate : ''); host.addIceCandidate(lease, candStr); this.iceConnectionState = 'connected'; this._dispatch('iceconnectionstatechange', {}); if (this.connectionState === 'new') { this.connectionState = 'connected'; this._dispatch('connectionstatechange', {}); } return Promise.resolve(); };
-RTCPeerConnection.prototype.addTrack = function(track) { token(this); if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); if (!track || typeof track !== 'object' || (track.kind !== 'audio' && track.kind !== 'video')) throw new TypeError('The track is invalid.'); if (track.kind === 'video' && host.transportEnabled()) throw new DOMException('Sending video over a network peer connection is not supported yet; remote video can be received.', 'NotSupportedError'); for (var i = 0; i < this._senders.length; i++) if (this._senders[i].track === track) throw new DOMException('The track is already attached to this connection.', 'InvalidAccessError'); var connection = this; var sender = { track: track, _parameters: { encodings: [] }, replaceTrack: function(next) { var dead=asyncDead(connection); if(dead)return dead; if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); sender.track = next; return Promise.resolve(); }, getParameters: function() { token(connection); return sender._parameters; }, setParameters: function(parameters) { var dead=asyncDead(connection); if(dead)return dead; sender._parameters = parameters || { encodings: [] }; return Promise.resolve(sender._parameters); } }; this._senders.push(sender); if (track.kind === 'audio' && track._captureToken && host.attachSender) { try { host.attachSender(token(this), track._captureToken); } catch (_) {} } this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); if (this._peer && typeof this._peer.ontrack === 'function') this._peer._dispatch('track', { type: 'track', target: this._peer, track: track, transceiver: null, streams: [new MediaStream([track])] }); return sender; };
+RTCPeerConnection.prototype.addTrack = function(track) { token(this); if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); if (!track || typeof track !== 'object' || (track.kind !== 'audio' && track.kind !== 'video')) throw new TypeError('The track is invalid.'); for (var i = 0; i < this._senders.length; i++) if (this._senders[i].track === track) throw new DOMException('The track is already attached to this connection.', 'InvalidAccessError'); var connection = this; var sender = { track: track, _parameters: { encodings: [] }, replaceTrack: function(next) { var dead=asyncDead(connection); if(dead)return dead; if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); sender.track = next; return Promise.resolve(); }, getParameters: function() { token(connection); return sender._parameters; }, setParameters: function(parameters) { var dead=asyncDead(connection); if(dead)return dead; sender._parameters = parameters || { encodings: [] }; return Promise.resolve(sender._parameters); } }; this._senders.push(sender); if (track._captureToken && host.attachSender) { try { host.attachSender(token(this), track._captureToken, track.kind); } catch (_) {} } this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); if (this._peer && typeof this._peer.ontrack === 'function') this._peer._dispatch('track', { type: 'track', target: this._peer, track: track, transceiver: null, streams: [new MediaStream([track])] }); return sender; };
 RTCPeerConnection.prototype.getSenders = function() { token(this); return this._senders.slice(); };
 RTCPeerConnection.prototype.removeTrack = function(sender) { token(this); if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); var index = this._senders.indexOf(sender); if (index < 0) throw new TypeError('The sender does not belong to this connection.'); if (sender.track !== null) { sender.track = null; this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); } };
 RTCPeerConnection.prototype.getReceivers = function() { token(this); return this._transceivers.map(function(transceiver) { return transceiver.receiver; }); };
-RTCPeerConnection.prototype.addTransceiver = function(kindOrTrack, init) { token(this); var connection = this; var kind = typeof kindOrTrack === 'string' ? kindOrTrack : (kindOrTrack && kindOrTrack.kind) || ''; if (kind !== 'audio' && kind !== 'video') throw new TypeError('The transceiver kind must be audio or video.'); if (typeof kindOrTrack === 'object' && (!kindOrTrack || kindOrTrack.kind !== kind)) throw new TypeError('The transceiver track is invalid.'); init = init || {}; var direction = init.direction === undefined ? 'sendrecv' : String(init.direction); if (direction !== 'sendrecv' && direction !== 'sendonly' && direction !== 'recvonly' && direction !== 'inactive') throw new TypeError('The transceiver direction is invalid.'); if (kind === 'video' && host.transportEnabled() && (typeof kindOrTrack === 'object' || direction === 'sendonly')) throw new DOMException('Sending video over a network peer connection is not supported yet; remote video can be received.', 'NotSupportedError'); var transceiver = { mid: null, kind: String(kind), sender: { track: typeof kindOrTrack === 'object' ? kindOrTrack : null, _parameters: { encodings: [] } }, receiver: { track: new MediaStreamTrack(kind) }, direction: direction, currentDirection: null, stopped: false, _codecs: [], stop: function() { token(connection); transceiver.stopped = true; transceiver.direction = 'inactive'; transceiver.currentDirection = null; }, setCodecPreferences: function(codecs) { token(connection); if (!Array.isArray(codecs)) throw new TypeError('The codec preferences must be an array.'); for (var i = 0; i < codecs.length; i++) { var mimeType = codecs[i] && codecs[i].mimeType; if (typeof mimeType !== 'string' || mimeType.toLowerCase().indexOf(kind + '/') !== 0) throw new TypeError('The codec preference does not match the transceiver kind.'); } transceiver._codecs = codecs.slice(); }, get codecPreferences() { return transceiver._codecs.slice(); } }; transceiver.sender.replaceTrack = function(next) { var dead=asyncDead(connection); if(dead)return dead; if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); transceiver.sender.track = next; return Promise.resolve(); }; transceiver.sender.getParameters = function() { token(connection); return transceiver.sender._parameters; }; transceiver.sender.setParameters = function(parameters) { var dead=asyncDead(connection); if(dead)return dead; transceiver.sender._parameters = parameters || { encodings: [] }; return Promise.resolve(transceiver.sender._parameters); }; connection._transceivers.push(transceiver); this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); return transceiver; };
+RTCPeerConnection.prototype.addTransceiver = function(kindOrTrack, init) { token(this); var connection = this; var kind = typeof kindOrTrack === 'string' ? kindOrTrack : (kindOrTrack && kindOrTrack.kind) || ''; if (kind !== 'audio' && kind !== 'video') throw new TypeError('The transceiver kind must be audio or video.'); if (typeof kindOrTrack === 'object' && (!kindOrTrack || kindOrTrack.kind !== kind)) throw new TypeError('The transceiver track is invalid.'); init = init || {}; var direction = init.direction === undefined ? 'sendrecv' : String(init.direction); if (direction !== 'sendrecv' && direction !== 'sendonly' && direction !== 'recvonly' && direction !== 'inactive') throw new TypeError('The transceiver direction is invalid.'); var transceiver = { mid: null, kind: String(kind), sender: { track: typeof kindOrTrack === 'object' ? kindOrTrack : null, _parameters: { encodings: [] } }, receiver: { track: new MediaStreamTrack(kind) }, direction: direction, currentDirection: null, stopped: false, _codecs: [], stop: function() { token(connection); transceiver.stopped = true; transceiver.direction = 'inactive'; transceiver.currentDirection = null; }, setCodecPreferences: function(codecs) { token(connection); if (!Array.isArray(codecs)) throw new TypeError('The codec preferences must be an array.'); for (var i = 0; i < codecs.length; i++) { var mimeType = codecs[i] && codecs[i].mimeType; if (typeof mimeType !== 'string' || mimeType.toLowerCase().indexOf(kind + '/') !== 0) throw new TypeError('The codec preference does not match the transceiver kind.'); } transceiver._codecs = codecs.slice(); }, get codecPreferences() { return transceiver._codecs.slice(); } }; if (typeof kindOrTrack === 'object' && kindOrTrack && kindOrTrack._captureToken && host.attachSender) { try { host.attachSender(token(connection), kindOrTrack._captureToken, kindOrTrack.kind); } catch (_) {} } transceiver.sender.replaceTrack = function(next) { var dead=asyncDead(connection); if(dead)return dead; if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); transceiver.sender.track = next; return Promise.resolve(); }; transceiver.sender.getParameters = function() { token(connection); return transceiver.sender._parameters; }; transceiver.sender.setParameters = function(parameters) { var dead=asyncDead(connection); if(dead)return dead; transceiver.sender._parameters = parameters || { encodings: [] }; return Promise.resolve(transceiver.sender._parameters); }; connection._transceivers.push(transceiver); this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); return transceiver; };
 RTCPeerConnection.prototype.getTransceivers = function() { token(this); return this._transceivers.slice(); };
 RTCPeerConnection.prototype.getConfiguration = function() { token(this); return this.configuration; };
 RTCPeerConnection.prototype.setConfiguration = function(configuration) {
