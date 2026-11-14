@@ -11,7 +11,7 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMediaFrameSource, IFeatureFallbackSource
 {
-    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null, IMediaDecoder? decoder = null, int maxMediaBytes = 128 * 1024 * 1024, MediaResourceBudget? mediaBudget = null, bool soundEnabled = false, Func<bool>? checkSoundPermission = null, Func<bool>? checkMediaPermission = null, Func<ScriptValue, MediaCaptureVideoFrame?>? captureFrame = null, Func<ScriptValue, CaptureAudioReader?>? captureAudio = null, bool deferLoad = false)
+    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null, IMediaDecoder? decoder = null, int maxMediaBytes = 128 * 1024 * 1024, MediaResourceBudget? mediaBudget = null, bool soundEnabled = false, Func<bool>? checkSoundPermission = null, Func<bool>? checkMediaPermission = null, Func<ScriptValue, MediaCaptureVideoFrame?>? captureFrame = null, Func<ScriptValue, CaptureAudioReader?>? captureAudio = null, bool deferLoad = false, Func<ScriptValue, (bool Remote, MediaCaptureVideoFrame? Frame)>? remoteVideo = null)
     {
         Engine = engine;
         EventTemplate = eventTemplate;
@@ -32,6 +32,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         _checkSoundPermission = checkSoundPermission;
         _checkMediaPermission = checkMediaPermission;
         _captureFrame = captureFrame;
+        _remoteVideo = remoteVideo;
         _captureAudio = captureAudio;
         _capabilityDisabled = !enabled;
         element.MediaPresentation = this;
@@ -75,6 +76,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     private readonly Func<bool>? _checkSoundPermission;
     private readonly Func<bool>? _checkMediaPermission;
     private readonly Func<ScriptValue, MediaCaptureVideoFrame?>? _captureFrame;
+    /// <summary>Resolves a remote WebRTC video track to its newest decoded frame; "Remote" is false for every other track.</summary>
+    private readonly Func<ScriptValue, (bool Remote, MediaCaptureVideoFrame? Frame)>? _remoteVideo;
     private readonly Func<ScriptValue, CaptureAudioReader?>? _captureAudio;
     private ScriptValue _captureTrack = ScriptValue.Undefined;
     private bool _soundPlaybackAuthorized;
@@ -238,7 +241,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         if (!_captureVideo || !_captureTrack.IsObject) return;
         var generation = _loadGeneration;
         var enabled = CaptureTrackEnabled(_captureTrack);
-        var frame = enabled ? _captureFrame?.Invoke(_captureTrack) : null;
+        var remote = enabled && _remoteVideo?.Invoke(_captureTrack) is { Remote: true } found ? found : (Remote: false, Frame: (MediaCaptureVideoFrame?)null);
+        var frame = enabled ? (remote.Remote ? remote.Frame : _captureFrame?.Invoke(_captureTrack)) : null;
         if (!LoadStillCurrent(generation)) return;
         // A real provider with no frame presents black, never the compatibility gradient.
         // Ended/disabled tracks also replace the last image immediately with opaque black.
@@ -264,7 +268,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             _capturePixels = frame.Value.Rgba;
             _captureBlack = false;
         }
-        else if (enabled && _captureFrame is null)
+        else if (enabled && _captureFrame is null && !remote.Remote)
         {
             // No host provider: the compatibility source shows a synthetic gradient.
             if (!_captureGradient || _capturePixels?.Length != bytes)
