@@ -125,7 +125,8 @@ public sealed class TurnClientTests
         // The schedule runs on a manual clock: nothing is due until the test moves time, and nothing sleeps.
         var clock = new TurnTransportTests.ManualClock();
         using var server = new FakeTurnServer { Lifetime = 2 };
-        using var agent = Agent(server);
+        // No background tick: the test drives maintenance itself, so nothing depends on a real timer or thread scheduling.
+        using var agent = new IceAgent([Server(server)]) { TurnRequestTimeout = Fast, TurnRetryBackoff = Fast, AutoMaintenance = false };
         agent.TurnClock = clock;
         agent.TurnPermissionRefreshInterval = TimeSpan.FromMilliseconds(300);
         await agent.StartGatheringAsync();
@@ -135,10 +136,9 @@ public sealed class TurnClientTests
         });
         await Yield(() => server.PermissionRequests >= 1);
         Assert.Equal(0, server.Refreshes); // no time has passed on the clock
-        // The maintenance tick is real (the receive loop) but only fires work the clock says is due. A refresh sets its next
-        // deadline when its response is processed, so each wait keeps moving the clock instead of advancing once.
-        await Yield(() => { clock.Advance(TimeSpan.FromMilliseconds(400)); return server.PermissionRequests >= 3; });
-        await Yield(() => { clock.Advance(TimeSpan.FromSeconds(1)); return server.Refreshes >= 2; });
+        // A refresh sets its next deadline when its response is processed, so each wait keeps moving the clock and ticking.
+        await Yield(() => { clock.Advance(TimeSpan.FromMilliseconds(400)); agent.RunMaintenance(); return server.PermissionRequests >= 3; });
+        await Yield(() => { clock.Advance(TimeSpan.FromSeconds(1)); agent.RunMaintenance(); return server.Refreshes >= 2; });
         Assert.All(server.RefreshLifetimes, lifetime => Assert.Equal(600u, lifetime));
     }
 

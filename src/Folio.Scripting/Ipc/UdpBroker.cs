@@ -236,6 +236,7 @@ internal sealed class UdpBroker : IDisposable
     private void Open(long token, long requestedGeneration)
     {
         UdpSocketLease? lease = null;
+        IPEndPoint? local = null;
         string? refusal = null;
         long generation;
         lock (_gate)
@@ -258,6 +259,7 @@ internal sealed class UdpBroker : IDisposable
                         socket.Bind(new IPEndPoint(IPAddress.Any, 0));
                     }
                     catch { socket.Dispose(); throw; }
+                    local = (IPEndPoint)socket.LocalEndPoint!; // read while the lock keeps a replacing document from disposing the socket
                     lease = new UdpSocketLease(++_nextId, socket, _options.OutgoingQueuePerSocket);
                     _sockets.Add(lease.Id, lease);
                 }
@@ -265,7 +267,7 @@ internal sealed class UdpBroker : IDisposable
             }
         }
         if (lease is null) { Enqueue(new(0, "failed", token, 0, refusal, null, null, false)); return; }
-        Enqueue(new(generation, "opened", token, lease.Id, null, (IPEndPoint)lease.Socket.LocalEndPoint!, null, false));
+        Enqueue(new(generation, "opened", token, lease.Id, null, local, null, false));
         _ = Task.Run(() => SendLoopAsync(lease));
         _ = Task.Run(() => ReceiveLoopAsync(lease, generation));
     }
