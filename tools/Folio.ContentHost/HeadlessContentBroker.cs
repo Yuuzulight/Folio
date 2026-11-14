@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
+using System.Text.Json.Serialization;
+using System.Text.Json.Nodes;
 using Folio.Scripting.Ipc;
 
 namespace Folio.ContentHost;
@@ -9,7 +11,8 @@ namespace Folio.ContentHost;
 /// <summary>Private stdio broker for a single sandboxed, network-disabled Folio document.</summary>
 internal sealed class HeadlessContentBroker : IAsyncDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonElement NullId = JsonDocument.Parse("null").RootElement.Clone();
+    private static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement.Clone();
     private static readonly Regex FixtureLabel = new("^fixture:[A-Za-z0-9._/-]{1,128}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
     private static readonly string SnapshotExpression = """
@@ -235,9 +238,9 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
         if (operation.Equals("hello", StringComparison.OrdinalIgnoreCase))
         {
             await EnsureClientAsync().ConfigureAwait(false);
-            var hello = await ExchangeAsync(ContentMessageKind.Hello, new { }, ContentMessageKind.Hello, cancellationToken).ConfigureAwait(false);
+            var hello = await ExchangeAsync(ContentMessageKind.Hello, EmptyObject, ContentMessageKind.Hello, cancellationToken).ConfigureAwait(false);
             var protocol = hello.Payload.TryGetProperty("protocol", out var protocolValue) && protocolValue.TryGetInt32(out var version) ? version : ContentMessage.CurrentVersion;
-            return new { id = IdOrNull(id, hasId), ok = true, apiVersion = "v1", engine = new { product = "Folio.ContentHost/native", protocol }, sandboxed = true, networkEnabled = false };
+            return new BrokerHelloResponse(IdOrNull(id, hasId), true, "v1", new BrokerEngine("Folio.ContentHost/native", protocol), true, false);
         }
         if (operation.Equals("load", StringComparison.OrdinalIgnoreCase))
         {
@@ -248,21 +251,26 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             await EnsureClientAsync().ConfigureAwait(false);
             _urlLabel = urlLabel;
             _lastWorkerSequence = 0;
-            var initializeReferences = $"window.__folioRefPrefix={JsonSerializer.Serialize(_referencePrefix)};window.__folioRefCounter={_referenceCounter.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
-            var frame = await ExchangeAsync(ContentMessageKind.Load, new { html, script = initializeReferences, url = _urlLabel, capabilities = FeatureCapabilities.Default }, ContentMessageKind.Frame, cancellationToken).ConfigureAwait(false);
+            var initializeReferences = $"window.__folioRefPrefix='{_referencePrefix}';window.__folioRefCounter={_referenceCounter.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            var frame = await ExchangeAsync(ContentMessageKind.Load, new JsonObject
+            {
+                ["html"] = html,
+                ["script"] = initializeReferences,
+                ["url"] = _urlLabel
+            }, ContentMessageKind.Frame, cancellationToken).ConfigureAwait(false);
             return await FrameResponseAsync(id, hasId, frame, cancellationToken).ConfigureAwait(false);
         }
         if (operation.Equals("evaluate", StringComparison.OrdinalIgnoreCase))
         {
             EnsureLoaded();
             var expression = RequiredString(request, "expression");
-            var frame = await ExchangeAsync(ContentMessageKind.Load, new { script = expression, url = _urlLabel }, ContentMessageKind.Frame, cancellationToken).ConfigureAwait(false);
+            var frame = await ExchangeAsync(ContentMessageKind.Load, new JsonObject { ["script"] = expression, ["url"] = _urlLabel }, ContentMessageKind.Frame, cancellationToken).ConfigureAwait(false);
             return await FrameResponseAsync(id, hasId, frame, cancellationToken).ConfigureAwait(false);
         }
         if (operation.Equals("snapshot", StringComparison.OrdinalIgnoreCase))
         {
             EnsureLoaded();
-            var frame = await ExchangeAsync(ContentMessageKind.Load, new { script = SnapshotExpression, url = _urlLabel }, ContentMessageKind.Frame, cancellationToken).ConfigureAwait(false);
+            var frame = await ExchangeAsync(ContentMessageKind.Load, new JsonObject { ["script"] = SnapshotExpression, ["url"] = _urlLabel }, ContentMessageKind.Frame, cancellationToken).ConfigureAwait(false);
             var value = RequiredPayloadString(frame.Payload, "value");
             using var snapshotDocument = JsonDocument.Parse(value);
             var snapshot = snapshotDocument.RootElement.Clone();
@@ -270,7 +278,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
                 !snapshot.TryGetProperty("elements", out var elements) || elements.ValueKind != JsonValueKind.Array ||
                 !snapshot.TryGetProperty("text", out var text) || text.ValueKind != JsonValueKind.String)
                 throw new BrokerRequestException("engine_error", "Folio returned an invalid page snapshot.");
-            var normalized = JsonSerializer.Deserialize<SnapshotResponse>(snapshot.GetRawText(), JsonOptions)
+            var normalized = JsonSerializer.Deserialize(snapshot.GetRawText(), HeadlessContentHostBrokerJsonContext.Default.SnapshotResponse)
                 ?? throw new BrokerRequestException("engine_error", "Folio returned an invalid page snapshot.");
             foreach (var element in normalized.Elements)
                 if (element.Reference.StartsWith(_referencePrefix, StringComparison.Ordinal) &&
@@ -281,7 +289,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             if (sequence <= _lastWorkerSequence) throw new BrokerRequestException("engine_error", "Folio returned a stale content-process response.");
             _lastWorkerSequence = sequence;
             normalized = normalized with { Url = _urlLabel };
-            return new { id = IdOrNull(id, hasId), ok = true, snapshot = normalized, sequence };
+            return new BrokerSnapshotResponse(IdOrNull(id, hasId), true, normalized, sequence);
         }
         if (operation.Equals("screenshot", StringComparison.OrdinalIgnoreCase) ||
             operation.Equals("click", StringComparison.OrdinalIgnoreCase) ||
@@ -294,7 +302,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
         if (operation.Equals("close", StringComparison.OrdinalIgnoreCase))
         {
             _closed = true;
-            return new { id = IdOrNull(id, hasId), ok = true };
+            return new BrokerSimpleResponse(IdOrNull(id, hasId), true);
         }
         throw new BrokerRequestException("unsupported", $"The {operation} operation is not supported by this Folio broker.");
     }
@@ -306,10 +314,17 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
         if (string.Equals(Environment.GetEnvironmentVariable("FOLIO_UNSANDBOXED"), "1", StringComparison.Ordinal))
             throw new BrokerRequestException("sandbox_bypassed", "FOLIO_UNSANDBOXED disables the required content-process sandbox.");
 
-        var assemblyPath = System.Reflection.Assembly.GetEntryAssembly()?.Location;
-        if (string.IsNullOrWhiteSpace(assemblyPath)) throw new BrokerRequestException("engine_error", "Unable to locate the Folio content-host build.");
-        var hostPath = Path.ChangeExtension(assemblyPath, ".exe");
-        if (!File.Exists(hostPath)) hostPath = assemblyPath;
+        var processPath = Environment.ProcessPath;
+        var appHostPath = Path.Combine(AppContext.BaseDirectory, "Folio.ContentHost.exe");
+        var hostPath = !string.IsNullOrWhiteSpace(processPath) &&
+            Path.GetFileName(processPath).Equals("Folio.ContentHost.exe", StringComparison.OrdinalIgnoreCase)
+            ? processPath : appHostPath;
+        if (!File.Exists(hostPath))
+        {
+            var assemblyPath = Path.Combine(AppContext.BaseDirectory, "Folio.ContentHost.dll");
+            if (!File.Exists(assemblyPath)) throw new BrokerRequestException("engine_error", "Unable to locate the Folio content-host build.");
+            hostPath = assemblyPath;
+        }
         _client = ContentProcessClient.Start(hostPath, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(20)));
         _client.MessageReceived += OnContentMessageAsync;
         _client.ScriptStopped += OnScriptStopped;
@@ -372,16 +387,11 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
         var diagnostics = frame.Payload.TryGetProperty("diagnostics", out var diagnosticsValue) && diagnosticsValue.ValueKind == JsonValueKind.Array
             ? diagnosticsValue.EnumerateArray().Select(item => item.GetString() ?? "").ToArray() : [];
         var canvasFrame = ReadCanvasFrame(frame.Payload);
-        return Task.FromResult<object>(new
-        {
-            id = IdOrNull(id, hasId), ok = true, url = _urlLabel, value,
-            displayItems, canvasCommands, diagnostics, sequence,
-            rendered = displayItems > 0,
-            canvasFrame
-        });
+        return Task.FromResult<object>(new BrokerFrameResponse(IdOrNull(id, hasId), true, _urlLabel, value,
+            displayItems, canvasCommands, diagnostics, sequence, displayItems > 0, canvasFrame));
     }
 
-    private object? ReadCanvasFrame(JsonElement payload)
+    private BrokerCanvasFrame? ReadCanvasFrame(JsonElement payload)
     {
         if (_client is null || !payload.TryGetProperty("canvasFrame", out var descriptor) || descriptor.ValueKind != JsonValueKind.Object)
             return null;
@@ -392,7 +402,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
         var describedSequence = descriptor.TryGetProperty("sequence", out var sequenceElement) && sequenceElement.TryGetInt64(out var parsedSequence) ? parsedSequence : 0;
         if (!string.Equals(path, _client.FramePath, StringComparison.Ordinal) || !CanvasFrameStore.IsValidDescriptor(width, height, stride))
             throw new BrokerRequestException("engine_error", "Folio returned an invalid rendered-frame descriptor.");
-        if (describedSequence <= 0) return new { sequence = describedSequence, width, height, stride, pixelProbe = (object?)null };
+        if (describedSequence <= 0) return new BrokerCanvasFrame(describedSequence, width, height, stride, null);
 
         using var reader = new CanvasFrameStore(path!, width, height, stride);
         var pixels = reader.ReadLatest(out var actualSequence);
@@ -401,7 +411,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
         var outside = ReadPixel(pixels, stride, width, height, 100, 100);
         var background = ReadPixel(pixels, stride, width, height, width - 1, height - 1);
         var changedPixels = CountPixelsDifferentFrom(pixels, stride, width, height, background);
-        return new { sequence = actualSequence, width, height, stride, pixelProbe = new { inside, outside, changedPixels } };
+        return new BrokerCanvasFrame(actualSequence, width, height, stride, new BrokerPixelProbe(inside, outside, changedPixels));
     }
 
     private static int CountPixelsDifferentFrom(byte[] pixels, int stride, int width, int height, int[] background)
@@ -442,14 +452,23 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             ? property.GetString()! : throw new BrokerRequestException("engine_error", $"Folio response did not contain {name}.");
 
     private static JsonElement IdOrNull(JsonElement id, bool hasId)
-        => hasId ? id : JsonSerializer.SerializeToElement<object?>(null);
+        => hasId ? id : NullId;
 
     private static object ErrorResponse(JsonElement id, bool hasId, string code, string message)
-        => new { id = IdOrNull(id, hasId), ok = false, error = new { code, message } };
+        => new BrokerErrorResponse(IdOrNull(id, hasId), false, new BrokerError(code, message));
 
     private static async Task WriteAsync(object response, CancellationToken cancellationToken)
     {
-        await Console.Out.WriteLineAsync(JsonSerializer.Serialize(response, JsonOptions).AsMemory(), cancellationToken).ConfigureAwait(false);
+        var json = response switch
+        {
+            BrokerHelloResponse value => JsonSerializer.Serialize(value, HeadlessContentHostBrokerJsonContext.Default.BrokerHelloResponse),
+            BrokerFrameResponse value => JsonSerializer.Serialize(value, HeadlessContentHostBrokerJsonContext.Default.BrokerFrameResponse),
+            BrokerSnapshotResponse value => JsonSerializer.Serialize(value, HeadlessContentHostBrokerJsonContext.Default.BrokerSnapshotResponse),
+            BrokerSimpleResponse value => JsonSerializer.Serialize(value, HeadlessContentHostBrokerJsonContext.Default.BrokerSimpleResponse),
+            BrokerErrorResponse value => JsonSerializer.Serialize(value, HeadlessContentHostBrokerJsonContext.Default.BrokerErrorResponse),
+            _ => throw new InvalidOperationException("Unknown broker response type.")
+        };
+        await Console.Out.WriteLineAsync(json.AsMemory(), cancellationToken).ConfigureAwait(false);
         await Console.Out.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -458,9 +477,27 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
         public string Code { get; } = code;
     }
 
-    private sealed record SnapshotResponse(
-        string Url, string Title, IReadOnlyList<SnapshotElement> Elements, bool Truncated, string Text, bool TextTruncated);
-
-    private sealed record SnapshotElement(
-        string Reference, string Tag, string Role, string Name, string? Href, string? Type, bool Disabled);
 }
+
+internal sealed record SnapshotResponse(
+    string Url, string Title, IReadOnlyList<SnapshotElement> Elements, bool Truncated, string Text, bool TextTruncated);
+internal sealed record SnapshotElement(string Reference, string Tag, string Role, string Name, string? Href, string? Type, bool Disabled);
+internal sealed record BrokerEngine(string Product, int Protocol);
+internal sealed record BrokerHelloResponse(JsonElement Id, bool Ok, string ApiVersion, BrokerEngine Engine, bool Sandboxed, bool NetworkEnabled);
+internal sealed record BrokerFrameResponse(JsonElement Id, bool Ok, string Url, string? Value, int DisplayItems, int CanvasCommands,
+    IReadOnlyList<string> Diagnostics, long Sequence, bool Rendered, BrokerCanvasFrame? CanvasFrame);
+internal sealed record BrokerCanvasFrame(long Sequence, int Width, int Height, int Stride, BrokerPixelProbe? PixelProbe);
+internal sealed record BrokerPixelProbe(int[] Inside, int[] Outside, int ChangedPixels);
+internal sealed record BrokerSnapshotResponse(JsonElement Id, bool Ok, SnapshotResponse Snapshot, long Sequence);
+internal sealed record BrokerSimpleResponse(JsonElement Id, bool Ok);
+internal sealed record BrokerError(string Code, string Message);
+internal sealed record BrokerErrorResponse(JsonElement Id, bool Ok, BrokerError Error);
+
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(SnapshotResponse))]
+[JsonSerializable(typeof(BrokerHelloResponse))]
+[JsonSerializable(typeof(BrokerFrameResponse))]
+[JsonSerializable(typeof(BrokerSnapshotResponse))]
+[JsonSerializable(typeof(BrokerSimpleResponse))]
+[JsonSerializable(typeof(BrokerErrorResponse))]
+internal partial class HeadlessContentHostBrokerJsonContext : JsonSerializerContext;
