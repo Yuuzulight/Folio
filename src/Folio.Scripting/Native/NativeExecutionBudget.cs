@@ -8,6 +8,7 @@ internal sealed class NativeExecutionBudget(object owner, ScriptLimits limits, F
     [ThreadStatic] private static NativeExecutionBudget? _current;
     private readonly long _allocationStart = GC.GetAllocatedBytesForCurrentThread();
     private long _steps;
+    private int _checks;
     private int _depth;
     private Exception? _failure;
 
@@ -51,7 +52,7 @@ internal sealed class NativeExecutionBudget(object owner, ScriptLimits limits, F
             _failure = new ScriptInterruptedException("The native script was interrupted.");
             throw _failure;
         }
-        if (timedOut()) Fail("Timeout");
+        if ((++_checks & 7) == 0 && timedOut()) Fail("Timeout");
         if (limits.MemoryLimitBytes is { } maximum && GC.GetAllocatedBytesForCurrentThread() - _allocationStart > maximum)
             Fail("Memory");
     }
