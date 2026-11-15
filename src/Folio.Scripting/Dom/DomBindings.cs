@@ -125,10 +125,10 @@ public static class DomBindings
             FormData.prototype.keys = function() { return this._entries.map(x => x[0])[Symbol.iterator](); };
             FormData.prototype.values = function() { return this._entries.map(x => x[1])[Symbol.iterator](); };
             function makeStorage(scope) {
-                if (scope === 'local' && typeof __folio_storage !== 'undefined' && __folio_storage) {
+                if (typeof __folio_storage !== 'undefined' && __folio_storage) {
                     const storageApi = __folio_storage;
                     const localKeys = function() {
-                        const raw = storageApi.keys('local');
+                        const raw = storageApi.keys(scope);
                         const out = [];
                         for (let i = 0; i < raw.length; i++) out.push(raw[i]);
                         return out;
@@ -136,17 +136,17 @@ public static class DomBindings
                     const storage = {
                         get length() { return localKeys().length; },
                         key: function(index) { const keys = localKeys(); return index >= 0 && index < keys.length ? keys[index] : null; },
-                        getItem: function(key) { key = String(key); return storageApi.read('local', key); },
+                        getItem: function(key) { key = String(key); return storageApi.read(scope, key); },
                         setItem: function(key, value) {
                             key = String(key); value = String(value);
                             let size = 0;
-                            for (const k of localKeys()) if (k !== key) { const existing = storageApi.read('local', k); if (existing !== null) size += k.length + existing.length; }
+                            for (const k of localKeys()) if (k !== key) { const existing = storageApi.read(scope, k); if (existing !== null) size += k.length + existing.length; }
                             size += key.length + value.length;
                             if (size > 5 * 1024 * 1024) throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
-                            storageApi.write('local', key, value);
+                            storageApi.write(scope, key, value);
                         },
-                        removeItem: function(key) { storageApi.delete('local', String(key)); },
-                        clear: function() { for (const k of localKeys()) storageApi.delete('local', k); }
+                        removeItem: function(key) { storageApi.delete(scope, String(key)); },
+                        clear: function() { for (const k of localKeys()) storageApi.delete(scope, k); }
                     };
                     return new Proxy(storage, {
                         get: function(target, key) { if (typeof key === 'symbol' || key in target) return target[key]; return target.getItem(key); },
@@ -162,7 +162,7 @@ public static class DomBindings
                     });
                 }
                 const data = Object.create(null);
-                if (typeof __folio_storage !== 'undefined' && __folio_storage && scope !== 'session') {
+                if (typeof __folio_storage !== 'undefined' && __folio_storage) {
                     for (const key of __folio_storage.keys(scope)) {
                         const value = __folio_storage.read(scope, key);
                         if (value !== null) data[key] = value;
@@ -475,7 +475,7 @@ public static class DomBindings
                 return engine.CreateArray(bytes.Select(value => ScriptValue.FromNumber(value)).ToArray());
             });
         engine.SetGlobalProperty("__folio_random", engine.CreateHostObject(random, context));
-        // localStorage and sessionStorage are artifact-scoped persistence partitioned by origin.
+        // localStorage and sessionStorage are artifact-scoped persistence partitioned by origin: both survive a reload and back navigation, and a host decides how long each scope lives (the broker keeps session keys in memory only).
         // Keep the storage backend behind a host object so the page never receives the
         // trusted IArtifactStorage implementation itself.
         var storageOrigin = context.BaseUri is { IsAbsoluteUri: true } storageBaseUri && (storageBaseUri.Scheme == "http" || storageBaseUri.Scheme == "https")

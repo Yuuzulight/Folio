@@ -1837,6 +1837,26 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(1, second.Evaluate("localStorage.length").AsNumber());
     }
 
+    // A reload or back navigation builds a new document; the host's storage carries the tab's session keys across it, and the two scopes stay apart.
+    [Fact]
+    public void SessionStorageSurvivesANewDocumentThroughArtifactStorageAndStaysApartFromLocal()
+    {
+        var storage = new ArtifactMemoryStorage();
+        using (var first = new JintScriptEngine())
+        {
+            DomBindings.Install(first, TreeBuilder.Parse("<div></div>"), artifactStorage: storage);
+            Assert.Equal("s", first.Evaluate("sessionStorage.setItem('k', 's'); sessionStorage.getItem('k')").AsString());
+            Assert.True(first.Evaluate("localStorage.getItem('k') === null").AsBoolean());
+        }
+
+        using var second = new JintScriptEngine();
+        DomBindings.Install(second, TreeBuilder.Parse("<div></div>"), artifactStorage: storage);
+        Assert.Equal("s", second.Evaluate("sessionStorage.getItem('k')").AsString());
+        Assert.Equal(1, second.Evaluate("sessionStorage.length").AsNumber());
+        Assert.True(second.Evaluate("localStorage.getItem('k') === null").AsBoolean());
+        Assert.Equal(0, second.Evaluate("sessionStorage.clear(); sessionStorage.length").AsNumber());
+    }
+
     [Fact]
     public void UrlSearchParamsSupportsBasicParsingAndMutation()
     {
