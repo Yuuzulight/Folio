@@ -692,17 +692,26 @@ public sealed class Document : IDisposable
         if (_page is not { } page)
             return null;
 
-        RectF? found = null;
-        WalkFragment(page, 0, 0);
-        return found;
+        // One walk of the fragment tree serves every element of this layout; a page that reads each link's rectangle (as a snapshot does)
+        // would otherwise walk, and re-style, the whole tree once per link.
+        _boundsCache ??= BuildBoundsCache(page);
+        return _boundsCache.TryGetValue(element, out var bounds) ? bounds : null;
+    }
 
-        bool WalkFragment(Fragment frag, float currentX, float currentY)
+    // Border boxes by element for the current layout and scroll offsets; cleared when either changes.
+    private Dictionary<ElementNode, RectF>? _boundsCache;
+
+    private Dictionary<ElementNode, RectF> BuildBoundsCache(Fragment root)
+    {
+        var bounds = new Dictionary<ElementNode, RectF>(ReferenceEqualityComparer.Instance);
+        Walk(root, 0, 0);
+        return bounds;
+
+        void Walk(Fragment frag, float currentX, float currentY)
         {
-            if (frag.Box?.Node == element)
-            {
-                found = new RectF(currentX, currentY, frag.Width, frag.Height);
-                return true;
-            }
+            // The first box of an element in document order wins, as the per-element search used to find it.
+            if (frag.Box?.Node is ElementNode boxed)
+                bounds.TryAdd(boxed, new RectF(currentX, currentY, frag.Width, frag.Height));
 
             var isScroller = frag.Box?.Node is ElementNode node && IsScrollContainer(node);
             var scrollOffset = isScroller && frag.Box?.Node is ElementNode scrollerEl
@@ -712,10 +721,8 @@ public sealed class Document : IDisposable
             {
                 var cx = currentX + child.X - (isScroller ? scrollOffset.X : 0);
                 var cy = currentY + child.Y - (isScroller ? scrollOffset.Y : 0);
-                if (WalkFragment(child.Fragment, cx, cy))
-                    return true;
+                Walk(child.Fragment, cx, cy);
             }
-            return false;
         }
     }
 
@@ -795,7 +802,7 @@ public sealed class Document : IDisposable
 
         if (clampedX != current.X || clampedY != current.Y)
         {
-            _scrollOffsets[element] = new Vector2(clampedX, clampedY);
+            _scrollOffsets[element] = new Vector2(clampedX, clampedY); _boundsCache = null;
             _hitTree = null;
             if (_frame is { } frame && _images is not null)
                 DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
@@ -837,7 +844,7 @@ public sealed class Document : IDisposable
         }
         else
         {
-            _scrollOffsets[element.Node] = clamped;
+            _scrollOffsets[element.Node] = clamped; _boundsCache = null;
             _hitTree = null;
             if (_frame is { } frame && _images is not null)
                 DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
@@ -1255,6 +1262,7 @@ public sealed class Document : IDisposable
             return (DisplayList = new DisplayList(), 0);
         var page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper, _images);
         _page = page;
+        _boundsCache = null;
         LayoutCount++;
         _frame = (root, page, deviceScale);
         _hitTree = null;
@@ -1294,17 +1302,17 @@ public sealed class Document : IDisposable
             var t = anim.Duration > 0 ? (time - anim.StartTime) / anim.Duration : 1.0;
             if (t >= 1.0)
             {
-                _scrollOffsets[node] = anim.Target;
+                _scrollOffsets[node] = anim.Target; _boundsCache = null;
                 completed.Add(node);
             }
             else if (t <= 0.0)
             {
-                _scrollOffsets[node] = anim.Start;
+                _scrollOffsets[node] = anim.Start; _boundsCache = null;
             }
             else
             {
                 var progress = (float)Easing.Ease.Apply(t);
-                _scrollOffsets[node] = Vector2.Lerp(anim.Start, anim.Target, progress);
+                _scrollOffsets[node] = Vector2.Lerp(anim.Start, anim.Target, progress); _boundsCache = null;
             }
         }
 
@@ -1582,6 +1590,7 @@ public sealed class Document : IDisposable
             if (BoxTreeBuilder.Build(Node, _images, l.Scale) is not { } root)
             {
                 _page = null;
+                _boundsCache = null;
                 _frame = null;
                 DisplayList = new DisplayList();
                 return Damage.Boxes;
@@ -1589,6 +1598,8 @@ public sealed class Document : IDisposable
 
             var page = LayoutEngine.LayoutDocument(root, l.Width, l.Height, _fonts, l.Shaper, _images);
             _page = page;
+            _boundsCache = null;
+        _boundsCache = null;
             LayoutCount++;
             _frame = (root, page, l.Scale);
             _hitTree = null;
