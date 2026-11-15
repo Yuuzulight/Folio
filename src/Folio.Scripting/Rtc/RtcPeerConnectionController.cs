@@ -164,7 +164,8 @@ internal sealed class RtcPeerConnectionController : IDisposable
         new(97, "H264", 90000, 1) { Fmtp = H264Fmtp("42e01f", 1) },
         new(98, "H264", 90000, 1) { Fmtp = H264Fmtp("42001f", 1) },
     ];
-    private static string H264Fmtp(string profileLevelId, int packetizationMode) => $"level-asymmetry-allowed=1;packetization-mode={packetizationMode};profile-level-id={profileLevelId}";
+    private static string H264Fmtp(string profileLevelId, int packetizationMode, bool levelAsymmetryAllowed = true) =>
+        (levelAsymmetryAllowed ? "level-asymmetry-allowed=1;" : "") + $"packetization-mode={packetizationMode};profile-level-id={profileLevelId}";
     private static readonly string[] VideoFeedback = ["nack", "nack pli", "ccm fir"];
 
     private RtcMediaDescription MediaSection(string kind, string mid, string direction, RtcLocalTrack? sender)
@@ -221,14 +222,14 @@ internal sealed class RtcPeerConnectionController : IDisposable
 
     /// <summary>
     /// The one video codec an answer accepts: VP8 when it is offered, else the best H.264 Constrained Baseline payload type
-    /// (packetization mode 1 before 0, then the offer's order), answered with the offered profile-level-id and mode.
+    /// (packetization mode 1 before 0, then the offer's order), answered with the offered profile-level-id and mode, echoing level-asymmetry-allowed only when the offer carried it.
     /// </summary>
     private static RtcCodec[] AcceptVideo(RtcMediaDescription offered)
     {
         var codecs = offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).OfType<RtcCodec>().ToArray();
         if (codecs.FirstOrDefault(c => c is { IsVp8: true, ClockRate: 90000 }) is { } vp8) return [vp8];
         var h264 = codecs.Where(c => c.IsDecodableH264).OrderByDescending(c => c.H264PacketizationMode).FirstOrDefault();
-        return h264 is null ? [] : [new RtcCodec(h264.PayloadType, "H264", 90000, 1) { Fmtp = H264Fmtp(h264.H264ProfileLevelId, h264.H264PacketizationMode) }];
+        return h264 is null ? [] : [new RtcCodec(h264.PayloadType, "H264", 90000, 1) { Fmtp = H264Fmtp(h264.H264ProfileLevelId, h264.H264PacketizationMode, h264.FmtpParameter("level-asymmetry-allowed") == "1") }];
     }
 
     public async Task<string> CreateAnswerAsync(bool hasDataChannels, int audioSenders, int videoSenders)

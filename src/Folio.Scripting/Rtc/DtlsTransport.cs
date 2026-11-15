@@ -535,7 +535,10 @@ internal sealed class DtlsTransport : IDisposable
             if (type == 0x000E)
             {
                 var data = body.Slice(offset, length);
-                if (_srtpNegotiated || data.Length != 5 || data[0] != 0 || data[1] != 2 || data[2] != 0 || data[3] != 7 || data[4] != 0)
+                if (_srtpNegotiated) throw new CryptographicException("The DTLS server sent a duplicate use_srtp extension.");
+                if (data.Length != 5 || data[0] != 0 || data[1] != 2 || data[4] != 0)
+                    throw new CryptographicException("The DTLS server sent a malformed use_srtp extension (length).");
+                if (data[2] != 0 || data[3] != 7)
                     throw new CryptographicException("The DTLS server chose an unsupported SRTP profile.");
                 _srtpNegotiated = true;
             }

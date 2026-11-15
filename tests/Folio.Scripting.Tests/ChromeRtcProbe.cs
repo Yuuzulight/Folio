@@ -29,10 +29,8 @@ internal static class ChromeRtcProbe
     private static async Task<int> RunAsync(string executable, bool folioAnswerer)
     {
         if (!File.Exists(executable)) { Console.Error.WriteLine("Chrome executable not found."); return 2; }
-        using var reservation = new TcpListener(IPAddress.Loopback, 0);
-        reservation.Start(); var port = ((IPEndPoint)reservation.LocalEndpoint).Port; reservation.Stop();
-        var origin = $"http://127.0.0.1:{port}/";
-        using var listener = new HttpListener(); listener.Prefixes.Add(origin); listener.Start();
+        var (listener, origin) = ChromeRtcMediaProbe.StartListener();
+        using var listenerLifetime = listener;
         using var peer = new RtcPeerConnectionController();
         var packetLog = new List<string>(); var packetGate = new object();
         void Packet(string direction, byte[] packet)
@@ -158,7 +156,7 @@ internal static class ChromeRtcProbe
         Console.WriteLine($"Folio: ICE={peer.IceConnectionState}, DTLS={peer.Dtls.State}, SCTP={peer.Sctp.State}, channel={local.ReadyState}.");
         lock (receiveGate) Console.WriteLine("Folio received: " + string.Join(",", received));
         Console.WriteLine("Probe evidence: " + profile);
-        Console.WriteLine("Chrome version: " + FileVersionInfo.GetVersionInfo(executable).ProductVersion + "; Folio role: " + (folioAnswerer ? "answerer" : "offerer"));
+        Console.WriteLine("Chrome version: " + ChromeRtcMediaProbe.ChromeVersion(executable) + "; Folio role: " + (folioAnswerer ? "answerer" : "offerer"));
         return passed ? 0 : 1;
     }
 
