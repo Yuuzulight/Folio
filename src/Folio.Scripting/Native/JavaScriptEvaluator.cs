@@ -36,11 +36,13 @@ internal sealed class JavaScriptEvaluator
         value = null;
         return false;
     }
+    // The target of a script function's delegate: a call through InvokeFunction supplies the receiver, a plain call has none.
+    // (A table keyed by the delegate did this before, and cost a GC handle and a lock per function created.)
     private sealed class ReceiverBinding(Func<object?, IReadOnlyList<object?>, object?> invoke)
     {
         internal object? Invoke(object? receiver, IReadOnlyList<object?> args) => invoke(receiver, args);
+        internal object? InvokeWithoutReceiver(IReadOnlyList<object?> args) => invoke(null, args);
     }
-    private static readonly ConditionalWeakTable<Func<IReadOnlyList<object?>, object?>, ReceiverBinding> ReceiverBindings = new();
     private readonly IDictionary<string, object?> _bindings;
     private readonly IDictionary<string, object?>? _parentBindings;
     private IDictionary<string, object?>? _varBindings;
@@ -177,9 +179,10 @@ internal sealed class JavaScriptEvaluator
         return TakeReturn(out var returned) ? returned : result;
     }
 
-    internal object? ExecuteFunctionBody(IReadOnlyList<JavaScriptStatement> statements)
+    internal object? ExecuteFunctionBody(IReadOnlyList<JavaScriptStatement> statements, string[]? hoisted = null)
     {
-        HoistVariables(statements);
+        if (hoisted is null) HoistVariables(statements);
+        else foreach (var name in hoisted) _bindings.TryAdd(name, UndefinedValue.Instance);
         ExecuteCore(statements);
         return TakeReturn(out var returned) ? returned : UndefinedOrNull();
     }
@@ -241,55 +244,97 @@ internal sealed class JavaScriptEvaluator
 
     private void HoistVariables(IReadOnlyList<JavaScriptStatement> statements)
     {
+        foreach (var name in CollectHoistedNames(statements)) _bindings.TryAdd(name, UndefinedValue.Instance);
+    }
+
+    // The names `var` declarations (and non-lexical for-each bindings, catch parameters) in a statement list hoist to the
+    // enclosing function, in source order. Depends only on the syntax tree, so a function caches it.
+    internal static string[] CollectHoistedNames(IReadOnlyList<JavaScriptStatement> statements)
+    {
+        var names = new List<string>();
+        CollectHoisted(statements, names);
+        return names.Count == 0 ? Array.Empty<string>() : names.ToArray();
+    }
+
+    private static void CollectHoisted(IReadOnlyList<JavaScriptStatement> statements, List<string> names)
+    {
         NativeExecutionBudget.EnsureStack();
-        foreach (var statement in statements)
+        for (var i = 0; i < statements.Count; i++) CollectHoisted(statements[i], names);
+    }
+
+    private static void CollectHoisted(JavaScriptStatement statement, List<string> names)
+    {
+        switch (statement)
         {
-            switch (statement)
-            {
-                case JavaScriptVariableStatement variable when !variable.Lexical:
-                    HoistBinding(variable.Name);
-                    break;
-                case JavaScriptBlockStatement block:
-                    HoistVariables(block.Statements);
-                    break;
-                case JavaScriptIfStatement conditional:
-                    HoistStatement(conditional.Then);
-                    if (conditional.Else is { } alternative) HoistStatement(alternative);
-                    break;
-                case JavaScriptWhileStatement loop:
-                    HoistStatement(loop.Body);
-                    break;
-                case JavaScriptDoWhileStatement loop:
-                    HoistStatement(loop.Body);
-                    break;
-                case JavaScriptForStatement loop:
-                    if (loop.Initializer is { } initializer) HoistStatement(initializer);
-                    HoistStatement(loop.Body);
-                    break;
-                case JavaScriptForEachStatement each:
-                    if (!each.Lexical) HoistBinding(each.Name);
-                    HoistStatement(each.Body);
-                    break;
-                case JavaScriptLabeledStatement labeled:
-                    HoistStatement(labeled.Body);
-                    break;
-                case JavaScriptWithStatement with:
-                    HoistStatement(with.Body);
-                    break;
-                case JavaScriptTryStatement guarded:
-                    HoistVariables(guarded.Body.Statements);
-                    if (guarded.CatchName is { } catchName) HoistBinding(catchName);
-                    if (guarded.CatchBody is { } catchBody) HoistVariables(catchBody.Statements);
-                    if (guarded.FinallyBody is { } finallyBody) HoistVariables(finallyBody.Statements);
-                    break;
-                case JavaScriptSwitchStatement selection:
-                    foreach (var @case in selection.Cases) HoistVariables(@case.Statements);
-                    break;
-            }
+            case JavaScriptVariableStatement variable when !variable.Lexical:
+                CollectHoistedBinding(variable.Name, names);
+                break;
+            case JavaScriptBlockStatement block:
+                CollectHoisted(block.Statements, names);
+                break;
+            case JavaScriptIfStatement conditional:
+                CollectHoistedNested(conditional.Then, names);
+                if (conditional.Else is { } alternative) CollectHoistedNested(alternative, names);
+                break;
+            case JavaScriptWhileStatement loop:
+                CollectHoistedNested(loop.Body, names);
+                break;
+            case JavaScriptDoWhileStatement loop:
+                CollectHoistedNested(loop.Body, names);
+                break;
+            case JavaScriptForStatement loop:
+                if (loop.Initializer is { } initializer) CollectHoistedNested(initializer, names);
+                CollectHoistedNested(loop.Body, names);
+                break;
+            case JavaScriptForEachStatement each:
+                if (!each.Lexical) CollectHoistedBinding(each.Name, names);
+                CollectHoistedNested(each.Body, names);
+                break;
+            case JavaScriptLabeledStatement labeled:
+                CollectHoistedNested(labeled.Body, names);
+                break;
+            case JavaScriptWithStatement with:
+                CollectHoistedNested(with.Body, names);
+                break;
+            case JavaScriptTryStatement guarded:
+                CollectHoisted(guarded.Body.Statements, names);
+                if (guarded.CatchName is { } catchName) CollectHoistedBinding(catchName, names);
+                if (guarded.CatchBody is { } catchBody) CollectHoisted(catchBody.Statements, names);
+                if (guarded.FinallyBody is { } finallyBody) CollectHoisted(finallyBody.Statements, names);
+                break;
+            case JavaScriptSwitchStatement selection:
+                foreach (var @case in selection.Cases) CollectHoisted(@case.Statements, names);
+                break;
         }
     }
 
-    private void HoistStatement(JavaScriptStatement statement) => HoistVariables([statement]);
+    // A single nested statement is walked as a one-statement list was before (including the stack check).
+    private static void CollectHoistedNested(JavaScriptStatement statement, List<string> names)
+    {
+        NativeExecutionBudget.EnsureStack();
+        CollectHoisted(statement, names);
+    }
+
+    private static void CollectHoistedBinding(string name, List<string> names)
+    {
+        if (name.StartsWith("[", StringComparison.Ordinal) && name.EndsWith("]", StringComparison.Ordinal))
+        {
+            foreach (var item in SplitBindingItems(name[1..^1], keepEmpty: true))
+                if (!item.StartsWith("...", StringComparison.Ordinal)) CollectHoistedBinding(item.Trim(), names);
+            return;
+        }
+        if (name.StartsWith("{", StringComparison.Ordinal) && name.EndsWith("}", StringComparison.Ordinal))
+        {
+            foreach (var item in SplitBindingItems(name[1..^1]))
+            {
+                var parts = item.Split(':', 2);
+                var binding = (parts.Length == 2 ? parts[1] : parts[0]).Trim();
+                if (!binding.StartsWith("...", StringComparison.Ordinal)) CollectHoistedBinding(binding, names);
+            }
+            return;
+        }
+        if (name.Length != 0) names.Add(name);
+    }
 
     private JavaScriptEvaluator CreateLexicalScope(IDictionary<string, object?>? bindings = null) =>
         new(bindings ?? new Dictionary<string, object?>(StringComparer.Ordinal), Math.Max(1, _maxSteps - _steps),
@@ -322,27 +367,6 @@ internal sealed class JavaScriptEvaluator
             }
         }
         finally { _steps += scope._steps; }
-    }
-
-    private void HoistBinding(string name)
-    {
-        if (name.StartsWith("[", StringComparison.Ordinal) && name.EndsWith("]", StringComparison.Ordinal))
-        {
-            foreach (var item in SplitBindingItems(name[1..^1], keepEmpty: true))
-                if (!item.StartsWith("...", StringComparison.Ordinal)) HoistBinding(item.Trim());
-            return;
-        }
-        if (name.StartsWith("{", StringComparison.Ordinal) && name.EndsWith("}", StringComparison.Ordinal))
-        {
-            foreach (var item in SplitBindingItems(name[1..^1]))
-            {
-                var parts = item.Split(':', 2);
-                var binding = (parts.Length == 2 ? parts[1] : parts[0]).Trim();
-                if (!binding.StartsWith("...", StringComparison.Ordinal)) HoistBinding(binding);
-            }
-            return;
-        }
-        if (name.Length != 0) _bindings.TryAdd(name, UndefinedValue.Instance);
     }
 
     private object? ExecuteCore(IReadOnlyList<JavaScriptStatement> statements)
@@ -429,7 +453,7 @@ internal sealed class JavaScriptEvaluator
             case JavaScriptClassDeclarationStatement @class: _bindings[@class.Name] = Evaluate(@class.Class); break;
             case JavaScriptBlockStatement block:
             {
-                if (!block.CreatesScope)
+                if (!block.CreatesScope || !block.DeclaresNames)
                 {
                     lastResult = ExecuteCore(block.Statements);
                     break;
@@ -502,36 +526,7 @@ internal sealed class JavaScriptEvaluator
                 }
                 break;
             case JavaScriptForEachStatement each:
-                var source = Evaluate(each.Iterable);
-                var items = each.Keys && source is IReadOnlyDictionary<string, object?> dictionary
-                    ? dictionary.Keys.Cast<object?>().ToList()
-                    : source is NativeJavaScriptEngine.NativeArrayIterator iterator ? (IEnumerable<object?>)iterator
-                    : source is IReadOnlyList<object?> array ? (each.Keys ? Enumerable.Range(0, array.Count).Cast<object?>().ToList() : array.ToList())
-                    : source is NativeJavaScriptEngine.INativeHostObject host && host.TryGetValue("length", out var hostLength)
-                        ? Enumerable.Range(0, Math.Max(0, (int)Number(hostLength)))
-                            .Select(index => host.TryGetIndex(index, out var value) ? value : UndefinedOrNull()).ToList()
-                        : new List<object?>();
-                {
-                    foreach (var item in items)
-                    {
-                        ThrowIfExpired();
-                        if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
-                        var iteration = new JavaScriptEvaluator(new Dictionary<string, object?>(StringComparer.Ordinal), Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded)
-                            { _varBindings = _varBindings ?? _bindings };
-                        var iterationBindings = each.Lexical ? iteration._bindings : _varBindings ?? _bindings;
-                        if (each.Name.StartsWith("[", StringComparison.Ordinal) && each.Name.EndsWith("]", StringComparison.Ordinal))
-                        {
-                            var names = each.Name[1..^1].Split(',', StringSplitOptions.None);
-                            var values = item as IReadOnlyList<object?>;
-                            for (var index = 0; index < names.Length; index++) if (!string.IsNullOrEmpty(names[index])) iterationBindings[names[index]] = values is not null && index < values.Count ? values[index] : null;
-                        }
-                        else iterationBindings[each.Name] = item;
-                        try { iteration.ExecuteStatement(each.Body, ref lastResult); }
-                        finally { if (!ReferenceEquals(iteration, this)) _steps += iteration._steps; }
-                        TakeCompletion(iteration);
-                        if (!ContinueLoop(each.Label)) break;
-                    }
-                }
+                ExecuteForEach(each, ref lastResult);
                 break;
             case JavaScriptLabeledStatement labeled:
                 ExecuteStatement(labeled.Body, ref lastResult);
@@ -591,6 +586,41 @@ internal sealed class JavaScriptEvaluator
                 AddYield(yielded.Expression is null ? UndefinedOrNull() : Evaluate(yielded.Expression), yielded.Delegate);
                 break;
             default: throw new InvalidDataException("Unknown JavaScript statement node.");
+        }
+    }
+
+    // Its own method so the lambda over `host` below does not make every ExecuteStatement call allocate a closure.
+    private void ExecuteForEach(JavaScriptForEachStatement each, ref object? lastResult)
+    {
+        var source = Evaluate(each.Iterable);
+        var items = each.Keys && source is IReadOnlyDictionary<string, object?> dictionary
+            ? dictionary.Keys.Cast<object?>().ToList()
+            : source is NativeJavaScriptEngine.NativeArrayIterator iterator ? (IEnumerable<object?>)iterator
+            : source is IReadOnlyList<object?> array ? (each.Keys ? Enumerable.Range(0, array.Count).Cast<object?>().ToList() : array.ToList())
+            : source is NativeJavaScriptEngine.INativeHostObject host && host.TryGetValue("length", out var hostLength)
+                ? Enumerable.Range(0, Math.Max(0, (int)Number(hostLength)))
+                    .Select(index => host.TryGetIndex(index, out var value) ? value : UndefinedOrNull()).ToList()
+                : new List<object?>();
+        {
+            foreach (var item in items)
+            {
+                ThrowIfExpired();
+                if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
+                var iteration = new JavaScriptEvaluator(new Dictionary<string, object?>(StringComparer.Ordinal), Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded)
+                    { _varBindings = _varBindings ?? _bindings };
+                var iterationBindings = each.Lexical ? iteration._bindings : _varBindings ?? _bindings;
+                if (each.Name.StartsWith("[", StringComparison.Ordinal) && each.Name.EndsWith("]", StringComparison.Ordinal))
+                {
+                    var names = each.Name[1..^1].Split(',', StringSplitOptions.None);
+                    var values = item as IReadOnlyList<object?>;
+                    for (var index = 0; index < names.Length; index++) if (!string.IsNullOrEmpty(names[index])) iterationBindings[names[index]] = values is not null && index < values.Count ? values[index] : null;
+                }
+                else iterationBindings[each.Name] = item;
+                try { iteration.ExecuteStatement(each.Body, ref lastResult); }
+                finally { if (!ReferenceEquals(iteration, this)) _steps += iteration._steps; }
+                TakeCompletion(iteration);
+                if (!ContinueLoop(each.Label)) break;
+            }
         }
     }
 
@@ -666,7 +696,7 @@ internal sealed class JavaScriptEvaluator
         {
             return unary.Operator switch
             {
-                "!" => d == 0 || double.IsNaN(d),
+                "!" => Box(d == 0 || double.IsNaN(d)),
                 "+" => d,
                 "-" => -d,
                 "~" => (double)~ToInt32(d),
@@ -675,7 +705,7 @@ internal sealed class JavaScriptEvaluator
         }
         return unary.Operator switch
         {
-            "!" => !Truth(value),
+            "!" => Box(!Truth(value)),
             "+" => Number(value),
             "-" => -Number(value),
             "~" => (double)~ToInt32(Number(value)),
@@ -733,7 +763,7 @@ internal sealed class JavaScriptEvaluator
         }
         var constructor = call.Callee is JavaScriptIdentifierExpression identifier ? Lookup(identifier.Name) : Evaluate(call.Callee);
         var arguments = call.Arguments.Select(Evaluate).ToList();
-        var instance = new Dictionary<string, object?>(StringComparer.Ordinal) { ["__constructor"] = constructor };
+        var instance = new Dictionary<string, object?>(7, StringComparer.Ordinal) { ["__constructor"] = constructor };
         if (TryGetPrototype(constructor, out var prototype))
             instance["__proto__"] = prototype;
         object? result = constructor switch
@@ -782,6 +812,10 @@ internal sealed class JavaScriptEvaluator
         AssignValue(update.Operand, complexNext);
         return update.Prefix ? complexNext : complexOld;
     }
+
+    // One boxed true and one boxed false: a comparison used to allocate a new box for every result.
+    private static readonly object True = true, False = false;
+    private static object Box(bool value) => value ? True : False;
 
     private object? Binary(JavaScriptBinaryExpression binary)
     {
@@ -867,12 +901,12 @@ internal sealed class JavaScriptEvaluator
                 JavaScriptBinaryOp.Mul => ld * rd,
                 JavaScriptBinaryOp.Div => ld / rd,
                 JavaScriptBinaryOp.Mod => rd == 0 ? double.NaN : ld % rd,
-                JavaScriptBinaryOp.LessThan => ld < rd,
-                JavaScriptBinaryOp.GreaterThan => ld > rd,
-                JavaScriptBinaryOp.LessEqual => ld <= rd,
-                JavaScriptBinaryOp.GreaterEqual => ld >= rd,
-                JavaScriptBinaryOp.Equal or JavaScriptBinaryOp.StrictEqual => ld == rd,
-                JavaScriptBinaryOp.NotEqual or JavaScriptBinaryOp.StrictNotEqual => ld != rd,
+                JavaScriptBinaryOp.LessThan => Box(ld < rd),
+                JavaScriptBinaryOp.GreaterThan => Box(ld > rd),
+                JavaScriptBinaryOp.LessEqual => Box(ld <= rd),
+                JavaScriptBinaryOp.GreaterEqual => Box(ld >= rd),
+                JavaScriptBinaryOp.Equal or JavaScriptBinaryOp.StrictEqual => Box(ld == rd),
+                JavaScriptBinaryOp.NotEqual or JavaScriptBinaryOp.StrictNotEqual => Box(ld != rd),
                 JavaScriptBinaryOp.Power => Math.Pow(ld, rd),
                 JavaScriptBinaryOp.ShiftLeft => (double)(ToInt32(ld) << (ToInt32(rd) & 31)),
                 JavaScriptBinaryOp.ShiftRight => (double)(ToInt32(ld) >> (ToInt32(rd) & 31)),
@@ -893,14 +927,14 @@ internal sealed class JavaScriptEvaluator
             JavaScriptBinaryOp.Power => Math.Pow(l, r),
             JavaScriptBinaryOp.Div => l / r,
             JavaScriptBinaryOp.Mod => r == 0 ? double.NaN : l % r,
-            JavaScriptBinaryOp.LessThan => l < r,
-            JavaScriptBinaryOp.GreaterThan => l > r,
-            JavaScriptBinaryOp.LessEqual => l <= r,
-            JavaScriptBinaryOp.GreaterEqual => l >= r,
-            JavaScriptBinaryOp.Equal => JavaScriptNullishEquals(left, right) ?? Equals(left, right),
-            JavaScriptBinaryOp.StrictEqual => Equals(left, right),
-            JavaScriptBinaryOp.NotEqual => !(JavaScriptNullishEquals(left, right) ?? Equals(left, right)),
-            JavaScriptBinaryOp.StrictNotEqual => !Equals(left, right),
+            JavaScriptBinaryOp.LessThan => Box(l < r),
+            JavaScriptBinaryOp.GreaterThan => Box(l > r),
+            JavaScriptBinaryOp.LessEqual => Box(l <= r),
+            JavaScriptBinaryOp.GreaterEqual => Box(l >= r),
+            JavaScriptBinaryOp.Equal => Box(JavaScriptNullishEquals(left, right) ?? Equals(left, right)),
+            JavaScriptBinaryOp.StrictEqual => Box(Equals(left, right)),
+            JavaScriptBinaryOp.NotEqual => Box(!(JavaScriptNullishEquals(left, right) ?? Equals(left, right))),
+            JavaScriptBinaryOp.StrictNotEqual => Box(!Equals(left, right)),
             JavaScriptBinaryOp.ShiftLeft => (double)(ToInt32(l) << (ToInt32(r) & 31)),
             JavaScriptBinaryOp.ShiftRight => (double)(ToInt32(l) >> (ToInt32(r) & 31)),
             JavaScriptBinaryOp.UnsignedShiftRight => (double)((uint)ToInt32(l) >> (ToInt32(r) & 31)),
@@ -953,59 +987,75 @@ internal sealed class JavaScriptEvaluator
 
     private void AssignValue(JavaScriptExpression target, object? assigned)
     {
+        // The target is evaluated once (a chain of `when` guards used to evaluate it again for every case it did not match).
         switch (target)
         {
             case JavaScriptIdentifierExpression identifier:
                 Assign(identifier.Name, assigned);
+                return;
+            case JavaScriptMemberExpression member:
+            {
+                var owner = Evaluate(member.Target);
+                switch (owner)
+                {
+                    case NativeJavaScriptEngine.INativeHostObject host:
+                        if (!host.TrySetSetValue(member.Name, assigned) && !host.TrySetPrototypeValue(member.Name, assigned))
+                            throw new InvalidDataException($"Host property '{member.Name}' is read-only.");
+                        return;
+                    case RegexValue regex when member.Name == "lastIndex":
+                        regex.LastIndex = Math.Max(0, (int)Number(assigned));
+                        return;
+                    case IDictionary<string, object?> properties:
+                        SetDictionaryProperty(properties, member.Name, assigned);
+                        return;
+                    case IList<object?> values:
+                        SetArrayProperty(values, member.Name, assigned);
+                        return;
+                    case NativeJavaScriptEngine.NativeFunction function:
+                        function.SetProperty(member.Name, assigned);
+                        return;
+                    case NativeJavaScriptEngine.NativeReceiverFunction receiverFunction:
+                        receiverFunction.SetProperty(member.Name, assigned);
+                        return;
+                    case Func<IReadOnlyList<object?>, object?> callable:
+                        CallableProperties.GetOrCreateValue(callable)[member.Name] = assigned;
+                        return;
+                }
                 break;
-            case JavaScriptMemberExpression member when Evaluate(member.Target) is NativeJavaScriptEngine.INativeHostObject host:
-                if (!host.TrySetSetValue(member.Name, assigned) && !host.TrySetPrototypeValue(member.Name, assigned))
-                    throw new InvalidDataException($"Host property '{member.Name}' is read-only.");
+            }
+            case JavaScriptIndexExpression index:
+            {
+                var owner = Evaluate(index.Target);
+                switch (owner)
+                {
+                    case IList<object?> values:
+                        SetArrayProperty(values, StringValue(Evaluate(index.Index)), assigned);
+                        return;
+                    case IDictionary<string, object?> indexedProperties:
+                        SetDictionaryProperty(indexedProperties, StringValue(Evaluate(index.Index)), assigned);
+                        return;
+                    case NativeJavaScriptEngine.INativeBuffer buffer:
+                        var bufferPosition = (int)Number(Evaluate(index.Index));
+                        if (!buffer.TrySetIndex(bufferPosition, assigned)) throw new IndexOutOfRangeException();
+                        return;
+                    case NativeJavaScriptEngine.INativeHostObject host:
+                        if (!host.TrySetSetValue(StringValue(Evaluate(index.Index)), assigned))
+                            throw new InvalidDataException("Host indexed property is read-only.");
+                        return;
+                    case NativeJavaScriptEngine.NativeFunction function:
+                        function.SetProperty(StringValue(Evaluate(index.Index)), assigned);
+                        return;
+                    case NativeJavaScriptEngine.NativeReceiverFunction receiverFunction:
+                        receiverFunction.SetProperty(StringValue(Evaluate(index.Index)), assigned);
+                        return;
+                    case Func<IReadOnlyList<object?>, object?> callable:
+                        CallableProperties.GetOrCreateValue(callable)[StringValue(Evaluate(index.Index))] = assigned;
+                        return;
+                }
                 break;
-            case JavaScriptMemberExpression member when Evaluate(member.Target) is RegexValue regex && member.Name == "lastIndex":
-                regex.LastIndex = Math.Max(0, (int)Number(assigned));
-                break;
-            case JavaScriptMemberExpression member when Evaluate(member.Target) is IDictionary<string, object?> properties:
-                SetDictionaryProperty(properties, member.Name, assigned);
-                break;
-            case JavaScriptMemberExpression member when Evaluate(member.Target) is IList<object?> values:
-                SetArrayProperty(values, member.Name, assigned);
-                break;
-            case JavaScriptMemberExpression member when Evaluate(member.Target) is NativeJavaScriptEngine.NativeFunction function:
-                function.SetProperty(member.Name, assigned);
-                break;
-            case JavaScriptMemberExpression member when Evaluate(member.Target) is NativeJavaScriptEngine.NativeReceiverFunction receiverFunction:
-                receiverFunction.SetProperty(member.Name, assigned);
-                break;
-            case JavaScriptMemberExpression member when Evaluate(member.Target) is Func<IReadOnlyList<object?>, object?> callable:
-                CallableProperties.GetOrCreateValue(callable)[member.Name] = assigned;
-                break;
-            case JavaScriptIndexExpression index when Evaluate(index.Target) is IList<object?> values:
-                SetArrayProperty(values, StringValue(Evaluate(index.Index)), assigned);
-                break;
-            case JavaScriptIndexExpression index when Evaluate(index.Target) is IDictionary<string, object?> indexedProperties:
-                SetDictionaryProperty(indexedProperties, StringValue(Evaluate(index.Index)), assigned);
-                break;
-            case JavaScriptIndexExpression index when Evaluate(index.Target) is NativeJavaScriptEngine.INativeBuffer buffer:
-                var bufferPosition = (int)Number(Evaluate(index.Index));
-                if (!buffer.TrySetIndex(bufferPosition, assigned)) throw new IndexOutOfRangeException();
-                break;
-            case JavaScriptIndexExpression index when Evaluate(index.Target) is NativeJavaScriptEngine.INativeHostObject host:
-                if (!host.TrySetSetValue(StringValue(Evaluate(index.Index)), assigned))
-                    throw new InvalidDataException("Host indexed property is read-only.");
-                break;
-            case JavaScriptIndexExpression index when Evaluate(index.Target) is NativeJavaScriptEngine.NativeFunction function:
-                function.SetProperty(StringValue(Evaluate(index.Index)), assigned);
-                break;
-            case JavaScriptIndexExpression index when Evaluate(index.Target) is NativeJavaScriptEngine.NativeReceiverFunction receiverFunction:
-                receiverFunction.SetProperty(StringValue(Evaluate(index.Index)), assigned);
-                break;
-            case JavaScriptIndexExpression index when Evaluate(index.Target) is Func<IReadOnlyList<object?>, object?> callable:
-                CallableProperties.GetOrCreateValue(callable)[StringValue(Evaluate(index.Index))] = assigned;
-                break;
-            default:
-                throw new InvalidDataException($"Only lexical, object-property, and array-index assignment is supported (target: {target}).");
+            }
         }
+        throw new InvalidDataException($"Only lexical, object-property, and array-index assignment is supported (target: {target}).");
     }
 
     internal static void SetArrayProperty(IList<object?> array, string name, object? value)
@@ -1257,9 +1307,10 @@ internal sealed class JavaScriptEvaluator
             if (host.TryGetValue(name, out var hostValue)) return NativeJavaScriptEngine.ReadProperty(hostValue);
             if (host.TryGetPrototypeValue(name, out var prototypeValue)) return prototypeValue;
         }
+        // Lambdas live in the helpers below: a lambda capturing this method's parameter or pattern variables would make the
+        // compiler allocate a closure object on every member read, whichever branch runs.
         if (target is IReadOnlyDictionary<string, object?> dictionary && name == "hasOwnProperty" && !dictionary.ContainsKey(name))
-            return new NativeJavaScriptEngine.NativeReceiverFunction((receiver, args) =>
-                args.Count > 0 && NativeJavaScriptEngine.HasOwnProperty(receiver ?? dictionary, StringValue(args[0])));
+            return HasOwnPropertyMethod(dictionary);
         if (target is IReadOnlyDictionary<string, object?> ownProperties && name == "prototype" && ownProperties.TryGetValue("prototype", out var ownPrototype))
             return ownPrototype;
         if (target is NativeJavaScriptEngine.NativeReceiverFunction receiverFunction)
@@ -1273,14 +1324,7 @@ internal sealed class JavaScriptEvaluator
                 }
                 return prototype;
             }
-            if (name == "bind") return (Func<IReadOnlyList<object?>, object?>)(args =>
-            {
-                var boundReceiver = args.Count > 0 ? args[0] : null;
-                var boundArguments = args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>();
-                return (Func<IReadOnlyList<object?>, object?>)(callArgs => receiverFunction.Invoke(boundReceiver, [.. boundArguments, .. callArgs]));
-            });
-            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToList() : []));
-            if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : []));
+            if (name is "bind" or "call" or "apply") return ReceiverFunctionMethod(receiverFunction, name);
         }
         if (target is NativeJavaScriptEngine.INativeCallable callable && callable.TryGetProperty(name, out var callableValue)) return callableValue;
         if (target is NativeJavaScriptEngine.NativeFunction nativeFunction)
@@ -1294,79 +1338,24 @@ internal sealed class JavaScriptEvaluator
                 }
                 return prototype;
             }
-            if (name == "bind") return (Func<IReadOnlyList<object?>, object?>)(args =>
-            {
-                var boundArguments = args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>();
-                return (Func<IReadOnlyList<object?>, object?>)(callArgs => nativeFunction.Invoke([.. boundArguments, .. callArgs]));
-            });
-            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => nativeFunction.Invoke(args.Count > 1 ? args.Skip(1).ToList() : []));
-            if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => nativeFunction.Invoke(args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : []));
+            if (name is "bind" or "call" or "apply") return NativeFunctionMethod(nativeFunction, name);
         }
         if (target is NativeJavaScriptEngine.INativePromise promise && promise.TryGetProperty(name, out var promiseValue)) return promiseValue;
         if (target is NativeJavaScriptEngine.NativeDate date)
         {
-            if (name is "getTime" or "valueOf") return (Func<IReadOnlyList<object?>, object?>)(_ => date.Milliseconds);
-            if (name == "toISOString") return (Func<IReadOnlyList<object?>, object?>)(_ => double.IsNaN(date.Milliseconds)
-                ? FormatDateInvalid()
-                : DateTimeOffset.FromUnixTimeMilliseconds((long)date.Milliseconds).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture));
+            if (name is "getTime" or "valueOf" or "toISOString") return DateMethod(date, name);
         }
         if (target is IList<object?> values)
         {
             if (TryGetArrayProperty(values, name, out var property)) return property;
-            if (name == "Symbol.iterator") return (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(values));
+            if (name == "Symbol.iterator") return ArrayIteratorMethod(values);
             if (TryArrayMethod(values, name, out var arrayMethod)) return arrayMethod;
         }
-        if (target is double or int or long)
-        {
-            if (name == "toString")
-                return (Func<IReadOnlyList<object?>, object?>)(args =>
-                {
-                    var number = Number(target);
-                    var radix = args.Count == 0 ? 10 : (int)Number(args[0]);
-                    if (radix == 10) return StringValue(number);
-                    if (radix is < 2 or > 36) throw WebIdlException.RangeError("Number radix must be between 2 and 36.");
-                    if (double.IsNaN(number) || double.IsInfinity(number)) return StringValue(number);
-                    if (number == Math.Truncate(number)) return Convert.ToString((long)number, radix) ?? string.Empty;
-                    return number.ToString(CultureInfo.InvariantCulture);
-                });
-            if (name == "toFixed")
-                return (Func<IReadOnlyList<object?>, object?>)(args =>
-                {
-                    var digits = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, 100) : 0;
-                    return Number(target).ToString($"F{digits}", CultureInfo.InvariantCulture);
-                });
-            if (name == "toExponential")
-                return (Func<IReadOnlyList<object?>, object?>)(args =>
-                {
-                    var number = Number(target);
-                    if (double.IsNaN(number) || double.IsInfinity(number)) return StringValue(number);
-                    var digits = args.Count == 0 ? 15 : Math.Clamp((int)Number(args[0]), 0, 100);
-                    var formatted = number.ToString($"E{digits}", CultureInfo.InvariantCulture);
-                    var separator = formatted.IndexOf('E');
-                    if (separator < 0) return formatted;
-                    var exponent = int.Parse(formatted.AsSpan(separator + 1), CultureInfo.InvariantCulture);
-                    var mantissa = formatted[..separator].TrimEnd('0').TrimEnd('.');
-                    return $"{mantissa}e{(exponent >= 0 ? "+" : string.Empty)}{exponent}";
-                });
-            if (name == "toPrecision")
-                return (Func<IReadOnlyList<object?>, object?>)(args =>
-                {
-                    var number = Number(target);
-                    if (args.Count == 0 || args[0] is UndefinedValue) return StringValue(number);
-                    var precision = Math.Clamp((int)Number(args[0]), 1, 100);
-                    return number.ToString($"G{precision}", CultureInfo.InvariantCulture);
-                });
-            if (name == "toLocaleString")
-                return (Func<IReadOnlyList<object?>, object?>)(args =>
-                {
-                    var number = Number(target);
-                    return number.ToString(number == Math.Truncate(number) ? "N0" : "N", CultureInfo.InvariantCulture);
-                });
-        }
+        if (target is double or int or long && name is "toString" or "toFixed" or "toExponential" or "toPrecision" or "toLocaleString")
+            return NumberMethod(target, name);
         if (target is string stringValue && TryStringMethod(stringValue, name, out var stringMethod)) return stringMethod;
         if (target is string iteratedText && name == "Symbol.iterator")
-            return (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(
-                iteratedText.EnumerateRunes().Select(rune => (object?)rune.ToString()).ToList()));
+            return StringIteratorMethod(iteratedText);
         if (target is RegexValue regex && regex.TryGetProperty(name, out var regexMethod)) return regexMethod;
         if (target is NativeJavaScriptEngine.NativeWeakMap weakMap && weakMap.TryGetProperty(name, out var weakMapMethod)) return weakMapMethod;
         if (target is NativeJavaScriptEngine.NativeWeakSet weakSet && weakSet.TryGetProperty(name, out var weakSetMethod)) return weakSetMethod;
@@ -1381,23 +1370,111 @@ internal sealed class JavaScriptEvaluator
 
         if (target is Func<IReadOnlyList<object?>, object?> delegateValue)
         {
-            var delegateProperties = CallableProperties.GetOrCreateValue(delegateValue);
-            if (name == "bind") return (Func<IReadOnlyList<object?>, object?>)(args =>
-            {
-                var boundReceiver = args.Count > 0 ? args[0] : null;
-                var boundArguments = args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>();
-                return (Func<IReadOnlyList<object?>, object?>)(callArgs =>
-                    InvokeFunction(delegateValue, boundReceiver, [.. boundArguments, .. callArgs]));
-            });
-            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToList() : new List<object?>()));
-            if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : new List<object?>()));
-            if (delegateProperties.TryGetValue(name, out var delegateProperty)) return delegateProperty;
-            if (name == "prototype") return delegateProperties[name] = new Dictionary<string, object?>(StringComparer.Ordinal);
+            if (name is "bind" or "call" or "apply") return DelegateMethod(delegateValue, name);
+            // Read without creating the property table: most members read off a function are never set on it.
+            if (CallableProperties.TryGetValue(delegateValue, out var delegateProperties)
+                && delegateProperties.TryGetValue(name, out var delegateProperty)) return delegateProperty;
+            if (name == "prototype") return CallableProperties.GetOrCreateValue(delegateValue)[name] = new Dictionary<string, object?>(StringComparer.Ordinal);
         }
         if (target is IReadOnlyDictionary<string, object?> properties)
             return PrototypeMemberValue(properties, name, target);
         return UndefinedOrNull();
     }
+
+    private static NativeJavaScriptEngine.NativeReceiverFunction HasOwnPropertyMethod(IReadOnlyDictionary<string, object?> dictionary) =>
+        new((receiver, args) => args.Count > 0 && NativeJavaScriptEngine.HasOwnProperty(receiver ?? dictionary, StringValue(args[0])));
+
+    private static object? ReceiverFunctionMethod(NativeJavaScriptEngine.NativeReceiverFunction receiverFunction, string name) => name switch
+    {
+        "bind" => (Func<IReadOnlyList<object?>, object?>)(args =>
+        {
+            var boundReceiver = args.Count > 0 ? args[0] : null;
+            var boundArguments = args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>();
+            return (Func<IReadOnlyList<object?>, object?>)(callArgs => receiverFunction.Invoke(boundReceiver, [.. boundArguments, .. callArgs]));
+        }),
+        "call" => (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToList() : [])),
+        _ => (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : [])),
+    };
+
+    private static object? NativeFunctionMethod(NativeJavaScriptEngine.NativeFunction nativeFunction, string name) => name switch
+    {
+        "bind" => (Func<IReadOnlyList<object?>, object?>)(args =>
+        {
+            var boundArguments = args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>();
+            return (Func<IReadOnlyList<object?>, object?>)(callArgs => nativeFunction.Invoke([.. boundArguments, .. callArgs]));
+        }),
+        "call" => (Func<IReadOnlyList<object?>, object?>)(args => nativeFunction.Invoke(args.Count > 1 ? args.Skip(1).ToList() : [])),
+        _ => (Func<IReadOnlyList<object?>, object?>)(args => nativeFunction.Invoke(args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : [])),
+    };
+
+    private static object? DelegateMethod(Func<IReadOnlyList<object?>, object?> delegateValue, string name) => name switch
+    {
+        "bind" => (Func<IReadOnlyList<object?>, object?>)(args =>
+        {
+            var boundReceiver = args.Count > 0 ? args[0] : null;
+            var boundArguments = args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>();
+            return (Func<IReadOnlyList<object?>, object?>)(callArgs =>
+                InvokeFunction(delegateValue, boundReceiver, [.. boundArguments, .. callArgs]));
+        }),
+        "call" => (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToList() : new List<object?>())),
+        _ => (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : new List<object?>())),
+    };
+
+    private static object? DateMethod(NativeJavaScriptEngine.NativeDate date, string name) => name == "toISOString"
+        ? (Func<IReadOnlyList<object?>, object?>)(_ => double.IsNaN(date.Milliseconds)
+            ? FormatDateInvalid()
+            : DateTimeOffset.FromUnixTimeMilliseconds((long)date.Milliseconds).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture))
+        : (Func<IReadOnlyList<object?>, object?>)(_ => date.Milliseconds);
+
+    private static object? ArrayIteratorMethod(IList<object?> values) =>
+        (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(values));
+
+    private static object? StringIteratorMethod(string iteratedText) =>
+        (Func<IReadOnlyList<object?>, object?>)(_ => NativeJavaScriptEngine.CreateArrayIterator(
+            iteratedText.EnumerateRunes().Select(rune => (object?)rune.ToString()).ToList()));
+
+    private static object? NumberMethod(object? target, string name) => name switch
+    {
+        "toString" => (Func<IReadOnlyList<object?>, object?>)(args =>
+        {
+            var number = Number(target);
+            var radix = args.Count == 0 ? 10 : (int)Number(args[0]);
+            if (radix == 10) return StringValue(number);
+            if (radix is < 2 or > 36) throw WebIdlException.RangeError("Number radix must be between 2 and 36.");
+            if (double.IsNaN(number) || double.IsInfinity(number)) return StringValue(number);
+            if (number == Math.Truncate(number)) return Convert.ToString((long)number, radix) ?? string.Empty;
+            return number.ToString(CultureInfo.InvariantCulture);
+        }),
+        "toFixed" => (Func<IReadOnlyList<object?>, object?>)(args =>
+        {
+            var digits = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, 100) : 0;
+            return Number(target).ToString($"F{digits}", CultureInfo.InvariantCulture);
+        }),
+        "toExponential" => (Func<IReadOnlyList<object?>, object?>)(args =>
+        {
+            var number = Number(target);
+            if (double.IsNaN(number) || double.IsInfinity(number)) return StringValue(number);
+            var digits = args.Count == 0 ? 15 : Math.Clamp((int)Number(args[0]), 0, 100);
+            var formatted = number.ToString($"E{digits}", CultureInfo.InvariantCulture);
+            var separator = formatted.IndexOf('E');
+            if (separator < 0) return formatted;
+            var exponent = int.Parse(formatted.AsSpan(separator + 1), CultureInfo.InvariantCulture);
+            var mantissa = formatted[..separator].TrimEnd('0').TrimEnd('.');
+            return $"{mantissa}e{(exponent >= 0 ? "+" : string.Empty)}{exponent}";
+        }),
+        "toPrecision" => (Func<IReadOnlyList<object?>, object?>)(args =>
+        {
+            var number = Number(target);
+            if (args.Count == 0 || args[0] is UndefinedValue) return StringValue(number);
+            var precision = Math.Clamp((int)Number(args[0]), 1, 100);
+            return number.ToString($"G{precision}", CultureInfo.InvariantCulture);
+        }),
+        _ => (Func<IReadOnlyList<object?>, object?>)(args =>
+        {
+            var number = Number(target);
+            return number.ToString(number == Math.Truncate(number) ? "N0" : "N", CultureInfo.InvariantCulture);
+        }),
+    };
 
     private object? PrototypeMemberValue(IReadOnlyDictionary<string, object?> properties, string name, object receiver)
     {
@@ -1428,14 +1505,14 @@ internal sealed class JavaScriptEvaluator
 
     private object Object(JavaScriptObjectExpression expression)
     {
-        var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+        var result = new Dictionary<string, object?>(expression.Properties.Count, StringComparer.Ordinal);
         foreach (var property in expression.Properties)
         {
             if (property.Value is JavaScriptComputedPropertyExpression computed)
             {
                 var key = StringValue(Evaluate(computed.Key));
                 result[key] = computed.Value is JavaScriptFunctionExpression function
-                    ? new NativeJavaScriptEngine.NativeReceiverFunction((receiver, args) => ExecuteFunctionWithThis(function, receiver, args))
+                    ? ObjectMethod(function)
                     : Evaluate(computed.Value);
                 continue;
             }
@@ -1454,29 +1531,36 @@ internal sealed class JavaScriptEvaluator
                 var name = StringValue(Evaluate(declaration.Key));
                 var accessor = result.TryGetValue(name, out var existing) && existing is NativeJavaScriptEngine.NativePropertyAccessor previous
                     ? previous : new NativeJavaScriptEngine.NativePropertyAccessor(null, null);
-                result[name] = declaration.IsSetter
-                    ? accessor.WithSetter((receiver, value) => ExecuteFunctionWithThis(declaration.Function, receiver, [value]))
-                    : accessor.WithGetter(receiver => ExecuteFunctionWithThis(declaration.Function, receiver, []));
+                result[name] = ObjectAccessor(accessor, declaration);
             }
             else if (property.Name.StartsWith("__folio_method__", StringComparison.Ordinal) && property.Value is JavaScriptFunctionExpression method)
             {
                 var name = property.Name[16..];
-                result[name] = new NativeJavaScriptEngine.NativeReceiverFunction((receiver, args) => ExecuteFunctionWithThis(method, receiver, args));
+                result[name] = ObjectMethod(method);
             }
             else
             {
                 result[property.Name] = property.Value is JavaScriptFunctionExpression function
-                    ? new NativeJavaScriptEngine.NativeReceiverFunction((receiver, args) => ExecuteFunctionWithThis(function, receiver, args))
+                    ? ObjectMethod(function)
                     : Evaluate(property.Value);
             }
         }
         return result;
     }
 
+    // The lambdas are here, not in Object(): there they would allocate a closure for every property of every object literal.
+    private NativeJavaScriptEngine.NativeReceiverFunction ObjectMethod(JavaScriptFunctionExpression function) =>
+        new((receiver, args) => ExecuteFunctionWithThis(function, receiver, args));
+
+    private object ObjectAccessor(NativeJavaScriptEngine.NativePropertyAccessor accessor, JavaScriptObjectAccessorExpression declaration) =>
+        declaration.IsSetter
+            ? accessor.WithSetter((receiver, value) => ExecuteFunctionWithThis(declaration.Function, receiver, [value]))
+            : accessor.WithGetter(receiver => ExecuteFunctionWithThis(declaration.Function, receiver, []));
+
     private object? ExecuteFunctionWithThis(JavaScriptFunctionExpression function, object? receiver, IReadOnlyList<object?> arguments)
     {
         using var callScope = NativeExecutionBudget.EnterCall();
-        var local = new Dictionary<string, object?>(StringComparer.Ordinal)
+        var local = new Dictionary<string, object?>(function.Parameters.Count + 3, StringComparer.Ordinal)
         {
             ["this"] = receiver,
             ["arguments"] = arguments.ToList(),
@@ -2328,20 +2412,21 @@ internal sealed class JavaScriptEvaluator
     private object Function(JavaScriptFunctionExpression function)
     {
         var captured = _bindings;
-        var capturedWithScopes = _withScopes.ToList();
+        IReadOnlyList<IDictionary<string, object?>> capturedWithScopes = _withScopes.Count == 0 ? _withScopes : _withScopes.ToList();
         // Arrow functions capture the lexical receiver. This matters for
         // host bootstrap code such as CacheStorage, whose promise callbacks
         // intentionally close over the class instance via `this`.
         var lexicalThis = function.IsArrow && TryLookup("this", out var capturedThis) ? capturedThis : null;
         Func<IReadOnlyList<object?>, object?>? functionValue = null;
-        functionValue = arguments => InvokeBody(null, arguments);
-        ReceiverBindings.Add(functionValue, new ReceiverBinding((receiver, arguments) => InvokeBody(receiver, arguments)));
+        functionValue = new ReceiverBinding(InvokeBody).InvokeWithoutReceiver;
         return functionValue;
 
         object? InvokeBody(object? receiver, IReadOnlyList<object?> arguments)
         {
             using var callScope = NativeExecutionBudget.EnterCall();
-            var local = new Dictionary<string, object?>(StringComparer.Ordinal);
+            // Room for the parameters, this, arguments and the body's own vars up front: growing the table was a tenth of a load.
+            var hoisted = function.HoistedNames ??= CollectHoistedNames(function.Body);
+            var local = new Dictionary<string, object?>(function.Parameters.Count + hoisted.Length + 3, StringComparer.Ordinal);
             JavaScriptEvaluator? bodyEvaluator = null;
             if (function.Name is { } functionName) local[functionName] = functionValue;
             for (var i = 0; i < function.Parameters.Count; i++)
@@ -2376,7 +2461,7 @@ internal sealed class JavaScriptEvaluator
             try
             {
                 bodyEvaluator ??= new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded);
-                var result = bodyEvaluator.ExecuteFunctionBody(function.Body);
+                var result = bodyEvaluator.ExecuteFunctionBody(function.Body, hoisted);
                 if (!function.IsAsync) return result;
                 return ResolvePromise(result);
             }
@@ -2519,7 +2604,7 @@ internal sealed class JavaScriptEvaluator
         });
 
     private static object? InvokeFunction(Func<IReadOnlyList<object?>, object?> function, object? receiver, IReadOnlyList<object?> arguments)
-        => ReceiverBindings.TryGetValue(function, out var binding) ? binding.Invoke(receiver, arguments) : function(arguments);
+        => function.Target is ReceiverBinding binding ? binding.Invoke(receiver, arguments) : function(arguments);
 
     private NativeJavaScriptEngine.NativeFunction Class(JavaScriptClassExpression @class)
     {
@@ -2528,7 +2613,7 @@ internal sealed class JavaScriptEvaluator
         var prototype = new Dictionary<string, object?>(StringComparer.Ordinal);
         var type = new NativeJavaScriptEngine.NativeFunction(arguments =>
         {
-            var instance = new Dictionary<string, object?>(StringComparer.Ordinal) { ["__constructor"] = @class.Name ?? "class" };
+            var instance = new Dictionary<string, object?>(methods.Count + 3, StringComparer.Ordinal) { ["__constructor"] = @class.Name ?? "class" };
             instance["__proto__"] = prototype;
             foreach (var method in methods)
             {
@@ -2590,7 +2675,7 @@ internal sealed class JavaScriptEvaluator
     private object? ExecuteClassMethod(JavaScriptFunctionExpression function, object instance, IReadOnlyList<object?> arguments, string? parentName = null)
     {
         using var callScope = NativeExecutionBudget.EnterCall();
-        var local = new Dictionary<string, object?>(StringComparer.Ordinal)
+        var local = new Dictionary<string, object?>(function.Parameters.Count + 4, StringComparer.Ordinal)
         {
             ["this"] = instance,
             ["super"] = (Func<IReadOnlyList<object?>, object?>)(args =>
