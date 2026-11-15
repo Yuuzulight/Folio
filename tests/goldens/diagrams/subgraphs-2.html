@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#F4F4FB;color:#1E1B3A;font:15px "Source Sans 3",sans-serif}
+.card{margin:4px;background:#fff;border:1px solid #E3E3F3;border-radius:12px;padding:4px}
+.card svg{display:block;max-width:100%;height:auto}
+.card svg text{font-family:"Source Sans 3",sans-serif}
+.folio-diagram-node{fill:#ECECFF;stroke:#5B5BF0;stroke-width:2}
+.folio-diagram-subgraph{stroke:#9A9AD8;stroke-dasharray:4 3}
+.folio-diagram-edge{stroke:#5B5BF0;stroke-width:2}
+.folio-diagram-label{fill:#1E1B3A;stroke:none;font-weight:600}
+.folio-diagram-edge-label-bg{fill:#fff}
+.folio-diagram-participant{fill:#1E1B3A;stroke:none;font-weight:600}
+#arrow path{fill:#5B5BF0}
+</style></head><body><div class="card"><script type="text/plain" id="source">
+flowchart LR
+  subgraph Intake
+    A[Receive] --> B[Check]
+  end
+  subgraph Work
+    C[Build] --> D[Test]
+  end
+  B --> C
+  A --> E[Audit]
+  E --> D
+  D --> F[Ship]
+</script><!--svg--><svg class="folio-diagram" xmlns="http://www.w3.org/2000/svg" width="770" height="236" viewBox="0 0 770 236"><defs><marker id="arrow" markerWidth="4" markerHeight="3" refX="4" refY="1.5" orient="auto"><path d="M0,0 L4,1.5 L0,3 z"/></marker></defs><g class="folio-diagram-content" fill="white" stroke="currentColor" stroke-width="2" font-family="sans-serif" font-size="14"><rect class="folio-diagram-subgraph" data-name="Intake" fill="none" x="16" y="16" width="284" height="152" rx="10"/><text class="folio-diagram-label folio-diagram-subgraph-label" x="24" y="30" fill="currentColor" stroke="none">Intake</text><rect class="folio-diagram-subgraph" data-name="Work" fill="none" x="328" y="16" width="284" height="92" rx="10"/><text class="folio-diagram-label folio-diagram-subgraph-label" x="336" y="30" fill="currentColor" stroke="none">Work</text><rect class="folio-diagram-node folio-diagram-rect" data-id="A" x="30" y="110" width="100" height="44" rx="8"/><text class="folio-diagram-label" x="80" y="137" text-anchor="middle" fill="currentColor" stroke="none">Receive</text><rect class="folio-diagram-node folio-diagram-rect" data-id="B" x="186" y="50" width="100" height="44" rx="8"/><text class="folio-diagram-label" x="236" y="77" text-anchor="middle" fill="currentColor" stroke="none">Check</text><rect class="folio-diagram-node folio-diagram-rect" data-id="C" x="342" y="50" width="100" height="44" rx="8"/><text class="folio-diagram-label" x="392" y="77" text-anchor="middle" fill="currentColor" stroke="none">Build</text><rect class="folio-diagram-node folio-diagram-rect" data-id="D" x="498" y="50" width="100" height="44" rx="8"/><text class="folio-diagram-label" x="548" y="77" text-anchor="middle" fill="currentColor" stroke="none">Test</text><rect class="folio-diagram-node folio-diagram-rect" data-id="E" x="186" y="176" width="100" height="44" rx="8"/><text class="folio-diagram-label" x="236" y="203" text-anchor="middle" fill="currentColor" stroke="none">Audit</text><rect class="folio-diagram-node folio-diagram-rect" data-id="F" x="654" y="50" width="100" height="44" rx="8"/><text class="folio-diagram-label" x="704" y="77" text-anchor="middle" fill="currentColor" stroke="none">Ship</text><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 130 125 L 148.67 125 L 148.67 72 L 186 72" marker-end="url(#arrow)"/><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 442 65 L 498 65" marker-end="url(#arrow)"/><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 286 72 L 342 72" marker-end="url(#arrow)"/><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 130 139 L 167.33 139 L 167.33 198 L 186 198" marker-end="url(#arrow)"/><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 286 198 L 470 198 L 470 79 L 498 79" marker-end="url(#arrow)"/><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 598 72 L 654 72" marker-end="url(#arrow)"/></g></svg><!--/svg--></div></body></html>

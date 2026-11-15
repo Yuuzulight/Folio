@@ -3,7 +3,7 @@
     "labelled-edges": {
       "channelThreshold": 8,
       "maxDifferingRatio": 0.01,
-      "reason": "The diagram is a little wider than the page, so it is scaled to fit; scaled text and line antialiasing differs slightly between the Skia and software backends."
+      "reason": "Many small labels and thin parallel lines; text and line antialiasing differs slightly between the Skia and software backends."
     },
     "mixed-8": {
       "channelThreshold": 8,
