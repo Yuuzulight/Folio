@@ -2719,11 +2719,14 @@ internal sealed class JavaScriptEvaluator
     {
         if (_withScopes.Count == 0)
         {
-            if (_bindings.TryGetValue(name, out var val)) return val;
-            if (_parentBindings is not null && _parentBindings.TryGetValue(name, out var pval)) return pval;
+            if (_bindings.TryGetValue(name, out var val)) return ReadBinding(val);
+            if (_parentBindings is not null && _parentBindings.TryGetValue(name, out var pval)) return ReadBinding(pval, _parentBindings);
         }
-        return TryLookup(name, out var value) ? value : UndefinedOrNull();
+        return TryLookup(name, out var value) ? ReadBinding(value) : UndefinedOrNull();
     }
+    // A global defined with a getter (Object.defineProperty(globalThis, ...), as location is) holds an accessor: read it, don't hand the accessor back.
+    private object? ReadBinding(object? value, object? receiver = null) =>
+        value is NativeJavaScriptEngine.NativePropertyAccessor accessor ? accessor.Get(receiver ?? _bindings) : value;
     private bool TryLookup(string name, out object? value)
     {
         NativeExecutionBudget.EnsureStack();

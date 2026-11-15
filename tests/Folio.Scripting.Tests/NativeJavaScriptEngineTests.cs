@@ -9,6 +9,19 @@ namespace Folio.Scripting.Tests;
 
 public sealed class NativeJavaScriptEngineTests
 {
+    // The content host installs location this way (ScriptRunner), so a script evaluated afterwards reads `location` by its bare name.
+    [Fact]
+    public void ABareGlobalNameReadsAGetterDefinedOnGlobalThis()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate("Object.defineProperty(globalThis, 'folioProbe', { configurable: true, get: function () { return 42; } });");
+
+        Assert.Equal(42, engine.Evaluate("folioProbe").AsNumber());
+        Assert.Equal(42, engine.Evaluate("[folioProbe, 1][0]").AsNumber());
+        Assert.Equal(42, engine.Evaluate("globalThis.folioProbe").AsNumber());
+        Assert.Equal("number", engine.Evaluate("typeof folioProbe").AsString());
+    }
+
     [Fact]
     public void DefiningAttributesWithoutAValuePreservesAnExistingProperty()
     {
