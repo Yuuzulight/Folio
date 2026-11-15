@@ -93,7 +93,7 @@ public static class DiagramRenderer
         if (lines[0].StartsWith("sequenceDiagram", StringComparison.OrdinalIgnoreCase))
             return RenderSequence(lines.Skip(1));
         if (lines[0].StartsWith("flowchart", StringComparison.OrdinalIgnoreCase) || lines[0].StartsWith("graph", StringComparison.OrdinalIgnoreCase))
-            return RenderFlow(lines.Skip(1));
+            return RenderFlow(lines[0], lines.Skip(1));
         return Svg([], []);
     }
 
@@ -179,7 +179,7 @@ public static class DiagramRenderer
         return Svg(arcs.Concat(legend), []);
     }
 
-    private static string RenderFlow(IEnumerable<string> lines)
+    private static string RenderFlow(string header, IEnumerable<string> lines)
     {
         var nodes = new List<FlowNode>();
         var edges = new List<(int From, int To, string Label, string Kind)>();
@@ -226,17 +226,34 @@ public static class DiagramRenderer
             currentSubgraph?.Nodes.Add(right.Id);
             edges.Add((from, to, edgeLabel, kind));
         }
-        var body = nodes.Select((node, i) => NodeSvg(node, i, nodeClasses.TryGetValue(node.Id, out var className) ? className : null, classStyles));
-        var groups = subgraphs.Select((group, i) =>
+        var headerWords = header.Split([' ', '	', ';'], StringSplitOptions.RemoveEmptyEntries);
+        var direction = headerWords.Length > 1 ? headerWords[1].ToUpperInvariant() : "TB";
+        direction = direction switch { "LR" or "RL" or "BT" => direction, _ => "TB" };
+        var groupIndexes = subgraphs.Select(group => nodes.Select((node, index) => (node, index)).Where(pair => group.Nodes.Contains(pair.node.Id)).Select(pair => pair.index).ToArray()).ToList();
+        var layout = FlowLayout.Compute(
+            nodes.Select(node => new FlowLayout.NodeSpec(node.Label, node.Shape)).ToList(),
+            edges.Select(edge => new FlowLayout.EdgeSpec(edge.From, edge.To, edge.Label)).ToList(),
+            groupIndexes, subgraphs.Select(group => group.Name).ToList(), direction);
+        var content = new StringBuilder();
+        for (var i = 0; i < subgraphs.Count; i++)
+            if (layout.Groups[i] is { } g)
+                content.Append($"<rect class=\"folio-diagram-subgraph\" data-name=\"{XmlEscape(subgraphs[i].Name)}\" fill=\"none\" x=\"{N(g.X)}\" y=\"{N(g.Y)}\" width=\"{N(g.Width)}\" height=\"{N(g.Height)}\" rx=\"10\"/><text class=\"folio-diagram-label folio-diagram-subgraph-label\" x=\"{N(g.X + 8)}\" y=\"{N(g.Y + 14)}\" fill=\"currentColor\" stroke=\"none\">{XmlEscape(subgraphs[i].Name)}</text>");
+        for (var i = 0; i < nodes.Count; i++)
+            content.Append(NodeSvg(nodes[i], layout.Nodes[i], nodeClasses.TryGetValue(nodes[i].Id, out var className) ? className : null, classStyles));
+        for (var i = 0; i < edges.Count; i++)
         {
-            var indexes = nodes.Select((node, index) => (node, index)).Where(pair => group.Nodes.Contains(pair.node.Id)).Select(pair => pair.index).ToArray();
-            if (indexes.Length == 0) return "";
-            var left = 20 + indexes.Min() * 180; var right = 170 + indexes.Max() * 180;
-            return $"<rect class=\"folio-diagram-subgraph\" data-name=\"{XmlEscape(group.Name)}\" fill=\"none\" x=\"{left}\" y=\"18\" width=\"{right - left}\" height=\"100\" rx=\"10\"/><text class=\"folio-diagram-label folio-diagram-subgraph-label\" x=\"{left + 8}\" y=\"32\">{XmlEscape(group.Name)}</text>";
-        });
-        var overlays = edges.Select(edge => $"<path class=\"folio-diagram-edge\" data-kind=\"{XmlEscape(edge.Kind)}\" d=\"M {110 + edge.From * 180} 84 L {110 + edge.To * 180} 40\" marker-end=\"url(#arrow)\"/>{(edge.Label.Length == 0 ? "" : $"<text class=\"folio-diagram-label folio-diagram-edge-label\" x=\"{100 + Math.Min(edge.From, edge.To) * 180}\" y=\"72\">{XmlEscape(edge.Label)}</text>")}");
-        return Svg(body, groups.Concat(overlays));
+            var route = layout.Routes[i];
+            var d = string.Join(' ', route.Points.Select((p, k) => $"{(k == 0 ? "M" : "L")} {N(p.X)} {N(p.Y)}"));
+            var dash = edges[i].Kind == "-.->" ? " stroke-dasharray=\"4 3\"" : "";
+            var thick = edges[i].Kind == "==>" ? " stroke-width=\"3\"" : "";
+            content.Append($"<path class=\"folio-diagram-edge\" data-kind=\"{XmlEscape(edges[i].Kind)}\" fill=\"none\"{dash}{thick} d=\"{d}\" marker-end=\"url(#arrow)\"/>");
+            if (route.Label is { } l)
+                content.Append($"<rect class=\"folio-diagram-edge-label-bg\" x=\"{N(l.X)}\" y=\"{N(l.Y)}\" width=\"{N(l.Width)}\" height=\"{N(l.Height)}\" rx=\"4\" fill=\"white\" stroke=\"none\"/><text class=\"folio-diagram-label folio-diagram-edge-label\" x=\"{N(l.X + l.Width / 2)}\" y=\"{N(l.Y + l.Height / 2 + 4)}\" text-anchor=\"middle\" font-size=\"12\" fill=\"currentColor\" stroke=\"none\">{XmlEscape(edges[i].Label)}</text>");
+        }
+        return Svg([content.ToString()], [], ((int)layout.Width, (int)layout.Height));
     }
+
+    private static string N(double value) => (Math.Round(value, 2) + 0.0).ToString("0.##", CultureInfo.InvariantCulture);
 
     private static int FindFlowArrow(string line, out int length, out string kind)
     {
@@ -248,19 +265,20 @@ public static class DiagramRenderer
         length = 0; kind = ""; return -1;
     }
 
-    private static string NodeSvg(FlowNode node, int index, string? className = null, IReadOnlyDictionary<string, string>? classStyles = null)
+    private static string NodeSvg(FlowNode node, FlowLayout.Box box, string? className, IReadOnlyDictionary<string, string> classStyles)
     {
-        var x = 40 + index * 180;
         var classAttribute = className is null ? "" : $" data-class=\"{XmlEscape(className)}\"";
-        var styleAttribute = className is not null && classStyles is not null && classStyles.TryGetValue(className, out var style) ? $" style=\"{XmlEscape(style)}\"" : "";
+        var styleAttribute = className is not null && classStyles.TryGetValue(className, out var style) ? $" style=\"{XmlEscape(style)}\"" : "";
+        double x = box.X, y = box.Y, w = box.Width, h = box.Height, cx = x + w / 2, cy = y + h / 2;
+        var id = $" data-id=\"{XmlEscape(node.Id)}\"";
         var shape = node.Shape switch
         {
-            "round" => $"<rect class=\"folio-diagram-node folio-diagram-round\"{classAttribute}{styleAttribute} x=\"{x}\" y=\"40\" width=\"140\" height=\"44\" rx=\"22\"/>",
-            "diamond" => $"<path class=\"folio-diagram-node folio-diagram-diamond\"{classAttribute}{styleAttribute} d=\"M {x + 70} 30 L {x + 140} 62 L {x + 70} 94 L {x} 62 Z\"/>",
-            "circle" => $"<circle class=\"folio-diagram-node folio-diagram-circle\"{classAttribute}{styleAttribute} cx=\"{x + 70}\" cy=\"62\" r=\"28\"/>",
-            _ => $"<rect class=\"folio-diagram-node folio-diagram-rect\"{classAttribute}{styleAttribute} x=\"{x}\" y=\"40\" width=\"140\" height=\"44\" rx=\"8\"/>"
+            "round" => $"<rect class=\"folio-diagram-node folio-diagram-round\"{id}{classAttribute}{styleAttribute} x=\"{N(x)}\" y=\"{N(y)}\" width=\"{N(w)}\" height=\"{N(h)}\" rx=\"{N(h / 2)}\"/>",
+            "diamond" => $"<path class=\"folio-diagram-node folio-diagram-diamond\"{id}{classAttribute}{styleAttribute} d=\"M {N(cx)} {N(y)} L {N(x + w)} {N(cy)} L {N(cx)} {N(y + h)} L {N(x)} {N(cy)} Z\"/>",
+            "circle" => $"<circle class=\"folio-diagram-node folio-diagram-circle\"{id}{classAttribute}{styleAttribute} cx=\"{N(cx)}\" cy=\"{N(cy)}\" r=\"{N(w / 2)}\"/>",
+            _ => $"<rect class=\"folio-diagram-node folio-diagram-rect\"{id}{classAttribute}{styleAttribute} x=\"{N(x)}\" y=\"{N(y)}\" width=\"{N(w)}\" height=\"{N(h)}\" rx=\"8\"/>"
         };
-        return $"{shape}<text class=\"folio-diagram-label\" x=\"{x + 70}\" y=\"67\">{XmlEscape(node.Label)}</text>";
+        return $"{shape}<text class=\"folio-diagram-label\" x=\"{N(cx)}\" y=\"{N(cy + 5)}\" text-anchor=\"middle\" fill=\"currentColor\" stroke=\"none\">{XmlEscape(node.Label)}</text>";
     }
 
     private static string RenderSequence(IEnumerable<string> lines)
@@ -514,10 +532,21 @@ public static class DiagramRenderer
         }
     }
 
-    private static string Svg(IEnumerable<string> body, IEnumerable<string> overlays)
+    /// <summary>
+    /// Wraps content in the diagram SVG. With a <paramref name="size"/> the viewBox is exactly that size, so nothing is clipped,
+    /// and the displayed width and height are scaled down to fit <see cref="FlowLayout.MaxWidth"/> by <see cref="FlowLayout.MaxHeight"/>
+    /// when the content is larger. Without one the legacy fixed 800 by 400 viewBox is used.
+    /// </summary>
+    private static string Svg(IEnumerable<string> body, IEnumerable<string> overlays, (int Width, int Height)? size = null)
     {
         var content = string.Join("", body.Concat(overlays));
-        return $"<svg class=\"folio-diagram\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 400\"><defs><marker id=\"arrow\" markerWidth=\"8\" markerHeight=\"8\" refX=\"7\" refY=\"4\" orient=\"auto\"><path d=\"M0,0 L8,4 L0,8 z\"/></marker></defs><g class=\"folio-diagram-content\" fill=\"white\" stroke=\"currentColor\" font-family=\"sans-serif\" font-size=\"14\">{content}</g></svg>";
+        var frame = "viewBox=\"0 0 800 400\"";
+        if (size is { } s)
+        {
+            var scale = Math.Min(1, Math.Min(FlowLayout.MaxWidth / s.Width, FlowLayout.MaxHeight / s.Height));
+            frame = $"width=\"{(int)Math.Round(s.Width * scale)}\" height=\"{(int)Math.Round(s.Height * scale)}\" viewBox=\"0 0 {s.Width} {s.Height}\"";
+        }
+        return $"<svg class=\"folio-diagram\" xmlns=\"http://www.w3.org/2000/svg\" {frame}><defs><marker id=\"arrow\" markerWidth=\"8\" markerHeight=\"8\" refX=\"7\" refY=\"4\" orient=\"auto\"><path d=\"M0,0 L8,4 L0,8 z\"/></marker></defs><g class=\"folio-diagram-content\" fill=\"white\" stroke=\"currentColor\" font-family=\"sans-serif\" font-size=\"14\">{content}</g></svg>";
     }
 
     private sealed record FlowNode(string Id, string Label, string Shape);
