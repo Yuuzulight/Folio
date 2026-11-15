@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 128" width="420" height="128" role="img" aria-label="Folio">
+  <title>Folio</title>
+  <style>
+    .word { fill: #1F1B3A; font: 700 76px "Segoe UI", "Helvetica Neue", Arial, sans-serif; letter-spacing: -2px; }
+    @media (prefers-color-scheme: dark) { .word { fill: #F2F0FF; } }
+  </style>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5B5BF0"/>
+      <stop offset="1" stop-color="#8B3FE0"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <path d="M38 22 H74 L94 42 V106 H38 Z" fill="#FFFFFF"/>
+  <path d="M74 22 L94 42 H80 Q74 42 74 36 Z" fill="#C9C3F7"/>
+  <path d="M52 58 H80 V68 H62 V76 H76 V86 H62 V96 H52 Z" fill="#5B4BD8"/>
+  <text class="word" x="152" y="92">Folio</text>
+</svg>
