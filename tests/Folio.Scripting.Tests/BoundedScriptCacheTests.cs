@@ -8,7 +8,7 @@ public sealed class BoundedScriptCacheTests
     public void MediumProgramsAreReusedAndOversizedProgramsAreNotRetained()
     {
         var medium = "42;" + new string(' ', 128 * 1024);
-        var oversized = "42;" + new string(' ', 330 * 1024);
+        var oversized = "42;" + new string(' ', 1600 * 1024);
         Assert.Same(NativeJavaScriptEngine.GetOrParseProgram(medium), NativeJavaScriptEngine.GetOrParseProgram(medium));
         Assert.NotSame(NativeJavaScriptEngine.GetOrParseProgram(oversized), NativeJavaScriptEngine.GetOrParseProgram(oversized));
     }

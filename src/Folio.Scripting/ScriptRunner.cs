@@ -119,6 +119,7 @@ public sealed class ScriptRunner : IDisposable
 
         // Spin event loop once more for any tasks scheduled during load.
         _eventLoop.SpinUntilIdle();
+        DrainChartReports();
     }
 
     private void InstallGlobals()
@@ -604,6 +605,25 @@ public sealed class ScriptRunner : IDisposable
         {
             _document.CurrentScript = previousScript;
         }
+        DrainChartReports();
+    }
+
+    /// <summary>Turns the messages the chart bridge queued for charts it could not draw into diagnostics.</summary>
+    private void DrainChartReports()
+    {
+        if (!_chartStandInInstalled)
+            return;
+        string? messages;
+        try
+        {
+            messages = _engine.Evaluate(ChartBindings.ReportScript).AsString();
+        }
+        catch (Exception)
+        {
+            return;
+        }
+        foreach (var message in (messages ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            _diagnostics.Add(new Diagnostic(DiagnosticCode.FeatureRouted, Severity.Warning, message, null, "canvas"));
     }
 
     private void RecordScriptError(Exception ex, string? url)

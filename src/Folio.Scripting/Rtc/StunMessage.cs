@@ -12,11 +12,13 @@ internal sealed class StunMessage
     internal const ushort BindingRequest = 0x0001, BindingResponse = 0x0101, BindingErrorResponse = 0x0111,
         AllocateRequest = 0x0003, AllocateResponse = 0x0103, RefreshRequest = 0x0004, RefreshResponse = 0x0104,
         SendIndication = 0x0016, DataIndication = 0x0017, CreatePermissionRequest = 0x0008, CreatePermissionResponse = 0x0108,
-        ChannelBindRequest = 0x0009, ChannelBindResponse = 0x0109;
+        ChannelBindRequest = 0x0009, ChannelBindResponse = 0x0109,
+        AllocateErrorResponse = 0x0113, RefreshErrorResponse = 0x0114, CreatePermissionErrorResponse = 0x0118,
+        ChannelBindErrorResponse = 0x0119;
 
     internal const ushort MappedAddress = 0x0001, Username = 0x0006, Integrity = 0x0008, ErrorCode = 0x0009,
         UnknownAttributes = 0x000a, Lifetime = 0x000d, XorPeerAddress = 0x0012, Data = 0x0013, Realm = 0x0014,
-        Nonce = 0x0015, XorRelayedAddress = 0x0016, EvenPort = 0x0018, RequestedTransport = 0x0019,
+        Nonce = 0x0015, ChannelNumber = 0x000c, XorRelayedAddress = 0x0016, EvenPort = 0x0018, RequestedTransport = 0x0019,
         DontFragment = 0x001a, XorMappedAddress = 0x0020, Priority = 0x0024, UseCandidate = 0x0025,
         Software = 0x8022, Fingerprint = 0x8028, IceControlled = 0x8029, IceControlling = 0x802a;
 
@@ -83,6 +85,9 @@ internal sealed class StunMessage
         return true;
     }
 
+    internal IEnumerable<ReadOnlyMemory<byte>> AttributeValues(ushort type) =>
+        _attributes.Where(a => a.Type == type).Select(a => (ReadOnlyMemory<byte>)_wire.AsMemory(a.Offset + 4, a.Length)).ToArray();
+
     internal static byte[] EncodeErrorCode(int code, string reason)
     {
         var reasonBytes = System.Text.Encoding.UTF8.GetBytes(reason);
@@ -98,6 +103,59 @@ internal sealed class StunMessage
         code = 0;
         if (!TryAttribute(ErrorCode, out var value) || value.Length < 4) return false;
         code = (value.Span[2] & 7) * 100 + value.Span[3];
+        return true;
+    }
+
+    internal bool TryText(ushort type, int maxBytes, [NotNullWhen(true)] out string? text)
+    {
+        text = null;
+        if (!TryAttribute(type, out var value) || value.Length == 0 || value.Length > maxBytes) return false;
+        text = System.Text.Encoding.UTF8.GetString(value.Span);
+        return true;
+    }
+
+    internal bool TryLifetime(out uint seconds)
+    {
+        seconds = 0;
+        if (!TryAttribute(Lifetime, out var value) || value.Length != 4) return false;
+        seconds = BinaryPrimitives.ReadUInt32BigEndian(value.Span);
+        return true;
+    }
+
+    internal bool TryXorPeerAddress(out IPEndPoint? endpoint) => TryDecodeXorAddress(XorPeerAddress, out endpoint);
+
+    /// <summary>XOR-encodes an IPv4/IPv6 transport address as an attribute value (RFC 8489 section 14.2).</summary>
+    internal static byte[] EncodeXorAddress(IPEndPoint endpoint, ReadOnlySpan<byte> transactionId)
+    {
+        var address = endpoint.Address.GetAddressBytes();
+        var value = new byte[4 + address.Length];
+        value[1] = (byte)(address.Length == 4 ? 1 : 2);
+        BinaryPrimitives.WriteUInt16BigEndian(value.AsSpan(2), (ushort)(endpoint.Port ^ 0x2112));
+        Span<byte> mask = stackalloc byte[16];
+        BinaryPrimitives.WriteUInt32BigEndian(mask, Cookie);
+        transactionId.CopyTo(mask[4..]);
+        for (var i = 0; i < address.Length; i++) value[4 + i] = (byte)(address[i] ^ mask[i]);
+        return value;
+    }
+
+    /// <summary>ChannelData framing (RFC 8656 section 12.4); the UDP form needs no padding.</summary>
+    internal static byte[] EncodeChannelData(ushort channel, ReadOnlySpan<byte> data)
+    {
+        var result = new byte[4 + data.Length];
+        BinaryPrimitives.WriteUInt16BigEndian(result, channel);
+        BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(2), checked((ushort)data.Length));
+        data.CopyTo(result.AsSpan(4));
+        return result;
+    }
+
+    internal static bool TryParseChannelData(ReadOnlySpan<byte> bytes, out ushort channel, out ReadOnlySpan<byte> data)
+    {
+        channel = 0; data = default;
+        if (bytes.Length < 4 || (bytes[0] & 0xc0) != 0x40) return false;
+        channel = BinaryPrimitives.ReadUInt16BigEndian(bytes);
+        var length = BinaryPrimitives.ReadUInt16BigEndian(bytes[2..]);
+        if (length > bytes.Length - 4) return false;
+        data = bytes.Slice(4, length);
         return true;
     }
 

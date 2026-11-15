@@ -157,6 +157,9 @@ session.MessageReceived += async (message, cancellationToken) =>
             };
             await session.SendAsync(ContentMessageKind.Diagnostic, new Dictionary<string, object?> { ["sequence"] = message.Sequence, ["code"] = code, ["message"] = exception.Message }, cancellationToken);
         }
+        // After the frame (or the diagnostic), so the collection of the replaced document is not in the first-frame time, and
+        // also when the load failed: a replaced document is collected whatever became of its successor.
+        finally { runtime.CollectRetired(); }
     }
     finally { runtimeGate.Release(); }
 };

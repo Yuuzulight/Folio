@@ -1,31 +1,55 @@
-# Folio
+<p align="center">
+  <img src="docs/assets/folio-logo.png" alt="Folio" width="300">
+</p>
 
-A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
+<p align="center">
+  A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
+</p>
 
-Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher is designed to stay light on memory. Mana writes HTML "artifacts" (reports, tables, charts, small interactive pages), and Folio shows them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
+<p align="center">
+  <a href="https://github.com/Yuuzulight/Folio/actions/workflows/ci.yml"><img src="https://github.com/Yuuzulight/Folio/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Yuuzulight/Folio/releases/latest"><img src="https://img.shields.io/github/v/release/Yuuzulight/Folio" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue" alt="Apache-2.0"></a>
+</p>
 
-**Status:** The Windows production content host uses Folio-owned rendering, shaping, scripting and WebAssembly implementations. Optional Skia, HarfBuzz, Jint and Wasmtime paths are compatibility or differential-test tools, not requirements of the production package graph. Folio is not a general-purpose browser. Repository test results do not establish that every originally planned web-platform feature is complete: see the [consumer readiness audit](docs/consumer-readiness-audit.md) for integration evidence and remaining feature blockers.
+<p align="center">
+  <a href="docs/releases/1.0.0.md">Release notes</a> &middot;
+  <a href="docs/architecture.md">Documentation</a> &middot;
+  <a href="#what-folio-supports">Supported features</a> &middot;
+  <a href="https://github.com/Yuuzulight/Folio/milestone/9">1.1 plans</a>
+</p>
 
-**1.0 release:** Blocked pending the [current release audit](docs/release-1.0-audit.md). M6 is reopened with [#704](https://github.com/Yuuzulight/Folio/issues/704) and [#706](https://github.com/Yuuzulight/Folio/issues/706); the original milestone requirements and mandatory Folio-owned replacement gates still require final verification.
+<p align="center">
+  <img src="docs/assets/folio-hero.png" alt="A report page rendered by Folio: styled text, a table, a bar chart and a flowchart" width="760">
+  <br>
+  <sub>A page rendered by Folio itself on its own script engine: styled text and a table, a chart drawn by Folio's chart bridge, and a flowchart drawn by Folio's diagram renderer. Regenerate it with <code>dotnet run --project tests/Folio.RenderTests -c Release -- hero docs/assets/folio-hero.html docs/assets/folio-hero.png 1200</code>.</sub>
+</p>
 
-## Goal
-Render and run AI-written HTML artifacts as well as a modern browser does: pages that use modern CSS, web fonts, SVG charts and diagrams, and, in later milestones, the scripts, UI libraries and canvas graphics those artifacts rely on.
+## What Folio is
 
-## Principles
-- **Native and light:** static content uses Folio's own renderer inside the host app; scripts run in a separately constrained content process.
-- **Interactive:** a real on-screen control with hover, clicks, scrolling, text selection and relayout on resize. A WinForms control comes first, with a headless render-to-image API alongside it.
-- **Safe by default:** no network access unless the host allows it; scripts run sandboxed with strict limits.
-- **Measured:** progress is tracked against a conformance suite of real-world-style artifacts.
+Folio renders and runs HTML pages (reports, tables, charts, small interactive pages) inside your application's own window, or straight to an image, without embedding a web view. It started as the rendering engine for [Mana](https://github.com/Yuuzulight/Mana) and is a standalone library that any .NET application can use.
 
-## Scope
+- **Embeddable.** A WinForms control with hover, clicks, scrolling, text selection and relayout on resize, and a headless renderer that produces PNGs.
+- **Not a general-purpose browser.** There is no address bar, profile, extension system or page navigation. Advanced web APIs are narrower than in a browser, and some are not available; see [what Folio supports](#what-folio-supports).
+- **Safe by default.** Scripts run in a separate sandboxed process with strict limits, and a page has no network access unless the host grants it.
+- **Light.** Typical scripted pages start in about 25 ms using about 60 MiB; see [footprint](#footprint).
+- **Platforms.** Packages target .NET 10. The WinForms control and the script host need Windows; static rendering also runs on Linux.
 
-Folio provides artifact rendering and interaction rather than address bars, browser profiles, extensions or general web navigation. Static HTML/CSS, text, SVG, images and the tested scripting/canvas corpus have dedicated implementation and regression coverage. Advanced APIs have narrower support: their existence in the DOM is not a promise of browser-equivalent networking, device integration or isolation.
+## Install
 
-The [milestone-6 acceptance audit](docs/milestone-6-audit.md) and [replacement gate](docs/replacement-gate.md) document the original requirements. Closed GitHub milestones and passing feature slices should not be used to erase unmet requirements. The production classifier deliberately retains browser routing for advanced features that have not been promoted; hosts must handle that result.
+Folio is released as GitHub release assets and is not on NuGet.org. Download the packages into a folder, add the folder as a NuGet source, and reference the package:
 
-## Using it
+```
+gh release download v1.0.0 --repo Yuuzulight/Folio --pattern "*.nupkg" --pattern SHA256SUMS.txt --dir folio-feed
+dotnet nuget add source ./folio-feed --name folio
+dotnet add package Folio --version 1.0.0
+```
 
-Reference `Folio` for portable static rendering, or `Folio.WinForms` for the Windows control. The complete production feed contains `Folio`, `Folio.Diagrams`, `Folio.Scripting` and `Folio.WinForms`; NuGet resolves their dependencies. Render HTML to a PNG without external rendering libraries:
+The packages are `Folio` (portable static rendering), `Folio.Diagrams`, `Folio.Scripting` and `Folio.WinForms` (the Windows control). Check the files against `SHA256SUMS.txt` before use. Running page scripts also needs the standalone host, `Folio.ContentHost-1.0.0-win-x64.zip`, from the same release; deploy the whole extracted directory, including `fonts`.
+
+## Quick start
+
+Render HTML to a PNG, with no external rendering libraries:
 
 ```csharp
 using Folio.Rendering;
@@ -34,11 +58,11 @@ byte[] png = HeadlessRenderer.RenderPng("<h1>Quarterly report</h1><p>Revenue ros
 File.WriteAllBytes("report.png", png);
 ```
 
-`RenderPng` is a static renderer: it does not execute page scripts. It supplies bundled fonts when none are specified, preserves explicit host font/resource policies, and applies image size limits. For explicit layout, use `Document.Parse` with `Fonts = BundledFontSource.Settings`, then `HeadlessRenderer.Render`; dispose both the document and returned image.
+`RenderPng` is a static renderer and does not run page scripts. It supplies bundled fonts when none are specified and applies image size limits.
 
-On Windows, add a `Folio.WinForms.FolioView` to a form and call `LoadHtml(html)`. The default control includes bundled fonts. Replacing its options does not remove those defaults unless an explicit font source is supplied. Font families load on demand; the shipped corpus is not universal Unicode coverage. Packages copy fonts and license notices into consumer output and publish directories. A host that supplies all fonts itself may set the MSBuild property `FolioBundledFonts=false`.
+Show a page in a Windows application by adding a `Folio.WinForms.FolioView` to a form and calling `LoadHtml(html)`. The control includes bundled fonts. Dispose it when its window closes.
 
-For scripts, publish the standalone Windows host separately, deploy the **whole** output directory (including `fonts`), and configure:
+Run page scripts by pointing the control at the standalone host:
 
 ```csharp
 view.Options = new FolioOptions
@@ -49,83 +73,57 @@ view.Options = new FolioOptions
 view.LoadHtml(html);
 ```
 
-Dispose the control when its window closes. The production host is a separate download/build artifact, not an executable hidden inside the NuGet packages. Portable static rendering does not require it. Low-level integrations can use `ContentProcessClient.StartWithOptions` to forward host resource, storage and media services, then send the document and its capability grants through the protocol. The raw `Start` overload remains available for explicitly configured integrations.
+Network, media, camera and microphone access must be granted deliberately by the host; see [feature capabilities](docs/feature-capabilities.md). Do not treat a loaded page as proof that all of its requested features worked.
 
-Network, media, camera and microphone permissions must be supplied deliberately by the host. Camera/microphone capture requires both the corresponding capability grant and an available provider; an optional host permission callback can deny requests. The WinForms control invokes that callback on its UI thread. Disposing, reloading or revoking a grant releases owned capture sessions. Advanced API support and denied capabilities must remain visible to the user; do not treat a loaded page as proof that all of its requested features worked.
+## What Folio supports
 
-The explicitly selected `Folio.Skia` adapter remains available from source for compatibility/oracle builds; it is not part of the default production feed.
+Folio renders and runs a tested subset of the web platform. It does not claim general browser compatibility.
 
-## Building
-Needs .NET SDK 10.0.403 or newer (including the patched .NET 10.0.14 runtime). The engine and its tests run on Windows and Linux; the WinForms control runs on Windows.
+| Area | Status | Notes |
+|---|---|---|
+| HTML and CSS layout, text, bundled fonts | Supported | Bundled fonts cover a finite licensed set; families load on demand. |
+| SVG and images | Supported | |
+| Headless render to PNG | Supported | Windows and Linux. |
+| Interactive control (hover, clicks, scroll, selection, resize) | Supported | Windows. |
+| Scripting | Supported | Folio's own JavaScript engine in a sandboxed process. React 18.3.1 with Babel, Twind, D3 7.9.0 and Phaser 3.90.0 are tested. Chart.js and Mermaid are not run as libraries: a page that loads Chart.js is drawn by Folio's chart bridge, and Mermaid blocks by Folio's diagram renderer. See the rows below. |
+| Charts | Partial | A subset of Chart.js 4 for bar, line, pie and doughnut charts: dataset colours, several datasets, stacking, horizontal bars, legend and title, round axis ticks, min, max and grace, and tension, fill and dash on lines. Layout was matched to Chart.js. Other chart types are not drawn and raise a diagnostic. |
+| Diagrams | Partial | Mermaid-style flowcharts (LR, RL, TD, BT, subgraphs, labelled edges), sequence, class, state, ER, pie, timeline and Gantt diagrams, laid out and styled by `Folio.Diagrams`. Class and ER relationships use plain arrows. |
+| Canvas 2D | Supported | |
+| WebRTC | Supported, with limits | Data channels, Opus, VP8 and H.264 receive, through a host-mediated transport. Interop was checked with Chrome only; sent video is VP8 key frames only. See the [release notes](docs/releases/1.0.0.md#known-limits). |
+| WebAssembly, WebGL, workers, media, camera and microphone | Partial | Available when the host grants them; coverage is the tested corpus. Capture needs a host-supplied provider. |
+| Iframes | Partial | Implemented, but not yet promoted to the production feature set; artifacts that use them fall back. |
+| Service workers | Not supported | Denied. |
+| Navigation, address bar, extensions, profiles | Not supported | Out of scope. |
 
-```
-dotnet build Folio.slnx
-# The test projects use direct xUnit v3 in-process runners.
-dotnet tests/Folio.Tests/bin/Debug/net10.0/Folio.Tests.dll
-dotnet tests/Folio.RenderTests/bin/Debug/net10.0/Folio.RenderTests.dll
-dotnet tests/Folio.Scripting.Tests/bin/Debug/net10.0/Folio.Scripting.Tests.dll
-dotnet tests/Folio.Fuzz/bin/Debug/net10.0/Folio.Fuzz.dll
-dotnet tests/Folio.Benchmarks/bin/Debug/net10.0/Folio.Benchmarks.dll
-dotnet tests/Folio.WinForms.Tests/bin/Debug/net10.0-windows/Folio.WinForms.Tests.dll
-```
+The [consumer readiness audit](docs/consumer-readiness-audit.md) and [feature capabilities](docs/feature-capabilities.md) have the detail, and the [release notes](docs/releases/1.0.0.md#known-limits) list the known limits.
 
-The solution uses Microsoft.Testing.Platform. Run the complete suite with
-`dotnet test --solution Folio.slnx -c Release --max-parallel-test-modules 1`, or use the direct commands above
-for individual projects.
+## Footprint
 
-The Windows production content host is a standalone NativeAOT executable. Publishing it requires the patched SDK
-above and Visual Studio C++ build tools with a Windows SDK (plus ARM64 tools when targeting ARM64):
+Measured on an AMD Ryzen 7 5800X, Windows 11, .NET SDK 10.0.403, JIT, on a quiet machine. Figures are medians; the [measurements record](docs/releases/1.0.0-measurements.md) has the method, the ranges and every row.
 
-```powershell
-pwsh -File tools/publish-content-host.ps1
-```
+| What | Measured | Budget |
+|---|---|---|
+| Script start-up, ordinary libraries (React, Twind, diagrams) | 23 to 25 ms, at most 61 MiB | 50 ms, 80 MiB |
+| Script start-up, charts (D3, chart bridge) | 30 to 33 ms, at most 63 MiB | 60 ms, 85 MiB |
+| Script start-up, Phaser | 98 ms, at most 86 MiB | 180 ms, 130 MiB |
+| Script host cold start | 178 ms | 400 ms |
+| First paint, headless | 37 ms | 50 ms |
+| First paint, visible control | **53.5 ms: over budget** | 50 ms |
+| Animation frame, typical dashboard | 6.2 ms | 8 ms |
+| Scroll frame (retained scroll) | 1.6 ms | 8 ms |
 
-The script validates the native image, patched compiler packages, font hashes and license notices before replacing
-an existing publish. It writes `native-build.json` with the build provenance. Published-host integration tests use
-`FOLIO_CONTENT_HOST` to select that exact executable; ordinary developer builds remain available for engine oracles.
+The visible first paint misses its budget in JIT mode. ReadyToRun or NativeAOT packaging removes most of the cause, and that choice is the application's.
 
-The render tests include an equivalence check: after random style changes to a page, an incremental update must draw exactly what a fresh render draws.
+## Documentation
 
-Image tests that fail or change write their actual, expected and diff images to `tests/render-output/`. Golden images change only through the approve command, after reviewing those images:
+- [Architecture](docs/architecture.md), [roadmap](docs/roadmap.md) and [interactive artifacts](docs/interactive-artifacts.md)
+- [Content process sandbox](docs/content-process-sandbox.md) and [dependencies](docs/dependencies.md)
+- [Release notes for 1.0.0](docs/releases/1.0.0.md)
 
-```
-dotnet run --project tests/Folio.RenderTests -- approve <area|area/name>
-```
+## Contributing
 
-The conformance report renders the corpus and prints pass rates per category:
-
-```
-dotnet run --project tests/Folio.RenderTests -- conformance
-```
-
-The fuzzer mutates the parser and decoder test inputs for the given number of seconds per target. Inputs it fails on are written to `tests/fuzz-output/`; once fixed, they go in `tests/Folio.Fuzz/Regressions/<target>/`, which the test run replays:
-
-```
-dotnet run --project tests/Folio.Fuzz -c Release -- fuzz <seconds> [html|css|png|jpeg|font|svg]...
-```
-
-The benchmark harness times each pipeline stage and measures memory for generated documents and the conformance corpus, against the targets in `docs/study/18-memory-and-performance.md`:
-
-```
-dotnet run --project tests/Folio.Benchmarks -c Release -- bench [iterations] [frames]
-```
-
-`iterations` controls parse/layout measurements; `frames` independently fixes the number of animation,
-interaction, and raster-replay samples so runs can be compared across machines (for example, `bench 20 80`).
-
-`gc` reports the layout stage's time, GC pause and collection counts, and a whole render through the public API, for the large generated documents:
-
-```
-dotnet run --project tests/Folio.Benchmarks -c Release -- gc 9
-```
-
-The pack script writes the packages to a folder that works as a local package source (by default `artifacts/packages`). It runs in PowerShell 5.1 (`powershell`) or 7 (`pwsh`):
-
-```
-pwsh -File tools/pack.ps1 [-Output <folder>] [-Version <release-version>]
-```
-
-By default the version is `0.1.0-m1.N`, where N is the number of commits in the packed commit's history, so each commit on main packs as its own version. The script refuses to pack uncommitted changes or a shallow clone. An explicit `-Version` lets a clean tagged commit produce its release package version. A host pins both a commit and package version, adds the feed as a package source, and builds the standalone host from that same commit. Building packages does not publish a GitHub release. Mana automatic updates accept published stable releases only, excluding drafts and prereleases.
+Building, running the tests, fuzzing, benchmarks and packing are described in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licence
-Apache-2.0, same as Mana.
+
+Apache-2.0. Third-party notices are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

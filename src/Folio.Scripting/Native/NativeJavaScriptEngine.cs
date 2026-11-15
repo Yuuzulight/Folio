@@ -674,8 +674,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         return bytes;
     }
 
-    private const int MaxCachedProgramCharacters = 320 * 1024;
-    private static readonly BoundedScriptCache<string, IReadOnlyList<JavaScriptStatement>> AstCache = new(256, 1024 * 1024);
+    // A 1.2 MB pinned library (Phaser) parses to roughly 16 MiB of AST, so the cache is bounded by total source size:
+    // one such library plus the ordinary scripts around it. A longer-lived content process then parses it once.
+    private const int MaxCachedProgramCharacters = 1536 * 1024;
+    private static readonly BoundedScriptCache<string, IReadOnlyList<JavaScriptStatement>> AstCache = new(256, 2560 * 1024);
 
     public static void Prime()
     {

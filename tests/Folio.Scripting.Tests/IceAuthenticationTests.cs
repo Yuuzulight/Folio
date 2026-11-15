@@ -48,7 +48,7 @@ public sealed class IceAuthenticationTests
         Assert.Equal(initial, bytes.AsSpan(0, second.ReceivedBytes).ToArray());
         var reply = StunMessage.Encode(StunMessage.BindingResponse, firstMessage.TransactionId.Span, [], Encoding.UTF8.GetBytes("remote-password"));
         await peer.SendToAsync(reply, SocketFlags.None, second.RemoteEndPoint);
-        await connected.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        await connected.Task.WaitAsync(Safety, TestContext.Current.CancellationToken);
         Assert.Equal("connected", agent.ConnectionState);
     }
 
@@ -80,7 +80,7 @@ public sealed class IceAuthenticationTests
         Assert.False(connected.Task.IsCompleted);
         await peer.SendToAsync(StunMessage.Encode(StunMessage.BindingRequest, RandomNumberGenerator.GetBytes(12),
             Attributes(agent.LocalUfrag + ":remote"), key), SocketFlags.None, target);
-        await connected.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        await connected.Task.WaitAsync(Safety, TestContext.Current.CancellationToken);
         Assert.Equal("connected", agent.ConnectionState);
 
         var datagram = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -91,7 +91,7 @@ public sealed class IceAuthenticationTests
         await Task.Delay(50, TestContext.Current.CancellationToken);
         Assert.False(datagram.Task.IsCompleted);
         await peer.SendToAsync(new byte[] { 23, 254, 253 }, SocketFlags.None, target);
-        Assert.Equal(new byte[] { 23, 254, 253 }, await datagram.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
+        Assert.Equal(new byte[] { 23, 254, 253 }, await datagram.Task.WaitAsync(Safety, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -125,14 +125,22 @@ public sealed class IceAuthenticationTests
         // Real peers may send their first DTLS flight directly after the ICE
         // response. Endpoint selection must precede that socket delivery.
         await peer.SendToAsync(new byte[] { 22, 254, 253 }, SocketFlags.None, request.RemoteEndPoint);
-        await connected.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
-        Assert.Equal(new byte[] { 22, 254, 253 }, await immediateData.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
+        await connected.Task.WaitAsync(Safety, TestContext.Current.CancellationToken);
+        Assert.Equal(new byte[] { 22, 254, 253 }, await immediateData.Task.WaitAsync(Safety, TestContext.Current.CancellationToken));
         Assert.Equal("connected", agent.ConnectionState);
     }
 
-    private static async Task<(IceAgent Agent, Socket Peer, EndPoint AgentEndPoint)> ConnectToRawPeerAsync(TimeSpan interval, TimeSpan timeout)
+    // Safety net only: the tests below are driven by a manual clock and await concrete conditions, never wall-clock windows.
+    private static readonly TimeSpan Safety = TimeSpan.FromSeconds(20);
+
+    private static async Task<(IceAgent Agent, Socket Peer, ManualTimeProvider Clock)> ConnectToRawPeerAsync(TimeSpan interval, TimeSpan timeout)
     {
-        var agent = new IceAgent { RemoteUfrag = "remote", RemotePassword = "remote-password", ConsentInterval = interval, ConsentTimeout = timeout };
+        var clock = new ManualTimeProvider();
+        var agent = new IceAgent
+        {
+            RemoteUfrag = "remote", RemotePassword = "remote-password", ConsentInterval = interval, ConsentTimeout = timeout,
+            Clock = clock, AutoMaintenance = false
+        };
         await agent.StartGatheringAsync();
         var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
@@ -143,61 +151,53 @@ public sealed class IceAuthenticationTests
             Foundation = "test", Component = 1, Protocol = "udp", Priority = 100,
             Address = "127.0.0.1", Port = ((IPEndPoint)peer.LocalEndPoint!).Port, Type = "host"
         });
-        var bytes = new byte[2048];
-        var request = await peer.ReceiveFromAsync(bytes, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), TestContext.Current.CancellationToken);
-        Assert.True(StunMessage.TryParse(bytes.AsSpan(0, request.ReceivedBytes), out var stun));
-        await peer.SendToAsync(StunMessage.Encode(StunMessage.BindingResponse, stun.TransactionId.ToArray(), [], Encoding.UTF8.GetBytes("remote-password")),
-            SocketFlags.None, request.RemoteEndPoint);
-        await connected.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
-        return (agent, peer, request.RemoteEndPoint);
+        var stun = await ReceiveStunOfAsync(peer, request: true);
+        await AnswerAsync(peer, new IPEndPoint(IPAddress.Loopback, agent.LocalCandidates[0].Port), stun);
+        await connected.Task.WaitAsync(Safety, TestContext.Current.CancellationToken);
+        return (agent, peer, clock);
     }
 
     [Fact]
     public async Task ConnectionFailsAndStopsSendingWhenThePeerStopsGrantingConsent()
     {
-        var (agent, peer, _) = await ConnectToRawPeerAsync(TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(600));
+        var (agent, peer, clock) = await ConnectToRawPeerAsync(TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(600));
         using var _agent = agent; using var _peer = peer;
-        var failed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        agent.OnConnectionStateChanged += state => { if (state == "failed") failed.TrySetResult(); };
-        await failed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(700));
+        agent.RunMaintenance();
         Assert.Equal("failed", agent.ConnectionState);
-        // Drain the unanswered consent checks, then confirm application data is no longer sent.
-        var buffer = new byte[2048];
-        while (peer.Available > 0) peer.Receive(buffer);
+        // The receive loop handles datagrams in order, so a reply to this request proves anything sent before it has arrived.
+        var agentEp = new IPEndPoint(IPAddress.Loopback, agent.LocalCandidates[0].Port);
         agent.SendDatagram(new byte[] { 23, 254, 253 });
-        await Task.Delay(200, TestContext.Current.CancellationToken);
-        while (peer.Available > 0)
-            Assert.True(StunMessage.TryParse(buffer.AsSpan(0, peer.Receive(buffer)), out _), "application data was sent after consent expired");
+        await peer.SendToAsync(RoleRequest(agent, StunMessage.IceControlled, 1), SocketFlags.None, agentEp);
+        var buffer = new byte[2048];
+        while (true)
+        {
+            var received = await peer.ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), TestContext.Current.CancellationToken)
+                .AsTask().WaitAsync(Safety, TestContext.Current.CancellationToken);
+            Assert.True(StunMessage.TryParse(buffer.AsSpan(0, received.ReceivedBytes), out var stun), "application data was sent after consent expired");
+            if (stun.Type != StunMessage.BindingRequest) break; // the reply to our sentinel; only STUN preceded it
+        }
     }
 
     [Fact]
     public async Task AnsweredConsentChecksKeepTheConnectionAlivePastTheTimeout()
     {
-        var (agent, peer, _) = await ConnectToRawPeerAsync(TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(600));
+        var timeout = TimeSpan.FromMilliseconds(600);
+        var (agent, peer, clock) = await ConnectToRawPeerAsync(TimeSpan.FromMilliseconds(100), timeout);
         using var _agent = agent; using var _peer = peer;
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var agentEp = new IPEndPoint(IPAddress.Loopback, agent.LocalCandidates[0].Port);
+        var step = TimeSpan.FromMilliseconds(150); // above the longest randomised interval (120 ms)
         var checks = 0;
-        var responder = Task.Run(async () =>
+        for (var elapsed = TimeSpan.Zero; elapsed <= timeout; elapsed += step)
         {
-            var bytes = new byte[2048];
-            while (!stop.IsCancellationRequested)
-            {
-                try
-                {
-                    var request = await peer.ReceiveFromAsync(bytes, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), stop.Token);
-                    if (!StunMessage.TryParse(bytes.AsSpan(0, request.ReceivedBytes), out var stun) || stun.Type != StunMessage.BindingRequest) continue;
-                    Interlocked.Increment(ref checks);
-                    await peer.SendToAsync(StunMessage.Encode(StunMessage.BindingResponse, stun.TransactionId.ToArray(), [], Encoding.UTF8.GetBytes("remote-password")),
-                        SocketFlags.None, request.RemoteEndPoint);
-                }
-                catch (OperationCanceledException) { break; }
-            }
-        });
-        await Task.Delay(1800, TestContext.Current.CancellationToken);
+            clock.Advance(step);
+            agent.RunMaintenance();
+            await AnswerAsync(peer, agentEp, await ReceiveStunOfAsync(peer, request: true));
+            await agent.ConsentCheck.WaitAsync(Safety, TestContext.Current.CancellationToken);
+            checks++;
+        }
         Assert.Equal("connected", agent.ConnectionState);
-        Assert.True(Volatile.Read(ref checks) >= 3, $"only {checks} consent checks were sent");
-        stop.Cancel();
-        await responder;
+        Assert.True(checks >= 3, $"only {checks} consent checks were sent");
     }
 
     private static byte[] RoleRequest(IceAgent agent, ushort roleAttribute, ulong tieBreaker, byte[]? transactionId = null)
@@ -213,7 +213,7 @@ public sealed class IceAuthenticationTests
     {
         var bytes = new byte[2048];
         var result = await socket.ReceiveFromAsync(bytes, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), TestContext.Current.CancellationToken)
-            .AsTask().WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            .AsTask().WaitAsync(Safety, TestContext.Current.CancellationToken);
         Assert.True(StunMessage.TryParse(bytes.AsSpan(0, result.ReceivedBytes), out var stun));
         return stun;
     }
@@ -330,23 +330,25 @@ public sealed class IceAuthenticationTests
         Assert.Equal(nowControlling, agent.IsControlling);
     }
 
-    // Answers the first check with 487 and every later one with `answer`; returns how many checks the agent sent in all.
-    private static async Task<int> CountChecksAsync(ushort answer)
+    // Answers the first check with 487 and every later one with `answer`. The agent sends one check at a time and waits
+    // for the answer, so after `expected(pairs)` checks the pass must go idle without sending another.
+    private static async Task<int> CountChecksAsync(ushort answer, Func<int, int> expected)
     {
         var (agent, peer, agentEp) = await StartAgentWithPeerAsync(controlling: true);
         using var a1 = agent; using var p1 = peer;
+        var target = expected(agent.LocalCandidates.Count); // one remote candidate: one pair per local candidate
         var count = 0;
-        try
+        while (count < target)
         {
-            while (true)
-            {
-                var check = await ReceiveStunOfAsync(peer, request: true).WaitAsync(TimeSpan.FromMilliseconds(900), TestContext.Current.CancellationToken);
-                // The retried check carries the flipped role and no nomination: role and nomination come from one read.
-                if (count == 1) { Assert.True(check.TryAttribute(StunMessage.IceControlled, out _)); Assert.False(check.TryAttribute(StunMessage.UseCandidate, out _)); }
-                await AnswerAsync(peer, agentEp, check, count++ == 0 ? StunMessage.BindingErrorResponse : answer);
-            }
+            var check = await ReceiveStunOfAsync(peer, request: true);
+            // The retried check carries the flipped role and no nomination: role and nomination come from one read.
+            if (count == 1) { Assert.True(check.TryAttribute(StunMessage.IceControlled, out _)); Assert.False(check.TryAttribute(StunMessage.UseCandidate, out _)); }
+            await AnswerAsync(peer, agentEp, check, count++ == 0 ? StunMessage.BindingErrorResponse : answer);
         }
-        catch (TimeoutException) { }
+        var idle = agent.WhenChecksIdleAsync(TestContext.Current.CancellationToken);
+        var extra = ReceiveStunOfAsync(peer, request: true);
+        Assert.Same(idle, await Task.WhenAny(idle, extra));
+        Assert.Equal(0, peer.Available);
         return count;
     }
 
@@ -354,9 +356,9 @@ public sealed class IceAuthenticationTests
     public async Task SecondAuthenticated487ForTheRetriedCheckDoesNotRetryAgain()
     {
         // Whatever the second answer, the retried pair is not tried a third time: a peer that always says 487 gets
-        // exactly two checks per reachable pair (R pairs = 1 + the checks that follow an accepted retry).
-        var pairs = 1 + (await CountChecksAsync(StunMessage.BindingResponse) - 2);
-        Assert.Equal(2 * pairs, await CountChecksAsync(StunMessage.BindingErrorResponse));
+        // exactly two checks per reachable pair; one that accepts the retry gets 1 + the remaining pairs' single checks.
+        await CountChecksAsync(StunMessage.BindingResponse, pairs => pairs + 1);
+        await CountChecksAsync(StunMessage.BindingErrorResponse, pairs => 2 * pairs);
     }
 
     [Fact]
@@ -381,7 +383,7 @@ public sealed class IceAuthenticationTests
         Assert.False(nomination.TryAttribute(StunMessage.IceControlled, out _));
         Assert.True(nomination.TryAttribute(StunMessage.UseCandidate, out _));
         await AnswerAsync(peer, agentEp, nomination);
-        await connected.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        await connected.Task.WaitAsync(Safety, TestContext.Current.CancellationToken);
     }
 
     [Fact]

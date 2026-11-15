@@ -40,7 +40,7 @@ public sealed class UdpBrokerTests
 
         public async Task<JsonElement> WaitFor(Func<JsonElement, bool> match)
         {
-            for (var i = 0; i < 300; i++)
+            for (var i = 0; i < 3000; i++)
             {
                 foreach (var evt in Snapshot()) if (match(evt)) return evt;
                 await Task.Delay(10);

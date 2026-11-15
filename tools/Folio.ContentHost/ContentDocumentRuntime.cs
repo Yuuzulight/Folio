@@ -180,8 +180,7 @@ public sealed class ContentDocumentRuntime : IDisposable
         if (timings is not null) timings["raster"] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         started = Stopwatch.GetTimestamp();
         var pixels = surface.PremultipliedPixels;
-        for (var i = 0; i < pixels.Length; i += 4)
-            (pixels[i], pixels[i + 2]) = (pixels[i + 2], pixels[i]);
+        Folio.Scripting.Ipc.FramePixels.SwapRedAndBlue(pixels);
         _frameStore.Publish(pixels);
         if (timings is not null) timings["publish"] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         return list.Items.Count;
@@ -217,7 +216,11 @@ public sealed class ContentDocumentRuntime : IDisposable
         }
         if (replacesDocument)
         {
-            DisposeDocument();
+            // The collection of the retired document waits for CollectRetired, after the new frame is out, so for a moment the old
+            // and the new document are both resident. That is only done while the process is small enough for the sum to stay
+            // under every start-up limit (ordinary 80 MiB, chart/canvas 85 MiB); a large process (Phaser-class, about 100 MiB)
+            // collects first, as before.
+            DisposeDocument(collect: Environment.WorkingSet > DeferCollectionBelowBytes);
             var documentGeneration = _documentGeneration;
             var policy = message.Payload.TryGetProperty("hostPolicy", out var hostPolicy) ? hostPolicy : default;
             var origins = ContentHostPolicy.ReadOrigins(policy);
@@ -555,7 +558,30 @@ public sealed class ContentDocumentRuntime : IDisposable
         _engine.SetGlobalProperty("devicePixelRatio", ScriptValue.FromNumber(_viewport.DeviceScale));
     }
 
-    private void DisposeDocument()
+    private bool _collectionPending;
+
+    // Measured on NativeAOT: a replaced ordinary or chart page adds 6 to 9 MiB to the peak while its collection waits.
+    internal const long DeferCollectionBelowBytes = 70L * 1024 * 1024;
+
+    /// <summary>
+    /// Collects what the last replaced document left behind. The host calls it once the new document's frame has been sent, so
+    /// the full collection (about 5 ms) is not part of the load a user waits for; every other way a document ends still
+    /// collects at once.
+    /// </summary>
+    public void CollectRetired()
+    {
+        if (!_collectionPending) return;
+        _collectionPending = false;
+        CollectGarbage();
+    }
+
+    private static void CollectGarbage()
+    {
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: false);
+        GC.WaitForPendingFinalizers();
+    }
+
+    private void DisposeDocument(bool collect = true)
     {
         ++_documentGeneration;
         if (_captureProvider is null && _engine is null && _runner is null && _eventLoop is null && _document is null)
@@ -570,8 +596,8 @@ public sealed class ContentDocumentRuntime : IDisposable
         // A content process replaces documents repeatedly. Promptly collect
         // retired DOM/script graphs so the process working-set target reflects
         // the live document rather than every page visited since startup.
-        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-        GC.WaitForPendingFinalizers();
+        if (collect) { _collectionPending = false; CollectGarbage(); }
+        else _collectionPending = true;
     }
 
     private sealed class BrokerResourceLoader(ContentHostSession session) : IResourceLoader

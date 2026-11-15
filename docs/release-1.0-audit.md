@@ -1,5 +1,15 @@
 # 1.0 release audit — 2026-11-10
 
+> **Historical.** This is the audit that blocked the first release attempt. Folio 1.0.0 was released later
+> ([v1.0.0](https://github.com/Yuuzulight/Folio/releases/tag/v1.0.0)). Checked against that tag, the authentication
+> failure below is fixed and has a regression test, and the media and host-policy work is in. What this audit asked for
+> and 1.0.0 does not yet deliver is tracked as 1.1 issues:
+> [#815](https://github.com/Yuuzulight/Folio/issues/815) (remove the local-delivery shim),
+> [#816](https://github.com/Yuuzulight/Folio/issues/816) (iframe and service-worker routing),
+> [#817](https://github.com/Yuuzulight/Folio/issues/817) (adversarial and cross-platform interop),
+> [#818](https://github.com/Yuuzulight/Folio/issues/818) (DTLS hardening),
+> [#819](https://github.com/Yuuzulight/Folio/issues/819) (test intermittency). Everything below is as written on 2026-11-10.
+
 Release is blocked. Main `ee1aab15` builds cleanly and its full local suite
 passes 4,843 tests with two documented skips (4,845 discovered). Four production
 packages and isolated portable/Windows package consumers pass. Hosted run

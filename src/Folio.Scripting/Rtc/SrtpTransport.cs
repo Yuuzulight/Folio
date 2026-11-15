@@ -4,85 +4,134 @@ using System.Security.Cryptography;
 namespace Folio.Scripting.Rtc;
 
 /// <summary>
-/// Folio-owned SRTP / SRTCP transport (RFC 3711 / RFC 7714) implementing AEAD AES-128-GCM
-/// and AES-128-CTR HMAC-SHA1 protection, rollover counter (ROC) tracking, and a 64-packet anti-replay window.
+/// Folio-owned SRTP / SRTCP (RFC 3711 key derivation, RFC 7714 AEAD_AES_128_GCM). Session keys are derived from the DTLS
+/// exporter's master key and salt. Receive state (rollover counter and a 64-packet replay window) is kept per SSRC, is only
+/// created after a packet authenticates, and is capped, so unauthenticated traffic cannot grow it.
 /// </summary>
 internal sealed class SrtpTransport : IDisposable
 {
-    private readonly byte[] _localMasterKey;
-    private readonly byte[] _localMasterSalt;
-    private readonly byte[] _remoteMasterKey;
-    private readonly byte[] _remoteMasterSalt;
+    internal const int MaxRemoteStreams = 32;
+    internal const int MaxPacketBytes = 2048;
+    private const int Tag = 16;
+    private const int SaltBytes = 12;
 
-    private readonly AesGcm _encryptor;
-    private readonly AesGcm _decryptor;
-
-    private uint _localRoc = 0;
-    private ushort _localSeq = 0;
-    private uint _remoteRoc = 0;
-    private ushort _remoteHighestSeq = 0;
-    private ulong _replayWindow = 0; // 64-bit sliding window
-
+    private readonly AesGcm _rtpEnc, _rtpDec, _rtcpEnc, _rtcpDec;
+    private readonly byte[] _rtpLocalSalt, _rtpRemoteSalt, _rtcpLocalSalt, _rtcpRemoteSalt;
+    private readonly Dictionary<uint, SendState> _send = [];
+    private readonly Dictionary<uint, RecvState> _recv = [];
+    private readonly Dictionary<uint, RecvState> _recvRtcp = [];
+    private uint _rtcpSendIndex;
     private readonly object _gate = new();
     private bool _disposed;
 
+    private sealed class SendState { public bool Started; public ushort Last; public uint Roc; }
+    private sealed class RecvState { public bool Started; public ulong Highest; public ulong Window; }
+
     public SrtpTransport(byte[] localKey, byte[] localSalt, byte[] remoteKey, byte[] remoteSalt)
     {
-        _localMasterKey = localKey;
-        _localMasterSalt = localSalt;
-        _remoteMasterKey = remoteKey;
-        _remoteMasterSalt = remoteSalt;
+        ArgumentNullException.ThrowIfNull(localKey); ArgumentNullException.ThrowIfNull(localSalt);
+        ArgumentNullException.ThrowIfNull(remoteKey); ArgumentNullException.ThrowIfNull(remoteSalt);
+        if (localKey.Length != 16 || remoteKey.Length != 16 || localSalt.Length < SaltBytes || remoteSalt.Length < SaltBytes)
+            throw new ArgumentException("SRTP master keys must be 16 bytes and salts at least 12 bytes.");
+        _rtpEnc = Gcm(Derive(localKey, localSalt, 0x00, 16));
+        _rtpDec = Gcm(Derive(remoteKey, remoteSalt, 0x00, 16));
+        _rtpLocalSalt = Derive(localKey, localSalt, 0x02, SaltBytes);
+        _rtpRemoteSalt = Derive(remoteKey, remoteSalt, 0x02, SaltBytes);
+        _rtcpEnc = Gcm(Derive(localKey, localSalt, 0x03, 16));
+        _rtcpDec = Gcm(Derive(remoteKey, remoteSalt, 0x03, 16));
+        _rtcpLocalSalt = Derive(localKey, localSalt, 0x05, SaltBytes);
+        _rtcpRemoteSalt = Derive(remoteKey, remoteSalt, 0x05, SaltBytes);
+    }
 
-        _encryptor = new AesGcm(_localMasterKey, 16);
-        _decryptor = new AesGcm(_remoteMasterKey, 16);
+    /// <summary>Known-answer tests only: uses the given session key and salt for every direction and for RTP and RTCP, as the RFC 7714 vectors do.</summary>
+    internal SrtpTransport(byte[] sessionKey, byte[] sessionSalt, bool sessionKeysAreFinal)
+    {
+        if (!sessionKeysAreFinal) throw new ArgumentException("Use the master key constructor.", nameof(sessionKeysAreFinal));
+        _rtpEnc = Gcm((byte[])sessionKey.Clone()); _rtpDec = Gcm((byte[])sessionKey.Clone());
+        _rtcpEnc = Gcm((byte[])sessionKey.Clone()); _rtcpDec = Gcm((byte[])sessionKey.Clone());
+        _rtpLocalSalt = sessionSalt[..SaltBytes]; _rtpRemoteSalt = sessionSalt[..SaltBytes];
+        _rtcpLocalSalt = sessionSalt[..SaltBytes]; _rtcpRemoteSalt = sessionSalt[..SaltBytes];
+    }
+
+    /// <summary>AesGcm copies the key, so the derived array is wiped as soon as the cipher exists.</summary>
+    private static AesGcm Gcm(byte[] key)
+    {
+        try { return new AesGcm(key, Tag); }
+        finally { CryptographicOperations.ZeroMemory(key); }
+    }
+
+    internal uint RtcpSendIndex { set { lock (_gate) _rtcpSendIndex = value; } }
+
+    /// <summary>Forgets the RTP receive state of an SSRC the peer said goodbye to. The RTCP window is kept so the BYE cannot be replayed.</summary>
+    internal void RemoveRemoteStream(uint ssrc) { lock (_gate) _recv.Remove(ssrc); }
+
+    /// <summary>RFC 3711 section 4.3 KDF with key_derivation_rate 0 (AES-CM PRF), as used by RFC 7714.</summary>
+    private static byte[] Derive(byte[] masterKey, byte[] masterSalt, byte label, int length)
+    {
+        using var aes = Aes.Create();
+        aes.Key = masterKey;
+        var counter = new byte[16];
+        masterSalt.AsSpan(0, SaltBytes).CopyTo(counter);
+        counter[7] ^= label;
+        var output = new byte[16];
+        aes.EncryptEcb(counter, output, PaddingMode.None);
+        return length == 16 ? output : output[..length];
+    }
+
+    /// <summary>Header length including CSRCs and the extension header, or -1 when the packet is malformed.</summary>
+    internal static int RtpHeaderLength(ReadOnlySpan<byte> packet)
+    {
+        if (packet.Length < 12 || (packet[0] >> 6) != 2) return -1;
+        var length = 12 + (packet[0] & 0x0F) * 4;
+        if ((packet[0] & 0x10) != 0)
+        {
+            if (packet.Length < length + 4) return -1;
+            length += 4 + BinaryPrimitives.ReadUInt16BigEndian(packet[(length + 2)..]) * 4;
+        }
+        return length > packet.Length ? -1 : length;
+    }
+
+    private static void RtpIv(byte[] salt, uint ssrc, uint roc, ushort seq, Span<byte> iv)
+    {
+        iv.Clear();
+        BinaryPrimitives.WriteUInt32BigEndian(iv[2..], ssrc);
+        BinaryPrimitives.WriteUInt32BigEndian(iv[6..], roc);
+        BinaryPrimitives.WriteUInt16BigEndian(iv[10..], seq);
+        for (var i = 0; i < SaltBytes; i++) iv[i] ^= salt[i];
+    }
+
+    private static void RtcpIv(byte[] salt, uint ssrc, uint index, Span<byte> iv)
+    {
+        iv.Clear();
+        BinaryPrimitives.WriteUInt32BigEndian(iv[2..], ssrc);
+        BinaryPrimitives.WriteUInt32BigEndian(iv[8..], index);
+        for (var i = 0; i < SaltBytes; i++) iv[i] ^= salt[i];
     }
 
     public byte[] ProtectRtp(ReadOnlySpan<byte> rtpPacket)
     {
         lock (_gate)
         {
-            if (_disposed || rtpPacket.Length < 12)
-                throw new InvalidOperationException("Invalid RTP packet.");
+            var headerLength = RtpHeaderLength(rtpPacket);
+            if (_disposed || headerLength < 0 || rtpPacket.Length > MaxPacketBytes) throw new InvalidOperationException("Invalid RTP packet.");
+            var seq = BinaryPrimitives.ReadUInt16BigEndian(rtpPacket[2..]);
+            var ssrc = BinaryPrimitives.ReadUInt32BigEndian(rtpPacket[8..]);
+            if (!_send.TryGetValue(ssrc, out var state))
+            {
+                if (_send.Count >= MaxRemoteStreams) throw new InvalidOperationException("Too many local SSRCs.");
+                _send[ssrc] = state = new SendState();
+            }
+            if (state.Started && seq < state.Last && state.Last - seq > 0x8000) state.Roc++;
+            if (!state.Started || seq > state.Last || state.Last - seq > 0x8000) state.Last = seq;
+            state.Started = true;
 
-            var version = (rtpPacket[0] >> 6) & 0x03;
-            if (version != 2) throw new InvalidOperationException("Unsupported RTP version.");
-
-            var csrcCount = rtpPacket[0] & 0x0F;
-            var headerLength = 12 + csrcCount * 4;
-            if (rtpPacket.Length < headerLength) throw new InvalidOperationException("Truncated RTP header.");
-
-            var seq = BinaryPrimitives.ReadUInt16BigEndian(rtpPacket.Slice(2, 2));
-            var ssrc = BinaryPrimitives.ReadUInt32BigEndian(rtpPacket.Slice(8, 4));
-
-            if (seq == 0 && _localSeq == ushort.MaxValue)
-                _localRoc++;
-            _localSeq = seq;
-
-            // Form 12-byte IV for AEAD_AES_128_GCM (RFC 7714 section 8.1)
-            // IV = salt XOR (SSRC << 64 | ROC << 16 | seq)
-            var iv = new byte[12];
-            _localMasterSalt.AsSpan(0, 12).CopyTo(iv);
-
-            var ssrcRocSeq = new byte[12];
-            BinaryPrimitives.WriteUInt32BigEndian(ssrcRocSeq.AsSpan(0), 0);
-            BinaryPrimitives.WriteUInt32BigEndian(ssrcRocSeq.AsSpan(4), ssrc);
-            BinaryPrimitives.WriteUInt32BigEndian(ssrcRocSeq.AsSpan(8), (_localRoc << 16) | seq);
-
-            for (var i = 0; i < 12; i++) iv[i] ^= ssrcRocSeq[i];
-
-            var header = rtpPacket.Slice(0, headerLength);
-            var payload = rtpPacket.Slice(headerLength);
-
-            var ciphertext = new byte[payload.Length];
-            var tag = new byte[16];
-            _encryptor.Encrypt(iv, payload, ciphertext, tag, header);
-
-            var srtpPacket = new byte[headerLength + ciphertext.Length + 16];
-            header.CopyTo(srtpPacket.AsSpan(0, headerLength));
-            ciphertext.CopyTo(srtpPacket.AsSpan(headerLength));
-            tag.CopyTo(srtpPacket.AsSpan(headerLength + ciphertext.Length));
-
-            return srtpPacket;
+            Span<byte> iv = stackalloc byte[12];
+            RtpIv(_rtpLocalSalt, ssrc, state.Roc, seq, iv);
+            var output = new byte[rtpPacket.Length + Tag];
+            rtpPacket[..headerLength].CopyTo(output);
+            _rtpEnc.Encrypt(iv, rtpPacket[headerLength..], output.AsSpan(headerLength, rtpPacket.Length - headerLength),
+                output.AsSpan(rtpPacket.Length, Tag), rtpPacket[..headerLength]);
+            return output;
         }
     }
 
@@ -91,111 +140,123 @@ internal sealed class SrtpTransport : IDisposable
         rtpPacket = null;
         lock (_gate)
         {
-            if (_disposed || srtpPacket.Length < 12 + 16) return false;
+            if (_disposed || srtpPacket.Length > MaxPacketBytes) return false;
+            var headerLength = RtpHeaderLength(srtpPacket);
+            if (headerLength < 0 || srtpPacket.Length < headerLength + Tag) return false;
+            var seq = BinaryPrimitives.ReadUInt16BigEndian(srtpPacket[2..]);
+            var ssrc = BinaryPrimitives.ReadUInt32BigEndian(srtpPacket[8..]);
+            var known = _recv.TryGetValue(ssrc, out var state);
+            if (!known)
+            {
+                if (_recv.Count >= MaxRemoteStreams) return false;
+                state = new RecvState();
+            }
+            if (!EstimateIndex(state!, seq, out var index) || !ReplayOk(state!, index)) return false;
 
-            var version = (srtpPacket[0] >> 6) & 0x03;
-            if (version != 2) return false;
-
-            var csrcCount = srtpPacket[0] & 0x0F;
-            var headerLength = 12 + csrcCount * 4;
-            if (srtpPacket.Length < headerLength + 16) return false;
-
-            var seq = BinaryPrimitives.ReadUInt16BigEndian(srtpPacket.Slice(2, 2));
-            var ssrc = BinaryPrimitives.ReadUInt32BigEndian(srtpPacket.Slice(8, 4));
-
-            // Anti-replay check & ROC estimate (RFC 3711 section 3.3.1 & 3.3.2)
-            if (!CheckReplayAndUpdateRoc(seq, out var roc)) return false;
-
-            var iv = new byte[12];
-            _remoteMasterSalt.AsSpan(0, 12).CopyTo(iv);
-
-            var ssrcRocSeq = new byte[12];
-            BinaryPrimitives.WriteUInt32BigEndian(ssrcRocSeq.AsSpan(0), 0);
-            BinaryPrimitives.WriteUInt32BigEndian(ssrcRocSeq.AsSpan(4), ssrc);
-            BinaryPrimitives.WriteUInt32BigEndian(ssrcRocSeq.AsSpan(8), (roc << 16) | seq);
-
-            for (var i = 0; i < 12; i++) iv[i] ^= ssrcRocSeq[i];
-
-            var header = srtpPacket.Slice(0, headerLength);
-            var ciphertext = srtpPacket.Slice(headerLength, srtpPacket.Length - headerLength - 16);
-            var tag = srtpPacket[^16..];
-
-            var plaintext = new byte[ciphertext.Length];
+            Span<byte> iv = stackalloc byte[12];
+            RtpIv(_rtpRemoteSalt, ssrc, (uint)(index >> 16), seq, iv);
+            var plainLength = srtpPacket.Length - Tag;
+            var output = new byte[plainLength];
+            srtpPacket[..headerLength].CopyTo(output);
             try
             {
-                _decryptor.Decrypt(iv, ciphertext, tag, plaintext, header);
+                _rtpDec.Decrypt(iv, srtpPacket.Slice(headerLength, plainLength - headerLength), srtpPacket[plainLength..],
+                    output.AsSpan(headerLength), srtpPacket[..headerLength]);
             }
-            catch (CryptographicException)
-            {
-                return false;
-            }
-
-            // Successfully authenticated and decrypted: update sliding replay window
-            UpdateReplayWindow(seq);
-
-            rtpPacket = new byte[headerLength + plaintext.Length];
-            header.CopyTo(rtpPacket.AsSpan(0, headerLength));
-            plaintext.CopyTo(rtpPacket.AsSpan(headerLength));
+            catch (CryptographicException) { return false; }
+            if (!known) _recv[ssrc] = state!;
+            Accept(state!, index);
+            rtpPacket = output;
             return true;
         }
     }
 
-    private bool CheckReplayAndUpdateRoc(ushort seq, out uint estimatedRoc)
+    /// <summary>RFC 3711 appendix A index estimation. False when the packet would need a negative rollover count.</summary>
+    private static bool EstimateIndex(RecvState state, ushort seq, out ulong index)
     {
-        estimatedRoc = _remoteRoc;
-        if (_replayWindow == 0 && _remoteHighestSeq == 0)
-        {
-            // First received packet
-            return true;
-        }
-
-        var diff = (short)(seq - _remoteHighestSeq);
-        if (diff > 0)
-        {
-            // Ahead of highest sequence number
-            if (_remoteHighestSeq > 0xF000 && seq < 0x1000)
-                estimatedRoc++;
-            return true;
-        }
-
-        // Within or behind the window
-        var delta = -diff;
-        if (delta >= 64)
-        {
-            // Packet is too old (> 64 packets behind highest)
-            return false;
-        }
-
-        // Check if bit is set in 64-bit replay window
-        if ((_replayWindow & (1UL << delta)) != 0)
-        {
-            // Duplicate packet!
-            return false;
-        }
-
+        index = seq;
+        if (!state.Started) return true;
+        var roc = state.Highest >> 16;
+        var last = (ushort)state.Highest;
+        long v;
+        if (last < 0x8000) v = seq - last > 0x8000 ? (long)roc - 1 : (long)roc;
+        else v = last - 0x8000 > seq ? (long)roc + 1 : (long)roc;
+        if (v < 0 || v > uint.MaxValue) return false;
+        index = ((ulong)v << 16) | seq;
         return true;
     }
 
-    private void UpdateReplayWindow(ushort seq)
+    private static bool ReplayOk(RecvState state, ulong index)
     {
-        var diff = (short)(seq - _remoteHighestSeq);
-        if (diff > 0)
-        {
-            // Advance window
-            if (diff >= 64) _replayWindow = 1UL;
-            else _replayWindow = (_replayWindow << diff) | 1UL;
+        if (!state.Started || index > state.Highest) return true;
+        var delta = state.Highest - index;
+        return delta < 64 && (state.Window & (1UL << (int)delta)) == 0;
+    }
 
-            if (_remoteHighestSeq > 0xF000 && seq < 0x1000)
-                _remoteRoc++;
-            _remoteHighestSeq = seq;
-        }
-        else
+    private static void Accept(RecvState state, ulong index)
+    {
+        if (!state.Started) { state.Started = true; state.Highest = index; state.Window = 1; return; }
+        if (index > state.Highest)
         {
-            var delta = -diff;
-            if (delta < 64)
+            var shift = index - state.Highest;
+            state.Window = shift >= 64 ? 1UL : (state.Window << (int)shift) | 1UL;
+            state.Highest = index;
+        }
+        else state.Window |= 1UL << (int)(state.Highest - index);
+    }
+
+    /// <summary>Protects one RTCP (compound) packet. The first 8 bytes stay clear and authenticated; the rest is encrypted.</summary>
+    public byte[] ProtectRtcp(ReadOnlySpan<byte> rtcp)
+    {
+        lock (_gate)
+        {
+            if (_disposed || rtcp.Length < 8 || rtcp.Length > MaxPacketBytes || (rtcp[0] >> 6) != 2) throw new InvalidOperationException("Invalid RTCP packet.");
+            var ssrc = BinaryPrimitives.ReadUInt32BigEndian(rtcp[4..]);
+            var index = _rtcpSendIndex++ & 0x7FFFFFFF;
+            var output = new byte[rtcp.Length + Tag + 4];
+            rtcp[..8].CopyTo(output);
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(rtcp.Length + Tag), 0x80000000 | index);
+            Span<byte> iv = stackalloc byte[12];
+            RtcpIv(_rtcpLocalSalt, ssrc, index, iv);
+            Span<byte> aad = stackalloc byte[12];
+            rtcp[..8].CopyTo(aad);
+            output.AsSpan(rtcp.Length + Tag, 4).CopyTo(aad[8..]);
+            _rtcpEnc.Encrypt(iv, rtcp[8..], output.AsSpan(8, rtcp.Length - 8), output.AsSpan(rtcp.Length, Tag), aad);
+            return output;
+        }
+    }
+
+    public bool TryUnprotectRtcp(ReadOnlySpan<byte> srtcp, out byte[]? rtcp)
+    {
+        rtcp = null;
+        lock (_gate)
+        {
+            if (_disposed || srtcp.Length < 8 + Tag + 4 || srtcp.Length > MaxPacketBytes || (srtcp[0] >> 6) != 2) return false;
+            var trailer = BinaryPrimitives.ReadUInt32BigEndian(srtcp[^4..]);
+            if ((trailer & 0x80000000) == 0) return false; // GCM always encrypts
+            var index = trailer & 0x7FFFFFFF;
+            var ssrc = BinaryPrimitives.ReadUInt32BigEndian(srtcp[4..]);
+            var known = _recvRtcp.TryGetValue(ssrc, out var state);
+            if (!known)
             {
-                _replayWindow |= (1UL << delta);
+                if (_recvRtcp.Count >= MaxRemoteStreams) return false;
+                state = new RecvState();
             }
+            if (!ReplayOk(state!, index)) return false;
+            var plainLength = srtcp.Length - 4 - Tag;
+            var output = new byte[plainLength];
+            srtcp[..8].CopyTo(output);
+            Span<byte> iv = stackalloc byte[12];
+            RtcpIv(_rtcpRemoteSalt, ssrc, index, iv);
+            Span<byte> aad = stackalloc byte[12];
+            srtcp[..8].CopyTo(aad);
+            srtcp[^4..].CopyTo(aad[8..]);
+            try { _rtcpDec.Decrypt(iv, srtcp.Slice(8, plainLength - 8), srtcp.Slice(plainLength, Tag), output.AsSpan(8), aad); }
+            catch (CryptographicException) { return false; }
+            if (!known) _recvRtcp[ssrc] = state!;
+            Accept(state!, index);
+            rtcp = output;
+            return true;
         }
     }
 
@@ -205,8 +266,9 @@ internal sealed class SrtpTransport : IDisposable
         {
             if (_disposed) return;
             _disposed = true;
-            _encryptor.Dispose();
-            _decryptor.Dispose();
+            _rtpEnc.Dispose(); _rtpDec.Dispose(); _rtcpEnc.Dispose(); _rtcpDec.Dispose();
+            CryptographicOperations.ZeroMemory(_rtpLocalSalt); CryptographicOperations.ZeroMemory(_rtpRemoteSalt);
+            CryptographicOperations.ZeroMemory(_rtcpLocalSalt); CryptographicOperations.ZeroMemory(_rtcpRemoteSalt);
         }
     }
 }

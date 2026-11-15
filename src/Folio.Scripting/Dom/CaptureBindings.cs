@@ -262,6 +262,15 @@ internal sealed class CaptureBindingState(IScriptEngine engine, DomContext conte
         return new CaptureAudioReader(buffer, () => IsLive(track, poll: false) && lease.Enabled && !lease.Muted);
     }
 
+    internal CaptureVideoReader? OpenVideoReader(ScriptValue track)
+    {
+        var lease = Find(track);
+        if (lease is null || lease.Kind != "video" || !IsLive(track, poll: false)) return null;
+        return new CaptureVideoReader(() => CurrentVideoFrame(track), () => IsLive(track, poll: false) && lease.Enabled && !lease.Muted);
+    }
+
+    internal string? TrackKind(ScriptValue track) => Find(track)?.Kind;
+
     private void SetTrackState(ScriptValue token, bool enabled, bool muted)
     {
         var lease = Find(token);

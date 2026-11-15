@@ -41,6 +41,9 @@ internal static class FrameBenchmark
 
     public static string ScrollHtml => Html(24, 4);
 
+    /// <summary>The scales Windows offers by default (100 to 200%, in 25% steps).</summary>
+    public static readonly float[] DpiScales = [1f, 1.25f, 1.5f, 1.75f, 2f];
+
     private static string Html(int cardCount, int barCount)
     {
         var cards = new StringBuilder();
@@ -73,9 +76,38 @@ internal static class FrameBenchmark
     }
 
     /// <summary>The median and 95th percentile frame times, and whether every frame took the paint-only path.</summary>
-    public static (TimeSpan Median, TimeSpan P95, bool PaintOnly) Measure(string html, int frames) => Steady(() => MeasurePass(html, frames));
+    public static (TimeSpan Median, TimeSpan P95, bool PaintOnly) Measure(string html, int frames, Presentation presentation = Presentation.None) => Steady(() => MeasurePass(html, frames, presentation));
 
-    private static (TimeSpan Median, TimeSpan P95, bool PaintOnly) MeasurePass(string html, int frames)
+    /// <summary>
+    /// What a frame costs after the raster: nothing (the raster alone, how the rows were first defined), a copy of the damaged part
+    /// into the bitmap the control draws (what <c>FolioView</c> does), or a copy of the whole surface (what it did before).
+    /// </summary>
+    public enum Presentation { None, Damage, Whole }
+
+    // The bitmap FolioView draws from, as bytes, and the copy into it of a rectangle of the surface (device pixels).
+    private sealed class Bitmap(SoftwareRasterSurface surface)
+    {
+        private readonly byte[] _frame = new byte[surface.Width * surface.Height * 4];
+        private readonly byte[] _row = new byte[surface.Width * 4];
+
+        public void Copy(RectF area, Presentation presentation)
+        {
+            if (presentation == Presentation.None)
+                return;
+            var (left, top, right, bottom) = presentation == Presentation.Whole ? (0, 0, surface.Width, surface.Height)
+                : (Math.Max(0, (int)MathF.Floor(area.X) - 1), Math.Max(0, (int)MathF.Floor(area.Y) - 1),
+                    Math.Min(surface.Width, (int)MathF.Ceiling(area.Right) + 1), Math.Min(surface.Height, (int)MathF.Ceiling(area.Bottom) + 1));
+            if (right <= left || bottom <= top)
+                return;
+            for (var y = top; y < bottom; y++)
+            {
+                surface.ReadBgraRow(y, left, right - left, _row);
+                Buffer.BlockCopy(_row, 0, _frame, (y * surface.Width + left) * 4, (right - left) * 4);
+            }
+        }
+    }
+
+    private static (TimeSpan Median, TimeSpan P95, bool PaintOnly) MeasurePass(string html, int frames, Presentation presentation)
     {
         using var document = Document.Parse(html, Options);
         var shaper = SoftwareRasterBackend.Instance.TextShaper;
@@ -83,6 +115,7 @@ internal static class FrameBenchmark
         using var surface = new SoftwareRasterSurface(800, 600);
         var canvas = surface.Canvas;
         Replay(canvas, document.DisplayList!, Viewport);
+        var bitmap = new Bitmap(surface);
         var paintOnly = true;
         var times = new List<TimeSpan>();
         for (var i = -10; i < frames; i++) // ten warm-up frames
@@ -99,6 +132,7 @@ internal static class FrameBenchmark
                 canvas.ClipRoundedRect(new RoundedRect(damage, default));
                 Replay(canvas, list, damage);
                 canvas.Restore();
+                bitmap.Copy(damage, presentation);
             }
             else if (document.LastDamage is { Width: <= 0, Height: <= 0 })
             {
@@ -107,6 +141,7 @@ internal static class FrameBenchmark
             else
             {
                 Replay(canvas, list, Viewport);
+                bitmap.Copy(Viewport, presentation);
             }
             if (i >= 0)
                 times.Add(Stopwatch.GetElapsedTime(start));
@@ -149,15 +184,16 @@ internal static class FrameBenchmark
     /// Hover restyle + repaint frame time (docs/study/18-memory-and-performance.md, M3 target 4 ms):
     /// moving pointer between cards toggles :hover state, runs Update() and rasters the display list.
     /// </summary>
-    public static (TimeSpan Median, TimeSpan P95) MeasureHover(string html, int steps) => Steady(() => MeasureHoverPass(html, steps));
+    public static (TimeSpan Median, TimeSpan P95) MeasureHover(string html, int steps, Presentation presentation = Presentation.None) => Steady(() => MeasureHoverPass(html, steps, presentation));
 
-    private static (TimeSpan Median, TimeSpan P95) MeasureHoverPass(string html, int steps)
+    private static (TimeSpan Median, TimeSpan P95) MeasureHoverPass(string html, int steps, Presentation presentation)
     {
         using var document = Document.Parse(html, Options);
         document.Paint(800, 600, 1, SoftwareRasterBackend.Instance.TextShaper, 0);
         using var surface = new SoftwareRasterSurface(800, 600);
         var canvas = surface.Canvas;
         Replay(canvas, document.DisplayList!, Viewport);
+        var bitmap = new Bitmap(surface);
         var times = new List<TimeSpan>();
         for (var i = -10; i < steps; i++)
         {
@@ -177,10 +213,12 @@ internal static class FrameBenchmark
                     canvas.ClipRoundedRect(new RoundedRect(rect, default));
                     Replay(canvas, list, rect);
                     canvas.Restore();
+                    bitmap.Copy(rect, presentation);
                 }
                 else if (damage is not { Width: <= 0, Height: <= 0 })
                 {
                     Replay(canvas, list, Viewport);
+                    bitmap.Copy(Viewport, presentation);
                 }
             }
             if (i >= 0)
@@ -195,17 +233,18 @@ internal static class FrameBenchmark
     /// device pixels, as <c>FolioView</c> does it. With <paramref name="retained"/> that is <see cref="RetainedScroll"/>:
     /// the rendered rows move and only the exposed ones are painted; without, the whole viewport is repainted (background fill included, as FolioView does; the row before this one filled none). Both rows include the surface-to-bitmap copy FolioView does after every changed frame.
     /// </summary>
-    public static (TimeSpan Median, TimeSpan P95) MeasureScroll(string html, int steps, bool retained = true) => Steady(() => MeasureScrollPass(html, steps, retained));
+    public static (TimeSpan Median, TimeSpan P95) MeasureScroll(string html, int steps, bool retained = true, float scale = 1) => Steady(() => MeasureScrollPass(html, steps, retained, scale));
 
-    private static (TimeSpan Median, TimeSpan P95) MeasureScrollPass(string html, int steps, bool retained)
+    private static (TimeSpan Median, TimeSpan P95) MeasureScrollPass(string html, int steps, bool retained, float scale)
     {
         using var document = Document.Parse(html, Options);
-        var (list, contentHeight) = document.Paint(800, 600, 1, SoftwareRasterBackend.Instance.TextShaper, 0);
-        var scrollRange = (int)(contentHeight - Viewport.Height);
+        // The viewport is 800x600 device pixels at any scale, as a window at that DPI scale is; the page is laid out in CSS pixels.
+        var (list, contentHeight) = document.Paint(800 / scale, 600 / scale, scale, SoftwareRasterBackend.Instance.TextShaper, 0);
+        var scrollRange = (int)(contentHeight * scale - Viewport.Height);
         if (scrollRange <= 60)
             throw new InvalidOperationException("The scroll fixture must extend beyond the viewport.");
         using var surface = new SoftwareRasterSurface(800, 600);
-        RetainedScroll.Repaint(list!, surface, 1, 0, Background);
+        RetainedScroll.Repaint(list!, surface, scale, 0, Background);
         var times = new List<TimeSpan>();
         var (rowBuffer, frame) = (new byte[800 * 4], new byte[800 * 4 * 600]);
         var (top, direction) = (0, 1);
@@ -220,8 +259,8 @@ internal static class FrameBenchmark
             }
             var start = Stopwatch.GetTimestamp();
             if (!retained)
-                RetainedScroll.Repaint(list!, surface, 1, next, Background);
-            else if (!RetainedScroll.TryScroll(list!, surface, 1, top, next, Background))
+                RetainedScroll.Repaint(list!, surface, scale, next, Background);
+            else if (!RetainedScroll.TryScroll(list!, surface, scale, top, next, Background))
                 throw new InvalidOperationException($"The scroll fixture no longer takes the retained path (step {top} -> {next}); the row would time a full repaint.");
             // FolioView then copies the surface into the bitmap it draws, swizzling every row.
             foreach (var row in Enumerable.Range(0, surface.Height))

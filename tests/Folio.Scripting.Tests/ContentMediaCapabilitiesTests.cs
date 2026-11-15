@@ -55,10 +55,32 @@ public sealed class ContentMediaCapabilitiesTests
         Assert.True(await request.WaitAsync(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken));
     }
 
+    [Theory]
+    [InlineData("codec")]
+    [InlineData("decode")]
+    [InlineData("capture")]
+    public async Task DisposingWhileAWriteIsInFlightIsAClosedConnectionNotAFault(string operation)
+    {
+        var output = new NotifyingStream { Hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var session = new ContentHostSession(new MemoryStream(), output);
+        var request = Task.Run(async () =>
+        {
+            if (operation == "codec") return !session.RequestMediaCanDecode("video/mp4", true, TestContext.Current.CancellationToken);
+            if (operation == "decode") return session.RequestMediaDecode(new byte[] { 1 }, "audio/test", false, 1024, TestContext.Current.CancellationToken) is null;
+            try { await session.RequestMediaCaptureAsync(new { action = "open", audio = true, video = false }, TestContext.Current.CancellationToken); return false; }
+            catch (IOException) { return true; }
+        }, TestContext.Current.CancellationToken);
+        await output.Written.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await session.DisposeAsync(); // the write gate is gone while the write still holds it
+        output.Hold.SetResult();
+        Assert.True(await request.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+    }
+
     private sealed class NotifyingStream : MemoryStream
     {
         internal TaskCompletionSource Written { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public override Task FlushAsync(CancellationToken cancellationToken) { Written.TrySetResult(); return Task.CompletedTask; }
+        internal TaskCompletionSource? Hold { get; init; }
+        public override async Task FlushAsync(CancellationToken cancellationToken) { Written.TrySetResult(); if (Hold is not null) await Hold.Task.ConfigureAwait(false); }
     }
 
     private sealed class Decoder : IMediaDecoder

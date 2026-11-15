@@ -13,6 +13,19 @@ public static class Program
             return ChromeRtcProbe.Run(chrome);
         if (args is ["rtc-chrome-probe", var answeringChrome, "folio-answerer"])
             return ChromeRtcProbe.Run(answeringChrome, folioAnswerer: true);
+        if (args is ["rtc-chrome-media-probe", var mediaChrome])
+            return ChromeRtcMediaProbe.Run(mediaChrome);
+        if (args is ["rtc-chrome-media-probe", var ansMediaChrome, "folio-answerer"])
+            return ChromeRtcMediaProbe.Run(ansMediaChrome, folioAnswerer: true);
+        if (args is ["rtc-chrome-media-probe", var codecMediaChrome, var codec])
+            return ChromeRtcMediaProbe.Run(codecMediaChrome, codec: codec);
+        if (args is ["rtc-chrome-media-probe", var ansCodecMediaChrome, var ansCodec, "folio-answerer"])
+            return ChromeRtcMediaProbe.Run(ansCodecMediaChrome, codec: ansCodec, folioAnswerer: true);
+        if (args is ["rtc-chrome-media-probe", ..])
+        {
+            Console.Error.WriteLine("Usage: rtc-chrome-media-probe <chrome> [vp8|h264|all] [folio-answerer]");
+            return 2;
+        }
         if (args is ["dtls-openssl-probe", var openssl])
             return OpenSslDtlsProbe.Run(openssl);
         if (args is ["dtls-openssl-probe", var serverOpenSsl, "folio-server"])

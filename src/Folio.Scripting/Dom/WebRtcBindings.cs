@@ -1,17 +1,71 @@
+using System.Text;
 using Folio;
 using Folio.Scripting.Rtc;
 using Folio.Scripting.Ipc;
 
 namespace Folio.Scripting.Dom;
 
+internal sealed class WebRtcDocumentScope
+{
+    private readonly object _gate = new();
+    private readonly int _maxConnections;
+    private int _activeConnections;
+
+    public RtcMediaBudget MediaBudget { get; }
+
+    public WebRtcDocumentScope(int maxConnections, TimeProvider? time = null)
+    {
+        _maxConnections = Math.Max(0, maxConnections);
+        MediaBudget = new RtcMediaBudget(time);
+    }
+
+    public bool TryAcquireConnection()
+    {
+        lock (_gate)
+        {
+            if (_activeConnections >= _maxConnections) return false;
+            _activeConnections++;
+            return true;
+        }
+    }
+
+    public void ReleaseConnection()
+    {
+        lock (_gate)
+        {
+            _activeConnections = Math.Max(0, _activeConnections - 1);
+        }
+    }
+
+    public int ActiveConnections { get { lock (_gate) return _activeConnections; } }
+}
+
 internal sealed class WebRtcBindingState : IDisposable
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FolioOptions, WebRtcDocumentScope> DocumentScopes = new();
+
+    // Scopes are keyed on FolioOptions identity: a root document and the child options IframeState builds for it
+    // share one scope only because the child is explicitly associated via AssociateScope. The time and maxConnections
+    // arguments apply only when the scope is first created for an options instance; later calls ignore them.
+    internal static WebRtcDocumentScope GetOrCreateScope(FolioOptions options, TimeProvider? time = null, int? maxConnections = null) =>
+        DocumentScopes.GetValue(options, opt => new WebRtcDocumentScope(maxConnections ?? opt.Limits.MaxWebRtcConnections, time));
+
+    internal static void AssociateScope(FolioOptions options, WebRtcDocumentScope scope)
+    {
+        DocumentScopes.Remove(options);
+        DocumentScopes.Add(options, scope);
+    }
+
     private readonly IScriptEngine _engine;
     internal readonly DomContext _context;
+    private readonly WebRtcDocumentScope _scope;
     private readonly object _gate = new();
     private readonly Dictionary<long, PeerLease> _peers = [];
     internal const int MaxDeliveryEvents = 256;
     internal const int MaxDeliveryBytes = 1024 * 1024;
+    internal const double MaxMessagesPerSecond = 1000;
+    internal const double BurstMessages = 256;
+    internal TimeProvider Clock { get; set; } = TimeProvider.System;
     private readonly LinkedList<Delivery> _deliveries = new();
     private int _deliveryCount;
     private int _deliveryBytes;
@@ -20,6 +74,39 @@ internal sealed class WebRtcBindingState : IDisposable
     private sealed record Delivery(PeerLease Peer, Action? Callback, int Bytes);
     private long _nextId;
     private bool _disposed;
+    // Shared media budget across top-level document and all iframes.
+    internal RtcMediaBudget MediaBudget => _scope.MediaBudget;
+    private readonly object _audioGate = new();
+    private readonly Dictionary<long, RemoteVideoSink> _videoSinks = [];
+    private long _nextVideoId;
+
+    /// <summary>The newest decoded frame of one remote video track. A media element polls it when it paints, like a capture frame.</summary>
+    private sealed class RemoteVideoSink
+    {
+        private readonly object _gate = new();
+        private MediaCaptureVideoFrame? _latest;
+        internal void Set(MediaCaptureVideoFrame frame) { lock (_gate) _latest = frame; }
+        internal MediaCaptureVideoFrame? Latest { get { lock (_gate) return _latest; } }
+    }
+
+    /// <summary>
+    /// For a track script holds: whether it is a remote WebRTC video track (token in <c>_remoteVideoToken</c>) and its newest frame.
+    /// A remote track without a frame yet presents black, never the compatibility gradient.
+    /// </summary>
+    internal (bool Remote, MediaCaptureVideoFrame? Frame) RemoteVideo(ScriptValue token)
+    {
+        if (!token.IsNumber) return (false, null);
+        var number = token.AsNumber();
+        if (!(number >= 1 && number < 1e15)) return (false, null);
+        RemoteVideoSink? sink;
+        lock (_gate) _videoSinks.TryGetValue((long)number, out sink);
+        return sink is null ? (false, null) : (true, sink.Latest is { IsValid: true } frame ? frame : null);
+    }
+
+    private void RemoveVideoSinks(PeerLease lease)
+    {
+        lock (_gate) foreach (var id in lease.VideoSinkIds) _videoSinks.Remove(id);
+    }
     internal int ActivePeerCount { get { lock (_gate) return _peers.Count; } }
     internal string GetDiagnostics()
     {
@@ -27,7 +114,12 @@ internal sealed class WebRtcBindingState : IDisposable
         lock (_gate) peers = _peers.Values.ToArray();
         return string.Join("; ", peers.Select(peer => $"peer={peer.Id},ice={peer.Controller.IceConnectionState},dtls={peer.Controller.Dtls.State},sctp=[{peer.Controller.Sctp.GetDiagnostics()}]"));
     }
-    internal WebRtcBindingState(IScriptEngine engine, DomContext context) { _engine = engine; _context = context; }
+    internal WebRtcBindingState(IScriptEngine engine, DomContext context, WebRtcDocumentScope? scope = null)
+    {
+        _engine = engine;
+        _context = context;
+        _scope = scope ?? (context.ParentOptions is { } options ? GetOrCreateScope(options, maxConnections: context.MaxWebRtcConnections) : new WebRtcDocumentScope(context.MaxWebRtcConnections));
+    }
     private bool PermissionGranted() => !_disposed && _context.Capabilities.WebRtc && !_context.ScriptFeaturesDisposed;
     private void EnsurePermission() { if (!PermissionGranted()) { _context.CheckCapability("WebRTC", false); throw WebIdlException.DomException("NotSupportedError", "WebRTC is disabled by the host."); } }
 
@@ -38,13 +130,25 @@ internal sealed class WebRtcBindingState : IDisposable
         lock (_gate)
         {
             if (_disposed || _deliveryStopped) throw WebIdlException.DomException("InvalidStateError", "The document is closed.");
-            if (_peers.Count >= _context.MaxWebRtcConnections) throw WebIdlException.DomException("QuotaExceededError", "The WebRTC peer connection limit has been exceeded.");
-            var lease = new PeerLease(this, ++_nextId, servers);
-            _peers.Add(lease.Id, lease);
-            try { return _engine.CreateHostObject(PeerTemplate, lease); }
-            catch { _peers.Remove(lease.Id); lease.Dispose(); throw; }
+            if (!_scope.TryAcquireConnection()) throw WebIdlException.DomException("QuotaExceededError", "The WebRTC peer connection limit has been exceeded.");
+            PeerLease? lease = null;
+            try
+            {
+                lease = new PeerLease(this, ++_nextId, servers);
+                _peers.Add(lease.Id, lease);
+                return _engine.CreateHostObject(PeerTemplate, lease);
+            }
+            catch
+            {
+                if (lease is not null) _peers.Remove(lease.Id);
+                _scope.ReleaseConnection();
+                lease?.Dispose();
+                throw;
+            }
         }
     }
+
+    private const int MaxTurnCredentialLength = 255;
 
     private string[] ValidateIceServers(ReadOnlySpan<ScriptValue> endpoints)
     {
@@ -54,15 +158,25 @@ internal sealed class WebRtcBindingState : IDisposable
         var totalLength = 0;
         foreach (var value in endpoints)
         {
-            var endpoint = value.AsString() ?? "";
-            if (endpoint.Length > ContentHostPolicy.MaxOriginLength ||
-                (totalLength += endpoint.Length) > ContentHostPolicy.MaxOriginsLength)
+            var entry = value.AsString() ?? "";
+            // TURN credentials travel after the URL; only the URL is matched against the host allowlist.
+            var endpoint = IceAgent.UrlOf(entry);
+            if (entry.Length > ContentHostPolicy.MaxOriginLength + 2 * MaxTurnCredentialLength + 2 ||
+                (totalLength += endpoint.Length) > ContentHostPolicy.MaxOriginsLength || endpoint.Length > ContentHostPolicy.MaxOriginLength)
                 throw WebIdlException.DomException("QuotaExceededError", "The ICE server list exceeds its size limit.");
             if (!_context.WebRtcAllowedOrigins.Any(origin => string.Equals(origin.TrimEnd('/'), endpoint, StringComparison.OrdinalIgnoreCase)))
                 throw WebIdlException.DomException("SecurityError", "The ICE server is not allowed by the host.");
-            if (!IceAgent.TryParseStunServer(endpoint, out _, out _))
-                throw WebIdlException.DomException("NotSupportedError", "Only IPv4 UDP STUN servers are supported by the document transport.");
-            if (!servers.Contains(endpoint, StringComparer.OrdinalIgnoreCase)) servers.Add(endpoint);
+            // Credentials exist only on turn: entries; a separator anywhere in a stun: entry is a forged or confused one.
+            if (entry.Length != endpoint.Length && endpoint.StartsWith("stun", StringComparison.OrdinalIgnoreCase))
+                throw WebIdlException.DomException("SyntaxError", "STUN servers take no credentials.");
+            if (IceAgent.TryParseTurnServer(entry, out _, out _, out var username, out var credential, out _))
+            {
+                if (Encoding.UTF8.GetByteCount(username) > MaxTurnCredentialLength || Encoding.UTF8.GetByteCount(credential) > MaxTurnCredentialLength)
+                    throw WebIdlException.DomException("QuotaExceededError", "The TURN credentials exceed their size limit.");
+            }
+            else if (!IceAgent.TryParseStunServer(endpoint, out _, out _))
+                throw WebIdlException.DomException("NotSupportedError", "Only IPv4 UDP STUN and TURN servers are supported by the document transport.");
+            if (!servers.Contains(entry, IceAgent.ServerEntryComparer.Instance)) servers.Add(entry);
         }
         return servers.ToArray();
     }
@@ -103,6 +217,34 @@ internal sealed class WebRtcBindingState : IDisposable
         lease.Controller.OnIceGatheringStateChange += state =>
         {
             if (state == "complete") PublishLocalCandidates(lease);
+        };
+        lease.Controller.OnRemoteTrack += track =>
+        {
+            long videoId = 0;
+            if (track.Kind == "video")
+            {
+                // Decoded remote video goes to a host-side sink; script only ever sees a token. Frames are shown only to a document that
+                // holds the same Media grant a <video> element needs.
+                var sink = new RemoteVideoSink();
+                lock (_gate)
+                    if (!_disposed && _peers.ContainsKey(lease.Id)) { videoId = ++_nextVideoId; _videoSinks[videoId] = sink; lease.VideoSinkIds.Add(videoId); }
+                if (videoId != 0)
+                {
+                    track.VideoFrame += frame => { if (PermissionGranted() && _context.Capabilities.Media) sink.Set(frame); };
+                    track.Ended += () => sink.Set(default);
+                }
+            }
+            // Decoded remote audio goes straight to the host output, never through script. It needs the same grants as an
+            // autoplaying media element, because no user gesture started it.
+            track.AudioFrame += frame =>
+            {
+                if (_disposed || _context.MediaAudioOutput is not { } output || !_context.Capabilities.Media ||
+                    !_context.Capabilities.Sound || !_context.Capabilities.AllowSoundAutoplay) return;
+                lock (_audioGate) output.Submit(frame);
+            };
+            var kind = track.Kind; var trackMid = track.Mid ?? "";
+            QueuePeer(lease, () => _engine.Call(lease.TransportCallback, ScriptValue.Undefined,
+                [ScriptValue.FromString("track"), ScriptValue.FromString(kind), ScriptValue.FromString(trackMid), ScriptValue.FromNumber(videoId)]), 2 * (kind.Length + trackMid.Length) + 8);
         };
         lease.Controller.OnDataChannel += channel =>
         {
@@ -151,14 +293,31 @@ internal sealed class WebRtcBindingState : IDisposable
     private bool IsDeliverable(PeerLease peer) => PermissionGranted() && !_deliveryStopped &&
         !peer.DeliveryOverflow && _peers.ContainsKey(peer.Id);
 
-    private void QueuePeer(PeerLease peer, Action action, int bytes = 0)
+    /// <summary>The bucket belongs to the peer, so a flooding peer exhausts and retires only itself. Called under <c>_gate</c>.</summary>
+    private bool TryTakeMessageToken(PeerLease peer)
+    {
+        var now = Clock.GetTimestamp();
+        if (!peer.HasMessageStamp)
+        {
+            peer.HasMessageStamp = true;
+            peer.LastMessageStamp = now;
+        }
+        var seconds = (now - peer.LastMessageStamp) / (double)Clock.TimestampFrequency;
+        peer.LastMessageStamp = now;
+        peer.MessageTokens = Math.Min(BurstMessages, peer.MessageTokens + seconds * MaxMessagesPerSecond);
+        if (peer.MessageTokens < 1) return false;
+        peer.MessageTokens -= 1;
+        return true;
+    }
+
+    private void QueuePeer(PeerLease peer, Action action, int bytes = 0, bool isMessage = false)
     {
         var loop = _context.OwnerEventLoop;
         if (loop is null) return;
         lock (_gate)
         {
             if (!IsDeliverable(peer)) return;
-            if (_deliveryCount >= MaxDeliveryEvents || bytes > MaxDeliveryBytes - _deliveryBytes)
+            if (_deliveryCount >= MaxDeliveryEvents || bytes > MaxDeliveryBytes - _deliveryBytes || (isMessage && !TryTakeMessageToken(peer)))
             {
                 peer.DeliveryOverflow = true;
                 RemoveDeliveries(peer);
@@ -205,9 +364,16 @@ internal sealed class WebRtcBindingState : IDisposable
             }
             delivery = first.Value;
             _deliveries.RemoveFirst();
-            deliver = delivery.Callback is null
-                ? _peers.Remove(delivery.Peer.Id) && PermissionGranted()
-                : IsDeliverable(delivery.Peer);
+            if (delivery.Callback is null)
+            {
+                if (_peers.Remove(delivery.Peer.Id))
+                {
+                    _scope.ReleaseConnection();
+                    deliver = PermissionGranted();
+                }
+                else deliver = false;
+            }
+            else deliver = IsDeliverable(delivery.Peer);
         }
         try
         {
@@ -269,7 +435,7 @@ internal sealed class WebRtcBindingState : IDisposable
         return _engine.CreateHostObject(ChannelTemplate, new ChannelLease(this, peer, channel));
     }
 
-    private sealed class ChannelLease
+    internal sealed class ChannelLease
     {
         internal WebRtcBindingState Owner { get; }
         internal PeerLease Peer { get; }
@@ -289,7 +455,7 @@ internal sealed class WebRtcBindingState : IDisposable
             var payload = value is string text ? ScriptValue.FromString(text)
                 : value is byte[] bytes ? Owner._engine.CreateArrayBuffer(bytes) : ScriptValue.Undefined;
             Owner._engine.Call(Callback, ScriptValue.Undefined, [ScriptValue.FromString(kind), payload]);
-        }, value switch { string text => 2 * text.Length, byte[] bytes => bytes.Length, _ => 0 });
+        }, value switch { string text => 2 * text.Length, byte[] bytes => bytes.Length, _ => 0 }, isMessage: kind == "message");
         internal void Send(ScriptValue value)
         {
             lock (Owner._gate)
@@ -335,6 +501,7 @@ internal sealed class WebRtcBindingState : IDisposable
         lock (_gate)
         {
             removed = _peers.Remove(lease.Id);
+            if (removed) _scope.ReleaseConnection();
             RemoveDeliveries(lease);
         }
         if (removed) lease.Dispose();
@@ -347,11 +514,28 @@ internal sealed class WebRtcBindingState : IDisposable
         return _context.WebRtcAllowedOrigins.Contains(origin) || _context.WebRtcAllowedOrigins.Contains(value.TrimEnd('/'));
     }
 
-    internal string CreateOffer(ScriptValue value, bool hasDataChannels, int audioCount, int videoCount)
+    internal string CreateOffer(ScriptValue value, bool hasDataChannels, int audioCount, int videoCount, int audioReceivers, int videoReceivers)
     {
         if (!_engine.TryGetHostTarget(value, out var target) || target is not PeerLease lease || !ReferenceEquals(lease.Owner, this))
             return "";
-        return lease.Controller.CreateOfferAsync(hasDataChannels, audioCount, videoCount).GetAwaiter().GetResult();
+        return lease.Controller.CreateOfferAsync(hasDataChannels, audioCount, videoCount, audioReceivers, videoReceivers).GetAwaiter().GetResult();
+    }
+
+    /// <summary>Feeds a granted camera or microphone track to the next sender of this peer. The reader honours the track's enabled/muted/ended state.</summary>
+    internal void AttachSender(ScriptValue value, ScriptValue captureToken, string? kind = null)
+    {
+        if (_context.OwnerEventLoop is null || !PermissionGranted() ||
+            !_engine.TryGetHostTarget(value, out var target) || target is not PeerLease lease || !ReferenceEquals(lease.Owner, this)) return;
+        if (kind == "video" || (kind is null && _context.CaptureState?.TrackKind(captureToken) == "video"))
+        {
+            if (_context.CaptureState?.OpenVideoReader(captureToken) is not { } videoReader) return;
+            if (!lease.AttachVideoReader(videoReader)) videoReader.Dispose();
+        }
+        else
+        {
+            if (_context.CaptureState?.OpenAudioReader(captureToken) is not { } reader) return;
+            if (!lease.AttachReader(reader)) reader.Dispose();
+        }
     }
 
     internal string CreateAnswer(ScriptValue value, bool hasDataChannels, int audioCount, int videoCount)
@@ -365,7 +549,9 @@ internal sealed class WebRtcBindingState : IDisposable
     {
         if (_engine.TryGetHostTarget(value, out var target) && target is PeerLease lease && ReferenceEquals(lease.Owner, this))
         {
-            lease.Controller.SetLocalDescription(type, sdp);
+            try { lease.Controller.SetLocalDescription(type, sdp); }
+            catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or FormatException or ArgumentException)
+            { throw WebIdlException.DomException("OperationError", "The session description could not be applied."); }
             PublishLocalCandidates(lease);
         }
     }
@@ -373,7 +559,9 @@ internal sealed class WebRtcBindingState : IDisposable
     internal void SetRemoteDescription(ScriptValue value, string type, string sdp)
     {
         if (_engine.TryGetHostTarget(value, out var target) && target is PeerLease lease && ReferenceEquals(lease.Owner, this))
-            lease.Controller.SetRemoteDescription(type, sdp);
+            try { lease.Controller.SetRemoteDescription(type, sdp); }
+            catch (Exception error) when (error is InvalidDataException or NotSupportedException or InvalidOperationException or FormatException or ArgumentException)
+            { throw WebIdlException.DomException("OperationError", "The session description could not be applied."); }
     }
 
     internal void AddIceCandidate(ScriptValue value, string candidate)
@@ -391,6 +579,7 @@ internal sealed class WebRtcBindingState : IDisposable
         {
             peers = _peers.Values.ToArray();
             _peers.Clear();
+            for (var i = 0; i < peers.Length; i++) _scope.ReleaseConnection();
             RemoveDeliveries(null);
             foreach (var peer in peers) peer.Released = true;
         }
@@ -409,21 +598,102 @@ internal sealed class WebRtcBindingState : IDisposable
     public void Dispose() { lock (_gate) _disposed = true; CloseAll(); }
 
     private static readonly HostObjectTemplate PeerTemplate = new("RTCPeerConnectionLease");
-    private sealed class PeerLease(WebRtcBindingState owner, long id, string[] servers) : IDisposable
+    internal sealed class PeerLease(WebRtcBindingState owner, long id, string[] servers) : IDisposable
     {
         internal WebRtcBindingState Owner { get; } = owner;
         internal long Id { get; } = id;
         internal bool Released { get; set; }
         internal bool DeliveryOverflow { get; set; }
+        internal double MessageTokens { get; set; } = BurstMessages;
+        internal long LastMessageStamp { get; set; }
+        internal bool HasMessageStamp { get; set; }
         internal ScriptValue CloseCallback { get; set; } = ScriptValue.Undefined;
         internal bool TransportRegistered { get; set; }
         internal bool LocalCandidatesPublished { get; set; }
+        internal List<long> VideoSinkIds { get; } = [];
         internal ScriptValue TransportCallback { get; set; } = ScriptValue.Undefined;
-        internal RtcPeerConnectionController Controller { get; } = new(servers);
+        internal RtcPeerConnectionController Controller { get; } = new(servers, owner.MediaBudget);
+        private readonly List<CaptureAudioReader> _readers = [];
+        // A video reader keeps the controller slot it was attached with, so removing one never moves another onto the wrong track.
+        private readonly List<(CaptureVideoReader Reader, int Slot)> _videoReaders = [];
+        private int _nextVideoSlot;
+        private Timer? _pump;
+        private const int MaxSenders = 4;
+
+        internal bool AttachReader(CaptureAudioReader reader)
+        {
+            lock (_readers)
+            {
+                if (Released || _readers.Count >= MaxSenders) return false;
+                _readers.Add(reader);
+                // 20 ms pump: one RTP packet of audio per tick. Wall-clock by design; the media engine itself takes a TimeProvider.
+                // One-shot timer re-armed after each run, so ticks can never overlap.
+                _pump ??= new Timer(_ => { try { Pump(); } finally { Rearm(); } }, null, 20, Timeout.Infinite);
+                return true;
+            }
+        }
+
+        internal bool AttachVideoReader(CaptureVideoReader reader)
+        {
+            lock (_readers)
+            {
+                if (Released || _videoReaders.Count >= MaxSenders) return false;
+                _videoReaders.Add((reader, _nextVideoSlot++));
+                _pump ??= new Timer(_ => { try { Pump(); } finally { Rearm(); } }, null, 20, Timeout.Infinite);
+                return true;
+            }
+        }
+
+        private void Rearm()
+        {
+            lock (_readers) { if (!Released) try { _pump?.Change(20, Timeout.Infinite); } catch (ObjectDisposedException) { } }
+        }
+
+        private void Pump()
+        {
+            CaptureAudioReader[] audioReaders;
+            (CaptureVideoReader Reader, int Slot)[] videoReaders;
+            lock (_readers)
+            {
+                audioReaders = Released ? [] : _readers.ToArray();
+                videoReaders = Released ? [] : _videoReaders.ToArray();
+            }
+            for (var index = 0; index < audioReaders.Length; index++)
+            {
+                var local = Controller.LocalAudioTrack(index);
+                for (var reads = 0; reads < 12; reads++)
+                {
+                    if (!audioReaders[index].Read(0.02, out var frame)) break;
+                    if (local is not null) Controller.Media.SendAudio(local, frame.Samples.Span, frame.SampleRate, frame.Channels);
+                }
+            }
+            // The sender decides whether a frame is due (new capture sequence, at most 15 fps), so the pump just offers the latest one.
+            foreach (var (reader, slot) in videoReaders)
+            {
+                if (!reader.IsLive)
+                {
+                    lock (_readers) _videoReaders.Remove((reader, slot));
+                    reader.Dispose();
+                    Controller.ReleaseLocalVideo(slot);
+                    continue;
+                }
+                if (Controller.LocalVideoTrack(slot) is { } local && reader.Read(out var frame))
+                    Controller.Media.SendVideo(local, frame.Rgba.Span, frame.Width, frame.Height, frame.CaptureSequence);
+            }
+        }
 
         public void Dispose()
         {
             Released = true;
+            Owner.RemoveVideoSinks(this);
+            lock (_readers)
+            {
+                _pump?.Dispose(); _pump = null;
+                foreach (var reader in _readers) reader.Dispose();
+                _readers.Clear();
+                foreach (var (reader, _) in _videoReaders) reader.Dispose();
+                _videoReaders.Clear();
+            }
             CloseCallback = ScriptValue.Undefined;
             TransportCallback = ScriptValue.Undefined;
             Controller.Dispose();
@@ -447,7 +717,8 @@ internal sealed class WebRtcBindingState : IDisposable
             .DefineMethod("createChannel", (_, _, a) => state.CreateChannel(a[0], a[1].AsString() ?? "", a.Length > 2 ? a[2].AsString() ?? "" : ""))
             .DefineMethod("release", (_, _, a) => { if (a.Length > 0) state.Release(a[0]); return ScriptValue.Undefined; })
             .DefineMethod("allowOrigin", (_, _, a) => ScriptValue.FromBoolean(a.Length > 0 && state.AllowOrigin(a[0].AsString() ?? "")))
-            .DefineMethod("createOffer", (_, _, a) => ScriptValue.FromString(a.Length > 0 ? state.CreateOffer(a[0], a.Length > 1 && a[1].AsBoolean(), a.Length > 2 ? (int)a[2].AsNumber() : 0, a.Length > 3 ? (int)a[3].AsNumber() : 0) : ""))
+            .DefineMethod("createOffer", (_, _, a) => ScriptValue.FromString(a.Length > 0 ? state.CreateOffer(a[0], a.Length > 1 && a[1].AsBoolean(), a.Length > 2 ? (int)a[2].AsNumber() : 0, a.Length > 3 ? (int)a[3].AsNumber() : 0, a.Length > 4 ? (int)a[4].AsNumber() : 0, a.Length > 5 ? (int)a[5].AsNumber() : 0) : ""))
+            .DefineMethod("attachSender", (_, _, a) => { if (a.Length > 2) state.AttachSender(a[0], a[1], a[2].AsString()); else if (a.Length > 1) state.AttachSender(a[0], a[1]); return ScriptValue.Undefined; })
             .DefineMethod("createAnswer", (_, _, a) => ScriptValue.FromString(a.Length > 0 ? state.CreateAnswer(a[0], a.Length > 1 && a[1].AsBoolean(), a.Length > 2 ? (int)a[2].AsNumber() : 0, a.Length > 3 ? (int)a[3].AsNumber() : 0) : ""))
             .DefineMethod("setLocalDescription", (_, _, a) => { if (a.Length > 2) state.SetLocalDescription(a[0], a[1].AsString() ?? "", a[2].AsString() ?? ""); return ScriptValue.Undefined; })
             .DefineMethod("setRemoteDescription", (_, _, a) => { if (a.Length > 2) state.SetRemoteDescription(a[0], a[1].AsString() ?? "", a[2].AsString() ?? ""); return ScriptValue.Undefined; })
@@ -494,6 +765,7 @@ internal sealed class WebRtcBindingState : IDisposable
             var endpoint=String(urls[j]);
             if(documentTransport) {
                 if(endpoints.length>=65)throw new DOMException('Too many ICE servers.','QuotaExceededError');
+                if(/^turns?:/i.test(endpoint))endpoint+='\u0001'+(server.username===undefined?'':String(server.username))+'\u0001'+(server.credential===undefined?'':String(server.credential));
                 apply(arrayPush,endpoints,[endpoint]);
             } else if(!/^(stun|stuns|turn|turns):/i.test(endpoint)||!host.allowOrigin(endpoint)) {
                 throw new DOMException('The WebRTC server URL is invalid or not allowed.','SecurityError');
@@ -507,6 +779,15 @@ internal sealed class WebRtcBindingState : IDisposable
 globalThis.RTCPeerConnection = function(configuration) { var connection=this; var endpoints=[]; configuration=validate(configuration,endpoints); var lease=apply(host.acquire,host,endpoints); apply(weakSet,peers,[this,lease]); apply(weakSet,channelLists,[this,[]]); __folio_webrtc_peers.push(this); try { host.register(lease,function(){retire(connection,true);});
     host.registerTransport(lease,function(property,value,mid,index,usernameFragment) {
         token(connection);
+        if(property==='track') {
+            // A real remote track. In-document peers already received their tracks from the in-process pairing.
+            if(connection._peer)return;
+            var remoteTrack=new MediaStreamTrack(value);
+            // A remote video track carries an opaque host token; the media element resolves it to the newest decoded frame.
+            if(value==='video'&&index>0)Object.defineProperty(remoteTrack,'_remoteVideoToken',{value:index,enumerable:false});
+            connection._dispatch('track',{track:remoteTrack,receiver:{track:remoteTrack},transceiver:{mid:mid,kind:value,direction:'recvonly',currentDirection:'recvonly',stopped:false,receiver:{track:remoteTrack},sender:{track:null}},streams:[new MediaStream([remoteTrack])]});
+            return;
+        }
         if(property==='datachannel') { var incoming=transportChannel(connection,value); connection._dispatch('datachannel',{channel:incoming}); return; }
         if(property==='icecandidate') {
             var candidate=value===null?null:new RTCIceCandidate({candidate:value,sdpMid:mid,sdpMLineIndex:index,usernameFragment:usernameFragment});
@@ -535,7 +816,7 @@ globalThis.RTCSessionDescription = function(init) { init = init || {}; this.type
 RTCIceCandidate.prototype.toJSON = function() { return { candidate: this.candidate, sdpMid: this.sdpMid, sdpMLineIndex: this.sdpMLineIndex, usernameFragment: this.usernameFragment }; };
 RTCSessionDescription.prototype.toJSON = function() { return { type: this.type, sdp: this.sdp }; };
 function __folio_sdp(connection, type) { var kinds=[]; connection._senders.forEach(function(sender){ if(sender.track && kinds.indexOf(sender.track.kind)<0) kinds.push(sender.track.kind); }); connection._transceivers.forEach(function(transceiver){ if(transceiver.kind && kinds.indexOf(transceiver.kind)<0) kinds.push(transceiver.kind); }); var sdp='v=0\\r\\n'+'o=- 0 0 IN IP4 127.0.0.1\\r\\n'+'s=-\\r\\n'+'t=0 0\\r\\n'; if(type==='offer' && connection._dataChannels.length) sdp+='m=application 9 DTLS/SCTP webrtc-datachannel\\r\\n'; kinds.forEach(function(kind,index){ sdp+='m='+kind+' 9 UDP/TLS/RTP/SAVPF 96\\r\\n'+'a=mid:'+index+'\\r\\n'+'a=sendrecv\\r\\n'; }); return sdp; }
-RTCPeerConnection.prototype.createOffer = function() { var dead=asyncDead(this); if(dead)return dead; var lease=token(this); var offerSdp=host.createOffer(lease, this._dataChannels.length > 0, this._senders.filter(function(s){return s.track&&s.track.kind==='audio';}).length, this._senders.filter(function(s){return s.track&&s.track.kind==='video';}).length); if(typeof offerSdp!=='string'||!offerSdp) offerSdp=__folio_sdp(this,'offer'); return Promise.resolve(new RTCSessionDescription({ type: 'offer', sdp: offerSdp })); };
+RTCPeerConnection.prototype.createOffer = function() { var dead=asyncDead(this); if(dead)return dead; var lease=token(this); var offerSdp=host.createOffer(lease, this._dataChannels.length > 0, this._senders.filter(function(s){return s.track&&s.track.kind==='audio';}).length, this._senders.filter(function(s){return s.track&&s.track.kind==='video';}).length, this._transceivers.filter(function(t){return !t.stopped&&t.kind==='audio'&&!t.sender.track;}).length, this._transceivers.filter(function(t){return !t.stopped&&t.kind==='video'&&!t.sender.track;}).length); if(typeof offerSdp!=='string'||!offerSdp) offerSdp=__folio_sdp(this,'offer'); return Promise.resolve(new RTCSessionDescription({ type: 'offer', sdp: offerSdp })); };
 RTCPeerConnection.prototype.createAnswer = function() { var dead=asyncDead(this); if(dead)return dead; var lease=token(this); var answerSdp=host.createAnswer(lease, this._dataChannels.length > 0, this._senders.filter(function(s){return s.track&&s.track.kind==='audio';}).length, this._senders.filter(function(s){return s.track&&s.track.kind==='video';}).length); if(typeof answerSdp!=='string'||!answerSdp) answerSdp=__folio_sdp(this,'answer'); return Promise.resolve(new RTCSessionDescription({ type: 'answer', sdp: answerSdp })); };
 RTCPeerConnection.prototype.setLocalDescription = function(description) {
     var dead=asyncDead(this); if(dead)return dead;
@@ -553,13 +834,13 @@ RTCPeerConnection.prototype.setLocalDescription = function(description) {
     }
     return Promise.resolve();
 };
-RTCPeerConnection.prototype.setRemoteDescription = function(description) { var dead=asyncDead(this); if(dead)return dead; if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); if (!description || (description.type !== 'offer' && description.type !== 'answer' && description.type !== 'rollback')) return Promise.reject(new TypeError('The session description type is invalid.')); var lease=token(this); this.remoteDescription = description; host.setRemoteDescription(lease, description.type, description.sdp || ''); if (this.remoteDescription.type === 'answer') { this.signalingState = 'stable'; this._dispatch('signalingstatechange', {}); this.iceConnectionState = 'connected'; this._dispatch('iceconnectionstatechange', {}); this.connectionState = 'connected'; this._dispatch('connectionstatechange', {}); var peer = null; for (var peerIndex = 0; peerIndex < __folio_webrtc_peers.length; peerIndex++) { var candidate = __folio_webrtc_peers[peerIndex]; if (candidate !== this && candidate.connectionState !== 'closed' && ((this.localDescription && this.localDescription.type === 'offer' && candidate.remoteDescription && candidate.remoteDescription.type === 'offer') || (this.remoteDescription && this.remoteDescription.type === 'offer' && candidate.localDescription && candidate.localDescription.type === 'offer'))) { peer = candidate; break; } } if (peer) { this._peer = peer; peer._peer = this; __folio_pair_channels(this, peer); __folio_pair_channels(peer, this); peer._senders.forEach(function(sender) { if (sender.track && this.ontrack) this._dispatch('track', { type: 'track', target: this, track: sender.track, transceiver: null, streams: [new MediaStream([sender.track])] }); }, this); } if (this.ontrack) this._transceivers.forEach(function(transceiver) { if (transceiver.stopped) return; var track = transceiver.receiver.track; this._dispatch('track', { type: 'track', target: this, track: track, transceiver: transceiver, streams: [new MediaStream([track])] }); }, this); } return Promise.resolve(); };
+RTCPeerConnection.prototype.setRemoteDescription = function(description) { var dead=asyncDead(this); if(dead)return dead; if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); if (!description || (description.type !== 'offer' && description.type !== 'answer' && description.type !== 'rollback')) return Promise.reject(new TypeError('The session description type is invalid.')); var lease=token(this); this.remoteDescription = description; host.setRemoteDescription(lease, description.type, description.sdp || ''); if (this.remoteDescription.type === 'answer') { this.signalingState = 'stable'; this._dispatch('signalingstatechange', {}); this.iceConnectionState = 'connected'; this._dispatch('iceconnectionstatechange', {}); this.connectionState = 'connected'; this._dispatch('connectionstatechange', {}); var peer = null; for (var peerIndex = 0; peerIndex < __folio_webrtc_peers.length; peerIndex++) { var candidate = __folio_webrtc_peers[peerIndex]; if (candidate !== this && candidate.connectionState !== 'closed' && ((this.localDescription && this.localDescription.type === 'offer' && candidate.remoteDescription && candidate.remoteDescription.type === 'offer') || (this.remoteDescription && this.remoteDescription.type === 'offer' && candidate.localDescription && candidate.localDescription.type === 'offer'))) { peer = candidate; break; } } if (peer) { this._peer = peer; peer._peer = this; __folio_pair_channels(this, peer); __folio_pair_channels(peer, this); peer._senders.forEach(function(sender) { if (sender.track && this.ontrack) this._dispatch('track', { type: 'track', target: this, track: sender.track, transceiver: null, streams: [new MediaStream([sender.track])] }); }, this); } if (this.ontrack && !(host.transportEnabled() && !this._peer)) this._transceivers.forEach(function(transceiver) { if (transceiver.stopped) return; var track = transceiver.receiver.track; this._dispatch('track', { type: 'track', target: this, track: track, transceiver: transceiver, streams: [new MediaStream([track])] }); }, this); } return Promise.resolve(); };
 RTCPeerConnection.prototype.addIceCandidate = function(candidate) { var dead=asyncDead(this); if(dead)return dead; if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); if (candidate !== null && candidate !== undefined && typeof candidate !== 'string' && (!candidate || candidate.candidate === undefined || typeof candidate.candidate !== 'string')) return Promise.reject(new TypeError('The ICE candidate is invalid.')); var lease=token(this); var candStr = typeof candidate === 'string' ? candidate : (candidate && candidate.candidate ? candidate.candidate : ''); host.addIceCandidate(lease, candStr); this.iceConnectionState = 'connected'; this._dispatch('iceconnectionstatechange', {}); if (this.connectionState === 'new') { this.connectionState = 'connected'; this._dispatch('connectionstatechange', {}); } return Promise.resolve(); };
-RTCPeerConnection.prototype.addTrack = function(track) { token(this); if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); if (!track || typeof track !== 'object' || (track.kind !== 'audio' && track.kind !== 'video')) throw new TypeError('The track is invalid.'); for (var i = 0; i < this._senders.length; i++) if (this._senders[i].track === track) throw new DOMException('The track is already attached to this connection.', 'InvalidAccessError'); var connection = this; var sender = { track: track, _parameters: { encodings: [] }, replaceTrack: function(next) { var dead=asyncDead(connection); if(dead)return dead; if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); sender.track = next; return Promise.resolve(); }, getParameters: function() { token(connection); return sender._parameters; }, setParameters: function(parameters) { var dead=asyncDead(connection); if(dead)return dead; sender._parameters = parameters || { encodings: [] }; return Promise.resolve(sender._parameters); } }; this._senders.push(sender); this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); if (this._peer && typeof this._peer.ontrack === 'function') this._peer._dispatch('track', { type: 'track', target: this._peer, track: track, transceiver: null, streams: [new MediaStream([track])] }); return sender; };
+RTCPeerConnection.prototype.addTrack = function(track) { token(this); if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); if (!track || typeof track !== 'object' || (track.kind !== 'audio' && track.kind !== 'video')) throw new TypeError('The track is invalid.'); for (var i = 0; i < this._senders.length; i++) if (this._senders[i].track === track) throw new DOMException('The track is already attached to this connection.', 'InvalidAccessError'); var connection = this; var sender = { track: track, _parameters: { encodings: [] }, replaceTrack: function(next) { var dead=asyncDead(connection); if(dead)return dead; if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); sender.track = next; return Promise.resolve(); }, getParameters: function() { token(connection); return sender._parameters; }, setParameters: function(parameters) { var dead=asyncDead(connection); if(dead)return dead; sender._parameters = parameters || { encodings: [] }; return Promise.resolve(sender._parameters); } }; this._senders.push(sender); if (track._captureToken && host.attachSender) { try { host.attachSender(token(this), track._captureToken, track.kind); } catch (_) {} } this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); if (this._peer && typeof this._peer.ontrack === 'function') this._peer._dispatch('track', { type: 'track', target: this._peer, track: track, transceiver: null, streams: [new MediaStream([track])] }); return sender; };
 RTCPeerConnection.prototype.getSenders = function() { token(this); return this._senders.slice(); };
 RTCPeerConnection.prototype.removeTrack = function(sender) { token(this); if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); var index = this._senders.indexOf(sender); if (index < 0) throw new TypeError('The sender does not belong to this connection.'); if (sender.track !== null) { sender.track = null; this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); } };
 RTCPeerConnection.prototype.getReceivers = function() { token(this); return this._transceivers.map(function(transceiver) { return transceiver.receiver; }); };
-RTCPeerConnection.prototype.addTransceiver = function(kindOrTrack, init) { token(this); var connection = this; var kind = typeof kindOrTrack === 'string' ? kindOrTrack : (kindOrTrack && kindOrTrack.kind) || ''; if (kind !== 'audio' && kind !== 'video') throw new TypeError('The transceiver kind must be audio or video.'); if (typeof kindOrTrack === 'object' && (!kindOrTrack || kindOrTrack.kind !== kind)) throw new TypeError('The transceiver track is invalid.'); init = init || {}; var direction = init.direction === undefined ? 'sendrecv' : String(init.direction); if (direction !== 'sendrecv' && direction !== 'sendonly' && direction !== 'recvonly' && direction !== 'inactive') throw new TypeError('The transceiver direction is invalid.'); var transceiver = { mid: null, kind: String(kind), sender: { track: typeof kindOrTrack === 'object' ? kindOrTrack : null, _parameters: { encodings: [] } }, receiver: { track: new MediaStreamTrack(kind) }, direction: direction, currentDirection: null, stopped: false, _codecs: [], stop: function() { token(connection); transceiver.stopped = true; transceiver.direction = 'inactive'; transceiver.currentDirection = null; }, setCodecPreferences: function(codecs) { token(connection); if (!Array.isArray(codecs)) throw new TypeError('The codec preferences must be an array.'); for (var i = 0; i < codecs.length; i++) { var mimeType = codecs[i] && codecs[i].mimeType; if (typeof mimeType !== 'string' || mimeType.toLowerCase().indexOf(kind + '/') !== 0) throw new TypeError('The codec preference does not match the transceiver kind.'); } transceiver._codecs = codecs.slice(); }, get codecPreferences() { return transceiver._codecs.slice(); } }; transceiver.sender.replaceTrack = function(next) { var dead=asyncDead(connection); if(dead)return dead; if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); transceiver.sender.track = next; return Promise.resolve(); }; transceiver.sender.getParameters = function() { token(connection); return transceiver.sender._parameters; }; transceiver.sender.setParameters = function(parameters) { var dead=asyncDead(connection); if(dead)return dead; transceiver.sender._parameters = parameters || { encodings: [] }; return Promise.resolve(transceiver.sender._parameters); }; connection._transceivers.push(transceiver); this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); return transceiver; };
+RTCPeerConnection.prototype.addTransceiver = function(kindOrTrack, init) { token(this); var connection = this; var kind = typeof kindOrTrack === 'string' ? kindOrTrack : (kindOrTrack && kindOrTrack.kind) || ''; if (kind !== 'audio' && kind !== 'video') throw new TypeError('The transceiver kind must be audio or video.'); if (typeof kindOrTrack === 'object' && (!kindOrTrack || kindOrTrack.kind !== kind)) throw new TypeError('The transceiver track is invalid.'); init = init || {}; var direction = init.direction === undefined ? 'sendrecv' : String(init.direction); if (direction !== 'sendrecv' && direction !== 'sendonly' && direction !== 'recvonly' && direction !== 'inactive') throw new TypeError('The transceiver direction is invalid.'); var transceiver = { mid: null, kind: String(kind), sender: { track: typeof kindOrTrack === 'object' ? kindOrTrack : null, _parameters: { encodings: [] } }, receiver: { track: new MediaStreamTrack(kind) }, direction: direction, currentDirection: null, stopped: false, _codecs: [], stop: function() { token(connection); transceiver.stopped = true; transceiver.direction = 'inactive'; transceiver.currentDirection = null; }, setCodecPreferences: function(codecs) { token(connection); if (!Array.isArray(codecs)) throw new TypeError('The codec preferences must be an array.'); for (var i = 0; i < codecs.length; i++) { var mimeType = codecs[i] && codecs[i].mimeType; if (typeof mimeType !== 'string' || mimeType.toLowerCase().indexOf(kind + '/') !== 0) throw new TypeError('The codec preference does not match the transceiver kind.'); } transceiver._codecs = codecs.slice(); }, get codecPreferences() { return transceiver._codecs.slice(); } }; if (typeof kindOrTrack === 'object' && kindOrTrack && kindOrTrack._captureToken && host.attachSender) { try { host.attachSender(token(connection), kindOrTrack._captureToken, kindOrTrack.kind); } catch (_) {} } transceiver.sender.replaceTrack = function(next) { var dead=asyncDead(connection); if(dead)return dead; if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); transceiver.sender.track = next; return Promise.resolve(); }; transceiver.sender.getParameters = function() { token(connection); return transceiver.sender._parameters; }; transceiver.sender.setParameters = function(parameters) { var dead=asyncDead(connection); if(dead)return dead; transceiver.sender._parameters = parameters || { encodings: [] }; return Promise.resolve(transceiver.sender._parameters); }; connection._transceivers.push(transceiver); this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); return transceiver; };
 RTCPeerConnection.prototype.getTransceivers = function() { token(this); return this._transceivers.slice(); };
 RTCPeerConnection.prototype.getConfiguration = function() { token(this); return this.configuration; };
 RTCPeerConnection.prototype.setConfiguration = function(configuration) {
@@ -585,7 +866,7 @@ RTCPeerConnection.prototype.createDataChannel = function(label, options) {
 };
 RTCPeerConnection.prototype.close = function() { retire(this,false); };
 function transportChannel(owner, nativeChannel) {
-    var listeners={}, binaryType='arraybuffer', channel={label:nativeChannel.label,protocol:nativeChannel.protocol,ordered:true};
+    var listeners={}, binaryType='arraybuffer', channel={label:nativeChannel.label,protocol:nativeChannel.protocol,ordered:true,__nativeChannel:nativeChannel};
     Object.defineProperty(channel,'binaryType',{get:function(){return binaryType;},set:function(value){value=String(value);if(value==='blob'||value==='arraybuffer')binaryType=value;}});
     Object.defineProperty(channel,'id',{get:function(){return nativeChannel.id;}});
     Object.defineProperty(channel,'readyState',{get:function(){return nativeChannel.readyState;}});

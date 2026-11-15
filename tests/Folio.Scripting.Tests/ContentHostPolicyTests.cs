@@ -43,12 +43,269 @@ public sealed class ContentHostPolicyTests
         await ExchangeRtcDataThroughTheHostBroker(client);
     }
 
+    [Fact(Skip = "Requires the published Windows content host.", SkipUnless = nameof(HasPublishedWindowsHost), Timeout = 60000)]
+    public async Task PublishedHostIframeWithFeaturePolicyExchangesRtcDataWithAnIndependentLocalPeer()
+    {
+        _ = TestContext.Current.CancellationToken;
+        await using var client = Start(new FolioOptions());
+        WorkerIsolationCapabilityMatrixTests.AssertRestricted(client.Process);
+        await ExchangeIframeRtcDataThroughTheHostBroker(client);
+    }
+
     // The same exchange against whichever host the run selected, so it also covers the developer build in seconds.
     [Fact(Timeout = 60000)]
     public async Task ChildExchangesRtcDataWithALocalPeerThroughTheHostUdpBroker()
     {
         await using var client = Start(new FolioOptions());
         await ExchangeRtcDataThroughTheHostBroker(client);
+    }
+
+    [Fact(Timeout = 60000)]
+    public async Task IframeWithFeaturePolicyExchangesRtcDataWithALocalPeerThroughTheHostUdpBroker()
+    {
+        _ = TestContext.Current.CancellationToken;
+        await using var client = Start(new FolioOptions());
+        await ExchangeIframeRtcDataThroughTheHostBroker(client);
+    }
+
+    // Remote audio end to end: a peer outside the sandbox sends G.711 over SRTP; the child (no socket) receives it through the
+    // host UDP broker, surfaces ontrack, and its SRTCP receiver report comes back through the same broker.
+    [Fact(Timeout = 60000)]
+    public async Task ChildReceivesRemoteAudioOverSrtpThroughTheHostUdpBroker()
+    {
+        await using var client = Start(new FolioOptions());
+        client.UdpOptions = new UdpBrokerOptions { AllowLoopback = true };
+        using var remote = new RtcPeerConnectionController();
+        await Exchange(client, new
+        {
+            html = "<body></body>",
+            capabilities = new FeatureCapabilities { WebRtc = true },
+            script = """
+                var offer='', error='', tracks=[];
+                var pc=new RTCPeerConnection();
+                pc.ontrack=function(event){tracks.push(event.track.kind+':'+event.streams.length);};
+                pc.addTransceiver('audio',{direction:'recvonly'});
+                pc.createOffer().then(function(description){
+                    return pc.setLocalDescription(description).then(function(){offer=description.sdp;});
+                }).catch(function(e){error=String(e);});
+                'started'
+                """
+        }, "started");
+        var description = Value(await Exchange(client, new { script = "error?'ERROR:'+error:offer" }));
+        Assert.StartsWith("v=0", description);
+        Assert.Contains("m=audio 9 UDP/TLS/RTP/SAVPF 111 0 8", description);
+        Assert.Contains("a=recvonly", description);
+        remote.SetRemoteDescription("offer", description!);
+        var answer = await remote.CreateAnswerAsync(false, 1, 0);
+        Assert.Contains("a=sendonly", answer);
+        remote.SetLocalDescription("answer", answer);
+        await Exchange(client, new
+        {
+            script = "pc.setRemoteDescription({type:'answer',sdp:" + JsonSerializer.Serialize(answer) + "}).catch(function(e){error=String(e);});'queued'"
+        }, "queued");
+
+        var cancellation = TestContext.Current.CancellationToken;
+        var sender = remote.LocalAudioTrack(0)!;
+        var tone = Enumerable.Range(0, 160).Select(i => (float)(0.4 * Math.Sin(2 * Math.PI * 440 * i / 8000))).ToArray();
+        var watch = Stopwatch.StartNew();
+        RtcpPacket? report = null;
+        while (report is null && watch.Elapsed < TimeSpan.FromSeconds(20))
+        {
+            if (remote.Dtls.State == "connected") remote.Media.SendAudio(sender, tone, 8000, 1);
+            report = remote.Media.LastReports.FirstOrDefault(r => r.Kind == RtcpKind.ReceiverReport && r.Blocks.Count > 0);
+            await Task.Delay(20, cancellation);
+        }
+        Assert.NotNull(report);
+        var block = report.Blocks[0];
+        Assert.Equal(sender.Ssrc, block.Ssrc);          // the child reported on the SSRC it unprotected
+        // A report block only exists for a stream the child has received packets on, so this proves reception without depending on the random sequence base.
+        Assert.Equal("audio:1", Value(await Exchange(client, new { script = "error?'ERROR:'+error:tracks.join(',')" })));
+    }
+
+    // Remote video end to end: VP8 over SRTP through the host broker into the sandboxed child, onto a <video srcObject>,
+    // and from the video into a canvas with drawImage.
+    [Fact(Timeout = 90000)]
+    public async Task ChildRendersRemoteVp8VideoInAVideoElementAndCanvas()
+    {
+        var frames = Vp8DecoderTests.IvfFrames(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Vp8Vectors", "vp80-00-comprehensive-001.ivf")), out _, out _);
+        using var reference = new Folio.Scripting.Rtc.Vp8.Vp8Decoder(1 << 22);
+        byte[]? expected = null;
+        foreach (var frame in frames) { reference.Decode(frame); expected = reference.ToRgba(); }
+        const int x = 88, y = 72;
+        var offsetPixel = (y * 176 + x) * 4;
+        var want = $"{expected![offsetPixel]},{expected[offsetPixel + 1]},{expected[offsetPixel + 2]}";
+
+        await using var client = Start(new FolioOptions());
+        client.UdpOptions = new UdpBrokerOptions { AllowLoopback = true };
+        using var remote = new RtcPeerConnectionController();
+        await Exchange(client, new
+        {
+            html = "<body></body>",
+            capabilities = new FeatureCapabilities { WebRtc = true, Media = true },
+            script = """
+                var offer='', error='', info='', video=document.createElement('video'), stream=null;
+                var pc=new RTCPeerConnection();
+                pc.ontrack=function(event){ stream=event.streams[0]; video.srcObject=stream; info=event.track.kind; };
+                pc.addTransceiver('video',{direction:'recvonly'});
+                pc.createOffer().then(function(d){return pc.setLocalDescription(d).then(function(){offer=d.sdp;});}).catch(function(e){error=String(e);});
+                var sendError='';
+                try { pc.addTrack(new MediaStreamTrack('video')); sendError='none'; } catch(e) { sendError=e.name; }
+                'started'
+                """
+        }, "started");
+        var description = Value(await Exchange(client, new { script = "error?'ERROR:'+error:offer" }));
+        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 96", description);
+        Assert.Contains("a=rtcp-fb:96 nack pli", description);
+        remote.SetRemoteDescription("offer", description!);
+        var answer = await remote.CreateAnswerAsync(false, 0, 0);
+        Assert.Contains("a=inactive", answer); // Folio cannot send video
+        answer = answer.Replace("a=inactive", "a=sendonly"); // this test injects the RTP a real sender would produce
+        remote.SetLocalDescription("answer", answer);
+        await Exchange(client, new
+        {
+            script = "pc.setRemoteDescription({type:'answer',sdp:" + JsonSerializer.Serialize(answer) + "}).catch(function(e){error=String(e);});'queued'"
+        }, "queued");
+
+        var cancellation = TestContext.Current.CancellationToken;
+        var watch = Stopwatch.StartNew();
+        // Dtls.State flips to "connected" before OnStateChanged derives the SRTP keys, so wait for the transport itself.
+        while (remote.Srtp is null && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
+        Assert.Equal("connected", remote.Dtls.State);
+        Assert.NotNull(remote.Srtp);
+        ushort sequence = 1; uint timestamp = 1000;
+        var ssrc = 0xABCDu;
+        string? pixel = null;
+        const string probe = "(function(){ if(error) return 'ERROR:'+error; if(!video.videoWidth) return 'none'; var c=document.createElement('canvas'); c.width=176; c.height=144; var g=c.getContext('2d'); g.drawImage(video,0,0); var d=g.getImageData(" + "88,72" + ",1,1).data; return video.videoWidth+'x'+video.videoHeight+':'+d[0]+','+d[1]+','+d[2]; })()";
+        for (var round = 0; pixel is null && round < 40; round++)
+        {
+            foreach (var frame in frames)
+            {
+                for (var offset = 0; offset < frame.Length; offset += 1000)
+                {
+                    var length = Math.Min(1000, frame.Length - offset);
+                    var rtp = new byte[13 + length];
+                    rtp[0] = 0x80; rtp[1] = (byte)(96 | (offset + length == frame.Length ? 0x80 : 0));
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(rtp.AsSpan(2), sequence++);
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(4), timestamp);
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(8), ssrc);
+                    rtp[12] = (byte)(offset == 0 ? 0x10 : 0);
+                    frame.AsSpan(offset, length).CopyTo(rtp.AsSpan(13));
+                    remote.Ice.SendDatagram(remote.Srtp!.ProtectRtp(rtp));
+                }
+                timestamp += 3000;
+                await Task.Delay(5, cancellation);
+            }
+            await Task.Delay(50, cancellation);
+            var seen = Value(await Exchange(client, new { script = probe }));
+            if (seen == "176x144:" + want) pixel = seen; // the last frame sent, not the first decoded picture
+            else Assert.False(seen is not null && seen.StartsWith("ERROR"), seen);
+            if (watch.Elapsed > TimeSpan.FromSeconds(60)) break;
+        }
+        Assert.Equal("176x144:" + want, pixel);
+        Assert.Equal("video", Value(await Exchange(client, new { script = "info" })));
+        Assert.Equal("none", Value(await Exchange(client, new { script = "sendError" })));
+    }
+
+    // The same path for H.264: the child offers VP8 and H.264, the remote peer is left with H.264 only, so the answer picks it, and
+    // Constrained Baseline pictures (x264 fixture) travel as RTP through the host broker onto a <video srcObject> and a canvas.
+    [Fact(Timeout = 90000)]
+    public async Task ChildRendersRemoteH264VideoInAVideoElementAndCanvas()
+    {
+        var units = H264DecoderTests.AccessUnits(H264Fixtures.QcifLife());
+        var reference = new H264Decoder();
+        DecodedVideoFrame? last = null;
+        foreach (var unit in units) foreach (var frame in reference.Decode(H264DecoderTests.AnnexB(unit))) last = frame;
+        var expected = H264Receiver.ToRgba(last!);
+        const int x = 64, y = 48;
+        var offsetPixel = (y * 128 + x) * 4;
+        var want = $"{expected[offsetPixel]},{expected[offsetPixel + 1]},{expected[offsetPixel + 2]}";
+
+        await using var client = Start(new FolioOptions());
+        client.UdpOptions = new UdpBrokerOptions { AllowLoopback = true };
+        using var remote = new RtcPeerConnectionController();
+        await Exchange(client, new
+        {
+            html = "<body></body>",
+            capabilities = new FeatureCapabilities { WebRtc = true, Media = true },
+            script = """
+                var offer='', error='', info='', video=document.createElement('video'), stream=null;
+                var pc=new RTCPeerConnection();
+                pc.ontrack=function(event){ stream=event.streams[0]; video.srcObject=stream; info=event.track.kind; };
+                pc.addTransceiver('video',{direction:'recvonly'});
+                pc.createOffer().then(function(d){return pc.setLocalDescription(d).then(function(){offer=d.sdp;});}).catch(function(e){error=String(e);});
+                'started'
+                """
+        }, "started");
+        var description = Value(await Exchange(client, new { script = "error?'ERROR:'+error:offer" }));
+        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 96 97 98", description);
+        Assert.Contains("packetization-mode=1;profile-level-id=42e01f", description);
+        // A peer that only has H.264: take VP8 out of the offer.
+        var h264Only = string.Join("\r\n", description!.Split("\r\n").Where(line => !line.StartsWith("a=rtpmap:96 ") && !line.StartsWith("a=rtcp-fb:96 ") && !line.StartsWith("a=fmtp:96 ")))
+            .Replace("SAVPF 96 97 98", "SAVPF 97 98");
+        remote.SetRemoteDescription("offer", h264Only);
+        var answer = await remote.CreateAnswerAsync(false, 0, 0);
+        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 97", answer);
+        Assert.Contains("a=rtpmap:97 H264/90000", answer);
+        Assert.DoesNotContain("VP8", answer);
+        Assert.Contains("a=inactive", answer); // Folio cannot send video
+        answer = answer.Replace("a=inactive", "a=sendonly"); // this test injects the RTP a real sender would produce
+        remote.SetLocalDescription("answer", answer);
+        await Exchange(client, new
+        {
+            script = "pc.setRemoteDescription({type:'answer',sdp:" + JsonSerializer.Serialize(answer) + "}).catch(function(e){error=String(e);});'queued'"
+        }, "queued");
+
+        var cancellation = TestContext.Current.CancellationToken;
+        var watch = Stopwatch.StartNew();
+        // Dtls.State flips to "connected" before OnStateChanged derives the SRTP keys, so wait for the transport itself.
+        while (remote.Srtp is null && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
+        Assert.Equal("connected", remote.Dtls.State);
+        Assert.NotNull(remote.Srtp);
+        ushort sequence = 1; uint timestamp = 1000;
+        var ssrc = 0xBEEFu;
+        string? pixel = null;
+        const string probe = "(function(){ if(error) return 'ERROR:'+error; if(!video.videoWidth) return 'none'; var c=document.createElement('canvas'); c.width=128; c.height=96; var g=c.getContext('2d'); g.drawImage(video,0,0); var d=g.getImageData(64,48,1,1).data; return video.videoWidth+'x'+video.videoHeight+':'+d[0]+','+d[1]+','+d[2]; })()";
+        for (var round = 0; pixel is null && round < 40; round++)
+        {
+            foreach (var unit in units)
+            {
+                // Single NAL unit packets, and FU-A for the NAL units above 1000 bytes (RFC 6184 packetization mode 1).
+                var payloads = new List<byte[]>();
+                foreach (var nal in unit)
+                {
+                    if (nal.Length <= 1000) { payloads.Add(nal); continue; }
+                    var body = nal.AsSpan(1);
+                    for (var offset = 0; offset < body.Length; offset += 998)
+                    {
+                        var length = Math.Min(998, body.Length - offset);
+                        var fragment = new byte[2 + length];
+                        fragment[0] = (byte)((nal[0] & 0xE0) | 28);
+                        fragment[1] = (byte)((offset == 0 ? 0x80 : 0) | (offset + length == body.Length ? 0x40 : 0) | (nal[0] & 0x1F));
+                        body.Slice(offset, length).CopyTo(fragment.AsSpan(2));
+                        payloads.Add(fragment);
+                    }
+                }
+                for (var i = 0; i < payloads.Count; i++)
+                {
+                    var rtp = new byte[12 + payloads[i].Length];
+                    rtp[0] = 0x80; rtp[1] = (byte)(97 | (i == payloads.Count - 1 ? 0x80 : 0));
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(rtp.AsSpan(2), sequence++);
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(4), timestamp);
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(8), ssrc);
+                    payloads[i].CopyTo(rtp, 12);
+                    remote.Ice.SendDatagram(remote.Srtp!.ProtectRtp(rtp));
+                }
+                timestamp += 3000;
+                await Task.Delay(5, cancellation);
+            }
+            await Task.Delay(50, cancellation);
+            var seen = Value(await Exchange(client, new { script = probe }));
+            if (seen == "128x96:" + want) pixel = seen;
+            else Assert.False(seen is not null && seen.StartsWith("ERROR"), seen);
+            if (watch.Elapsed > TimeSpan.FromSeconds(60)) break;
+        }
+        Assert.Equal("128x96:" + want, pixel);
+        Assert.Equal("video", Value(await Exchange(client, new { script = "info" })));
     }
 
     [Fact(Timeout = 60000)]
@@ -156,6 +413,114 @@ public sealed class ContentHostPolicyTests
         Assert.Equal(0, client.UdpOpenSockets); // revocation closed the host-owned socket too
     }
 
+    private static async Task ExchangeIframeRtcDataThroughTheHostBroker(ContentProcessClient client)
+    {
+        client.UdpOptions = new UdpBrokerOptions { AllowLoopback = true };
+        using var remote = new RtcPeerConnectionController();
+        var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        remote.OnDataChannel += channel => channel.OnMessage += payload =>
+        {
+            if (payload is not string text) return;
+            channel.Send("reply:" + text);
+            received.TrySetResult(text);
+        };
+
+        await Exchange(client, new
+        {
+            html = "<body><iframe id='f' allow='webrtc'></iframe></body>",
+            capabilities = new FeatureCapabilities { Iframes = true, WebRtc = true },
+            script = """
+                var frame = document.getElementById('f');
+                frame.srcdoc = "<script>" +
+                    "var offer='', error='', reply='';" +
+                    "var pc=new RTCPeerConnection(), channel=pc.createDataChannel('iframe-host');" +
+                    "channel.onopen=function(){channel.send('iframe-folio');};" +
+                    "channel.onmessage=function(event){reply=event.data; document.body.setAttribute('data-reply', event.data);};" +
+                    "pc.createOffer().then(function(description){" +
+                        "return pc.setLocalDescription(description).then(function(){offer=description.sdp; document.body.setAttribute('data-offer', offer);});" +
+                    "}).catch(function(e){error=String(e); document.body.setAttribute('data-error', error);});" +
+                    "onmessage=function(e){" +
+                        "if(e.data && e.data.type==='answer'){" +
+                            "pc.setRemoteDescription(e.data).catch(function(err){document.body.setAttribute('data-error', String(err));});" +
+                        "}" +
+                    "};" +
+                    "</" + "script>";
+                frame.contentDocument;
+                'started'
+                """
+        }, "started");
+
+        var cancellation = TestContext.Current.CancellationToken;
+        var watch = Stopwatch.StartNew();
+        string? description = null;
+        do
+        {
+            description = Value(await Exchange(client, new
+            {
+                script = """
+                    (function(){
+                        var f = document.getElementById('f');
+                        if (!f || !f.contentDocument || !f.contentDocument.body) return '';
+                        var err = f.contentDocument.body.getAttribute('data-error');
+                        if (err) return 'ERROR:' + err;
+                        return f.contentDocument.body.getAttribute('data-offer') || '';
+                    })()
+                    """
+            }));
+            if (!string.IsNullOrEmpty(description)) break;
+            await Task.Delay(25, cancellation);
+        } while (watch.Elapsed < TimeSpan.FromSeconds(10));
+
+        Assert.NotNull(description);
+        Assert.StartsWith("v=0", description);
+        Assert.NotEmpty(RtcSdp.Parse(description).TransportCandidates);
+        remote.SetRemoteDescription("offer", description);
+        var answer = await remote.CreateAnswerAsync(true, 0, 0);
+        remote.SetLocalDescription("answer", answer);
+
+        await Exchange(client, new
+        {
+            script = "document.getElementById('f').contentWindow.postMessage({type:'answer',sdp:" + JsonSerializer.Serialize(answer) + "}, '*'); 'answer queued'"
+        }, "answer queued");
+
+        Assert.Equal("iframe-folio", await received.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellation));
+        watch.Restart();
+        string? state;
+        do
+        {
+            state = Value(await Exchange(client, new
+            {
+                script = """
+                    (function(){
+                        var f = document.getElementById('f');
+                        if (!f || !f.contentDocument || !f.contentDocument.body) return '';
+                        var err = f.contentDocument.body.getAttribute('data-error');
+                        if (err) return 'ERROR:' + err;
+                        return f.contentDocument.body.getAttribute('data-reply') || '';
+                    })()
+                    """
+            }));
+            if (!string.IsNullOrEmpty(state)) break;
+            await Task.Delay(25, cancellation);
+        } while (watch.Elapsed < TimeSpan.FromSeconds(10));
+
+        Assert.Equal("reply:iframe-folio", state);
+        Assert.Equal("connected", remote.Dtls.State);
+
+        await client.UpdateCapabilitiesAsync(FeatureCapabilities.Default, cancellation);
+        var revoked = await Exchange(client, new
+        {
+            script = """
+                (function(){
+                    var f = document.getElementById('f');
+                    return (f && f.contentDocument) ? 'present' : 'revoked';
+                })()
+                """
+        });
+        Assert.Equal("revoked", Value(revoked));
+        Assert.Equal(0, client.UdpOpenSockets);
+    }
+
     [Fact]
     public async Task RealChildUsesSnapshotOfHostOriginsAndIgnoresForgedLoadPolicy()
     {
@@ -171,6 +536,18 @@ public sealed class ContentHostPolicyTests
         Assert.Equal("allowed|SecurityError", Value(first));
         Assert.Equal("allowed|SecurityError", Value(await Exchange(client, new { script = IceScript })));
         Assert.Equal("allowed|SecurityError", Value(await Exchange(client, new { html = "<body></body>", capabilities = Grants, script = IceScript })));
+    }
+
+    [Fact]
+    public async Task StrayCredentialSeparatorsInStunEntriesAreRefused()
+    {
+        await using var client = Start(new FolioOptions { WebRtcAllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "stun:allowed.example", "turn:turn.example" } });
+        var response = await Exchange(client, new
+        {
+            html = "<body></body>", capabilities = Grants,
+            script = "function probe(url){try{var p=new RTCPeerConnection({iceServers:[{urls:url}]});p.close();return 'allowed';}catch(e){return e.name;}} probe('stun:allowed.example\\u0001u\\u0001p')+'|'+probe('stun:allowed.example\\u0001x')+'|'+probe('stun:allowed.example')"
+        });
+        Assert.Equal("SyntaxError|SyntaxError|allowed", Value(response));
     }
 
     [Fact]

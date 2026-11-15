@@ -60,6 +60,17 @@ internal sealed class SoftwareCanvas : ICanvas
 
     public void Transform(in Matrix4x4 matrix) => _state.Transform = Matrix33.FromProjective(matrix) * _state.Transform;
 
+    /// <summary>
+    /// Maps the page by <paramref name="pageToDevice"/> and then up by <paramref name="top"/> whole device pixels (a scrolled
+    /// viewport): what <c>Transform(pageToDevice * translate(0, -top))</c> does, except that the offset is taken off every device
+    /// position last (<see cref="Matrix33.OffsetY"/>), so that the position of a point does not depend on <paramref name="top"/> to the last bit.
+    /// </summary>
+    public void TransformScrolled(in Matrix3x2 pageToDevice, int top)
+    {
+        Transform(pageToDevice);
+        _state.Transform = _state.Transform.WithOffsetY(top);
+    }
+
     private float Scale()
     {
         var m = _state.Transform.Affine;

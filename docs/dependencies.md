@@ -187,6 +187,14 @@ the content process direct network access. Stage 1 is described in
 [`webrtc-host-udp.md`](webrtc-host-udp.md): the host owns every UDP socket and the content process
 reaches the network only through it.
 
+The ICE agent includes a UDP-only TURN client (RFC 8656, long-term credentials,
+ChannelData). `turn:` URLs must appear in `WebRtcAllowedOrigins` exactly like
+STUN URLs; credentials are only ever sent to that server. `turns:` and
+`transport=tcp` are parsed and skipped, ALTERNATE-SERVER (300) is refused, and
+relaying toward loopback/private peers is refused unless the TURN server is
+itself on such a network. It sends through the agent's socket abstraction, so it
+moves behind the host-mediated socket together with the rest of ICE (#719).
+
 ### Image codecs not built in-house
 
 **Why**: the image replacement track is now Folio-owned for GIF and WebP. The remaining codec work is corpus expansion for long-tail BMP/ICO variants, not a production WebP fallback.

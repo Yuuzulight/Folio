@@ -45,6 +45,8 @@ Time targets on a mid-range desktop CPU, warm process (JIT done), typical artifa
 | Paint-only animation frame (M2) | ≤ 8 ms |
 | Canvas 2D animation (M5, conformance category) | p95 frame ≤ 16.7 ms |
 
+The frame and hover rows of the benchmark labelled "approximate (managed copy, raw damage rect)" include an approximate copy into the control's bitmap (a managed copy of the raw damage rectangle, not `FolioView`'s GDI+ one); the rows without it are the raster alone and remain so that earlier numbers stay comparable.
+
 To measure warm static first paint in the visible Windows control, run this on
 an interactive Windows desktop from the repository root:
 

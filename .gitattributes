@@ -8,3 +8,9 @@
 tests/conformance-cache/files/** -text
 *.gif binary
 *.webp binary
+
+# VP8 conformance vectors and their checksums must stay byte-for-byte as downloaded.
+tests/Folio.Scripting.Tests/Vp8Vectors/*.ivf -text
+tests/Folio.Scripting.Tests/Vp8Vectors/*.md5 -text
+*.ivf -text
+*.md5 -text

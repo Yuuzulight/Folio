@@ -23,6 +23,11 @@
     <ProjectReference Include="..\..\tools\Folio.ContentHost\Folio.ContentHost.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Truncated RFC 8251 Opus test vectors (opus-codec.org/testvectors); see docs/webrtc-opus.md. -->
+    <EmbeddedResource Include="OpusVectors.zip" />
+  </ItemGroup>
+
   <!-- The Wasmtime differential tests are only meaningful in the explicit
        oracle matrix; production builds must compile without the oracle types. -->
   <ItemGroup Condition="'$(FolioWasmOracle)' != 'true'">
@@ -35,6 +40,7 @@
     <Compile Include="..\..\src\Folio.WinForms\MediaFoundationAudioDecoder.cs" Link="Native\MediaFoundationAudioDecoder.cs" />
     <Compile Include="..\..\src\Folio.WinForms\WinMmMediaAudioOutput.cs" Link="Native\WinMmMediaAudioOutput.cs" />
     <None Include="Native\Fixtures\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Vp8Vectors\*" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Native\Fixtures\WebGl\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

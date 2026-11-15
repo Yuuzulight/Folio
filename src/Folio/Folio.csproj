@@ -13,9 +13,11 @@
     <InternalsVisibleTo Include="Folio.Benchmarks" />
     <!-- Folio's own host layer: the headless renderer and the control run the internal pipeline. -->
     <InternalsVisibleTo Include="Folio.Scripting" />
+    <InternalsVisibleTo Include="Folio.Diagrams" />
     <InternalsVisibleTo Include="Folio.Scripting.Tests" />
     <InternalsVisibleTo Include="Folio.Skia" />
     <InternalsVisibleTo Include="Folio.WinForms" />
+    <InternalsVisibleTo Include="Folio.WinForms.Tests" />
     <InternalsVisibleTo Include="Folio.ContentHost" />
     <EmbeddedResource Include="Style\UserAgent.css" LogicalName="Folio.UserAgent.css" />
   </ItemGroup>

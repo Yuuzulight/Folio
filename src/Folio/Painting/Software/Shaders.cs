@@ -49,16 +49,18 @@ internal sealed class SolidShader(Vector4 color) : Shader
 internal sealed class GradientShader : Shader
 {
     private readonly Gradient _gradient;
-    private readonly Matrix33 _inverse; // device to the space the gradient's own transform maps from
+    private readonly Matrix33 _inverse; // the unscrolled device (device row + _originY) to the space the gradient's own transform maps from
+    private readonly float _originY; // the whole device rows the canvas is scrolled by; a row's colour is worked out at its row on the unscrolled page
     private readonly float[] _offsets;
     private readonly Vector4[] _colors; // straight alpha, not premultiplied
     private readonly Vector2 _stretch; // radial: the factor that turns the ellipse into a circle, about the centre
     private readonly float _rotation; // conic: radians
 
-    private GradientShader(Gradient gradient, Matrix33 inverse)
+    private GradientShader(Gradient gradient, Matrix33 inverse, float originY)
     {
         _gradient = gradient;
         _inverse = inverse;
+        _originY = originY;
         var stops = gradient.Stops.ToArray();
         _offsets = stops.Select(s => Math.Clamp(float.IsFinite(s.Offset) ? s.Offset : 0, 0, 1)).ToArray();
         for (var i = 1; i < _offsets.Length; i++)
@@ -77,9 +79,9 @@ internal sealed class GradientShader : Shader
             return new SolidShader(Premultiplied(gradient.Stops[0].Color));
         var toCanvas = gradient.Transform ?? Matrix3x2.Identity;
         // Device point = gradient point x toCanvas x transform (row vectors).
-        if (!Matrix33.Invert(toCanvas * transform, out var inverse))
+        if (!Matrix33.Invert(toCanvas * transform.WithOffsetY(0), out var inverse))
             return new SolidShader(Vector4.Zero);
-        return new GradientShader(gradient, inverse);
+        return new GradientShader(gradient, inverse, transform.OffsetY);
     }
 
     // A linear gradient along device y: x reaches t only through a zero (no x term in p.Y or w, and a zero x
@@ -99,7 +101,7 @@ internal sealed class GradientShader : Shader
 
     public override Vector4 ColorAt(int x, int y)
     {
-        var p = _inverse.Apply(new Vector2(x + 0.5f, y + 0.5f));
+        var p = _inverse.Apply(new Vector2(x + 0.5f, y + _originY + 0.5f));
         float t;
         switch (_gradient.Kind)
         {
@@ -228,7 +230,8 @@ internal sealed class ImageShader : Shader
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IImageHandle, List<Level>> MipCache = new();
 
     private readonly List<Level> _levels;
-    private readonly Matrix33 _inverse; // device to image pixels
+    private readonly Matrix33 _inverse; // unscrolled device (device row + _originY) to image pixels
+    private float _originY; // the whole device rows the canvas is scrolled by; a pixel is sampled at its row on the unscrolled page
     private readonly bool _repeatX, _repeatY, _smooth;
     private readonly float _lod;
     private bool _clamp;
@@ -325,8 +328,8 @@ internal sealed class ImageShader : Shader
     {
         if (pattern.Image.Width <= 0 || pattern.Image.Height <= 0 || pattern.Image.Pixels.Length < pattern.Image.Width * pattern.Image.Height * 4)
             return null;
-        return Matrix33.Invert(pattern.Transform * transform, out var inverse)
-            ? new ImageShader(pattern.Image, inverse, pattern.RepeatX, pattern.RepeatY, pattern.Sampling == ImageSampling.Smooth)
+        return Matrix33.Invert(pattern.Transform * transform.WithOffsetY(0), out var inverse)
+            ? new ImageShader(pattern.Image, inverse, pattern.RepeatX, pattern.RepeatY, pattern.Sampling == ImageSampling.Smooth) { _originY = transform.OffsetY }
             : null;
     }
 
@@ -335,9 +338,9 @@ internal sealed class ImageShader : Shader
     {
         if (image.Width <= 0 || image.Height <= 0 || image.Pixels.Length < image.Width * image.Height * 4)
             return null;
-        if (!Matrix33.Invert(imageToDevice, out var inverse))
+        if (!Matrix33.Invert(imageToDevice.WithOffsetY(0), out var inverse))
             return null;
-        var shader = new ImageShader(image, inverse, true, true, smooth) { _clamp = true };
+        var shader = new ImageShader(image, inverse, true, true, smooth) { _clamp = true, _originY = imageToDevice.OffsetY };
         shader._separable = !DisableSeparableSampling && shader._lowerLevel is not null
             && System.Runtime.InteropServices.MemoryMarshal.TryGetArray(shader._lowerLevel.Pixels, out var lowerPixels) && lowerPixels.Offset == 0
             && System.Runtime.InteropServices.MemoryMarshal.TryGetArray(shader._upperLevel!.Pixels, out var upperPixels) && upperPixels.Offset == 0
@@ -357,7 +360,7 @@ internal sealed class ImageShader : Shader
     {
         if (_separable && (uint)x < MaxSeparableX)
             return Premultiplied(SampleSeparable(x, y));
-        var p = _inverse.Apply(new Vector2(x + 0.5f, y + 0.5f));
+        var p = _inverse.Apply(new Vector2(x + 0.5f, y + _originY + 0.5f));
         Vector4 color;
         if (!_smooth)
             color = Texel(0, p.X, p.Y, nearest: true);
@@ -429,7 +432,7 @@ internal sealed class ImageShader : Shader
         }
         if (y != _rowY)
         {
-            var py = _inverse.Apply(new Vector2(0.5f, y + 0.5f)).Y;
+            var py = _inverse.Apply(new Vector2(0.5f, y + _originY + 0.5f)).Y;
             _rowLower = Locate(py * _lowerScale.Y, _lowerLevel!.Height, 1);
             _rowUpper = Locate(py * _upperScale.Y, _upperLevel!.Height, 1);
             _rowY = y;

@@ -38,6 +38,8 @@ Child to host, `UdpCommand`:
   whitespace forms), `data` is strict base64.
 - `{op:"permit", gen, host}`: allow unsolicited inbound datagrams from this address (same address policy; see below).
 - `{op:"close", gen, id}`.
+- `{op:"resolve", gen, token, name}`: resolve a DNS name in the host (see "Name resolution").
+- `{op:"resolveMdns", gen, token, name}`: resolve an mDNS .local hostname candidate in the host (see "mDNS candidate resolution").
 
 Host to child, `UdpEvent`:
 
@@ -46,6 +48,8 @@ Host to child, `UdpEvent`:
   waiting out the check timeout. The host enforces the policy regardless.
 - `{op:"failed", token, reason}`: not granted, quota exceeded, or bind failed.
 - `{op:"datagram", id, host, port, data}`.
+- `{op:"resolved", token, host, reason}`: the answer to `resolve`; `host` is an IPv4 literal, or null with a `reason`.
+- `{op:"resolvedMdns", token, host, reason}`: the answer to `resolveMdns`; `host` is an IPv4 literal, or null with a `reason`.
 - `{op:"closed", id, reason}`: revoked, document replaced, closed by the child, or the broker was disposed.
 
 UDP frames are small. A frame over 8 KiB is read only as far as a 32-byte prefix first: if the prefix says it is a
@@ -90,17 +94,63 @@ quota below. A binary framing is a later optimisation.
 | Socket opens | burst of 4, refilling at 1 per second |
 | Commands, any kind | burst of 500, 2000 per second, charged before its fields are read |
 | Outgoing queue | 64 datagrams per socket; overflow drops and counts (the budget is refunded) |
-| Incoming datagram queue | 256 datagrams towards the child; overflow drops and counts |
-| All queued events | 512, control events included |
+| Incoming datagram queue | 256 datagrams towards the child; a datagram that would pass either the 256 count or the byte cap below is dropped and counted (`DroppedIncoming`), never fatal |
+| All queued events | 512 events or 512 KiB estimated payload, control events included; passing either with a control event kills the broker (`Dead`) |
+| Child-side incoming queue | 512 KiB of datagram payload per transport (and the 256-datagram channel); overflow drops and counts (`DroppedIncoming` on the transport) |
+| SCTP reassembly | 4 MiB aggregate per document across all peers, at most half of it (2 MiB) per peer; a refused fragment is not acknowledged, so the sender retransmits (backpressure, no data is accepted and lost) |
+| DTLS handshake reassembly | 1 MiB aggregate per document across all peers, on top of 256 KiB per handshake; over the limit the handshake fails |
+| Data channel messages | 1000 per second per peer, burst of 256; a peer that exceeds it is retired, siblings are unaffected |
+| Name lookups | 16 distinct names per document, burst of 8 refilling at 2 per second, 4 in flight (the rest are refused, not queued), 5 s each |
+| mDNS lookups | 8 distinct names per document (a repeated name is free), shares the name-lookup rate limiter, with its own 4-in-flight cap, 2 s each; `resolvedMdns` replies count as control events against the queued-event limits above |
 
 The limiters belong to the broker (the process), not to a socket or document; a replaced document receives fresh
-ones at most once per second. If the child stops reading its pipe, the event queue reaches 512, the broker closes
+ones at most once per second. If the child stops reading its pipe, the event queue reaches 512 events or 512 KiB payload, the broker closes
 every socket and refuses further commands until the next document (`Dead`). The broker never writes to the pipe while
 holding a lock, so a stalled child blocks only its own event pump. A persistent receive error backs off and then closes
 the socket (host) or fails the connection (child).
 
 Counters (`Denied`, `Oversize`, `RateLimited`, `DroppedOutgoing`, `DroppedIncoming`, `Malformed`, `SendFailed`) are
 available to the host and tests.
+
+## Name resolution
+
+The content process has no DNS, so `IIceTransport.ResolveAsync` asks the host (`resolve`). The default transport uses the
+local resolver and behaves as before. The host answers only when the capability is on and the name is a valid DNS name
+of at most 253 characters; IP literals are never sent (the agent uses them directly). `ContentProcessClient` also
+requires the name to be the host part of an entry in `WebRtcAllowedOrigins` (`stun:` or `turn:`), so the page cannot use
+the host as a general resolver. A broker created without an allowlist denies every name. The in-flight slot is held until the
+OS lookup itself returns, not merely until the child was answered with a timeout. The answer is the first IPv4 address the destination policy would accept for a `send`: a name
+that points at loopback, a private range or any other denied range (rebinding, misconfiguration) resolves to nothing, unless
+the embedder opted in to that range for sockets. A lookup that fails, times out or is refused is an answer too; the child
+never waits on silence, and a stale-generation `resolve` is answered with a refusal.
+
+### mDNS candidate resolution
+
+Browsers hide private host IP addresses behind `<uuid>.local` hostnames (RFC 6762). The content process cannot resolve multicast DNS directly. Instead, `IIceTransport.ResolveMdnsAsync` asks the host via `{op:"resolveMdns", gen, token, name}`.
+
+- **Policy default OFF:** Embedders opt in via `FolioOptions.WebRtcAllowMdns` (or `UdpBrokerOptions.AllowMdns`). Disabled by default.
+- **Only the mediated transport resolves.** `IIceTransport.ResolveMdnsAsync` returns "not resolved" by default; a direct (non-sandboxed) transport never sends multicast on behalf of remote SDP, and only the host-mediated transport asks the broker.
+- **Strict syntax:** Accepts only lower-case UUID hostnames matching `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.local\z` (one shared regex in `MdnsClient`). Anything else, including a trailing newline, upper case or misplaced dashes, is rejected with "invalid mDNS name".
+- **Reply validation:** The broker accepts only a plain legacy-unicast reply: QR set, opcode 0, rcode 0, ID 0, a question that echoes the queried name as IN A, and an A record whose owner name (compression pointers followed, 16 hops at most) equals the queried name, case-insensitively. CNAMEs are not followed. The reply must come from source port 5353 on a private or link-local IPv4 address. Loopback, `0.0.0.0`, multicast, reserved and link-local answers are skipped, and the first remaining match wins.
+- **Destination policy enforcement:** The answer must also pass `UdpDestinationPolicy.IsAllowed`. mDNS names almost always resolve to private (RFC 1918) addresses, and `FolioOptions` has no knob that grants `AllowPrivate` to the broker. **Consequence: with `WebRtcAllowMdns` alone, only a public answer can ever be returned, so in practice `.local` candidates still fail to resolve to LAN peers.** Making them useful needs an embedder-facing private-range option, which is not part of this change (see Known gaps).
+- **Quotas:** At most 8 distinct mDNS names per document (`MaxMdnsNames`), up to 4 concurrent in-flight lookups (`MaxResolvesInFlight`), and a 2-second timeout (`MdnsTimeout`). The rate limit is the broker's resolve limiter. Repeating a name already resolved in this document does not count against `MaxMdnsNames`; only the rate limit and in-flight cap apply to it. A name that failed to resolve still occupies one of the 8 slots and is not evicted.
+- **Always answered:** Every lookup is answered (`resolvedMdns`), including timeouts, policy refusals, and stale generations ("the document was replaced"). Lookups still running when the document is replaced or the broker is disposed are cancelled.
+- **Child side:** `IceAgent` resolves at most 4 `.local` candidates at a time; further ones wait for a free slot within the same 3-second budget, after which the candidate is dropped (there is no later retry).
+- **Privacy and reliability:** Emitting an mDNS query sends a UDP multicast datagram (TTL 255, RFC 6762) on `224.0.0.251:5353` for a name chosen by the remote peer. The query leaves on whichever interface the OS picks for multicast, which on multi-homed hosts or with VPN adapters may not be the LAN the peer is on, and a Windows firewall may drop the query or the unicast reply (no inbound rule for the ephemeral port). A failure is indistinguishable from "no such host" and is reported as not resolved.
+
+## TURN
+
+`TurnClient` owns no socket. It sends to the configured server through the agent's `IIceTransport`, so in the sandbox every
+Allocate, Refresh, CreatePermission, ChannelBind, Send indication and ChannelData travels as an ordinary `send` and is
+subject to the same destination policy and quotas; the server's replies come back as ordinary datagrams. The server
+address is checked with `CanSendTo` before an allocation is attempted. Timers (retransmission, refresh) run on an injected
+`TimeProvider`.
+
+Relayed peers are outside the host's destination policy. The host sees only datagrams to the TURN server; the peer addresses
+inside XOR-PEER-ADDRESS (CreatePermission, ChannelBind, Send indications) are chosen by the page from remote SDP and are not
+checked by the broker. What a TURN server will relay to is enforced by that server. The client additionally refuses to
+request relaying to multicast, unspecified or non-public peers unless the TURN server itself is on a non-public network, but
+that is a courtesy in the child, not a host guarantee.
 
 ## Lifetimes, failure and revocation
 
@@ -134,11 +184,10 @@ reach us by initiating from an address we never learned stays unreachable, which
 
 ## Remains for later stages
 
-1. **STUN/TURN names.** Resolving an allowed STUN hostname still happens in the child. It fails inside the AppContainer
-   (no DNS), so server-reflexive candidates are not gathered there yet. A host-side `resolve` that accepts only
-   names in `WebRtcAllowedOrigins` would also let the host require that TURN/STUN destinations match that list.
+1. **Destination allowlist.** Names are now resolved by the host and only for allowlisted servers, but `send` itself
+   is still not restricted to the addresses those names resolved to (peer addresses come from remote SDP).
 2. **Interface candidates.** Host candidates are enumerated by the child and are advisory only. The host should report
    the interfaces it permits.
-3. **mDNS and IPv6**, TURN relay allocation and TCP candidates.
+3. **IPv6**, TURN relay allocation and TCP candidates (mDNS .local candidate resolution is supported).
 4. **Binary framing** and flow control (for example back-pressure to `bufferedAmount`) instead of drop-and-count.
-5. **Per-origin or per-user budgets** across documents, and an embedder-facing option for allowing private ranges.
+5. **Per-origin or per-user budgets** across documents, and an embedder-facing option for allowing private ranges (needed before mDNS answers, which are private, can be accepted).
