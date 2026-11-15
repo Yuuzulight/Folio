@@ -176,7 +176,7 @@ public static class DiagramRenderer
             legend.Add($"<text class=\"folio-diagram-label folio-diagram-legend\" x=\"470\" y=\"{70 + i * 28}\">{XmlEscape(slice.Label)} ({slice.Value.ToString("0.##", CultureInfo.InvariantCulture)})</text>");
             angle = end;
         }
-        return Svg(arcs.Concat(legend), []);
+        return Svg(arcs.Concat(legend), [], null, new FlowLayout.Box(cx - radius, cy - radius, 2 * radius, 2 * radius));
     }
 
     private static string RenderFlow(string header, IEnumerable<string> lines)
@@ -209,22 +209,17 @@ public static class DiagramRenderer
                 if (parts.Length == 2) foreach (var id in parts[0].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) nodeClasses[id] = parts[1];
                 continue;
             }
-            var arrow = FindFlowArrow(line, out var markerLength, out var kind);
-            if (arrow < 0) continue;
-            var rest = line[(arrow + markerLength)..].Trim();
-            var edgeLabel = "";
-            if (rest.StartsWith("|", StringComparison.Ordinal))
+            if (!SplitFlowLine(line, out var texts, out var links)) continue;
+            for (var k = 0; k < links.Count; k++)
             {
-                var end = rest.IndexOf('|', 1);
-                if (end > 1) { edgeLabel = rest[1..end].Trim(); rest = rest[(end + 1)..].Trim(); }
+                var left = Node(texts[k]);
+                var right = Node(texts[k + 1]);
+                var from = Index(nodes, left);
+                var to = Index(nodes, right);
+                currentSubgraph?.Nodes.Add(left.Id);
+                currentSubgraph?.Nodes.Add(right.Id);
+                edges.Add((from, to, links[k].Label, links[k].Kind));
             }
-            var left = Node(line[..arrow].TrimEnd('<', '|', '.', '=', ' '));
-            var right = Node(rest);
-            var from = Index(nodes, left);
-            var to = Index(nodes, right);
-            currentSubgraph?.Nodes.Add(left.Id);
-            currentSubgraph?.Nodes.Add(right.Id);
-            edges.Add((from, to, edgeLabel, kind));
         }
         var headerWords = header.Split([' ', '	', ';'], StringSplitOptions.RemoveEmptyEntries);
         var direction = headerWords.Length > 1 ? headerWords[1].ToUpperInvariant() : "TB";
@@ -255,14 +250,41 @@ public static class DiagramRenderer
 
     private static string N(double value) => (Math.Round(value, 2) + 0.0).ToString("0.##", CultureInfo.InvariantCulture);
 
-    private static int FindFlowArrow(string line, out int length, out string kind)
+    /// <summary>
+    /// Splits a flowchart line into node texts and the arrows between them, so <c>A --&gt; B --&gt; C</c> and
+    /// <c>A -->|x| B --> C</c> are chains. Arrows inside brackets or quotes are part of a label.
+    /// </summary>
+    private static bool SplitFlowLine(string line, out List<string> texts, out List<(string Kind, string Label)> links)
     {
-        foreach (var candidate in new[] { "-.->", "==>", "-->", "---", "--" })
+        texts = []; links = [];
+        var depth = 0; var quoted = false; var start = 0;
+        for (var i = 0; i < line.Length; i++)
         {
-            var index = line.IndexOf(candidate, StringComparison.Ordinal);
-            if (index >= 0) { length = candidate.Length; kind = candidate; return index; }
+            var c = line[i];
+            if (c == '"') quoted = !quoted;
+            if (quoted) continue;
+            if (c is '[' or '(' or '{') depth++;
+            else if (c is ']' or ')' or '}') depth = Math.Max(0, depth - 1);
+            if (depth > 0) continue;
+            var kind = new[] { "-.->", "==>", "-->", "---", "--" }.FirstOrDefault(candidate => string.CompareOrdinal(line, i, candidate, 0, candidate.Length) == 0);
+            if (kind is null) continue;
+            texts.Add(line[start..i].TrimEnd('<', '|', '.', '=', ' ').Trim());
+            i += kind.Length;
+            var label = "";
+            var after = i;
+            while (after < line.Length && line[after] == ' ') after++;
+            if (after < line.Length && line[after] == '|' && line.IndexOf('|', after + 1) is var close and > 0)
+            {
+                label = line[(after + 1)..close].Trim();
+                i = close + 1;
+            }
+            links.Add((kind, label));
+            start = i;
+            i--;
         }
-        length = 0; kind = ""; return -1;
+        if (links.Count == 0) return false;
+        texts.Add(line[start..].Trim());
+        return true;
     }
 
     private static string NodeSvg(FlowNode node, FlowLayout.Box box, string? className, IReadOnlyDictionary<string, string> classStyles)
@@ -533,20 +555,57 @@ public static class DiagramRenderer
     }
 
     /// <summary>
-    /// Wraps content in the diagram SVG. With a <paramref name="size"/> the viewBox is exactly that size, so nothing is clipped,
-    /// and the displayed width and height are scaled down to fit <see cref="FlowLayout.MaxWidth"/> by <see cref="FlowLayout.MaxHeight"/>
-    /// when the content is larger. Without one the legacy fixed 800 by 400 viewBox is used.
+    /// Wraps content in the diagram SVG, sized to the content: the viewBox is the content's extent plus a margin, so nothing is
+    /// clipped and no empty canvas is left, and the displayed width and height are scaled down to fit
+    /// <see cref="FlowLayout.MaxWidth"/> by <see cref="FlowLayout.MaxHeight"/> when the content is larger.
+    /// Flowcharts pass the exact size their layout computed; every other kind has its extent measured from its elements.
     /// </summary>
-    private static string Svg(IEnumerable<string> body, IEnumerable<string> overlays, (int Width, int Height)? size = null)
+    private static string Svg(IEnumerable<string> body, IEnumerable<string> overlays, (int Width, int Height)? size = null, params FlowLayout.Box[] extra)
     {
         var content = string.Join("", body.Concat(overlays));
-        var frame = "viewBox=\"0 0 800 400\"";
-        if (size is { } s)
+        var (x, y, width, height) = size is { } s ? (0, 0, s.Width, s.Height) : Extent(content, extra);
+        var scale = Math.Min(1, Math.Min(FlowLayout.MaxWidth / width, FlowLayout.MaxHeight / height));
+        return $"<svg class=\"folio-diagram\" xmlns=\"http://www.w3.org/2000/svg\" width=\"{(int)Math.Round(width * scale)}\" height=\"{(int)Math.Round(height * scale)}\" viewBox=\"{x} {y} {width} {height}\"><defs><marker id=\"arrow\" markerWidth=\"4\" markerHeight=\"3\" refX=\"4\" refY=\"1.5\" orient=\"auto\"><path d=\"M0,0 L4,1.5 L0,3 z\"/></marker></defs><g class=\"folio-diagram-content\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\" font-family=\"sans-serif\" font-size=\"14\">{content}</g></svg>";
+    }
+
+    /// <summary>The bounding box of the elements in <paramref name="content"/> (rects, circles, polygons, paths and text) plus the margin.</summary>
+    private static (int X, int Y, int Width, int Height) Extent(string content, FlowLayout.Box[] extra)
+    {
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        void Add(double x, double y) { minX = Math.Min(minX, x); maxX = Math.Max(maxX, x); minY = Math.Min(minY, y); maxY = Math.Max(maxY, y); }
+        foreach (var box in extra) { Add(box.X, box.Y); Add(box.X + box.Width, box.Y + box.Height); }
+        System.Xml.Linq.XElement root;
+        try { root = System.Xml.Linq.XElement.Parse($"<g xmlns=\"http://www.w3.org/2000/svg\">{content}</g>"); }
+        catch (XmlException) { return (0, 0, 800, 400); }
+        double Attr(System.Xml.Linq.XElement e, string name) => double.TryParse((string?)e.Attribute(name), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : 0;
+        foreach (var e in root.Descendants())
         {
-            var scale = Math.Min(1, Math.Min(FlowLayout.MaxWidth / s.Width, FlowLayout.MaxHeight / s.Height));
-            frame = $"width=\"{(int)Math.Round(s.Width * scale)}\" height=\"{(int)Math.Round(s.Height * scale)}\" viewBox=\"0 0 {s.Width} {s.Height}\"";
+            switch (e.Name.LocalName)
+            {
+                case "rect": Add(Attr(e, "x"), Attr(e, "y")); Add(Attr(e, "x") + Attr(e, "width"), Attr(e, "y") + Attr(e, "height")); break;
+                case "circle": Add(Attr(e, "cx") - Attr(e, "r"), Attr(e, "cy") - Attr(e, "r")); Add(Attr(e, "cx") + Attr(e, "r"), Attr(e, "cy") + Attr(e, "r")); break;
+                case "polygon" or "path":
+                    // Numbers in a path are x y pairs except after an arc command, where only the last two of its seven are a point.
+                    var data = (string?)e.Attribute(e.Name.LocalName == "path" ? "d" : "points") ?? "";
+                    foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(data, @"[AMLZ]?[^AMLZ]*"))
+                    {
+                        var numbers = System.Text.RegularExpressions.Regex.Matches(m.Value, @"-?\d+(\.\d+)?").Select(q => double.Parse(q.Value, CultureInfo.InvariantCulture)).ToArray();
+                        if (m.Value.StartsWith('A') && numbers.Length >= 7) Add(numbers[5], numbers[6]);
+                        else for (var i = 0; i + 1 < numbers.Length; i += 2) Add(numbers[i], numbers[i + 1]);
+                    }
+                    break;
+                case "text":
+                    var width = TextMeasure.Width(e.Value, 14, bold: false);
+                    var anchor = (string?)e.Attribute("text-anchor");
+                    var left = Attr(e, "x") - (anchor == "middle" ? width / 2 : anchor == "end" ? width : 0);
+                    Add(left, Attr(e, "y") - 12); Add(left + width, Attr(e, "y") + 4);
+                    break;
+            }
         }
-        return $"<svg class=\"folio-diagram\" xmlns=\"http://www.w3.org/2000/svg\" {frame}><defs><marker id=\"arrow\" markerWidth=\"8\" markerHeight=\"8\" refX=\"7\" refY=\"4\" orient=\"auto\"><path d=\"M0,0 L8,4 L0,8 z\"/></marker></defs><g class=\"folio-diagram-content\" fill=\"white\" stroke=\"currentColor\" font-family=\"sans-serif\" font-size=\"14\">{content}</g></svg>";
+        if (minX > maxX) return (0, 0, 32, 32);
+        var margin = (int)FlowLayout.Margin;
+        var x0 = (int)Math.Floor(minX) - margin; var y0 = (int)Math.Floor(minY) - margin;
+        return (x0, y0, (int)Math.Ceiling(maxX) + margin - x0, (int)Math.Ceiling(maxY) + margin - y0);
     }
 
     private sealed record FlowNode(string Id, string Label, string Shape);
