@@ -11,7 +11,7 @@ namespace Folio.Scripting.Tests;
 /// <summary>Independent browser media acceptance probe (audio Opus tone and decoded video frames for VP8 and H.264).</summary>
 internal static class ChromeRtcMediaProbe
 {
-    private const int MinVideoFrames = 10, MinWidth = 160, MinHeight = 120, MinAudioSamples = 24000;
+    private const int MinVideoFrames = 10, MinWidth = 160, MinHeight = 120, AudioWindowSamples = 120000; // 2.5 s at 48 kHz
     private const double MinLumaStdDev = 5, MinAudioPeakRms = 0.05;
     // Chrome's fake microphone is a short beep once a second, so the mean over the window is low; the peak frame is the energy proof, the mean only rules out silence plus noise.
     private const double MinAudioRms = 0.002;
@@ -273,7 +273,7 @@ internal static class ChromeRtcMediaProbe
             }
         });
 
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(50));
         var passed = false;
         try
         {
@@ -328,10 +328,17 @@ internal static class ChromeRtcMediaProbe
                     if (root.TryGetProperty("stats", out var statsEl))
                         await File.WriteAllTextAsync(Path.Combine(profile, "stats.json"), statsEl.GetRawText(), deadline.Token);
 
-                    // Wait for enough decoded frames (the decoder needs a key frame first).
-                    var videoWaitStart = Stopwatch.StartNew();
-                    while (decodedVideoFrames.Count < MinVideoFrames && videoWaitStart.Elapsed < TimeSpan.FromSeconds(10))
+                    // Keep collecting until both the video and the audio criteria can be judged (bounded). The decoder needs a key frame first, and Chrome's fake
+                    // microphone beeps about once a second with silence between, so the audio window must span at least one beep period.
+                    var waitStart = Stopwatch.StartNew();
+                    while (waitStart.Elapsed < TimeSpan.FromSeconds(15))
+                    {
+                        bool videoReady, audioReady;
+                        lock (videoGate) videoReady = decodedVideoFrames.Count >= MinVideoFrames;
+                        lock (audioGate) audioReady = audioSampleCount >= AudioWindowSamples && audioPeakRms >= MinAudioPeakRms;
+                        if (videoReady && audioReady) break;
                         await Task.Delay(100, deadline.Token);
+                    }
 
                     List<MediaCaptureVideoFrame> frames;
                     lock (videoGate) frames = decodedVideoFrames.ToList();
@@ -345,7 +352,7 @@ internal static class ChromeRtcMediaProbe
                     var videoContent = frames.Count > 0 && frames.All(f => IsNonBlack(f) && LumaStdDev(f) >= MinLumaStdDev);
                     var videoChanged = ChangesOverTime(frames);
                     // Audio: energy above a floor (arrival alone proves nothing), and Opus from the negotiated SDP, not from the sample rate.
-                    var audioEnergy = audioSamples >= MinAudioSamples && audioRms >= MinAudioRms && peakRms >= MinAudioPeakRms;
+                    var audioEnergy = audioSamples >= AudioWindowSamples && audioRms >= MinAudioRms && peakRms >= MinAudioPeakRms;
                     var negotiatedAudio = answerSdp is null ? null : FirstCodec(answerSdp, "audio");
                     var negotiatedVideo = answerSdp is null ? null : FirstCodec(answerSdp, "video");
                     var audioIsOpus = negotiatedAudio is not null && negotiatedAudio.Equals("opus/48000/2", StringComparison.OrdinalIgnoreCase);
@@ -360,7 +367,7 @@ internal static class ChromeRtcMediaProbe
                     var videoNonEmpty = videoSized; var videoNonBlack = videoContent;
 
                     Console.WriteLine($"Chrome report ({codec}): " + body);
-                    Console.WriteLine($"Folio media: audio={audioFramesReceived} frames, rms={audioRms:F4}, peak={peakRms:F4}, negotiated={negotiatedAudio} (Opus={audioIsOpus}); video={frames.Count} frames {(frames.Count > 0 ? frames[0].Width + "x" + frames[0].Height : "")} negotiated={negotiatedVideo} (codec ok={videoCodecOk}, sized={videoNonEmpty}, content={videoNonBlack}, changed={videoChanged}).");
+                    Console.WriteLine($"Folio media: audio={audioFramesReceived} frames ({audioSamples / 48000.0:F1} s, need {AudioWindowSamples / 48000.0:F1} s), rms={audioRms:F4}, peak={peakRms:F4}, negotiated={negotiatedAudio} (Opus={audioIsOpus}); video={frames.Count} frames {(frames.Count > 0 ? frames[0].Width + "x" + frames[0].Height : "")} negotiated={negotiatedVideo} (codec ok={videoCodecOk}, sized={videoNonEmpty}, content={videoNonBlack}, changed={videoChanged}).");
                     await Reply(context, "ok", "text/plain");
                     break;
                 }
