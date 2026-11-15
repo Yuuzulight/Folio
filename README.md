@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/folio-logo.svg" alt="Folio" width="320">
+  <img src="docs/assets/folio-logo.png" alt="Folio" width="300">
 </p>
 
 <p align="center">
