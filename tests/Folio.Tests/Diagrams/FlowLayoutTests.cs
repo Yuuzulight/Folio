@@ -14,7 +14,7 @@ public sealed class FlowLayoutTests
     }
 
     private sealed record Parsed(double Width, double Height, double ViewWidth, double ViewHeight,
-        Dictionary<string, Rect> Nodes, List<List<(double X, double Y)>> Edges, List<(Rect Box, string Text)> Labels);
+        Dictionary<string, Rect> Nodes, List<List<(double X, double Y)>> Edges, List<(Rect Box, string Text)> Labels, List<Rect> Groups, Dictionary<string, string> Shapes);
 
     private static readonly XNamespace Ns = "http://www.w3.org/2000/svg";
 
@@ -29,12 +29,15 @@ public sealed class FlowLayoutTests
         var edges = new List<List<(double, double)>>();
         var boxes = new List<Rect>();
         var texts = new List<string>();
+        var groups = new List<Rect>();
+        var shapes = new Dictionary<string, string>();
         foreach (var e in root.Descendants())
         {
             var cls = (string?)e.Attribute("class") ?? "";
             if (cls.Contains("folio-diagram-node"))
             {
                 var id = (string)e.Attribute("data-id")!;
+                shapes[id] = cls.Contains("diamond") ? "diamond" : cls.Contains("circle") ? "circle" : cls.Contains("round") ? "round" : "rect";
                 nodes[id] = e.Name.LocalName switch
                 {
                     "rect" => new Rect(Num((string)e.Attribute("x")!), Num((string)e.Attribute("y")!), Num((string)e.Attribute("width")!), Num((string)e.Attribute("height")!)),
@@ -42,6 +45,8 @@ public sealed class FlowLayoutTests
                     _ => Bounds(Numbers((string)e.Attribute("d")!)),
                 };
             }
+            else if (cls == "folio-diagram-subgraph")
+                groups.Add(new Rect(Num((string)e.Attribute("x")!), Num((string)e.Attribute("y")!), Num((string)e.Attribute("width")!), Num((string)e.Attribute("height")!)));
             else if (cls == "folio-diagram-edge")
                 edges.Add(Numbers((string)e.Attribute("d")!));
             else if (cls == "folio-diagram-edge-label-bg")
@@ -50,7 +55,7 @@ public sealed class FlowLayoutTests
                 texts.Add(e.Value);
         }
         return new Parsed(Num((string)root.Attribute("width")!), Num((string)root.Attribute("height")!), view[2], view[3],
-            nodes, edges.Select(e => e.ToList()).ToList(), boxes.Zip(texts, (b, t) => (b, t)).ToList());
+            nodes, edges.Select(e => e.ToList()).ToList(), boxes.Zip(texts, (b, t) => (b, t)).ToList(), groups, shapes);
     }
 
     private static List<(double X, double Y)> Numbers(string d)
@@ -61,6 +66,21 @@ public sealed class FlowLayoutTests
 
     private static Rect Bounds(List<(double X, double Y)> points) =>
         new(points.Min(p => p.X), points.Min(p => p.Y), points.Max(p => p.X) - points.Min(p => p.X), points.Max(p => p.Y) - points.Min(p => p.Y));
+
+    /// <summary>True when a point lies on the outline of a node of the given shape, whose bounding box is <paramref name="r"/>.</summary>
+    private static bool OnOutline((double X, double Y) p, Rect r, string shape)
+    {
+        double cx = r.X + r.W / 2, cy = r.Y + r.H / 2, dx = Math.Abs(p.X - cx), dy = Math.Abs(p.Y - cy);
+        switch (shape)
+        {
+            case "diamond": return Math.Abs(dx / (r.W / 2) + dy / (r.H / 2) - 1) < 0.03;
+            case "circle": return Math.Abs(Math.Sqrt(dx * dx + dy * dy) - r.W / 2) < 0.6;
+            case "round":
+                var radius = r.H / 2; var inner = Math.Max(0, dx - (r.W / 2 - radius));
+                return Math.Abs(Math.Sqrt(inner * inner + dy * dy) - radius) < 0.6 || OnBorder(p, r);
+            default: return OnBorder(p, r);
+        }
+    }
 
     private static bool OnBorder((double X, double Y) p, Rect r, double tolerance = 0.02) =>
         p.X >= r.X - tolerance && p.X <= r.Right + tolerance && p.Y >= r.Y - tolerance && p.Y <= r.Bottom + tolerance &&
@@ -105,12 +125,12 @@ public sealed class FlowLayoutTests
             {
                 var points = parsed.Edges[i];
                 var (from, to) = (parsed.Nodes[pairs[i].From], parsed.Nodes[pairs[i].To]);
-                Assert.True(OnBorder(points[0], from), $"{pairs[i]} starts off the source border");
-                Assert.True(OnBorder(points[^1], to), $"{pairs[i]} ends off the target border");
+                Assert.True(OnOutline(points[0], from, parsed.Shapes[pairs[i].From]), $"{pairs[i]} starts off the source outline");
+                Assert.True(OnOutline(points[^1], to, parsed.Shapes[pairs[i].To]), $"{pairs[i]} ends off the target outline");
                 for (var k = 0; k + 1 < points.Count; k++)
                 {
                     Assert.True(Math.Abs(points[k].X - points[k + 1].X) < 0.01 || Math.Abs(points[k].Y - points[k + 1].Y) < 0.01, $"{pairs[i]} has a diagonal segment");
-                    foreach (var (id, box) in parsed.Nodes)
+                    foreach (var (id, box) in parsed.Nodes.Where(n => n.Key != pairs[i].From && n.Key != pairs[i].To))
                         Assert.False(Crosses(points[k], points[k + 1], box), $"{pairs[i]} crosses {id}");
                 }
             }
@@ -133,27 +153,45 @@ public sealed class FlowLayoutTests
         Assert.Equal(left.Y, edgeEnd.Y, 1);
     }
 
+    private static bool Touches(Rect box, List<(double X, double Y)> path, double clearance)
+    {
+        for (var k = 0; k + 1 < path.Count; k++)
+        {
+            var (a, b) = (path[k], path[k + 1]);
+            if (Math.Max(a.X, b.X) > box.X - clearance && Math.Min(a.X, b.X) < box.Right + clearance
+                && Math.Max(a.Y, b.Y) > box.Y - clearance && Math.Min(a.Y, b.Y) < box.Bottom + clearance)
+                return true;
+        }
+        return false;
+    }
+
+    private static double Distance(Rect box, List<(double X, double Y)> path) =>
+        Enumerable.Range(0, path.Count - 1).Min(k =>
+        {
+            var (a, b) = (path[k], path[k + 1]);
+            var dx = Math.Max(0, Math.Max(Math.Min(a.X, b.X) - box.Right, box.X - Math.Max(a.X, b.X)));
+            var dy = Math.Max(0, Math.Max(Math.Min(a.Y, b.Y) - box.Bottom, box.Y - Math.Max(a.Y, b.Y)));
+            return Math.Sqrt(dx * dx + dy * dy);
+        });
+
     [Theory]
     [InlineData("LR")]
     [InlineData("TD")]
-    public void EdgeLabelsAreCentredOnTheirEdgeAndHaveABackground(string direction)
+    public void EdgeLabelsSitBesideTheirEdgeClearOfEveryLineNodeAndLabel(string direction)
     {
-        var parsed = Parse($"flowchart {direction}\nA[Start] -->|go| B[Middle]\nB -->|a longer label| C[End]\nA -->|skip| C");
-        Assert.Equal(3, parsed.Labels.Count);
-        for (var i = 0; i < 3; i++)
+        var parsed = Parse($"flowchart {direction}\nA[Start] -->|go| B[Middle]\nB -->|a longer label| C[End]\nA -->|skip| C\nC -->|retry| B\nA -->|accepted| D[Other]\nA -->|rejected| E[More]\nD -->|ok| C");
+        Assert.Equal(parsed.Edges.Count, parsed.Labels.Count);
+        for (var i = 0; i < parsed.Labels.Count; i++)
         {
-            var (box, _) = parsed.Labels[i];
-            var centre = (X: box.X + box.W / 2, Y: box.Y + box.H / 2);
-            var onPath = false;
-            for (var k = 0; k + 1 < parsed.Edges[i].Count; k++)
-            {
-                var (a, b) = (parsed.Edges[i][k], parsed.Edges[i][k + 1]);
-                onPath |= centre.X >= Math.Min(a.X, b.X) - 0.02 && centre.X <= Math.Max(a.X, b.X) + 0.02
-                    && centre.Y >= Math.Min(a.Y, b.Y) - 0.02 && centre.Y <= Math.Max(a.Y, b.Y) + 0.02;
-            }
-            Assert.True(onPath, $"label {i} is not centred on its edge");
-            foreach (var node in parsed.Nodes.Values)
-                Assert.False(Overlap(box, node), $"label {i} overlaps a node");
+            var box = parsed.Labels[i].Box;
+            foreach (var (path, e) in parsed.Edges.Select((p, e) => (p, e)))
+                Assert.False(Touches(box, path, 1), $"label {i} touches the line of edge {e}");
+            Assert.True(Distance(box, parsed.Edges[i]) < 8, $"label {i} is not beside its own edge");
+            foreach (var (id, node) in parsed.Nodes)
+                Assert.False(Overlap(box, node), $"label {i} overlaps {id}");
+            for (var j = 0; j < i; j++)
+                Assert.False(Overlap(box, parsed.Labels[j].Box), $"labels {i} and {j} overlap");
+            Assert.True(box.X >= 0 && box.Y >= 0 && box.Right <= parsed.ViewWidth && box.Bottom <= parsed.ViewHeight);
         }
         Assert.Contains("folio-diagram-edge-label-bg", DiagramRenderer.Render("flowchart LR\nA -->|x| B"));
         Assert.Contains("text-anchor=\"middle\"", DiagramRenderer.Render("flowchart LR\nA -->|x| B"));
@@ -257,5 +295,136 @@ public sealed class FlowLayoutTests
     {
         Assert.Equal(DiagramRenderer.Render(Mixed), DiagramRenderer.Render(Mixed));
         Assert.Equal(DiagramRenderer.Render(Chain(9, "TD", "|x|")), DiagramRenderer.Render(Chain(9, "TD", "|x|")));
+    }
+    [Fact]
+    public void EveryEdgeHasItsOwnPortOnTheNodeBorder()
+    {
+        var fanOut = Parse("flowchart LR\nA --> B\nA --> C\nA --> D");
+        Assert.Equal(3, fanOut.Edges.Select(e => e[0]).Distinct().Count());
+        var fanIn = Parse("flowchart TD\nA --> D\nB --> D\nC --> D");
+        Assert.Equal(3, fanIn.Edges.Select(e => e[^1]).Distinct().Count());
+        Assert.All(fanOut.Edges, e => Assert.True(OnBorder(e[0], fanOut.Nodes["A"])));
+        Assert.All(fanIn.Edges, e => Assert.True(OnBorder(e[^1], fanIn.Nodes["D"])));
+        var single = Parse("flowchart LR\nA --> B");
+        Assert.Equal(single.Nodes["A"].Y + single.Nodes["A"].H / 2, single.Edges[0][0].Y, 1);
+        // No two edges share a stretch of line: every segment of one edge is clear of every segment of the others.
+        foreach (var parsed in new[] { fanOut, fanIn, Parse(Mixed) })
+            for (var i = 0; i < parsed.Edges.Count; i++)
+                for (var j = i + 1; j < parsed.Edges.Count; j++)
+                    for (var k = 0; k + 1 < parsed.Edges[i].Count; k++)
+                        for (var m = 0; m + 1 < parsed.Edges[j].Count; m++)
+                            Assert.False(Collinear(parsed.Edges[i][k], parsed.Edges[i][k + 1], parsed.Edges[j][m], parsed.Edges[j][m + 1]), $"edges {i} and {j} share a line");
+    }
+
+    /// <summary>True when two axis-aligned segments lie on the same line and overlap by more than a point.</summary>
+    private static bool Collinear((double X, double Y) a, (double X, double Y) b, (double X, double Y) c, (double X, double Y) d)
+    {
+        const double e = 0.5;
+        if (Math.Abs(a.X - b.X) < 0.01 && Math.Abs(c.X - d.X) < 0.01 && Math.Abs(a.X - c.X) < 0.01)
+            return Math.Min(Math.Max(a.Y, b.Y), Math.Max(c.Y, d.Y)) - Math.Max(Math.Min(a.Y, b.Y), Math.Min(c.Y, d.Y)) > e;
+        if (Math.Abs(a.Y - b.Y) < 0.01 && Math.Abs(c.Y - d.Y) < 0.01 && Math.Abs(a.Y - c.Y) < 0.01)
+            return Math.Min(Math.Max(a.X, b.X), Math.Max(c.X, d.X)) - Math.Max(Math.Min(a.X, b.X), Math.Min(c.X, d.X)) > e;
+        return false;
+    }
+
+    [Fact]
+    public void ArrowheadsAreProportionalToTheStrokeAndTheTipSitsOnTheBorder()
+    {
+        var svg = DiagramRenderer.Render("flowchart LR\nA --> B");
+        var root = XDocument.Parse(svg).Root!;
+        var marker = root.Descendants(Ns + "marker").Single();
+        // markerUnits default to strokeWidth: 4 by 3 units at the stroke of 2 is 8 by 6 px.
+        Assert.Equal("4", (string)marker.Attribute("markerWidth")!);
+        Assert.Equal("3", (string)marker.Attribute("markerHeight")!);
+        Assert.Equal("4", (string)marker.Attribute("refX")!);
+        Assert.Equal("2", (string)root.Descendants(Ns + "g").First().Attribute("stroke-width")!);
+        var parsed = Parse("flowchart LR\nA --> B");
+        Assert.Equal(parsed.Nodes["B"].X, parsed.Edges[0][^1].X, 2);
+    }
+
+    [Fact]
+    public void LongSkipEdgesTakeTheNearestFreeChannelWithFewBends()
+    {
+        var parsed = Parse("flowchart LR\nA --> B\nB --> C\nC --> D\nA --> D");
+        var skip = parsed.Edges[3];
+        Assert.True(skip.Count <= 6, "at most two jogs");
+        // The channel runs outside B and C on the nearest side, not around the whole chart.
+        var channelY = Enumerable.Range(0, skip.Count - 1).Where(k => Math.Abs(skip[k].Y - skip[k + 1].Y) < 0.01)
+            .MaxBy(k => Math.Abs(skip[k].X - skip[k + 1].X)) is var longest ? skip[longest].Y : 0;
+        var nodeTop = Math.Min(parsed.Nodes["B"].Y, parsed.Nodes["C"].Y); var nodeBottom = Math.Max(parsed.Nodes["B"].Bottom, parsed.Nodes["C"].Bottom);
+        Assert.True(channelY < nodeTop || channelY > nodeBottom);
+        Assert.True(Math.Min(Math.Abs(channelY - nodeTop), Math.Abs(channelY - nodeBottom)) <= 30);
+        var mixed = Parse(Mixed);
+        var startToDone = mixed.Edges[^1];
+        Assert.True(startToDone.Count <= 6);
+        Assert.True(startToDone.Max(p => p.Y) <= mixed.Nodes.Values.Max(r => r.Bottom) + 30);
+    }
+
+    [Fact]
+    public void SubgraphBoxesDoNotCoverNodesOutsideTheGroup()
+    {
+        var source = "flowchart LR\nsubgraph Intake\nA[Receive] --> B[Check]\nend\nsubgraph Work\nC[Build] --> D[Test]\nend\nB --> C\nA --> E[Audit]\nE --> D\nD --> F[Ship]";
+        var parsed = Parse(source);
+        Assert.Equal(2, parsed.Groups.Count);
+        var members = new[] { new[] { "A", "B" }, new[] { "C", "D" } };
+        for (var g = 0; g < 2; g++)
+        {
+            foreach (var (id, box) in parsed.Nodes)
+                Assert.Equal(members[g].Contains(id), Overlap(parsed.Groups[g], box));
+            foreach (var id in members[g])
+                Assert.True(parsed.Groups[g].X <= parsed.Nodes[id].X && parsed.Groups[g].Right >= parsed.Nodes[id].Right);
+        }
+        Assert.False(Overlap(parsed.Groups[0], parsed.Groups[1]));
+    }
+
+    [Fact]
+    public void OneLineChainsParseLikeSeparateLines()
+    {
+        Assert.Equal(DiagramRenderer.Render("flowchart LR\nA --> B\nB --> C\nC --> D"), DiagramRenderer.Render("flowchart LR\nA --> B --> C --> D"));
+        Assert.Equal(DiagramRenderer.Render("flowchart LR\nA -->|x| B\nB --> C"), DiagramRenderer.Render("flowchart LR\nA -->|x| B --> C"));
+        Assert.Equal(DiagramRenderer.Render("flowchart LR\nA[Start] --> B{Ok}\nB -->|yes| C((End))"), DiagramRenderer.Render("flowchart LR\nA[Start] --> B{Ok} -->|yes| C((End))"));
+        Assert.Equal(3, Parse("flowchart TD\nA --> B --> C --> D").Edges.Count);
+        Assert.True(DiagramRenderer.TryRender("flowchart LR\nA --> B --> C", out _));
+    }
+
+    [Fact]
+    public void NodesAreSizedFromTheBundledFontMetrics()
+    {
+        var measured = TextMeasure.Width("Transform data", 14, bold: true);
+        Assert.True(measured > 0);
+        Assert.NotEqual(TextMeasure.Estimate("Transform data", 14), measured);
+        Assert.True(TextMeasure.Width("Transform data", 14, bold: true) > TextMeasure.Width("Transform data", 14, bold: false) * 0.95);
+        var narrow = Parse("flowchart LR\nA[iiiiiiiiiiiiiiiiiiiiiiiiiiii] --> B[WWWWWWWWWWWWWWWWWWWWWWWW]");
+        Assert.True(narrow.Nodes["A"].W < narrow.Nodes["B"].W, "narrow letters give a narrower node than wide ones of similar length");
+    }
+
+    [Fact]
+    public void EveryDiagramKindSizesItsCanvasToTheContent()
+    {
+        foreach (var source in new[]
+        {
+            "sequenceDiagram\nAlice->>Bob: Hello",
+            "classDiagram\nclass Base {\n+int id\n}\nBase <|-- Child",
+            "stateDiagram-v2\n[*] --> Ready : boot",
+            "erDiagram\nCUSTOMER ||--o{ ORDER : places",
+            "timeline\ntitle History\nsection Releases\n2024 : Launch",
+            "gantt\ndateFormat YYYY-MM-DD\nBuild :build, 2024-01-30, 3d",
+            "pie title Sales\n\"North\" : 60\n\"South\" : 40",
+        })
+        {
+            var root = XDocument.Parse(DiagramRenderer.Render(source)).Root!;
+            var view = root.Attribute("viewBox")!.Value.Split(' ').Select(Num).ToArray();
+            Assert.False(view[2] == 800 && view[3] == 400, $"{source.Split('\n')[0]} still has the fixed canvas");
+            Assert.Equal(view[2], Num((string)root.Attribute("width")!));
+            // Every shape lies inside the viewBox.
+            foreach (var e in root.Descendants(Ns + "rect"))
+            {
+                Assert.True(Num((string)e.Attribute("x")!) >= view[0] && Num((string)e.Attribute("y")!) >= view[1], source);
+                Assert.True(Num((string)e.Attribute("x")!) + Num((string)e.Attribute("width")!) <= view[0] + view[2], source);
+                Assert.True(Num((string)e.Attribute("y")!) + Num((string)e.Attribute("height")!) <= view[1] + view[3], source);
+            }
+        }
+        var pie = XDocument.Parse(DiagramRenderer.Render("pie\n\"A\" : 1\n\"B\" : 2")).Root!.Attribute("viewBox")!.Value.Split(' ').Select(Num).ToArray();
+        Assert.True(pie[0] <= 230 - 130 && pie[1] <= 190 - 130 && pie[1] + pie[3] >= 190 + 130);
     }
 }
