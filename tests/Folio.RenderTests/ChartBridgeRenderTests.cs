@@ -33,6 +33,50 @@ public class ChartBridgeRenderTests
               {label:'Revenue', data:[1800,3200,5600,4100], backgroundColor:['#5B5BF0','#A5A1FF','#2E2A8A','rgb(91,91,240)']}]},
              options:{plugins:{legend:{display:false}}}}
             """,
+        ["hero-thinned-ticks"] = """
+            {type:'bar', data:{labels:['Apr','May','Jun','Jul','Aug','Sep'], datasets:[
+              {label:'Orders (thousands)', data:[2.8,3.1,3.4,3.9,4.1,4.5], backgroundColor:'#5B5BF0'}]}}
+            """,
+        ["default-palette"] = """
+            {type:'bar', data:{labels:['A','B','C'], datasets:[
+              {label:'one', data:[3,5,2]}, {label:'two', data:[4,2,6]}, {label:'three', data:[1,4,3]}, {label:'four', data:[2,3,5]}]}}
+            """,
+        ["stacked-bars"] = """
+            {type:'bar', data:{labels:['A','B','C'], datasets:[
+              {label:'one', data:[3,4,2], backgroundColor:'#5B5BF0'}, {label:'two', data:[2,1,5], backgroundColor:'#A5A1FF'}]},
+             options:{scales:{x:{stacked:true}, y:{stacked:true}}}}
+            """,
+        ["horizontal-bars"] = """
+            {type:'bar', data:{labels:['Alpha','Beta','Gamma'], datasets:[{label:'Score', data:[5,9,3], backgroundColor:'#5B5BF0'}]},
+             options:{indexAxis:'y'}}
+            """,
+        ["line-fill-tension-dash"] = """
+            {type:'line', data:{labels:['A','B','C','D'], datasets:[
+              {label:'one', data:[3,4,2,5], borderColor:'#5B5BF0', backgroundColor:'rgba(91,91,240,0.2)', fill:true, tension:0.4, pointRadius:5, borderDash:[5,5]},
+              {label:'two', data:[2,3,3,4], borderColor:'#2E2A8A', pointBackgroundColor:['red','green','blue','orange'], pointRadius:4}]}}
+            """,
+        ["pie-default-colours"] = """
+            {type:'pie', data:{labels:['Red','Blue','Yellow'], datasets:[{label:'Votes', data:[12,19,8]}]}}
+            """,
+        ["doughnut-legend-right"] = """
+            {type:'doughnut', data:{labels:['North','South','East'], datasets:[{data:[12,19,8], backgroundColor:['#5B5BF0','#A5A1FF','#2E2A8A']}]},
+             options:{plugins:{legend:{position:'right'}}, cutout:'60%'}}
+            """,
+        ["legend-left-title-bottom"] = """
+            {type:'bar', data:{labels:['A','B'], datasets:[
+              {label:'one', data:[3,4], backgroundColor:'#5B5BF0'}, {label:'two', data:[2,1], backgroundColor:'#A5A1FF'}]},
+             options:{plugins:{legend:{position:'left'}, title:{display:true, text:'Bottom title', position:'bottom', align:'start'}}}}
+            """,
+        ["bar-radius-grace-callback"] = """
+            {type:'bar', data:{labels:['A','B','C'], datasets:[
+              {label:'Net', data:[40,-15,25], backgroundColor:['#5B5BF0','#A5A1FF','#2E2A8A'], borderRadius:6, barPercentage:0.6}]},
+             options:{scales:{y:{grace:'10%', ticks:{callback:function(v){return '$' + v;}}}}, plugins:{legend:{display:false}}}}
+            """,
+        ["thinned-category-labels"] = """
+            {type:'line', data:{labels:['2001','2002','2003','2004','2005','2006','2007','2008','2009','2010','2011','2012','2013','2014','2015','2016','2017','2018','2019','2020'],
+              datasets:[{label:'Index', data:[3,5,4,6,8,7,9,12,10,11,13,12,15,14,16,18,17,19,21,20], borderColor:'#5B5BF0', backgroundColor:'#5B5BF0', pointRadius:2}]},
+             options:{plugins:{legend:{display:false}}}}
+            """,
     };
 
     public static TheoryData<string> Names => new(Cases.Keys);
