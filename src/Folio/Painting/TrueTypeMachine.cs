@@ -258,7 +258,10 @@ internal sealed partial class TrueTypeMachine
                         end = Next(code, end);
                     }
                     if (end == code.Length) throw Fault("Unterminated function.");
-                    (op == 0x2C ? _functions : _instructions)[id] = code[pc..end]; pc = end + 1; break;
+                    var table = op == 0x2C ? _functions : _instructions;
+                    // A redefinition replaces the bytes; the scan kept for the old ones would only sit in the cache.
+                    if (table.TryGetValue(id, out var replaced)) _prescans.TryRemove(replaced, out _);
+                    table[id] = code[pc..end]; pc = end + 1; break;
                 }
                 case 0x2D: throw Fault("Unexpected function terminator.");
                 case 0x2E: case 0x2F: AbsoluteMove(op, false); break;

@@ -112,13 +112,92 @@ public sealed class NativeEvaluatorScopeTests
     }
 
     [Fact]
-    public void TwoEnginesDoNotShareFunctionState()
+    public void TwoEnginesRunningTheSameSourceDoNotShareFunctionState()
     {
+        // The same text: the second engine takes the first one's cached parse, so the functions share one syntax tree (and its
+        // cached hoisted names), and must still keep separate bindings.
+        const string source = "var counter = 0; function bump() { var local = counter; counter = local + 1; return counter; }";
         using var first = new NativeJavaScriptEngine();
         using var second = new NativeJavaScriptEngine();
-        const string source = "var counter = {0}; function bump() {{ var local = counter; counter = local + 1; return counter; }}";
-        first.Evaluate(string.Format(source, 0));
-        second.Evaluate(string.Format(source, 100));
-        Assert.Equal("1,2,101,3", $"{first.Evaluate("bump()").AsNumber()},{first.Evaluate("bump()").AsNumber()},{second.Evaluate("bump()").AsNumber()},{first.Evaluate("bump()").AsNumber()}");
+        first.Evaluate(source);
+        second.Evaluate(source);
+        Assert.Equal("1,2,1,3,2", string.Join(',', new[]
+        {
+            first.Evaluate("bump()").AsNumber(), first.Evaluate("bump()").AsNumber(),
+            second.Evaluate("bump()").AsNumber(), first.Evaluate("bump()").AsNumber(), second.Evaluate("bump()").AsNumber(),
+        }));
+    }
+
+    [Fact]
+    public void ALetInASwitchCaseOrADestructuringLetStaysInItsBlock()
+    {
+        Assert.Equal("1,1,undefined,undefined", Run("""
+            var s = 1, d = 1;
+            { switch (1) { case 1: let s = 2; } }
+            { let [d] = [2]; }
+            { switch (1) { case 1: let t = 3; } } { let { u } = { u: 4 }; }
+            [s, d, typeof t, typeof u].join()
+            """));
+    }
+
+    [Fact]
+    public void AFunctionOrClassInABlockStaysInTheBlock()
+    {
+        Assert.Equal("1,1,block,block", Run("""
+            var f = 1, C = 1, inner, innerClass;
+            { function f() {} class C {} inner = typeof f; innerClass = typeof C; }
+            [f, C, inner === 'function' ? 'block' : inner, innerClass === 'function' ? 'block' : innerClass].join()
+            """));
+    }
+
+    [Fact]
+    public void ALabelledBlockWithALetKeepsItAndBreakLeavesIt()
+    {
+        Assert.Equal("1,1,done", Run("""
+            var x = 1, y = 1, r;
+            outer: { let x = 2; if (x === 2) break outer; r = 'not reached'; }
+            blank: { y = y; r = 'done'; }
+            [x, y, r].join()
+            """));
+    }
+
+    [Fact]
+    public void ForOfAndForLetClosuresCaptureTheirOwnIterationBinding()
+    {
+        Assert.Equal("a,b,c|0,1,2|x,y", Run("""
+            var of = [], lets = [], ins = [];
+            for (let item of ['a', 'b', 'c']) { of.push(function () { return item; }); }
+            for (let i = 0; i < 3; i++) { lets.push(() => i); }
+            for (const key in { x: 1, y: 2 }) { ins.push(function () { return key; }); }
+            of.map(f => f()).join() + '|' + lets.map(f => f()).join() + '|' + ins.map(f => f()).join()
+            """));
+    }
+
+    [Fact]
+    public void ADeclarationInAWithBodyDoesNotLeakOutOfAnElidedBlock()
+    {
+        Assert.Equal("1,undefined,object", Run("""
+            var x = 1, o = {};
+            { with ({}) { let x = 2; } }
+            if (true) { with (o) { function f() {} } }
+            [x, typeof f, typeof o].join()
+            """));
+    }
+
+    [Fact]
+    public void CachedAnalysisOnASyntaxNodeDoesNotChangeItsEquality()
+    {
+        var body = new JavaScriptStatement[] { new JavaScriptVariableStatement("v", null) };
+        var parameters = new[] { "p" };
+        var one = new JavaScriptFunctionExpression(parameters, body);
+        var two = new JavaScriptFunctionExpression(parameters, body);
+        one.HoistedNames = JavaScriptEvaluator.CollectHoistedNames(body);
+        Assert.Equal(one, two);
+        Assert.Equal(one.GetHashCode(), two.GetHashCode());
+        var block = new JavaScriptBlockStatement(body);
+        var same = new JavaScriptBlockStatement(body);
+        Assert.False(block.DeclaresNames);
+        Assert.Equal(block, same);
+        Assert.Equal(block.GetHashCode(), same.GetHashCode());
     }
 }

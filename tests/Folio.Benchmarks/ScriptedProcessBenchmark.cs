@@ -92,6 +92,8 @@ public static class ScriptedProcessBenchmark
             return 1;
         }
 
+        if (args is not null && Array.IndexOf(args, "--replace-peak") is var replaceAt and >= 0 && replaceAt + 1 < args.Length)
+            return await ReplacePeakAsync(host, args[replaceAt + 1], replaceAt + 2 < args.Length ? int.Parse(args[replaceAt + 2], CultureInfo.InvariantCulture) : 3);
         if (args?.Contains("--libraries", StringComparer.Ordinal) == true)
             return await MeasureLibrariesAsync(host, profile, args.Contains("--shared-process", StringComparer.Ordinal), args.Contains("--fresh-process", StringComparer.Ordinal));
 
@@ -593,6 +595,59 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
         if (shared is not null) await shared.DisposeAsync();
         Console.WriteLine($"Measured {measured} pinned-library artifacts. Failures: {failed}. Unqualified: {unqualified}.");
         return measured > 0 && failed == 0 && unqualified == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// <c>scripted --replace-peak ID[,ID...] [runs]</c>: for each page, loads it, then replaces it with the same page in the same
+    /// content process, and reports the working set before the replace, the highest working set sampled (every 2 ms) while the
+    /// replacement loads and for 400 ms after its frame, and the settled working set. For comparing when the replaced document is collected.
+    /// </summary>
+    private static async Task<int> ReplacePeakAsync(string host, string ids, int runs)
+    {
+        var diagramUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var id in ids.Split(','))
+        {
+            var folder = Path.Combine(RepoPaths.Tests, "conformance", id.Replace('/', Path.DirectorySeparatorChar));
+            var page = Path.Combine(folder, "index.html");
+            var manifestPath = Path.Combine(folder, "manifest.json");
+            if (File.Exists(manifestPath))
+            {
+                using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath));
+                if (manifest.RootElement.TryGetProperty("compiled", out var name)) page = Path.Combine(folder, name.GetString()!);
+            }
+            var html = await File.ReadAllTextAsync(page);
+            for (var run = 1; run <= runs; run++)
+            {
+                await using var client = ContentProcessClient.StartWithOptions(host, new FolioOptions
+                {
+                    ResourceLoader = ConformanceCache.Loader,
+                    DiagramLibraryUrls = diagramUrls,
+                });
+                await LoadOn(client, WarmUpPage, "", false);
+                await LoadOn(client, html, "", false);
+                await Task.Delay(500);
+                client.Process.Refresh();
+                var before = client.Process.WorkingSet64;
+                long peak = 0;
+                using var stop = new CancellationTokenSource();
+                var sampler = Task.Run(() =>
+                {
+                    while (!stop.IsCancellationRequested)
+                    {
+                        try { client.Process.Refresh(); peak = Math.Max(peak, client.Process.WorkingSet64); } catch (InvalidOperationException) { }
+                        Thread.Sleep(2);
+                    }
+                });
+                await LoadOn(client, html, "", false);
+                await Task.Delay(400);
+                stop.Cancel();
+                await sampler;
+                await Task.Delay(300);
+                client.Process.Refresh();
+                Console.WriteLine(FormattableString.Invariant($"{id} run {run}: before replace {before / 1048576.0:F1} MiB, peak during replace {peak / 1048576.0:F1} MiB, settled {client.Process.WorkingSet64 / 1048576.0:F1} MiB"));
+            }
+        }
+        return 0;
     }
 
     // Proposed 1.0 start-up limits per pinned-library class (docs/start-up-limits.md); D2/D3/D6 keep the ordinary 50 ms / 80 MiB.

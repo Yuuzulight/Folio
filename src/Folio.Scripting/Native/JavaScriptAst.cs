@@ -116,8 +116,21 @@ internal sealed record JavaScriptFunctionExpression(IReadOnlyList<string> Parame
     IReadOnlyList<JavaScriptExpression?>? DefaultValues = null, bool IsGenerator = false, string? Name = null, bool IsAsync = false, bool IsArrow = false,
     IReadOnlyDictionary<string, JavaScriptExpression>? BindingDefaults = null) : JavaScriptExpression
 {
+    private readonly DerivedValue<string[]> _hoisted = new();
+
     /// <summary>The names the body's `var` declarations hoist, computed on first call (they depend only on the syntax tree).</summary>
-    internal string[]? HoistedNames;
+    internal string[]? HoistedNames { get => _hoisted.Value; set => _hoisted.Value = value; }
+}
+
+/// <summary>
+/// A value derived from a node's syntax and cached on it. Every holder equals every other, so the cache never makes two nodes with
+/// equal syntax unequal (a record's Equals and GetHashCode include its fields).
+/// </summary>
+internal sealed class DerivedValue<T> where T : class
+{
+    internal T? Value;
+    public override bool Equals(object? other) => other is DerivedValue<T>;
+    public override int GetHashCode() => 0;
 }
 internal sealed record JavaScriptClassMethod(string Name, bool Getter, bool Setter, bool Static, JavaScriptFunctionExpression Function);
 internal sealed record JavaScriptClassExpression(string? Name, string? Parent, IReadOnlyList<JavaScriptClassMethod> Methods) : JavaScriptExpression;
@@ -132,7 +145,7 @@ internal sealed record JavaScriptReturnStatement(JavaScriptExpression? Expressio
 internal sealed record JavaScriptYieldStatement(JavaScriptExpression? Expression, bool Delegate = false) : JavaScriptStatement;
 internal sealed record JavaScriptBlockStatement(IReadOnlyList<JavaScriptStatement> Statements, bool CreatesScope = true) : JavaScriptStatement
 {
-    private sbyte _declares; // 0 not yet known, 1 yes, -1 no
+    private readonly DerivedValue<object> _declares = new(); // null not yet known, else a boxed bool
 
     /// <summary>
     /// Whether running the block can bind a name in its own scope: a let/const/class/function declaration, a destructuring
@@ -143,8 +156,7 @@ internal sealed record JavaScriptBlockStatement(IReadOnlyList<JavaScriptStatemen
     {
         get
         {
-            if (_declares == 0) _declares = (sbyte)(AnyDeclares(Statements) ? 1 : -1);
-            return _declares > 0;
+            return (bool)(_declares.Value ??= AnyDeclares(Statements));
         }
     }
 
@@ -173,7 +185,9 @@ internal sealed record JavaScriptBlockStatement(IReadOnlyList<JavaScriptStatemen
         // A lexical initializer runs in the loop's own scope (ExecuteLexicalFor), so it declares nothing outward.
         JavaScriptForStatement loop => (!LexicalInitializer(loop.Initializer) && Declares(loop.Initializer)) || Declares(loop.Body),
         JavaScriptForEachStatement each => Declares(each.Body),
-        JavaScriptWithStatement with => Declares(with.Body),
+        // The body runs in an evaluator that shares this scope's bindings, even when the body is a block with a scope of its own
+        // (the evaluator runs that block's statements directly), so what the block declares lands here.
+        JavaScriptWithStatement with => with.Body is JavaScriptBlockStatement body ? AnyDeclares(body.Statements) : Declares(with.Body),
         JavaScriptSwitchStatement selection => selection.Cases.Any(@case => AnyDeclares(@case.Statements)),
         _ => false,
     };

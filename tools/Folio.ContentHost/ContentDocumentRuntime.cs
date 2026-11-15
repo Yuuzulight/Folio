@@ -156,27 +156,10 @@ public sealed class ContentDocumentRuntime : IDisposable
         if (timings is not null) timings["raster"] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         started = Stopwatch.GetTimestamp();
         var pixels = surface.PremultipliedPixels;
-        SwapRedAndBlue(pixels);
+        Folio.Scripting.Ipc.FramePixels.SwapRedAndBlue(pixels);
         _frameStore.Publish(pixels);
         if (timings is not null) timings["publish"] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         return list.Items.Count;
-    }
-
-    /// <summary>RGBA to BGRA in place: swaps bytes 0 and 2 of every pixel, sixteen bytes (four pixels) per step.</summary>
-    internal static void SwapRedAndBlue(byte[] pixels)
-    {
-        var i = 0;
-        if (System.Runtime.Intrinsics.Vector128.IsHardwareAccelerated)
-        {
-            var swap = System.Runtime.Intrinsics.Vector128.Create((byte)2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
-            for (; i <= pixels.Length - 16; i += 16)
-            {
-                var block = System.Runtime.Intrinsics.Vector128.LoadUnsafe(ref pixels[i]);
-                System.Runtime.Intrinsics.Vector128.StoreUnsafe(System.Runtime.Intrinsics.Vector128.Shuffle(block, swap), ref pixels[i]);
-            }
-        }
-        for (; i + 2 < pixels.Length; i += 4)
-            (pixels[i], pixels[i + 2]) = (pixels[i + 2], pixels[i]);
     }
 
     public bool ApplyCapabilities(ContentMessage message)
@@ -209,8 +192,11 @@ public sealed class ContentDocumentRuntime : IDisposable
         }
         if (replacesDocument)
         {
-            // The collection of the retired document waits for CollectRetired, after the new frame is out.
-            DisposeDocument(collect: false);
+            // The collection of the retired document waits for CollectRetired, after the new frame is out, so for a moment the old
+            // and the new document are both resident. That is only done while the process is small enough for the sum to stay
+            // under every start-up limit (ordinary 80 MiB, chart/canvas 85 MiB); a large process (Phaser-class, about 100 MiB)
+            // collects first, as before.
+            DisposeDocument(collect: Environment.WorkingSet > DeferCollectionBelowBytes);
             var documentGeneration = _documentGeneration;
             var policy = message.Payload.TryGetProperty("hostPolicy", out var hostPolicy) ? hostPolicy : default;
             var origins = ContentHostPolicy.ReadOrigins(policy);
@@ -380,6 +366,9 @@ public sealed class ContentDocumentRuntime : IDisposable
     }
 
     private bool _collectionPending;
+
+    // Measured on NativeAOT: a replaced ordinary or chart page adds 6 to 9 MiB to the peak while its collection waits.
+    internal const long DeferCollectionBelowBytes = 70L * 1024 * 1024;
 
     /// <summary>
     /// Collects what the last replaced document left behind. The host calls it once the new document's frame has been sent, so
