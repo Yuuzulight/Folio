@@ -1,12 +1,19 @@
-# Folio
+<p align="center">
+  <img src="docs/assets/folio-logo.png" alt="Folio" width="300">
+</p>
 
-A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
+<p align="center">
+  A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.<br>
+  <a href="https://github.com/Yuuzulight/Folio/releases/tag/v1.0.0"><b>1.0.0</b></a> &middot;
+  <a href="docs/releases/1.0.0.md">Release notes</a> &middot;
+  <a href="docs/consumer-readiness-audit.md">What is and isn't supported</a>
+</p>
 
 Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher is designed to stay light on memory. Mana writes HTML "artifacts" (reports, tables, charts, small interactive pages), and Folio shows them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
 
-**Status:** The Windows production content host uses Folio-owned rendering, shaping, scripting and WebAssembly implementations. Optional Skia, HarfBuzz, Jint and Wasmtime paths are compatibility or differential-test tools, not requirements of the production package graph. Folio is not a general-purpose browser. Repository test results do not establish that every originally planned web-platform feature is complete: see the [consumer readiness audit](docs/consumer-readiness-audit.md) for integration evidence and remaining feature blockers.
+**Status:** Folio 1.0.0 is released. The [release notes](docs/releases/1.0.0.md) list what is new (WebRTC in the sandboxed content process, retained scroll and damage-rect presentation, per-class start-up limits), the measured performance with every miss marked, and the known limits. Releases are published on GitHub, with checksummed packages and the standalone content host; nothing is pushed to NuGet.org. The Windows production content host uses Folio-owned rendering, shaping, scripting and WebAssembly implementations. Optional Skia, HarfBuzz, Jint and Wasmtime paths are compatibility or differential-test tools, not requirements of the production package graph. Folio is not a general-purpose browser. Repository test results do not establish that every originally planned web-platform feature is complete: see the [consumer readiness audit](docs/consumer-readiness-audit.md) for integration evidence and remaining feature blockers.
 
-**1.0 release:** Blocked pending the [current release audit](docs/release-1.0-audit.md). M6 is reopened with [#704](https://github.com/Yuuzulight/Folio/issues/704) and [#706](https://github.com/Yuuzulight/Folio/issues/706); the original milestone requirements and mandatory Folio-owned replacement gates still require final verification.
+**1.0 release:** 1.0.0 is [released](https://github.com/Yuuzulight/Folio/releases/tag/v1.0.0). The [2026-11-10 release audit](docs/release-1.0-audit.md) is the record of what blocked the first attempt, not the current status.
 
 ## Goal
 Render and run AI-written HTML artifacts as well as a modern browser does: pages that use modern CSS, web fonts, SVG charts and diagrams, and, in later milestones, the scripts, UI libraries and canvas graphics those artifacts rely on.
