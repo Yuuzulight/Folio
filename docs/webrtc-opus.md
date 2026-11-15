@@ -95,8 +95,8 @@ clipping and non-finite input. That shows self-consistency; I have not decoded i
   output is hard-limited to [-1, 1].
 - The sender does not react to receiver reports, loss, `maxaveragebitrate` or `maxplaybackrate`, and ignores `ptime`: it sends
   20 ms packets at 32 kbit/s.
-- Interoperability with a real browser is untested, as in stage 2. The bitstreams are conformant, but I have not connected
-  Folio to Chrome or Firefox.
+- Browser interoperability is checked in CI against headless Chrome on Linux only (`ChromeRtcMediaProbe`, fake microphone); see
+  docs/webrtc-remote-media.md. Firefox and Safari are untested, and no real microphone or network path is covered.
 - Recovery from in-band redundancy needs a sender that writes LBRR; this encoder does not, though the decoder handles it.
 - Performance: managed float code, one decoder per remote stream, no SIMD. The vectors (about 20 000 packets) decode in about two
   seconds including file reading, but I did not benchmark phones.
