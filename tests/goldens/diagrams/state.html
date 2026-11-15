@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#F4F4FB;color:#1E1B3A;font:15px "Source Sans 3",sans-serif}
+.card{margin:4px;background:#fff;border:1px solid #E3E3F3;border-radius:12px;padding:4px}
+.card svg{display:block;max-width:100%;height:auto}
+.card svg text{font-family:"Source Sans 3",sans-serif}
+</style></head><body><div class="card"><script type="text/plain" id="source">
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running : start
+  Running --> Done : finish
+  Running --> Idle : cancel
+  Done --> [*]
+</script><!--svg--><svg class="folio-diagram" xmlns="http://www.w3.org/2000/svg" width="296" height="264" viewBox="14 14 296 264"><defs><marker id="arrow" markerWidth="4" markerHeight="3" refX="4" refY="1.5" orient="auto"><path d="M0,0 L4,1.5 L0,3 z" fill="#5B5BF0"/></marker></defs><g class="folio-diagram-content" fill="white" stroke="currentColor" stroke-width="2" font-family="sans-serif" font-size="14"><rect class="folio-diagram-node state-node" x="30" y="30" width="180" height="40" rx="20" fill="#ECECFF" stroke="#5B5BF0"/><text class="folio-diagram-label" x="120" y="55" text-anchor="middle" fill="#1E1B3A" stroke="none">start</text><rect class="folio-diagram-node state-node" x="30" y="94" width="180" height="40" rx="20" fill="#ECECFF" stroke="#5B5BF0"/><text class="folio-diagram-label" x="120" y="119" text-anchor="middle" fill="#1E1B3A" stroke="none">Idle</text><rect class="folio-diagram-node state-node" x="30" y="158" width="180" height="40" rx="20" fill="#ECECFF" stroke="#5B5BF0"/><text class="folio-diagram-label" x="120" y="183" text-anchor="middle" fill="#1E1B3A" stroke="none">Running</text><rect class="folio-diagram-node state-node" x="30" y="222" width="180" height="40" rx="20" fill="#ECECFF" stroke="#5B5BF0"/><text class="folio-diagram-label" x="120" y="247" text-anchor="middle" fill="#1E1B3A" stroke="none">Done</text><path class="state-edge" d="M 120 70 L 120 94" marker-end="url(#arrow)" fill="none" stroke="#5B5BF0"/><path class="state-edge" d="M 120 134 L 120 158" marker-end="url(#arrow)" fill="none" stroke="#5B5BF0"/><text class="folio-diagram-label state-transition-label" x="128" y="150" fill="#1E1B3A" stroke="none">start</text><path class="state-edge" d="M 120 198 L 120 222" marker-end="url(#arrow)" fill="none" stroke="#5B5BF0"/><text class="folio-diagram-label state-transition-label" x="128" y="214" fill="#1E1B3A" stroke="none">finish</text><path class="state-edge" d="M 210 172 L 232 172 L 232 120 L 210 120" marker-end="url(#arrow)" fill="none" stroke="#5B5BF0"/><text class="folio-diagram-label state-transition-label" x="256" y="150" fill="#1E1B3A" stroke="none">cancel</text><path class="state-edge" d="M 210 236 L 244 236 L 244 56 L 210 56" marker-end="url(#arrow)" fill="none" stroke="#5B5BF0"/></g></svg><!--/svg--></div></body></html>

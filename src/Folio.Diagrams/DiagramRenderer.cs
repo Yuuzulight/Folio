@@ -149,6 +149,8 @@ public static class DiagramRenderer
         return label.Length == 0 ? null : (label, value);
     }
 
+    private static readonly string[] PieColours = ["#5B5BF0", "#B9B9FA", "#3A3AA8", "#8B5CF6", "#F43F8E", "#14B8A6", "#F59E0B"];
+
     private static string RenderPie(IEnumerable<string> lines)
     {
         var slices = new List<(string Label, double Value)>();
@@ -172,8 +174,10 @@ public static class DiagramRenderer
             var path = slices.Count == 1
                 ? FormattableString.Invariant($"M {cx} {cy - radius} A {radius} {radius} 0 0 1 {cx} {cy + radius} A {radius} {radius} 0 0 1 {cx} {cy - radius} Z")
                 : FormattableString.Invariant($"M {cx:0.##} {cy:0.##} L {x1:0.##} {y1:0.##} A {radius:0.##} {radius:0.##} 0 {large} 1 {x2:0.##} {y2:0.##} Z");
-            arcs.Add($"<path class=\"folio-diagram-slice\" data-label=\"{XmlEscape(slice.Label)}\" d=\"{path}\"/>");
-            legend.Add($"<text class=\"folio-diagram-label folio-diagram-legend\" x=\"470\" y=\"{70 + i * 28}\">{XmlEscape(slice.Label)} ({slice.Value.ToString("0.##", CultureInfo.InvariantCulture)})</text>");
+            var colour = PieColours[i % PieColours.Length];
+            arcs.Add($"<path class=\"folio-diagram-slice\" data-label=\"{XmlEscape(slice.Label)}\" fill=\"{colour}\" stroke=\"white\" stroke-width=\"2\" d=\"{path}\"/>");
+            legend.Add($"<rect class=\"folio-diagram-swatch\" x=\"450\" y=\"{58 + i * 28}\" width=\"14\" height=\"14\" rx=\"3\" fill=\"{colour}\" stroke=\"none\"/>");
+            legend.Add($"<text class=\"folio-diagram-label folio-diagram-legend\" x=\"472\" y=\"{70 + i * 28}\">{XmlEscape(slice.Label)} ({slice.Value.ToString("0.##", CultureInfo.InvariantCulture)})</text>");
             angle = end;
         }
         return Svg(arcs.Concat(legend), [], null, new FlowLayout.Box(cx - radius, cy - radius, 2 * radius, 2 * radius));
@@ -365,11 +369,37 @@ public static class DiagramRenderer
             next: ;
         }
         while (openBlocks.Count > 0) { var block = openBlocks.Pop(); blocks.Add((block.Kind, block.Label, block.Start, messages.Count)); }
-        var marks = participants.Select((name, i) => $"<text class=\"folio-diagram-participant\" data-role=\"participant\" x=\"{80 + i * 180}\" y=\"30\">{XmlEscape(name)}</text><path class=\"folio-diagram-lifeline\" d=\"M {80 + i * 180} 40 L {80 + i * 180} {60 + messages.Count * 48}\"/>{(activations.Contains(i) ? $"<rect class=\"folio-diagram-activation\" x=\"{74 + i * 180}\" y=\"40\" width=\"12\" height=\"{messages.Count * 48}\"/>" : "")}");
-        var arrows = messages.Select((message, i) => $"<path class=\"folio-diagram-edge sequence-message\" data-kind=\"{XmlEscape(message.Kind)}\" {(message.Dashed ? "stroke-dasharray=\"4 3\"" : "")} d=\"M {80 + message.From * 180} {60 + i * 48} L {80 + message.To * 180} {60 + i * 48}\" marker-end=\"url(#arrow)\"/><text class=\"folio-diagram-label sequence-message-label\" x=\"{90 + Math.Min(message.From, message.To) * 180}\" y=\"{54 + i * 48}\">{XmlEscape(message.Label)}</text>");
-        var blockSvg = blocks.Select((block, i) => $"<rect class=\"folio-diagram-block sequence-{XmlEscape(block.Kind)}\" x=\"12\" y=\"{48 + block.Start * 48}\" width=\"760\" height=\"{Math.Max(28, (block.End - block.Start) * 48)}\"/><text class=\"folio-diagram-label sequence-block-label\" x=\"20\" y=\"{68 + block.Start * 48}\">{XmlEscape(block.Kind)} {XmlEscape(block.Label)}</text>");
-        var noteSvg = notes.Select(note => $"<rect class=\"folio-diagram-note\" x=\"{(note.Right ? 110 : 0) + note.Participant * 180}\" y=\"{42 + messages.Count * 48}\" width=\"140\" height=\"26\"/><text class=\"folio-diagram-label\" x=\"{(note.Right ? 118 : 8) + note.Participant * 180}\" y=\"{60 + messages.Count * 48}\">{XmlEscape(note.Text)}</text>");
-        return Svg(marks, arrows.Concat(blockSvg).Concat(noteSvg));
+        double Lx(int i) => 80 + i * 180;
+        var bottom = 60 + messages.Count * 48;
+        var blockRight = Lx(Math.Max(1, participants.Count) - 1) + 76;
+        var sb = new StringBuilder();
+        foreach (var block in blocks)
+            sb.Append($"<rect class=\"folio-diagram-block sequence-{XmlEscape(block.Kind)}\" x=\"12\" y=\"{36 + block.Start * 48}\" width=\"{N(blockRight - 12)}\" height=\"{Math.Max(28, (block.End - block.Start) * 48)}\" rx=\"6\"/><text class=\"folio-diagram-label sequence-block-label\" x=\"20\" y=\"{50 + block.Start * 48}\">{XmlEscape(block.Kind)} {XmlEscape(block.Label)}</text>");
+        for (var i = 0; i < participants.Count; i++)
+        {
+            var width = Math.Clamp(TextMeasure.Width(participants[i], 14, bold: true) + 28, 90, 164);
+            sb.Append($"<path class=\"folio-diagram-lifeline\" d=\"M {N(Lx(i))} 40 L {N(Lx(i))} {bottom}\"/>");
+            if (activations.Contains(i)) sb.Append($"<rect class=\"folio-diagram-activation\" x=\"{N(Lx(i) - 6)}\" y=\"40\" width=\"12\" height=\"{messages.Count * 48}\"/>");
+            sb.Append($"<rect class=\"folio-diagram-node sequence-participant\" x=\"{N(Lx(i) - width / 2)}\" y=\"8\" width=\"{N(width)}\" height=\"32\" rx=\"6\"/><text class=\"folio-diagram-participant\" data-role=\"participant\" x=\"{N(Lx(i))}\" y=\"29\" text-anchor=\"middle\">{XmlEscape(participants[i])}</text>");
+        }
+        for (var i = 0; i < messages.Count; i++)
+        {
+            var message = messages[i];
+            double y = 60 + i * 48, x1 = Lx(message.From), x2 = Lx(message.To);
+            var dash = message.Dashed ? " stroke-dasharray=\"4 3\"" : "";
+            var self = message.From == message.To;
+            var d = self ? $"M {N(x1)} {N(y)} L {N(x1 + 36)} {N(y)} L {N(x1 + 36)} {N(y + 16)} L {N(x1)} {N(y + 16)}" : $"M {N(x1)} {N(y)} L {N(x2)} {N(y)}";
+            sb.Append($"<path class=\"folio-diagram-edge sequence-message\" data-kind=\"{XmlEscape(message.Kind)}\"{dash} d=\"{d}\" marker-end=\"url(#arrow)\"/>");
+            sb.Append(self
+                ? $"<text class=\"folio-diagram-label sequence-message-label\" x=\"{N(x1 + 44)}\" y=\"{N(y + 12)}\">{XmlEscape(message.Label)}</text>"
+                : $"<text class=\"folio-diagram-label sequence-message-label\" x=\"{N((x1 + x2) / 2)}\" y=\"{N(y - 8)}\" text-anchor=\"middle\">{XmlEscape(message.Label)}</text>");
+        }
+        foreach (var note in notes)
+        {
+            var x = Lx(note.Participant) + (note.Right ? 14 : -154);
+            sb.Append($"<rect class=\"folio-diagram-note\" x=\"{N(x)}\" y=\"{bottom + 6}\" width=\"140\" height=\"26\" rx=\"4\"/><text class=\"folio-diagram-label\" x=\"{N(x + 8)}\" y=\"{bottom + 24}\">{XmlEscape(note.Text)}</text>");
+        }
+        return Svg([sb.ToString()], []);
     }
 
     private static string RenderClass(IEnumerable<string> lines)
@@ -408,16 +438,28 @@ public static class DiagramRenderer
                 classMembers.Add(line.Trim(';'));
         }
         names = names.Distinct(StringComparer.Ordinal).ToList();
-        var boxes = names.Select((name, i) =>
+        var rowsOf = names.Select(name => members.TryGetValue(name, out var values) ? values : []).ToList();
+        var widths = names.Select((name, i) => rowsOf[i].Select(row => TextMeasure.Width(row, 14, false) + 24).Append(TextMeasure.Width(name, 14, true) + 28).Append(150).Max()).ToArray();
+        var xs = BoxColumns(names.Count, widths, edges.Select(e => (names.IndexOf(e.From), names.IndexOf(e.To), e.Label)));
+        var sb = new StringBuilder();
+        for (var i = 0; i < names.Count; i++)
         {
-            var rows = members.TryGetValue(name, out var values) ? values : [];
-            var height = 54 + rows.Count * 18;
-            var text = $"<text class=\"folio-diagram-label class-label\" x=\"{105 + i * 180}\" y=\"64\">{XmlEscape(name)}</text>";
-            text += string.Join("", rows.Select((member, row) => $"<text class=\"folio-diagram-label class-member\" x=\"40\" y=\"{84 + row * 18}\">{XmlEscape(member)}</text>"));
-            return $"<rect class=\"folio-diagram-node class-node\" x=\"{30 + i * 180}\" y=\"40\" width=\"150\" height=\"{height}\" rx=\"6\"/>{text}";
-        });
-        var paths = edges.Select(e => { var a = names.IndexOf(e.From); var b = names.IndexOf(e.To); return $"<path class=\"class-edge\" d=\"M {105 + a * 180} 40 L {105 + b * 180} 94\" data-kind=\"{XmlEscape(e.Kind)}\" data-cardinality=\"{XmlEscape(e.Label)}\" marker-end=\"url(#arrow)\"/>"; });
-        return Svg(boxes, paths);
+            var rows = rowsOf[i];
+            var height = rows.Count == 0 ? 32 : 40 + rows.Count * 18;
+            sb.Append($"<rect class=\"folio-diagram-node class-node\" x=\"{N(xs[i])}\" y=\"40\" width=\"{N(widths[i])}\" height=\"{height}\" rx=\"6\"/>");
+            sb.Append($"<text class=\"folio-diagram-label class-label\" x=\"{N(xs[i] + widths[i] / 2)}\" y=\"61\" text-anchor=\"middle\">{XmlEscape(names[i])}</text>");
+            if (rows.Count > 0) sb.Append($"<path class=\"class-divider\" d=\"M {N(xs[i])} 72 L {N(xs[i] + widths[i])} 72\"/>");
+            for (var row = 0; row < rows.Count; row++)
+                sb.Append($"<text class=\"folio-diagram-label class-member\" x=\"{N(xs[i] + 10)}\" y=\"{90 + row * 18}\">{XmlEscape(rows[row])}</text>");
+        }
+        foreach (var e in edges)
+        {
+            var a = names.IndexOf(e.From); var b = names.IndexOf(e.To);
+            if (a == b) continue;
+            var dash = e.Kind == "..>" ? " stroke-dasharray=\"4 3\"" : "";
+            sb.Append(BoxEdge(a, b, xs, widths, "class-edge", $" data-kind=\"{XmlEscape(e.Kind)}\" data-cardinality=\"{XmlEscape(e.Label)}\"{dash}", e.Label, "class-edge-label"));
+        }
+        return Svg([sb.ToString()], []);
     }
 
     private static string RenderState(IEnumerable<string> lines)
@@ -454,13 +496,35 @@ public static class DiagramRenderer
             var y = 30 + i * 64;
             var label = XmlEscape(name == "[*]" ? "start" : name);
             if (!kinds.TryGetValue(name, out var kind))
-                return $"<rect class=\"folio-diagram-node state-node\" x=\"30\" y=\"{y}\" width=\"180\" height=\"40\" rx=\"20\"/><text class=\"folio-diagram-label\" x=\"120\" y=\"{y + 25}\">{label}</text>";
+                return $"<rect class=\"folio-diagram-node state-node\" x=\"30\" y=\"{y}\" width=\"180\" height=\"40\" rx=\"20\"/><text class=\"folio-diagram-label\" x=\"120\" y=\"{y + 25}\" text-anchor=\"middle\">{label}</text>";
             if (kind == "choice")
                 return $"<polygon class=\"folio-diagram-node state-choice\" data-kind=\"choice\" points=\"120,{y} 140,{y + 20} 120,{y + 40} 100,{y + 20}\"/><text class=\"folio-diagram-label\" x=\"150\" y=\"{y + 25}\">{label}</text>";
             return $"<rect class=\"folio-diagram-node state-{kind}\" data-kind=\"{kind}\" x=\"70\" y=\"{y + 16}\" width=\"100\" height=\"8\"/><text class=\"folio-diagram-label\" x=\"180\" y=\"{y + 25}\">{label}</text>";
         });
-        var paths = edges.Select(e => { var a = states.IndexOf(e.From); var b = states.IndexOf(e.To); var y = 50 + Math.Min(a, b) * 64; return $"<path class=\"state-edge\" d=\"M 120 {70 + a * 64} L 120 {30 + b * 64}\" marker-end=\"url(#arrow)\"/>{(e.Label.Length == 0 ? "" : $"<text class=\"folio-diagram-label state-transition-label\" x=\"145\" y=\"{y}\">{XmlEscape(e.Label)}</text>")}"; });
-        var noteSvg = notes.Select(note => $"<text class=\"folio-diagram-note\" data-state=\"{XmlEscape(note.State)}\" x=\"230\" y=\"{55 + Math.Max(0, states.IndexOf(note.State)) * 64}\">{XmlEscape(note.Text)}</text>");
+        double RightOf(string name) => kinds.TryGetValue(name, out var k) ? (k == "choice" ? 140 : 170) : 210;
+        var sideTotal = edges.Count(e => { int a = states.IndexOf(e.From), b = states.IndexOf(e.To); return a != b && b != a + 1; });
+        var side = 0;
+        var paths = new List<string>();
+        foreach (var e in edges)
+        {
+            int a = states.IndexOf(e.From), b = states.IndexOf(e.To);
+            if (a == b) continue;
+            string d; double lx, ly;
+            if (b == a + 1)
+            {
+                d = $"M 120 {70 + a * 64} L 120 {30 + b * 64}";
+                lx = 128; ly = (70 + a * 64 + 30 + b * 64) / 2.0 + 4;
+            }
+            else
+            {
+                // Other transitions leave by the right side and run down a channel of their own, so they never cross a state.
+                double xc = 232 + 12 * side++, ya = 30 + a * 64 + 14, yb = 30 + b * 64 + 26;
+                d = $"M {N(RightOf(e.From))} {N(ya)} L {N(xc)} {N(ya)} L {N(xc)} {N(yb)} L {N(RightOf(e.To))} {N(yb)}";
+                lx = 232 + 12 * sideTotal; ly = (ya + yb) / 2 + 4;
+            }
+            paths.Add($"<path class=\"state-edge\" d=\"{d}\" marker-end=\"url(#arrow)\"/>{(e.Label.Length == 0 ? "" : $"<text class=\"folio-diagram-label state-transition-label\" x=\"{N(lx)}\" y=\"{N(ly)}\">{XmlEscape(e.Label)}</text>")}");
+        }
+        var noteSvg = notes.Select(note => $"<text class=\"folio-diagram-note\" data-state=\"{XmlEscape(note.State)}\" x=\"{232 + 12 * sideTotal + 20}\" y=\"{55 + Math.Max(0, states.IndexOf(note.State)) * 64}\">{XmlEscape(note.Text)}</text>");
         return Svg(boxes, paths.Concat(noteSvg));
     }
 
@@ -480,9 +544,25 @@ public static class DiagramRenderer
             else if (tokens.Length >= 1 && tokens[0].Length > 0 && !tokens[0].Equals("title", StringComparison.OrdinalIgnoreCase)) entities.Add(tokens[0]);
         }
         entities = entities.Distinct(StringComparer.Ordinal).ToList();
-        var boxes = entities.Select((name, i) => { var attrs = attributes.TryGetValue(name, out var values) ? values : []; var height = 50 + attrs.Count * 18; var text = $"<text class=\"folio-diagram-label\" x=\"{105 + i * 180}\" y=\"70\">{XmlEscape(name)}</text>" + string.Join("", attrs.Select((a, n) => $"<text class=\"folio-diagram-label er-attribute\" x=\"{40 + i * 180}\" y=\"{88 + n * 18}\">{XmlEscape(a)}</text>")); return $"<rect class=\"folio-diagram-node er-entity\" x=\"{30 + i * 180}\" y=\"40\" width=\"150\" height=\"{height}\"/>{text}"; });
-        var paths = edges.Select(e => { var a = entities.IndexOf(e.From); var b = entities.IndexOf(e.To); return $"<path class=\"er-edge\" d=\"M {105 + a * 180} 90 L {105 + b * 180} 40\" data-cardinality=\"{XmlEscape(e.Label)}\" marker-end=\"url(#arrow)\"/>"; });
-        return Svg(boxes, paths);
+        var rowsOf = entities.Select(name => attributes.TryGetValue(name, out var values) ? values : []).ToList();
+        var widths = entities.Select((name, i) => rowsOf[i].Select(row => TextMeasure.Width(row, 14, false) + 24).Append(TextMeasure.Width(name, 14, true) + 28).Append(150).Max()).ToArray();
+        var xs = BoxColumns(entities.Count, widths, edges.Select(e => (entities.IndexOf(e.From), entities.IndexOf(e.To), e.Label)));
+        var sb = new StringBuilder();
+        for (var i = 0; i < entities.Count; i++)
+        {
+            var rows = rowsOf[i];
+            sb.Append($"<rect class=\"folio-diagram-node er-entity\" x=\"{N(xs[i])}\" y=\"40\" width=\"{N(widths[i])}\" height=\"{(rows.Count == 0 ? 32 : 40 + rows.Count * 18)}\" rx=\"6\"/>");
+            sb.Append($"<text class=\"folio-diagram-label er-name\" x=\"{N(xs[i] + widths[i] / 2)}\" y=\"61\" text-anchor=\"middle\">{XmlEscape(entities[i])}</text>");
+            if (rows.Count > 0) sb.Append($"<path class=\"class-divider\" d=\"M {N(xs[i])} 72 L {N(xs[i] + widths[i])} 72\"/>");
+            for (var n = 0; n < rows.Count; n++)
+                sb.Append($"<text class=\"folio-diagram-label er-attribute\" x=\"{N(xs[i] + 10)}\" y=\"{90 + n * 18}\">{XmlEscape(rows[n])}</text>");
+        }
+        foreach (var e in edges)
+        {
+            int a = entities.IndexOf(e.From), b = entities.IndexOf(e.To);
+            if (a != b) sb.Append(BoxEdge(a, b, xs, widths, "er-edge", $" data-cardinality=\"{XmlEscape(e.Label)}\"", e.Label, "er-edge-label"));
+        }
+        return Svg([sb.ToString()], []);
     }
 
     private static string RenderTimeline(IEnumerable<string> lines)
@@ -498,7 +578,7 @@ public static class DiagramRenderer
         var body = rows.Select((item, i) =>
         {
             var y = 48 + i * 56;
-            var sectionSvg = item.Section is null ? "" : $"<text class=\"folio-diagram-section\" x=\"20\" y=\"{y - 20}\">{XmlEscape(item.Section)}</text>";
+            var sectionSvg = item.Section is null || (i > 0 && rows[i - 1].Section == item.Section) ? "" : $"<text class=\"folio-diagram-section\" x=\"20\" y=\"{y - 20}\">{XmlEscape(item.Section)}</text>";
             return $"{sectionSvg}<circle class=\"folio-diagram-node timeline-event\" cx=\"50\" cy=\"{y}\" r=\"6\"/><text class=\"folio-diagram-label\" x=\"70\" y=\"{y + 5}\"><tspan class=\"timeline-date\">{XmlEscape(item.Date)}</tspan> {XmlEscape(item.Event)}</text>";
         });
         return Svg(body, []);
@@ -554,6 +634,90 @@ public static class DiagramRenderer
         }
     }
 
+    /// <summary>Left edges of boxes laid out in one row, with room between neighbours for the labels of the edges joining them.</summary>
+    private static double[] BoxColumns(int count, double[] widths, IEnumerable<(int From, int To, string Label)> edges)
+    {
+        var xs = new double[count];
+        var links = edges.ToList();
+        var x = 30.0;
+        for (var i = 0; i < count; i++)
+        {
+            xs[i] = x;
+            var label = links.Where(l => Math.Min(l.From, l.To) == i && Math.Abs(l.From - l.To) == 1).Select(l => TextMeasure.Width(l.Label, 12, bold: false)).DefaultIfEmpty(0).Max();
+            x += widths[i] + Math.Max(40, label + 24);
+        }
+        return xs;
+    }
+
+    /// <summary>
+    /// An edge between two boxes of a row: straight between the facing sides of neighbours, otherwise over the top of the boxes
+    /// in between, with its label centred above the line.
+    /// </summary>
+    private static string BoxEdge(int a, int b, double[] xs, double[] widths, string pathClass, string attributes, string label, string labelClass)
+    {
+        string d; double lx, ly;
+        if (Math.Abs(a - b) == 1)
+        {
+            var forward = b > a;
+            double x1 = forward ? xs[a] + widths[a] : xs[a], x2 = forward ? xs[b] : xs[b] + widths[b];
+            d = $"M {N(x1)} 56 L {N(x2)} 56";
+            lx = (x1 + x2) / 2; ly = 48;
+        }
+        else
+        {
+            double top = 40 - 14 * Math.Abs(a - b), xa = xs[a] + widths[a] / 2, xb = xs[b] + widths[b] / 2;
+            d = $"M {N(xa)} 40 L {N(xa)} {N(top)} L {N(xb)} {N(top)} L {N(xb)} 40";
+            lx = (xa + xb) / 2; ly = top - 6;
+        }
+        return $"<path class=\"{pathClass}\"{attributes} d=\"{d}\" marker-end=\"url(#arrow)\"/>"
+            + (label.Length == 0 ? "" : $"<text class=\"folio-diagram-label {labelClass}\" x=\"{N(lx)}\" y=\"{N(ly)}\" text-anchor=\"middle\" font-size=\"12\">{XmlEscape(label)}</text>");
+    }
+
+    /// <summary>Default look for the diagram kinds without a layout of their own styling: presentation attributes, so any page CSS wins.</summary>
+    private static readonly (string Tag, string Class, string Attributes)[] Defaults =
+    [
+        ("rect", "gantt-task", "rx=\"4\" fill=\"#5B5BF0\" stroke=\"none\""),
+        ("rect", "state-fork", "fill=\"#5B5BF0\" stroke=\"none\""),
+        ("rect", "state-join", "fill=\"#5B5BF0\" stroke=\"none\""),
+        ("rect", "folio-diagram-node", "fill=\"#ECECFF\" stroke=\"#5B5BF0\""),
+        ("polygon", "folio-diagram-node", "fill=\"#ECECFF\" stroke=\"#5B5BF0\""),
+        ("circle", "timeline-event", "fill=\"#5B5BF0\" stroke=\"none\""),
+        ("circle", "folio-diagram-node", "fill=\"#ECECFF\" stroke=\"#5B5BF0\""),
+        ("rect", "folio-diagram-activation", "fill=\"#ECECFF\" stroke=\"#5B5BF0\""),
+        ("rect", "folio-diagram-block", "fill=\"none\" stroke=\"#9A9AD8\" stroke-width=\"1\" stroke-dasharray=\"4 3\""),
+        ("rect", "folio-diagram-note", "fill=\"#FEF3C7\" stroke=\"#F59E0B\" stroke-width=\"1\""),
+        ("path", "folio-diagram-lifeline", "fill=\"none\" stroke=\"#B9B9FA\" stroke-width=\"1.5\" stroke-dasharray=\"5 4\""),
+        ("path", "class-divider", "fill=\"none\" stroke=\"#B9B9FA\" stroke-width=\"1\""),
+        ("path", "folio-diagram-edge", "fill=\"none\" stroke=\"#5B5BF0\""),
+        ("path", "class-edge", "fill=\"none\" stroke=\"#5B5BF0\""),
+        ("path", "state-edge", "fill=\"none\" stroke=\"#5B5BF0\""),
+        ("path", "er-edge", "fill=\"none\" stroke=\"#5B5BF0\""),
+        ("text", "folio-diagram-participant", "font-weight=\"600\""),
+        ("text", "class-label", "font-weight=\"600\""),
+        ("text", "er-name", "font-weight=\"600\""),
+        ("text", "folio-diagram-section", "font-weight=\"600\""),
+        ("text", "sequence-block-label", "font-weight=\"600\""),
+        ("text", "folio-diagram-note", "font-style=\"italic\""),
+        ("text", "", "fill=\"#1E1B3A\" stroke=\"none\""),
+    ];
+
+    private static string ApplyDefaults(string content) =>
+        System.Text.RegularExpressions.Regex.Replace(content, @"<(rect|path|circle|polygon|text)\b([^>]*?)(/?)>", match =>
+        {
+            var tag = match.Groups[1].Value;
+            var existing = match.Groups[2].Value;
+            var classes = System.Text.RegularExpressions.Regex.Match(existing, "class=\"([^\"]*)\"").Groups[1].Value.Split(' ');
+            var have = System.Text.RegularExpressions.Regex.Matches(existing, @"\s([\w-]+)=").Select(m => m.Groups[1].Value).ToHashSet();
+            var added = new StringBuilder();
+            foreach (var (ruleTag, ruleClass, attributes) in Defaults)
+            {
+                if (ruleTag != tag || (ruleClass.Length > 0 && !classes.Contains(ruleClass))) continue;
+                foreach (System.Text.RegularExpressions.Match attribute in System.Text.RegularExpressions.Regex.Matches(attributes, "([\\w-]+)=\"([^\"]*)\""))
+                    if (have.Add(attribute.Groups[1].Value)) added.Append(' ').Append(attribute.Value);
+            }
+            return added.Length == 0 ? match.Value : $"<{tag}{existing}{added}{match.Groups[3].Value}>";
+        });
+
     /// <summary>
     /// Wraps content in the diagram SVG, sized to the content: the viewBox is the content's extent plus a margin, so nothing is
     /// clipped and no empty canvas is left, and the displayed width and height are scaled down to fit
@@ -563,9 +727,11 @@ public static class DiagramRenderer
     private static string Svg(IEnumerable<string> body, IEnumerable<string> overlays, (int Width, int Height)? size = null, params FlowLayout.Box[] extra)
     {
         var content = string.Join("", body.Concat(overlays));
+        if (size is null) content = ApplyDefaults(content);
         var (x, y, width, height) = size is { } s ? (0, 0, s.Width, s.Height) : Extent(content, extra);
+        var markerFill = size is null ? " fill=\"#5B5BF0\"" : "";
         var scale = Math.Min(1, Math.Min(FlowLayout.MaxWidth / width, FlowLayout.MaxHeight / height));
-        return $"<svg class=\"folio-diagram\" xmlns=\"http://www.w3.org/2000/svg\" width=\"{(int)Math.Round(width * scale)}\" height=\"{(int)Math.Round(height * scale)}\" viewBox=\"{x} {y} {width} {height}\"><defs><marker id=\"arrow\" markerWidth=\"4\" markerHeight=\"3\" refX=\"4\" refY=\"1.5\" orient=\"auto\"><path d=\"M0,0 L4,1.5 L0,3 z\"/></marker></defs><g class=\"folio-diagram-content\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\" font-family=\"sans-serif\" font-size=\"14\">{content}</g></svg>";
+        return $"<svg class=\"folio-diagram\" xmlns=\"http://www.w3.org/2000/svg\" width=\"{(int)Math.Round(width * scale)}\" height=\"{(int)Math.Round(height * scale)}\" viewBox=\"{x} {y} {width} {height}\"><defs><marker id=\"arrow\" markerWidth=\"4\" markerHeight=\"3\" refX=\"4\" refY=\"1.5\" orient=\"auto\"><path d=\"M0,0 L4,1.5 L0,3 z\"{markerFill}/></marker></defs><g class=\"folio-diagram-content\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\" font-family=\"sans-serif\" font-size=\"14\">{content}</g></svg>";
     }
 
     /// <summary>The bounding box of the elements in <paramref name="content"/> (rects, circles, polygons, paths and text) plus the margin.</summary>

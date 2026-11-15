@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#F4F4FB;color:#1E1B3A;font:15px "Source Sans 3",sans-serif}
+.card{margin:4px;background:#fff;border:1px solid #E3E3F3;border-radius:12px;padding:4px}
+.card svg{display:block;max-width:100%;height:auto}
+.card svg text{font-family:"Source Sans 3",sans-serif}
+</style></head><body><div class="card"><script type="text/plain" id="source">
+erDiagram
+  CUSTOMER {
+    string id
+    string name
+  }
+  ORDER {
+    int number
+  }
+  CUSTOMER ||--o{ ORDER : places
+  ORDER ||--|{ ITEM : contains
+</script><!--svg--><svg class="folio-diagram" xmlns="http://www.w3.org/2000/svg" width="605" height="112" viewBox="14 20 605 112"><defs><marker id="arrow" markerWidth="4" markerHeight="3" refX="4" refY="1.5" orient="auto"><path d="M0,0 L4,1.5 L0,3 z" fill="#5B5BF0"/></marker></defs><g class="folio-diagram-content" fill="white" stroke="currentColor" stroke-width="2" font-family="sans-serif" font-size="14"><rect class="folio-diagram-node er-entity" x="30" y="40" width="150" height="76" rx="6" fill="#ECECFF" stroke="#5B5BF0"/><text class="folio-diagram-label er-name" x="105" y="61" text-anchor="middle" font-weight="600" fill="#1E1B3A" stroke="none">CUSTOMER</text><path class="class-divider" d="M 30 72 L 180 72" fill="none" stroke="#B9B9FA" stroke-width="1"/><text class="folio-diagram-label er-attribute" x="40" y="90" fill="#1E1B3A" stroke="none">string id</text><text class="folio-diagram-label er-attribute" x="40" y="108" fill="#1E1B3A" stroke="none">string name</text><rect class="folio-diagram-node er-entity" x="235.97" y="40" width="150" height="58" rx="6" fill="#ECECFF" stroke="#5B5BF0"/><text class="folio-diagram-label er-name" x="310.97" y="61" text-anchor="middle" font-weight="600" fill="#1E1B3A" stroke="none">ORDER</text><path class="class-divider" d="M 235.97 72 L 385.97 72" fill="none" stroke="#B9B9FA" stroke-width="1"/><text class="folio-diagram-label er-attribute" x="245.97" y="90" fill="#1E1B3A" stroke="none">int number</text><rect class="folio-diagram-node er-entity" x="452.65" y="40" width="150" height="32" rx="6" fill="#ECECFF" stroke="#5B5BF0"/><text class="folio-diagram-label er-name" x="527.65" y="61" text-anchor="middle" font-weight="600" fill="#1E1B3A" stroke="none">ITEM</text><path class="er-edge" data-cardinality="places" d="M 180 56 L 235.97 56" marker-end="url(#arrow)" fill="none" stroke="#5B5BF0"/><text class="folio-diagram-label er-edge-label" x="207.98" y="48" text-anchor="middle" font-size="12" fill="#1E1B3A" stroke="none">places</text><path class="er-edge" data-cardinality="contains" d="M 385.97 56 L 452.65 56" marker-end="url(#arrow)" fill="none" stroke="#5B5BF0"/><text class="folio-diagram-label er-edge-label" x="419.31" y="48" text-anchor="middle" font-size="12" fill="#1E1B3A" stroke="none">contains</text></g></svg><!--/svg--></div></body></html>

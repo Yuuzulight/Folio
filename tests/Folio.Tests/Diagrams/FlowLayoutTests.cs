@@ -427,4 +427,37 @@ public sealed class FlowLayoutTests
         var pie = XDocument.Parse(DiagramRenderer.Render("pie\n\"A\" : 1\n\"B\" : 2")).Root!.Attribute("viewBox")!.Value.Split(' ').Select(Num).ToArray();
         Assert.True(pie[0] <= 230 - 130 && pie[1] <= 190 - 130 && pie[1] + pie[3] >= 190 + 130);
     }
+
+    [Fact]
+    public void NonFlowchartKindsLookFinishedWithoutPageCss()
+    {
+        var pie = DiagramRenderer.Render("pie\n\"A\" : 3\n\"B\" : 2\n\"C\" : 1");
+        var slices = XDocument.Parse(pie).Root!.Descendants(Ns + "path").Where(p => ((string?)p.Attribute("class"))?.Contains("slice") == true).ToList();
+        Assert.Equal(3, slices.Select(p => (string)p.Attribute("fill")!).Distinct().Count());
+        Assert.All(slices, p => { Assert.Equal("white", (string)p.Attribute("stroke")!); Assert.Equal("2", (string)p.Attribute("stroke-width")!); });
+        Assert.Equal(3, Regex.Matches(pie, "folio-diagram-swatch").Count);
+        Assert.Contains("A (3)", pie);
+
+        var sequence = XDocument.Parse(DiagramRenderer.Render("sequenceDiagram\nparticipant A as Alice\nparticipant B as Bob\nA->>B: Hello\nB-->>A: Hi")).Root!;
+        Assert.Equal(2, sequence.Descendants(Ns + "rect").Count(r => ((string?)r.Attribute("class"))?.Contains("sequence-participant") == true));
+        var hello = sequence.Descendants(Ns + "text").Single(t => t.Value == "Hello");
+        Assert.Equal("middle", (string)hello.Attribute("text-anchor")!);
+        Assert.Equal(170, Num((string)hello.Attribute("x")!));
+        Assert.Contains(sequence.Descendants(Ns + "path"), p => (string?)p.Attribute("stroke-dasharray") == "4 3");
+        Assert.Contains(sequence.Descendants(Ns + "path"), p => (string?)p.Attribute("class") == "folio-diagram-lifeline" && (string?)p.Attribute("stroke") == "#B9B9FA");
+
+        foreach (var source in new[] { "classDiagram\nclass Base {\n+int id\n}\nBase <|-- Child", "stateDiagram-v2\n[*] --> Ready : boot\nReady --> Done", "erDiagram\nCUSTOMER {\nstring id\n}\nCUSTOMER ||--o{ ORDER : places" })
+        {
+            var svg = DiagramRenderer.Render(source);
+            var root = XDocument.Parse(svg).Root!;
+            Assert.All(root.Descendants(Ns + "rect").Where(r => ((string?)r.Attribute("class"))?.Contains("folio-diagram-node") == true),
+                r => Assert.Equal("#ECECFF", (string)r.Attribute("fill")!));
+            Assert.All(root.Descendants(Ns + "text"), t => Assert.Equal("#1E1B3A", (string)t.Attribute("fill")!));
+            Assert.DoesNotContain("style=", svg);
+        }
+        var klass = XDocument.Parse(DiagramRenderer.Render("classDiagram\nclass Base {\n+int id\n}")).Root!;
+        var box = klass.Descendants(Ns + "rect").First(r => ((string?)r.Attribute("class"))?.Contains("class-node") == true);
+        var member = klass.Descendants(Ns + "text").Single(t => t.Value == "+int id");
+        Assert.Equal(Num((string)box.Attribute("x")!) + 10, Num((string)member.Attribute("x")!));
+    }
 }
