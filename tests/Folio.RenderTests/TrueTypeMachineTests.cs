@@ -118,6 +118,23 @@ public class TrueTypeMachineTests(ITestOutputHelper output)
         Assert.Equal(99, vm.Pop());
     }
 
+    [Fact]
+    public void ACalledFunctionIsScannedOncePerMachineButChargedOnEveryCall()
+    {
+        var prepared = Machine();
+        prepared.Execute([0xB0, 2, 0x2C, 0xB0, 1, 0x60, 0x2D], definitions: true);
+        int Run(TrueTypeMachine vm)
+        {
+            vm.StartGlyph(new([], []), prepared.Graphics.Copy());
+            vm.Execute([0xB0, 4, 0xB0, 2, 0x2B]); // Push 4 and function id 2, CALL.
+            Assert.Equal(5, vm.Pop());
+            return vm.InstructionsUsed;
+        }
+        var first = Run(prepared.Fork());
+        Assert.Equal(first, Run(prepared.Fork())); // The second call finds the scan cached and is charged the same.
+        Assert.Equal(first, Run(prepared));
+    }
+
     [Theory]
     [InlineData(new byte[] { 0x21 })] // Underflow.
     [InlineData(new byte[] { 0xB8, 0 })] // Truncated word.
