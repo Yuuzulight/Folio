@@ -114,7 +114,11 @@ internal sealed record JavaScriptComputedPropertyExpression(JavaScriptExpression
 internal sealed record JavaScriptObjectAccessorExpression(JavaScriptExpression Key, JavaScriptFunctionExpression Function, bool IsSetter) : JavaScriptExpression;
 internal sealed record JavaScriptFunctionExpression(IReadOnlyList<string> Parameters, IReadOnlyList<JavaScriptStatement> Body,
     IReadOnlyList<JavaScriptExpression?>? DefaultValues = null, bool IsGenerator = false, string? Name = null, bool IsAsync = false, bool IsArrow = false,
-    IReadOnlyDictionary<string, JavaScriptExpression>? BindingDefaults = null) : JavaScriptExpression;
+    IReadOnlyDictionary<string, JavaScriptExpression>? BindingDefaults = null) : JavaScriptExpression
+{
+    /// <summary>The names the body's `var` declarations hoist, computed on first call (they depend only on the syntax tree).</summary>
+    internal string[]? HoistedNames;
+}
 internal sealed record JavaScriptClassMethod(string Name, bool Getter, bool Setter, bool Static, JavaScriptFunctionExpression Function);
 internal sealed record JavaScriptClassExpression(string? Name, string? Parent, IReadOnlyList<JavaScriptClassMethod> Methods) : JavaScriptExpression;
 
@@ -126,7 +130,54 @@ internal sealed record JavaScriptFunctionDeclarationStatement(string Name, JavaS
 internal sealed record JavaScriptClassDeclarationStatement(string Name, JavaScriptClassExpression Class) : JavaScriptStatement;
 internal sealed record JavaScriptReturnStatement(JavaScriptExpression? Expression) : JavaScriptStatement;
 internal sealed record JavaScriptYieldStatement(JavaScriptExpression? Expression, bool Delegate = false) : JavaScriptStatement;
-internal sealed record JavaScriptBlockStatement(IReadOnlyList<JavaScriptStatement> Statements, bool CreatesScope = true) : JavaScriptStatement;
+internal sealed record JavaScriptBlockStatement(IReadOnlyList<JavaScriptStatement> Statements, bool CreatesScope = true) : JavaScriptStatement
+{
+    private sbyte _declares; // 0 not yet known, 1 yes, -1 no
+
+    /// <summary>
+    /// Whether running the block can bind a name in its own scope: a let/const/class/function declaration, a destructuring
+    /// declaration, or a catch parameter, in the block or in a statement that runs in the block's scope. A block that cannot has
+    /// no use for a scope of its own (it would stay empty), so the evaluator runs it in the enclosing one.
+    /// </summary>
+    internal bool DeclaresNames
+    {
+        get
+        {
+            if (_declares == 0) _declares = (sbyte)(AnyDeclares(Statements) ? 1 : -1);
+            return _declares > 0;
+        }
+    }
+
+    private static bool AnyDeclares(IReadOnlyList<JavaScriptStatement> statements)
+    {
+        for (var i = 0; i < statements.Count; i++)
+            if (Declares(statements[i])) return true;
+        return false;
+    }
+
+    private static bool LexicalInitializer(JavaScriptStatement? initializer) => initializer is JavaScriptVariableStatement { Lexical: true }
+        or JavaScriptBlockStatement { CreatesScope: false, Statements: [JavaScriptVariableStatement { Lexical: true }, ..] };
+
+    // Statements that run in the scope they are in (not in one of their own); a block that makes its own scope declares nothing outward.
+    private static bool Declares(JavaScriptStatement? statement) => statement switch
+    {
+        null => false,
+        JavaScriptVariableStatement variable => variable.Lexical || variable.Name.StartsWith('[') || variable.Name.StartsWith('{'),
+        JavaScriptFunctionDeclarationStatement or JavaScriptClassDeclarationStatement => true,
+        JavaScriptBlockStatement { CreatesScope: false } inline => AnyDeclares(inline.Statements),
+        JavaScriptTryStatement guarded => guarded.CatchName is not null,
+        JavaScriptLabeledStatement labeled => Declares(labeled.Body),
+        JavaScriptIfStatement conditional => Declares(conditional.Then) || Declares(conditional.Else),
+        JavaScriptWhileStatement loop => Declares(loop.Body),
+        JavaScriptDoWhileStatement loop => Declares(loop.Body),
+        // A lexical initializer runs in the loop's own scope (ExecuteLexicalFor), so it declares nothing outward.
+        JavaScriptForStatement loop => (!LexicalInitializer(loop.Initializer) && Declares(loop.Initializer)) || Declares(loop.Body),
+        JavaScriptForEachStatement each => Declares(each.Body),
+        JavaScriptWithStatement with => Declares(with.Body),
+        JavaScriptSwitchStatement selection => selection.Cases.Any(@case => AnyDeclares(@case.Statements)),
+        _ => false,
+    };
+}
 internal sealed record JavaScriptIfStatement(JavaScriptExpression Condition, JavaScriptStatement Then, JavaScriptStatement? Else) : JavaScriptStatement;
 internal sealed record JavaScriptWhileStatement(JavaScriptExpression Condition, JavaScriptStatement Body, string? Label = null) : JavaScriptStatement;
 internal sealed record JavaScriptDoWhileStatement(JavaScriptStatement Body, JavaScriptExpression Condition, string? Label = null) : JavaScriptStatement;
