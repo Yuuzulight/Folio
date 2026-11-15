@@ -1244,17 +1244,17 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("focus", (target, _, _) => { _context.Focus((ElementNode)target); return ScriptValue.Undefined; });
         t.DefineMethod("blur", (target, _, _) => { _context.Blur((ElementNode)target); return ScriptValue.Undefined; });
         t.DefineMethod("getBoundingClientRect", (target, _, _) => _context.WrapRect(DomGeometry.Rect((ElementNode)target, _context.Layout)));
-        t.DefineMethod("getClientRects", (target, _, _) => _context.Engine.CreateArray([_context.WrapRect(DomGeometry.Rect((ElementNode)target))]));
-        t.DefineProperty("offsetWidth", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target).Width));
-        t.DefineProperty("offsetHeight", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target).Height));
-        t.DefineProperty("clientWidth", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target).Width));
-        t.DefineProperty("clientHeight", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target).Height));
+        t.DefineMethod("getClientRects", (target, _, _) => _context.Engine.CreateArray([_context.WrapRect(DomGeometry.Rect((ElementNode)target, _context.Layout))]));
+        t.DefineProperty("offsetWidth", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target, _context.Layout).Width));
+        t.DefineProperty("offsetHeight", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target, _context.Layout).Height));
+        t.DefineProperty("clientWidth", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target, _context.Layout).Width));
+        t.DefineProperty("clientHeight", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target, _context.Layout).Height));
         t.DefineProperty("scrollLeft", (target, _) => ScriptValue.FromNumber(_context.GetScroll((ElementNode)target).X),
             (target, _, value) => _context.SetScroll((ElementNode)target, WebIdlConversions.ToDouble(value), _context.GetScroll((ElementNode)target).Y));
         t.DefineProperty("scrollTop", (target, _) => ScriptValue.FromNumber(_context.GetScroll((ElementNode)target).Y),
             (target, _, value) => _context.SetScroll((ElementNode)target, _context.GetScroll((ElementNode)target).X, WebIdlConversions.ToDouble(value)));
-        t.DefineProperty("scrollWidth", (target, _) => ScriptValue.FromNumber(Math.Max(DomGeometry.Rect((ElementNode)target).Width, DomGeometry.Rect((ElementNode)target).Width + 0)));
-        t.DefineProperty("scrollHeight", (target, _) => ScriptValue.FromNumber(Math.Max(DomGeometry.Rect((ElementNode)target).Height, DomGeometry.Rect((ElementNode)target).Height + 0)));
+        t.DefineProperty("scrollWidth", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target, _context.Layout).Width));
+        t.DefineProperty("scrollHeight", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target, _context.Layout).Height));
         t.DefineMethod("scroll", (target, _, args) =>
         {
             var element = (ElementNode)target;
@@ -1344,14 +1344,23 @@ internal sealed class DomNodeTemplates
                 if (control.LocalName == "input") control.Value = control.GetAttribute("value") ?? "";
             return ScriptValue.Undefined;
         });
-        t.DefineMethod("submit", (_, _, _) =>
+        t.DefineMethod("submit", (target, _, _) =>
         {
             if (!_context.FormsAllowed) throw WebIdlException.DomException("SecurityError", "Form submission is blocked by the document sandbox.");
+            if (target is ElementNode formEl && formEl.LocalName == "form")
+                _context.HostedDocument?.SubmitForm(formEl);
             return ScriptValue.Undefined;
         });
-        t.DefineMethod("requestSubmit", (_, _, _) =>
+        t.DefineMethod("requestSubmit", (target, _, args) =>
         {
             if (!_context.FormsAllowed) throw WebIdlException.DomException("SecurityError", "Form submission is blocked by the document sandbox.");
+            if (target is ElementNode formEl && formEl.LocalName == "form")
+            {
+                ElementNode? submitter = null;
+                if (args.Length > 0 && _context.Engine.TryGetHostTarget(args[0], out var node) && node is ElementNode subEl)
+                    submitter = subEl;
+                _context.HostedDocument?.SubmitForm(formEl, submitter);
+            }
             return ScriptValue.Undefined;
         });
         t.DefineProperty("firstElementChild", (target, _) =>
@@ -1793,6 +1802,16 @@ internal sealed class DomNodeTemplates
                 ((ElementNode)target).SetAttribute("tabindex", num.ToString());
             });
 
+        t.DefineMethod("click", (target, _, _) =>
+        {
+            var el = (ElementNode)target;
+            if (_context.InputRouter is { } router)
+                router.Click(el);
+            else if (el.LocalName == "input" && el.GetAttribute("type")?.Equals("checkbox", StringComparison.OrdinalIgnoreCase) == true)
+                el.Checked = !el.IsChecked;
+            return ScriptValue.Undefined;
+        });
+
         return t;
     }
 
@@ -2146,6 +2165,14 @@ internal sealed class DomNodeTemplates
             return ScriptValue.FromString(doc.ReadyState);
         });
 
+        t.DefineProperty("location",
+            (_, _) => _context.Engine.GetGlobalProperty("location"),
+            (_, _, val) => _context.Engine.Evaluate($"location.href = {ScriptJson.Serialize(WebIdlConversions.ToDOMString(val))};"));
+
+        t.DefineProperty("cookie",
+            (_, _) => ScriptValue.FromString(CookieJar.GetDocumentCookieString(_context.ArtifactStorage, "", _context.CurrentUri ?? _context.BaseUri)),
+            (_, _, val) => CookieJar.SetDocumentCookie(_context.ArtifactStorage, "", _context.CurrentUri ?? _context.BaseUri, WebIdlConversions.ToDOMString(val)));
+
         t.DefineProperty("currentScript", (target, _) =>
         {
             var doc = (DocumentNode)target;
@@ -2240,12 +2267,16 @@ internal sealed class DomNodeTemplates
             var x = (float)WebIdlConversions.ToDouble(args[0]);
             var y = (float)WebIdlConversions.ToDouble(args[1]);
             var doc = (DocumentNode)target;
+            if (_context.HostedDocument is { } hostedDoc && ReferenceEquals(hostedDoc.Node, doc)
+                && hostedDoc.ElementAt(x, y) is { } hit && ReferenceEquals(hit.OwnerDocument, doc))
+                return _context.Wrap(hit);
             var match = doc.Descendants.OfType<ElementNode>().Reverse().FirstOrDefault(element =>
             {
-                if (element.ComputedStyle()?.Box.Display == Display.None)
+                var style = element.ComputedStyle();
+                if (style?.Box.Display == Display.None || style?.Inherited.Visibility == Visibility.Hidden)
                     return false;
-                var rect = DomGeometry.Rect(element);
-                return x >= rect.Left && x <= rect.Right && y >= rect.Top && y <= rect.Bottom;
+                var rect = DomGeometry.Rect(element, _context.Layout);
+                return rect.Width > 0 && rect.Height > 0 && x >= rect.Left && x < rect.Right && y >= rect.Top && y < rect.Bottom;
             });
             return _context.Wrap(match);
         });
@@ -2257,9 +2288,11 @@ internal sealed class DomNodeTemplates
             var doc = (DocumentNode)target;
             var matches = doc.Descendants.OfType<ElementNode>().Where(element =>
             {
-                if (element.ComputedStyle()?.Box.Display == Display.None) return false;
-                var rect = DomGeometry.Rect(element);
-                return x >= rect.Left && x <= rect.Right && y >= rect.Top && y <= rect.Bottom;
+                var style = element.ComputedStyle();
+                if (style?.Box.Display == Display.None || style?.Inherited.Visibility == Visibility.Hidden)
+                    return false;
+                var rect = DomGeometry.Rect(element, _context.Layout);
+                return rect.Width > 0 && rect.Height > 0 && x >= rect.Left && x < rect.Right && y >= rect.Top && y < rect.Bottom;
             }).Reverse().Select(_context.Wrap).ToArray();
             return _context.Engine.CreateArray(matches);
         });
@@ -2888,7 +2921,15 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("setSelectionRange", (_, _, _) => ScriptValue.Undefined);
         t.DefineMethod("select", (_, _, _) => ScriptValue.Undefined);
         t.DefineMethod("setRangeText", (target, _, args) => { if (args.Length > 0) ((ElementNode)target).Value = WebIdlConversions.ToDOMString(args[0]); return ScriptValue.Undefined; });
-        t.DefineMethod("click", (target, _, _) => { var el = (ElementNode)target; if (el.GetAttribute("type")?.Equals("checkbox", StringComparison.OrdinalIgnoreCase) == true) el.Checked = !el.IsChecked; return ScriptValue.Undefined; });
+        t.DefineMethod("click", (target, _, _) =>
+        {
+            var el = (ElementNode)target;
+            if (_context.InputRouter is { } router)
+                router.Click(el);
+            else if (el.GetAttribute("type")?.Equals("checkbox", StringComparison.OrdinalIgnoreCase) == true)
+                el.Checked = !el.IsChecked;
+            return ScriptValue.Undefined;
+        });
 
         t.DefineProperty("willValidate", (target, _) => ScriptValue.FromBoolean(((ElementNode)target).GetAttribute("disabled") is null && ((ElementNode)target).GetAttribute("readonly") is null));
         t.DefineProperty("validationMessage", (target, _) =>
@@ -2967,7 +3008,12 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("value",
             (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("value") ?? ""),
             (target, _, val) => ((ElementNode)target).SetAttribute("value", WebIdlConversions.ToDOMString(val)));
-        t.DefineMethod("click", (target, _, _) => ScriptValue.Undefined);
+        t.DefineMethod("click", (target, _, _) =>
+        {
+            if (_context.InputRouter is { } router)
+                router.Click((ElementNode)target);
+            return ScriptValue.Undefined;
+        });
 
         return t;
     }

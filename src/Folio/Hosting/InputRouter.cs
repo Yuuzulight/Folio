@@ -1450,6 +1450,8 @@ public sealed class InputRouter
                 focused.Value = state.Value;
                 focused.DisplayValue = state.DisplayText;
                 _document.Update();
+                Dispatch(focused, "input", new EventDispatchArgs { InputType = "insertReplacementText", Bubbles = true, Cancelable = false, Composed = true });
+                Dispatch(focused, "change", new EventDispatchArgs { Bubbles = true, Cancelable = false, Composed = false });
             }
             else
             {
@@ -1467,6 +1469,8 @@ public sealed class InputRouter
                 focused.Value = state.Value;
                 focused.DisplayValue = state.DisplayText;
                 _document.Update();
+                Dispatch(focused, "input", new EventDispatchArgs { InputType = "insertReplacementText", Bubbles = true, Cancelable = false, Composed = true });
+                Dispatch(focused, "change", new EventDispatchArgs { Bubbles = true, Cancelable = false, Composed = false });
             }
             else
             {

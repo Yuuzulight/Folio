@@ -37,6 +37,9 @@ public sealed record AllowlistOptions
     /// <summary>Whether script responses must carry element integrity metadata unless the URL has a pinned hash.</summary>
     public bool RequireScriptIntegrity { get; init; }
 
+    /// <summary>Whether HTTP requests to loopback hosts (127.0.0.1, localhost, [::1]) are permitted.</summary>
+    public bool AllowLoopbackHttp { get; init; }
+
     /// <summary>
     /// Whether URLs with no version in their path (such as a font stylesheet chosen by query string) load. They are
     /// never cached, since what they serve can change. Versioned and pinned URLs are cached as immutable.
@@ -110,12 +113,28 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
     // Why a URL may not be fetched for a kind of resource, or null when it may.
     private string? Refusal(Uri url, ResourceKind kind)
     {
-        if (url.Scheme != "https")
+        var isLoopbackHttp = url.Scheme == "http" && url.IsLoopback;
+        if (url.Scheme != "https" && !isLoopbackHttp)
             return "Only HTTPS URLs are fetched.";
         if (url.UserInfo.Length > 0)
             return "URLs with credentials are not fetched.";
+        if (isLoopbackHttp)
+        {
+            if (_options.AllowLoopbackHttp && _options.Origins.Any(allowed => allowed.Kinds.Contains(kind)))
+                return null;
+            foreach (var allowed in _options.Origins)
+            {
+                if (Uri.TryCreate(allowed.Origin, UriKind.Absolute, out var origin) && origin.Scheme == "http" && origin.IsLoopback
+                    && string.Equals(origin.Host, url.Host, StringComparison.OrdinalIgnoreCase) && origin.Port == url.Port
+                    && UnderPrefix(url.AbsolutePath, origin.AbsolutePath) && allowed.Kinds.Contains(kind))
+                    return null;
+            }
+            return "Only HTTPS URLs are fetched.";
+        }
         foreach (var allowed in _options.Origins)
         {
+            if (allowed.Origin.Equals("https://*", StringComparison.OrdinalIgnoreCase) && allowed.Kinds.Contains(kind))
+                return null;
             if (Uri.TryCreate(allowed.Origin, UriKind.Absolute, out var origin) && origin.Scheme == "https"
                 && string.Equals(origin.Host, url.Host, StringComparison.OrdinalIgnoreCase) && origin.Port == url.Port
                 && UnderPrefix(url.AbsolutePath, origin.AbsolutePath) && allowed.Kinds.Contains(kind))
@@ -154,7 +173,7 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
                     return ResourceResponse.Refused($"A {kind.ToString().ToLowerInvariant()} cannot have the MIME type {type ?? "(none)"}.");
                 if (response.Content.Headers.ContentLength > ResourceLoader.MaxResourceBytes)
                     return ResourceResponse.Refused($"The resource is larger than {ResourceLoader.MaxResourceBytes} bytes.");
-                return ResourceResponse.Loaded(await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false), type, url.AbsoluteUri);
+                return ResourceResponse.Loaded(await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false), type, url.AbsoluteUri, (int)response.StatusCode);
             }
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or IOException)

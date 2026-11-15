@@ -42,7 +42,8 @@ public sealed record ContentInputEvent(
     int Modifiers = 0,
     double DeltaX = 0,
     double DeltaY = 0,
-    string? Code = null);
+    string? Code = null,
+    int ClickCount = 0);
 
 public static class ContentMessagePayloads
 {

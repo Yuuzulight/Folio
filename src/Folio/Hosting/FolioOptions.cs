@@ -137,6 +137,18 @@ public sealed class FolioOptions
     /// <summary>Called when an iframe requests navigation to a resolved document URI.</summary>
     public Action<Uri>? IframeNavigationRequested { get; init; }
 
+    /// <summary>Called when console.log/info/warn/error/debug runs in a hosted document.</summary>
+    public Action<string, string>? ConsoleMessage { get; init; }
+
+    /// <summary>Called when alert/confirm/prompt runs in a hosted document (kind, message, defaultValue).</summary>
+    public Action<string, string, string?>? DialogRequested { get; init; }
+
+    /// <summary>Called when a script requests navigation via location.href/assign/replace or reloads (url, replace, method, contentType, body).</summary>
+    public Action<string, bool>? LocationNavigationRequested { get; init; }
+
+    /// <summary>Called when URL updates in-place via history.pushState/replaceState/popstate/hashchange.</summary>
+    public Action<string>? UrlChanged { get; init; }
+
     /// <summary>Called when capture becomes active or inactive so hosts can show an in-use indicator.</summary>
     public Action<bool>? MediaCaptureActivityChanged { get; init; }
 

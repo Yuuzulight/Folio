@@ -91,12 +91,14 @@ internal sealed class ContentCacheBroker(IArtifactStorage storage, string artifa
     {
         var key = request.Key ?? "";
         const string localPrefix = "folio/local-storage/";
+        const string cookiePrefix = "folio/cookies/";
         var registration = key.StartsWith(_registrationPrefix, StringComparison.Ordinal);
         var local = key.StartsWith(localPrefix, StringComparison.Ordinal);
-        if (!registration && !local)
+        var cookie = key.StartsWith(cookiePrefix, StringComparison.Ordinal);
+        if (!registration && !local && !cookie)
             throw WebIdlException.TypeError($"Invalid artifact storage scope for '{key}'.");
-        var logicalPrefix = registration ? _registrationPrefix : localPrefix;
-        var backingPrefix = registration ? _registrationPrefix : artifact + ":" + localPrefix;
+        var logicalPrefix = registration ? _registrationPrefix : local ? localPrefix : cookiePrefix;
+        var backingPrefix = registration ? _registrationPrefix : artifact + ":" + logicalPrefix;
         var suffix = key[logicalPrefix.Length..];
         if (suffix.Length > 32768 || (registration && (suffix.Contains(':') || suffix.Contains('/'))))
             throw WebIdlException.TypeError(registration ? "Invalid registration storage key." : "Invalid local storage key.");
@@ -107,7 +109,7 @@ internal sealed class ContentCacheBroker(IArtifactStorage storage, string artifa
             var keys = storage.Keys(backingPrefix).Where(k => k.StartsWith(backingPrefix, StringComparison.Ordinal)
                 && (!registration || !k[backingPrefix.Length..].Contains(':') && !k[backingPrefix.Length..].Contains('/'))).Take(1025).ToArray();
             string StoredKey(string logical) => registration ? logical : artifact + ":" + logical;
-            string LogicalKey(string stored) => registration ? stored : localPrefix + stored[backingPrefix.Length..];
+            string LogicalKey(string stored) => registration ? stored : logicalPrefix + stored[backingPrefix.Length..];
             switch (request.Operation)
             {
                 case "metadataRead": return storage.Read(StoredKey(key));

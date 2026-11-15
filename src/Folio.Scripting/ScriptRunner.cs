@@ -18,6 +18,9 @@ public sealed class ScriptRunner : IDisposable
     private readonly FolioOptions _options;
     private readonly List<Diagnostic> _diagnostics;
     private readonly Uri _baseUri;
+    private Uri _currentUri;
+    private readonly List<(string Url, ScriptValue State)> _history;
+    private int _historyIndex;
     private readonly HashSet<ElementNode> _pendingScripts = new(ReferenceEqualityComparer.Instance);
     private bool _diagramStandInInstalled;
     private bool _chartStandInInstalled;
@@ -39,6 +42,9 @@ public sealed class ScriptRunner : IDisposable
         _options = options ?? new FolioOptions();
         _diagnostics = diagnostics ?? [];
         _baseUri = _options.BaseUri ?? new Uri("about:blank");
+        _currentUri = _baseUri;
+        _history = [(_baseUri.AbsoluteUri, ScriptValue.Null)];
+        _historyIndex = 0;
 
         // Hook dynamic script insertions into connected document
         _document.NodeInserted += OnNodeInserted;
@@ -123,20 +129,145 @@ public sealed class ScriptRunner : IDisposable
         _engine.SetGlobalProperty("self", globalObj);
 
         // Setup location
+        static string EscapeJs(string value) =>
+            value.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "\\r").Replace("\n", "\\n");
+
+        void DispatchWindowEvent(string type, string extraPropsJs = "")
+        {
+            var body = string.IsNullOrEmpty(extraPropsJs)
+                ? $"new Event('{type}')"
+                : $"Object.assign(new Event('{type}'), {extraPropsJs})";
+            _engine.EvaluateHostScript(
+                $"(function(){{ if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') window.dispatchEvent({body}); }})();",
+                "folio://location-event");
+        }
+
+        void ApplyInPlaceUri(Uri nextUri, bool push, ScriptValue state, bool isHashChange)
+        {
+            var previousUrl = _currentUri.AbsoluteUri;
+            _currentUri = nextUri;
+            if (push)
+            {
+                if (_historyIndex < _history.Count - 1)
+                    _history.RemoveRange(_historyIndex + 1, _history.Count - (_historyIndex + 1));
+                _history.Add((_currentUri.AbsoluteUri, state));
+                _historyIndex = _history.Count - 1;
+            }
+            else
+            {
+                _history[_historyIndex] = (_currentUri.AbsoluteUri, state);
+            }
+            DomBindings.SetCurrentUri(_engine, _currentUri);
+            _options.UrlChanged?.Invoke(_currentUri.AbsoluteUri);
+            if (isHashChange && !string.Equals(previousUrl, _currentUri.AbsoluteUri, StringComparison.Ordinal))
+                DispatchWindowEvent("hashchange", $"{{ oldURL: '{EscapeJs(previousUrl)}', newURL: '{EscapeJs(_currentUri.AbsoluteUri)}' }}");
+        }
+
+        void SetLocationHash(string? rawHash)
+        {
+            var normalized = string.IsNullOrEmpty(rawHash) ? "" : (rawHash.StartsWith('#') ? rawHash : "#" + rawHash);
+            var baseUrl = _currentUri.AbsoluteUri;
+            var hashIndex = baseUrl.IndexOf('#');
+            if (hashIndex >= 0) baseUrl = baseUrl[..hashIndex];
+            var nextUrl = string.IsNullOrEmpty(normalized) ? baseUrl : baseUrl + normalized;
+            if (Uri.TryCreate(nextUrl, UriKind.Absolute, out var nextUri))
+                ApplyInPlaceUri(nextUri, push: true, ScriptValue.Null, isHashChange: true);
+        }
+
+        void NavigateLocation(string? target, bool replace)
+        {
+            if (string.IsNullOrWhiteSpace(target))
+                return;
+            var trimmed = target.Trim();
+            if (trimmed.StartsWith('#'))
+            {
+                SetLocationHash(trimmed);
+                return;
+            }
+            if (!Uri.TryCreate(_currentUri, trimmed, out var resolved))
+                return;
+            var sameNonFragment = Uri.Compare(_currentUri, resolved, UriComponents.AbsoluteUri & ~UriComponents.Fragment, UriFormat.UriEscaped, StringComparison.Ordinal) == 0;
+            if (sameNonFragment && !string.IsNullOrEmpty(resolved.Fragment))
+            {
+                ApplyInPlaceUri(resolved, push: !replace, ScriptValue.Null, isHashChange: true);
+                return;
+            }
+            _options.LocationNavigationRequested?.Invoke(resolved.AbsoluteUri, replace);
+        }
+
+        void UpdateHistoryState(ReadOnlySpan<ScriptValue> args, bool push)
+        {
+            var state = args.Length > 0 && !args[0].IsNullOrUndefined ? args[0] : ScriptValue.Null;
+            var url = args.Length > 2 && !args[2].IsNullOrUndefined ? args[2].AsString() : null;
+            var nextUri = _currentUri;
+            if (!string.IsNullOrEmpty(url))
+            {
+                if (!Uri.TryCreate(_currentUri, url, out var resolved) ||
+                    !string.Equals(GetOrigin(resolved), GetOrigin(_currentUri), StringComparison.Ordinal))
+                    return;
+                nextUri = resolved;
+            }
+            ApplyInPlaceUri(nextUri, push, state, isHashChange: false);
+        }
+
+        void StepHistory(int delta)
+        {
+            if (delta == 0)
+            {
+                _options.LocationNavigationRequested?.Invoke(_currentUri.AbsoluteUri, true);
+                return;
+            }
+            var targetIndex = _historyIndex + delta;
+            if (targetIndex < 0 || targetIndex >= _history.Count)
+                return;
+            _historyIndex = targetIndex;
+            if (Uri.TryCreate(_history[_historyIndex].Url, UriKind.Absolute, out var nextUri))
+            {
+                _currentUri = nextUri;
+                DomBindings.SetCurrentUri(_engine, _currentUri);
+                _options.UrlChanged?.Invoke(_currentUri.AbsoluteUri);
+            }
+            DispatchWindowEvent("popstate", "{ state: typeof history !== 'undefined' ? history.state : null }");
+        }
+
         var locationTemplate = new HostObjectTemplate("Location")
-            .DefineProperty("href", (_, _) => ScriptValue.FromString(_baseUri.AbsoluteUri))
-            .DefineProperty("origin", (_, _) => ScriptValue.FromString(GetOrigin(_baseUri)))
-            .DefineProperty("protocol", (_, _) => ScriptValue.FromString(_baseUri.Scheme + ":"))
-            .DefineProperty("host", (_, _) => ScriptValue.FromString(GetHostWithPort(_baseUri)))
-            .DefineProperty("hostname", (_, _) => ScriptValue.FromString(_baseUri.DnsSafeHost))
-            .DefineProperty("port", (_, _) => ScriptValue.FromString(_baseUri.IsDefaultPort || _baseUri.Port <= 0 ? "" : _baseUri.Port.ToString()))
-            .DefineProperty("pathname", (_, _) => ScriptValue.FromString(_baseUri.AbsolutePath))
-            .DefineProperty("search", (_, _) => ScriptValue.FromString(_baseUri.Query))
-            .DefineProperty("hash", (_, _) => ScriptValue.FromString(_baseUri.Fragment))
-            .DefineMethod("toString", (_, _, _) => ScriptValue.FromString(_baseUri.AbsoluteUri));
+            .DefineProperty("href",
+                (_, _) => ScriptValue.FromString(_currentUri.AbsoluteUri),
+                (_, _, value) => NavigateLocation(value.AsString(), replace: false))
+            .DefineProperty("origin", (_, _) => ScriptValue.FromString(GetOrigin(_currentUri)))
+            .DefineProperty("protocol", (_, _) => ScriptValue.FromString(_currentUri.Scheme + ":"))
+            .DefineProperty("host", (_, _) => ScriptValue.FromString(GetHostWithPort(_currentUri)))
+            .DefineProperty("hostname", (_, _) => ScriptValue.FromString(_currentUri.DnsSafeHost))
+            .DefineProperty("port", (_, _) => ScriptValue.FromString(_currentUri.IsDefaultPort || _currentUri.Port <= 0 ? "" : _currentUri.Port.ToString()))
+            .DefineProperty("pathname", (_, _) => ScriptValue.FromString(_currentUri.AbsolutePath))
+            .DefineProperty("search", (_, _) => ScriptValue.FromString(_currentUri.Query))
+            .DefineProperty("hash",
+                (_, _) => ScriptValue.FromString(_currentUri.Fragment),
+                (_, _, value) => SetLocationHash(value.AsString()))
+            .DefineMethod("assign", (_, _, args) => { if (args.Length > 0) NavigateLocation(args[0].AsString(), replace: false); return ScriptValue.Undefined; })
+            .DefineMethod("replace", (_, _, args) => { if (args.Length > 0) NavigateLocation(args[0].AsString(), replace: true); return ScriptValue.Undefined; })
+            .DefineMethod("reload", (_, _, _) => { _options.LocationNavigationRequested?.Invoke(_currentUri.AbsoluteUri, true); return ScriptValue.Undefined; })
+            .DefineMethod("toString", (_, _, _) => ScriptValue.FromString(_currentUri.AbsoluteUri));
 
         var locationObj = _engine.CreateHostObject(locationTemplate, new object());
         _engine.SetGlobalProperty("location", locationObj);
+        _engine.SetGlobalProperty("__folio_location_obj", locationObj);
+        _engine.EvaluateHostScript(
+            "(function(loc){ Object.defineProperty(globalThis, 'location', { configurable: true, enumerable: true, get: function(){ return loc; }, set: function(v){ loc.href = (v != null && typeof v === 'object' && 'href' in v) ? String(v.href) : String(v); } }); })(__folio_location_obj); delete globalThis.__folio_location_obj;",
+            "folio://location-accessor");
+
+        var historyTemplate = new HostObjectTemplate("History")
+            .DefineProperty("length", (_, _) => ScriptValue.FromNumber(_history.Count))
+            .DefineProperty("state", (_, _) => _history[_historyIndex].State)
+            .DefineProperty("scrollRestoration", (_, _) => ScriptValue.FromString("auto"))
+            .DefineMethod("pushState", (_, _, args) => { UpdateHistoryState(args, push: true); return ScriptValue.Undefined; })
+            .DefineMethod("replaceState", (_, _, args) => { UpdateHistoryState(args, push: false); return ScriptValue.Undefined; })
+            .DefineMethod("back", (_, _, _) => { StepHistory(-1); return ScriptValue.Undefined; })
+            .DefineMethod("forward", (_, _, _) => { StepHistory(1); return ScriptValue.Undefined; })
+            .DefineMethod("go", (_, _, args) => { StepHistory(args.Length > 0 ? (int)Math.Truncate(args[0].AsNumber()) : 0); return ScriptValue.Undefined; });
+
+        var historyObj = _engine.CreateHostObject(historyTemplate, new object());
+        _engine.SetGlobalProperty("history", historyObj);
 
         // Setup navigator
         var navigatorTemplate = new HostObjectTemplate("Navigator")

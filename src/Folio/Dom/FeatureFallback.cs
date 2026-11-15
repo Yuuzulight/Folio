@@ -82,10 +82,10 @@ internal static class FeatureFallbacks
             "audio" when !document.SoundAllowed && HasMediaSource(element) => new(FallbackFeature.Sound, FallbackReason.HostDenied),
             "video" when element.MediaPresentation is null && HasMediaSource(element) => new(FallbackFeature.Video, FallbackReason.SourceUnavailable),
             "audio" when element.MediaPresentation is null && HasMediaSource(element) => new(FallbackFeature.Audio, FallbackReason.SourceUnavailable),
-            "iframe" or "embed" or "object" when !document.IframesAllowed => new(FallbackFeature.Iframes, FallbackReason.HostDenied),
-            "iframe" when element.FramePresentation is null && string.IsNullOrEmpty(element.GetAttribute("srcdoc")) &&
+            "iframe" or "frame" or "embed" or "object" when !document.IframesAllowed => new(FallbackFeature.Iframes, FallbackReason.HostDenied),
+            "iframe" or "frame" when element.FramePresentation is null && string.IsNullOrEmpty(element.GetAttribute("srcdoc")) &&
                 (string.IsNullOrWhiteSpace(element.GetAttribute("src")) || element.GetAttribute("src")!.Equals("about:blank", StringComparison.OrdinalIgnoreCase)) => null,
-            "iframe" or "embed" or "object" when element.FramePresentation is null => new(FallbackFeature.Iframes, FallbackReason.SourceUnavailable),
+            "iframe" or "frame" or "embed" or "object" when element.FramePresentation is null => new(FallbackFeature.Iframes, FallbackReason.SourceUnavailable),
             _ => null
         };
     }

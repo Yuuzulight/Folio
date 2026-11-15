@@ -685,7 +685,7 @@ internal sealed class BoxTreeBuilder
             "img" => ReplacedKind.Image,
             "canvas" => ReplacedKind.Canvas,
             "video" or "audio" => ReplacedKind.Media,
-            "iframe" or "embed" or "object" => ReplacedKind.Frame,
+            "iframe" or "frame" or "embed" or "object" => ReplacedKind.Frame,
             "input" or "select" or "textarea" or "progress" or "meter" => ReplacedKind.FormControl,
             _ => null,
         };

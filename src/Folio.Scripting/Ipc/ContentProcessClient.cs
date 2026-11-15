@@ -182,8 +182,6 @@ public sealed class ContentProcessClient : IAsyncDisposable
         var frameDirectory = Path.Combine(Path.GetTempPath(), $"folio-frame-{Guid.NewGuid():N}");
         Directory.CreateDirectory(frameDirectory);
         var framePath = Path.Combine(frameDirectory, "frame.bin");
-        var logPath = Path.Combine(frameDirectory, "worker.log");
-        try { File.WriteAllText(logPath, ""); } catch {}
         CanvasFrameStore frameStore;
         try { frameStore = new CanvasFrameStore(framePath, 1280, 720, 1280 * 4); }
         catch { CleanupFrame(framePath); throw; }
@@ -817,19 +815,6 @@ public sealed class ContentProcessClient : IAsyncDisposable
 
     private void OnStopped(string reason)
     {
-        try {
-            Console.Error.WriteLine($"[WORKER STATUS] reason={reason}, HasExited={_process.HasExited}, ExitCode={(_process.HasExited ? _process.ExitCode : -999)}");
-            if (OperatingSystem.IsWindows()) {
-                string? profile = (_security as AppContainerSecurity)?.GetPrivateProfilePath();
-                if (profile != null) {
-                    var wl = Path.Combine(profile, "worker.log");
-                    if (File.Exists(wl)) Console.Error.WriteLine("[WORKER LOG] " + File.ReadAllText(wl));
-                    else Console.Error.WriteLine("[WORKER LOG] not found in profile: " + wl);
-                }
-            }
-            var wl2 = Path.Combine(Path.GetDirectoryName(_frameStorePath)!, "worker.log");
-            if (File.Exists(wl2)) Console.Error.WriteLine("[WORKER LOG FRAME] " + File.ReadAllText(wl2));
-        } catch (Exception ex) { Console.Error.WriteLine("[WORKER LOG FAIL] " + ex.Message); }
         RetireNavigationDocument();
         DisposeUdp();
         StopGpuWorker();
@@ -927,7 +912,14 @@ public sealed class ContentProcessClient : IAsyncDisposable
 
     private static void CleanupFrame(string path)
     {
-        try { File.Delete(path); Directory.Delete(Path.GetDirectoryName(path)!); } catch { }
+        try
+        {
+            File.Delete(path);
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
+        }
+        catch { }
     }
 
     private sealed class NoopDisposable : IDisposable { public void Dispose() { } }

@@ -212,6 +212,7 @@ internal sealed class UdpBroker : IDisposable
     private void Open(long token, long requestedGeneration)
     {
         UdpSocketLease? lease = null;
+        IPEndPoint? localEndPoint = null;
         string? refusal = null;
         long generation;
         lock (_gate)
@@ -232,6 +233,7 @@ internal sealed class UdpBroker : IDisposable
                         // Windows reports an ICMP port-unreachable as a receive error on the whole socket; a peer going away must not break it.
                         if (OperatingSystem.IsWindows()) socket.IOControl(unchecked((int)0x9800000C), [0], null); // SIO_UDP_CONNRESET off
                         socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+                        localEndPoint = (IPEndPoint)socket.LocalEndPoint!;
                     }
                     catch { socket.Dispose(); throw; }
                     lease = new UdpSocketLease(++_nextId, socket, _options.OutgoingQueuePerSocket);
@@ -241,7 +243,7 @@ internal sealed class UdpBroker : IDisposable
             }
         }
         if (lease is null) { Enqueue(new(0, "failed", token, 0, refusal, null, null, false)); return; }
-        Enqueue(new(generation, "opened", token, lease.Id, null, (IPEndPoint)lease.Socket.LocalEndPoint!, null, false));
+        Enqueue(new(generation, "opened", token, lease.Id, null, localEndPoint, null, false));
         _ = Task.Run(() => SendLoopAsync(lease));
         _ = Task.Run(() => ReceiveLoopAsync(lease, generation));
     }

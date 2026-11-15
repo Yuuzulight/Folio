@@ -122,7 +122,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
                 AllowSoundAutoplay = _capabilities.AllowSoundAutoplay && AllowsFeaturePolicy("autoplay"),
                 Workers = _capabilities.Workers && AllowsFeaturePolicy("workers"),
                 WebAssembly = _capabilities.WebAssembly && AllowsFeaturePolicy("webassembly"),
-                Iframes = _capabilities.Iframes && AllowsFeaturePolicy("iframes"),
+                Iframes = _capabilities.Iframes && (string.IsNullOrWhiteSpace(Element.GetAttribute("allow")) ? CanAccessDocument : AllowsFeaturePolicy("iframes")),
                 WebRtc = _capabilities.WebRtc && AllowsFeaturePolicy("webrtc"),
                 ServiceWorkers = _capabilities.ServiceWorkers && AllowsFeaturePolicy("service-workers"),
             };
@@ -451,6 +451,8 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
             UserStyleSheet = parent.UserStyleSheet,
             WebRtcAllowedOrigins = parent.WebRtcAllowedOrigins,
             CollectDiagnostics = parent.CollectDiagnostics,
+            ConsoleMessage = parent.ConsoleMessage,
+            DialogRequested = parent.DialogRequested,
         };
         if (_aggregateBudget is not null)
             AssociateBudget(options, _aggregateBudget);

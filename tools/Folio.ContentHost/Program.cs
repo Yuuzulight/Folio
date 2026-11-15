@@ -8,13 +8,18 @@ if (args.Length >= 1 && args[0].Equals("--broker", StringComparison.OrdinalIgnor
 {
     var parentArgs = args.Skip(1).Where(argument => argument.StartsWith("--arcana-parent-pid=", StringComparison.Ordinal)).ToArray();
     var originArgs = args.Skip(1).Where(argument => argument.StartsWith("--allow-origin=", StringComparison.Ordinal)).ToArray();
-    if (parentArgs.Length != 1 || args.Length != 1 + parentArgs.Length + originArgs.Length ||
+    var allowPrivateNetwork = args.Skip(1).Contains("--allow-private-network", StringComparer.Ordinal);
+    var streamEvents = args.Skip(1).Contains("--stream-events", StringComparer.Ordinal);
+    var flagCount = args.Skip(1).Count(argument => argument is "--allow-private-network" or "--stream-events");
+    if (parentArgs.Length != 1 || args.Length != 1 + parentArgs.Length + originArgs.Length + flagCount ||
         parentArgs[0].Length == "--arcana-parent-pid=".Length ||
         !int.TryParse(parentArgs[0]["--arcana-parent-pid=".Length..], out var parentPid) || parentPid <= 0 ||
         originArgs.Any(argument => argument.Length == "--allow-origin=".Length))
         throw new ArgumentException("Broker mode requires --arcana-parent-pid=<pid>.");
     await using var broker = new HeadlessContentBroker(parentPid,
-        originArgs.Select(argument => argument["--allow-origin=".Length..]));
+        originArgs.Select(argument => argument["--allow-origin=".Length..]),
+        allowPrivateNetwork,
+        streamEvents);
     await broker.RunAsync();
     return;
 }
@@ -68,7 +73,7 @@ async Task TickAsync()
         while (await timer.WaitForNextTickAsync(ticking.Token))
         {
             await runtimeGate.WaitAsync(ticking.Token);
-            try { if (runtime.Tick()) await SendFrame(0, null, ticking.Token); }
+            try { if (runtime.Tick()) { await runtime.FlushDiagnosticsAsync(); await SendFrame(0, null, ticking.Token); } }
             catch (Exception error) when (error is not OperationCanceledException)
             {
                 await session.SendAsync(ContentMessageKind.Diagnostic, new Dictionary<string, object?> { ["code"] = "Runtime", ["message"] = error.Message }, ticking.Token);
@@ -122,6 +127,7 @@ session.MessageReceived += async (message, cancellationToken) =>
             var viewport = System.Text.Json.JsonSerializer.Deserialize(message.Payload, ContentProtocolJsonContext.Default.ContentViewport)
                 ?? throw new InvalidDataException("Missing viewport.");
             runtime.ConfigureViewport(viewport);
+            await runtime.FlushDiagnosticsAsync();
             if (runtime.Document is not null) await SendFrame(message.Sequence, null, cancellationToken);
             else await session.SendAsync(ContentMessageKind.Viewport, new Dictionary<string, object?> { ["sequence"] = message.Sequence, ["accepted"] = true }, cancellationToken);
             return;
@@ -129,6 +135,7 @@ session.MessageReceived += async (message, cancellationToken) =>
         if (message.Kind == ContentMessageKind.Input && message.TryGetInput(out var input) && input is not null)
         {
             runtime.ApplyInput(input);
+            await runtime.FlushDiagnosticsAsync();
             await SendFrame(message.Sequence, null, cancellationToken);
             return;
         }

@@ -229,6 +229,7 @@ internal sealed class DomContext : IFetchContext
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
         ResourceLoader = resourceLoader;
         BaseUri = baseUri;
+        CurrentUri = baseUri;
         RasterBackend = raster;
         _canvasStyles = canvasStyles;
         ParentOptions = null;
@@ -266,6 +267,7 @@ internal sealed class DomContext : IFetchContext
     public Action<Uri>? IframeNavigationRequested { get; }
     public IArtifactStorage? ArtifactStorage { get; }
     public string ArtifactId { get; }
+    internal Uri? CurrentUri { get; set; }
     public bool TryAcquireWorker()
     {
         if (MaxWorkers <= 0) return false;
@@ -743,7 +745,7 @@ internal sealed class DomContext : IFetchContext
         var initialized = 0;
         for (Node? node = Document; node is not null; node = node.NextInTree(Document))
         {
-            if (node is ElementNode { Name.Namespace: var ns, LocalName: "iframe" } element && ns == Namespaces.Html)
+            if (node is ElementNode { Name.Namespace: var ns, LocalName: "iframe" or "frame" } element && ns == Namespaces.Html)
             {
                 if (initialized >= MaxIframes)
                     break;

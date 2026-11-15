@@ -125,8 +125,44 @@ public static class DomBindings
             FormData.prototype.keys = function() { return this._entries.map(x => x[0])[Symbol.iterator](); };
             FormData.prototype.values = function() { return this._entries.map(x => x[1])[Symbol.iterator](); };
             function makeStorage(scope) {
+                if (scope === 'local' && typeof __folio_storage !== 'undefined' && __folio_storage) {
+                    const storageApi = __folio_storage;
+                    const localKeys = function() {
+                        const raw = storageApi.keys('local');
+                        const out = [];
+                        for (let i = 0; i < raw.length; i++) out.push(raw[i]);
+                        return out;
+                    };
+                    const storage = {
+                        get length() { return localKeys().length; },
+                        key: function(index) { const keys = localKeys(); return index >= 0 && index < keys.length ? keys[index] : null; },
+                        getItem: function(key) { key = String(key); return storageApi.read('local', key); },
+                        setItem: function(key, value) {
+                            key = String(key); value = String(value);
+                            let size = 0;
+                            for (const k of localKeys()) if (k !== key) { const existing = storageApi.read('local', k); if (existing !== null) size += k.length + existing.length; }
+                            size += key.length + value.length;
+                            if (size > 5 * 1024 * 1024) throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
+                            storageApi.write('local', key, value);
+                        },
+                        removeItem: function(key) { storageApi.delete('local', String(key)); },
+                        clear: function() { for (const k of localKeys()) storageApi.delete('local', k); }
+                    };
+                    return new Proxy(storage, {
+                        get: function(target, key) { if (typeof key === 'symbol' || key in target) return target[key]; return target.getItem(key); },
+                        set: function(target, key, value) { target.setItem(key, value); return true; },
+                        deleteProperty: function(target, key) { target.removeItem(key); return true; },
+                        has: function(target, key) { return (key in target) || target.getItem(key) !== null; },
+                        ownKeys: function() { return localKeys(); },
+                        getOwnPropertyDescriptor: function(target, key) {
+                            if (key in target) return Object.getOwnPropertyDescriptor(target, key);
+                            const v = target.getItem(key);
+                            return v === null ? undefined : { enumerable: true, configurable: true, writable: true, value: v };
+                        }
+                    });
+                }
                 const data = Object.create(null);
-                if (typeof __folio_storage !== 'undefined' && __folio_storage) {
+                if (typeof __folio_storage !== 'undefined' && __folio_storage && scope !== 'session') {
                     for (const key of __folio_storage.keys(scope)) {
                         const value = __folio_storage.read(scope, key);
                         if (value !== null) data[key] = value;
@@ -143,21 +179,26 @@ public static class DomBindings
                         size += key.length + value.length;
                         if (size > 5 * 1024 * 1024) throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
                         data[key] = value;
-                        if (typeof __folio_storage !== 'undefined' && __folio_storage) __folio_storage.write(scope, key, value);
                     },
                     removeItem: function(key) {
                         key = String(key);
                         delete data[key];
-                        if (typeof __folio_storage !== 'undefined' && __folio_storage) __folio_storage.delete(scope, key);
                     },
                     clear: function() {
-                        for (const key of Object.keys(data)) {
-                            delete data[key];
-                            if (typeof __folio_storage !== 'undefined' && __folio_storage) __folio_storage.delete(scope, key);
-                        }
+                        for (const key of Object.keys(data)) delete data[key];
                     }
                 };
-                return new Proxy(storage, { get: function(target, key) { if (key in target) return target[key]; return target.getItem(key); }, set: function(target, key, value) { target.setItem(key, value); return true; }, deleteProperty: function(target, key) { target.removeItem(key); return true; }, ownKeys: function() { return Object.keys(data); } });
+                return new Proxy(storage, {
+                    get: function(target, key) { if (typeof key === 'symbol' || key in target) return target[key]; return target.getItem(key); },
+                    set: function(target, key, value) { target.setItem(key, value); return true; },
+                    deleteProperty: function(target, key) { target.removeItem(key); return true; },
+                    has: function(target, key) { return (key in target) || Object.prototype.hasOwnProperty.call(data, String(key)); },
+                    ownKeys: function() { return Object.keys(data); },
+                    getOwnPropertyDescriptor: function(target, key) {
+                        if (key in target) return Object.getOwnPropertyDescriptor(target, key);
+                        return Object.prototype.hasOwnProperty.call(data, String(key)) ? { enumerable: true, configurable: true, writable: true, value: data[String(key)] } : undefined;
+                    }
+                });
             }
             globalThis.localStorage = makeStorage('local');
             globalThis.sessionStorage = makeStorage('session');
@@ -199,8 +240,49 @@ public static class DomBindings
             globalThis.TextDecoder = function() {};
             TextDecoder.prototype.encoding = 'utf-8';
             TextDecoder.prototype.decode = function(value) { if (value === undefined) return ''; return __folio_utf8_text(value instanceof ArrayBuffer ? new Uint8Array(value) : ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : value); };
-            globalThis.console = globalThis.console || {};
-            for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
+            (function() {
+                const consoleHost = typeof __folio_console_host !== 'undefined' ? __folio_console_host : null;
+                try { delete globalThis.__folio_console_host; } catch (_) {}
+                const dialogHost = typeof __folio_dialog_host !== 'undefined' ? __folio_dialog_host : null;
+                try { delete globalThis.__folio_dialog_host; } catch (_) {}
+                function formatArg(value) {
+                    if (typeof value === 'string') return value;
+                    if (value === null || value === undefined || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+                    if (value instanceof Error) return value.stack || (value.name + ': ' + value.message);
+                    try { const json = JSON.stringify(value); if (json !== undefined) return json; } catch (_) {}
+                    return String(value);
+                }
+                globalThis.console = globalThis.console || {};
+                for (const method of ['log', 'info', 'warn', 'error', 'debug', 'dir', 'trace']) {
+                    const prev = typeof console[method] === 'function' ? console[method] : null;
+                    console[method] = function() {
+                        const text = Array.prototype.map.call(arguments, formatArg).join(' ');
+                        if (consoleHost) { try { consoleHost.log(method, text); } catch (_) {} }
+                        if (prev) { try { return prev.apply(this, arguments); } catch (_) {} }
+                    };
+                }
+                if (typeof globalThis.alert !== 'function') {
+                    globalThis.alert = function(message) {
+                        const text = message === undefined ? '' : String(message);
+                        if (dialogHost) { try { dialogHost.open('alert', text, null); } catch (_) {} }
+                    };
+                }
+                if (typeof globalThis.confirm !== 'function') {
+                    globalThis.confirm = function(message) {
+                        const text = message === undefined ? '' : String(message);
+                        if (dialogHost) { try { dialogHost.open('confirm', text, null); } catch (_) {} }
+                        return false;
+                    };
+                }
+                if (typeof globalThis.prompt !== 'function') {
+                    globalThis.prompt = function(message, defaultValue) {
+                        const text = message === undefined ? '' : String(message);
+                        const def = defaultValue === undefined ? null : String(defaultValue);
+                        if (dialogHost) { try { dialogHost.open('prompt', text, def); } catch (_) {} }
+                        return null;
+                    };
+                }
+            })();
         ";
 
     internal static void Prime()
@@ -438,7 +520,8 @@ public static class DomBindings
                 var keys = context.ArtifactStorage?.Keys(prefix).Select(k => k[prefix.Length..]).ToArray() ?? [];
                 return engine.CreateArray(keys.Select(ScriptValue.FromString).ToArray());
             });
-        engine.SetGlobalProperty("__folio_storage", engine.CreateHostObject(storage, context));
+        if (context.ArtifactStorage is not null)
+            engine.SetGlobalProperty("__folio_storage", engine.CreateHostObject(storage, context));
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
         context.InitializeMediaElements();
@@ -496,6 +579,25 @@ public static class DomBindings
         SharedWorkerBindings.Install(engine, context, context.Templates.MessageEventTemplate, messagePortTemplate,
             resourceLoader, baseUri, blobSources, eventLoop);
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
+        var consoleHost = new HostObjectTemplate("ConsoleHost")
+            .DefineMethod("log", (_, _, args) =>
+            {
+                var level = args.Length > 0 ? args[0].AsString() ?? "log" : "log";
+                var text = args.Length > 1 ? args[1].AsString() ?? "" : "";
+                context.ParentOptions?.ConsoleMessage?.Invoke(level, text);
+                return ScriptValue.Undefined;
+            });
+        engine.SetGlobalProperty("__folio_console_host", engine.CreateHostObject(consoleHost, context));
+        var dialogHost = new HostObjectTemplate("DialogHost")
+            .DefineMethod("open", (_, _, args) =>
+            {
+                var kind = args.Length > 0 ? args[0].AsString() ?? "alert" : "alert";
+                var message = args.Length > 1 ? args[1].AsString() ?? "" : "";
+                var def = args.Length > 2 && !args[2].IsNullOrUndefined ? args[2].AsString() : null;
+                context.ParentOptions?.DialogRequested?.Invoke(kind, message, def);
+                return ScriptValue.Undefined;
+            });
+        engine.SetGlobalProperty("__folio_dialog_host", engine.CreateHostObject(dialogHost, context));
         engine.EvaluateHostScript(DomGlobalsScript, "folio:dom-globals");
         // Use the URL Standard parser for page-visible URL objects. The host-backed
         // implementation replaces the historical regex shim above and also keeps
@@ -587,6 +689,12 @@ public static class DomBindings
             Contexts.Remove(engine);
             throw;
         }
+    }
+
+    internal static void SetCurrentUri(IScriptEngine engine, Uri uri)
+    {
+        if (Contexts.TryGetValue(engine, out var context))
+            context.CurrentUri = uri;
     }
 
     internal static void InstallDomException(IScriptEngine engine)

@@ -1054,11 +1054,11 @@ public sealed class Document : IDisposable
         child = null;
         local = default;
         var element = ElementAt(x, y);
-        if (element?.LocalName != "iframe")
+        if (element?.LocalName is not ("iframe" or "frame"))
         {
             for (Node? candidate = Node; candidate is not null; candidate = candidate.NextInTree(Node))
             {
-                if (candidate is ElementNode iframe && iframe.LocalName == "iframe" && GetElementBounds(iframe) is { } candidateBounds
+                if (candidate is ElementNode iframe && iframe.LocalName is ("iframe" or "frame") && GetElementBounds(iframe) is { } candidateBounds
                     && x >= candidateBounds.X && y >= candidateBounds.Y && x <= candidateBounds.Right && y <= candidateBounds.Bottom)
                 {
                     element = iframe;
@@ -1066,7 +1066,7 @@ public sealed class Document : IDisposable
                 }
             }
         }
-        if (element?.LocalName != "iframe" || element.FramePresentation?.ChildDocument is not Document frame)
+        if (element?.LocalName is not ("iframe" or "frame") || element.FramePresentation?.ChildDocument is not Document frame)
             return false;
         if (GetElementBounds(element) is not { } bounds || x < bounds.X || y < bounds.Y || x > bounds.Right || y > bounds.Bottom)
             return false;
@@ -1080,7 +1080,7 @@ public sealed class Document : IDisposable
     {
         for (Node? candidate = Node; candidate is not null; candidate = candidate.NextInTree(Node))
         {
-            if (candidate is not ElementNode iframe || iframe.LocalName != "iframe"
+            if (candidate is not ElementNode iframe || iframe.LocalName is not ("iframe" or "frame")
                 || iframe.FramePresentation?.ChildDocument is not Document nested || !ReferenceEquals(nested, child)
                 || GetElementBounds(iframe) is not { } bounds)
                 continue;

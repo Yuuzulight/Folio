@@ -22,6 +22,8 @@ public sealed class ContentDocumentRuntime : IDisposable
     private ContentViewport _viewport = new(1280, 720);
     private readonly IResourceLoader _resourceLoader;
     private readonly List<string> _taskDiagnostics = new();
+    private readonly object _diagnosticGate = new();
+    private Task _diagnosticTail = Task.CompletedTask;
     private readonly Func<IScriptEngine> _engineFactory;
     private IScriptEngine? _engine;
     private HtmlEventLoop? _eventLoop;
@@ -86,12 +88,34 @@ public sealed class ContentDocumentRuntime : IDisposable
         return true;
     }
 
+    public Task FlushDiagnosticsAsync()
+    {
+        lock (_diagnosticGate) return _diagnosticTail;
+    }
+
+    private void QueueDiagnostic(string code, Dictionary<string, object?> fields)
+    {
+        fields["code"] = code;
+        fields.TryAdd("message", code);
+        lock (_diagnosticGate)
+        {
+            var previous = _diagnosticTail;
+            _diagnosticTail = SendAfterAsync(previous, fields);
+        }
+    }
+
+    private async Task SendAfterAsync(Task previous, Dictionary<string, object?> fields)
+    {
+        try { await previous.ConfigureAwait(false); } catch { }
+        try { await _session.SendAsync(ContentMessageKind.Diagnostic, fields).ConfigureAwait(false); } catch { }
+    }
+
     public void ApplyInput(ContentInputEvent input)
     {
         if (_document is null) return;
         var position = new System.Numerics.Vector2((float)input.X, (float)input.Y);
         var modifiers = (KeyModifiers)input.Modifiers;
-        var pointer = new PointerEvent(position, (PointerButton)input.Button, (PointerButtons)input.Buttons, Modifiers: modifiers);
+        var pointer = new PointerEvent(position, (PointerButton)input.Button, (PointerButtons)input.Buttons, ClickCount: input.ClickCount, Modifiers: modifiers);
         switch (input.Type)
         {
             case "pointerdown": _document.Input.HandlePointerDown(pointer); break;
@@ -173,7 +197,7 @@ public sealed class ContentDocumentRuntime : IDisposable
 
     public void ApplyMediaCaptureActivity(ContentMessage message) => _captureProvider?.Apply(message.Payload);
 
-    public Task<ContentDocumentResult> ExecuteAsync(ContentMessage message, CancellationToken cancellationToken)
+    public async Task<ContentDocumentResult> ExecuteAsync(ContentMessage message, CancellationToken cancellationToken)
     {
         Dictionary<string, double>? timings = message.Payload.TryGetProperty("profile", out var profile) && profile.ValueKind == JsonValueKind.True ? new() : null;
         var stamp = Stopwatch.GetTimestamp();
@@ -232,10 +256,94 @@ public sealed class ContentDocumentRuntime : IDisposable
                 ArtifactStorage = message.Payload.TryGetProperty("storageEnabled", out var storageEnabled) && storageEnabled.GetBoolean() ? new BrokerArtifactStorage(_session) : null,
                 Limits = message.Payload.TryGetProperty("limits", out var limits) ? limits.Deserialize(ContentProtocolJsonContext.Default.ResourceLimits) ?? ResourceLimits.Default : ResourceLimits.Default,
                 MediaCaptureActivityChanged = active => _ = _session.SendAsync(ContentMessageKind.MediaCaptureActivity, new Dictionary<string, object?> { ["active"] = active }, cancellationToken),
+                ConsoleMessage = (level, text) =>
+                {
+                    if (documentGeneration != _documentGeneration || cancellationToken.IsCancellationRequested) return;
+                    QueueDiagnostic("Console", new Dictionary<string, object?> { ["level"] = level, ["message"] = text });
+                },
+                DialogRequested = (kind, text, defaultValue) =>
+                {
+                    if (documentGeneration != _documentGeneration || cancellationToken.IsCancellationRequested) return;
+                    var fields = new Dictionary<string, object?> { ["kind"] = kind, ["message"] = text };
+                    if (defaultValue is not null) fields["defaultValue"] = defaultValue;
+                    QueueDiagnostic("Dialog", fields);
+                },
+                LocationNavigationRequested = (targetUrl, replace) =>
+                {
+                    if (documentGeneration != _documentGeneration || cancellationToken.IsCancellationRequested) return;
+                    QueueDiagnostic("Navigation", new Dictionary<string, object?> { ["url"] = targetUrl, ["method"] = "GET", ["replace"] = replace });
+                },
+                UrlChanged = nextUrl =>
+                {
+                    if (documentGeneration != _documentGeneration || cancellationToken.IsCancellationRequested) return;
+                    QueueDiagnostic("LocationChanged", new Dictionary<string, object?> { ["url"] = nextUrl });
+                },
                 Raster = Folio.Painting.SoftwareRasterBackend.Instance
             };
             _session.SetStorageLimit(options.Limits.MaxServiceWorkerCacheBytes);
             _document = Document.Parse(htmlElement.GetString() ?? "", options);
+            _document.Input.LinkActivated += (_, e) =>
+            {
+                if (documentGeneration != _documentGeneration || cancellationToken.IsCancellationRequested) return;
+                var currentBase = ResolveCurrentBaseUri(options.BaseUri);
+                if (e.Uri.Fragment is { Length: > 1 } fragment && currentBase is not null &&
+                    Uri.Compare(e.Uri, currentBase, UriComponents.AbsoluteUri & ~UriComponents.Fragment, UriFormat.UriEscaped, StringComparison.Ordinal) == 0)
+                {
+                    var anchor = Uri.UnescapeDataString(fragment[1..]);
+                    var targetEl = _document.GetElementById(anchor)
+                        ?? _document.QuerySelectorAll("a").FirstOrDefault(el => string.Equals(el.GetAttribute("name"), anchor, StringComparison.Ordinal));
+                    if (targetEl is not null)
+                        _document.ScrollIntoView(targetEl);
+                    QueueDiagnostic("LocationChanged", new Dictionary<string, object?> { ["url"] = e.Uri.AbsoluteUri });
+                    if (_engine is not null)
+                    {
+                        DomBindings.SetCurrentUri(_engine, e.Uri);
+                        var escaped = e.Uri.AbsoluteUri.Replace("\\", "\\\\").Replace("'", "\\'");
+                        _engine.EvaluateHostScript($"(function(u){{ if(typeof window!=='undefined'&&typeof window.dispatchEvent==='function'){{ var ev=new Event('hashchange'); ev.newURL=u; window.dispatchEvent(ev); }} }})('{escaped}');", "folio://hashchange");
+                    }
+                    e.Handled = true;
+                    return;
+                }
+                QueueDiagnostic("Navigation", new Dictionary<string, object?> { ["url"] = e.Uri.AbsoluteUri, ["method"] = "GET" });
+                e.Handled = true;
+            };
+            _document.Input.FormSubmitted += (_, e) =>
+            {
+                if (documentGeneration != _documentGeneration || cancellationToken.IsCancellationRequested) return;
+                var currentBase = ResolveCurrentBaseUri(options.BaseUri);
+                var rawAction = string.IsNullOrWhiteSpace(e.Action) ? (currentBase?.AbsoluteUri ?? "about:blank") : e.Action.Trim();
+                if (!Uri.TryCreate(currentBase, rawAction, out var actionUri))
+                    return;
+                var method = string.IsNullOrWhiteSpace(e.Method) ? "GET" : e.Method.Trim().ToUpperInvariant();
+                if (method == "GET")
+                {
+                    var query = string.Join("&", e.Data.Select(kv => Uri.EscapeDataString(kv.Key) + "=" + Uri.EscapeDataString(kv.Value)));
+                    var builder = new UriBuilder(actionUri) { Query = query };
+                    QueueDiagnostic("Navigation", new Dictionary<string, object?> { ["url"] = builder.Uri.AbsoluteUri, ["method"] = "GET" });
+                    return;
+                }
+                var enctype = (e.Submitter?.GetAttribute("formenctype") ?? e.Form.GetAttribute("enctype") ?? "").Trim();
+                if (enctype.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase))
+                {
+                    var (contentType, bodyBytes) = BuildMultipartBody(e);
+                    QueueDiagnostic("Navigation", new Dictionary<string, object?>
+                    {
+                        ["url"] = actionUri.AbsoluteUri,
+                        ["method"] = method,
+                        ["contentType"] = contentType,
+                        ["bodyBase64"] = Convert.ToBase64String(bodyBytes)
+                    });
+                    return;
+                }
+                var encoded = string.Join("&", e.Data.Select(kv => Uri.EscapeDataString(kv.Key) + "=" + Uri.EscapeDataString(kv.Value)));
+                QueueDiagnostic("Navigation", new Dictionary<string, object?>
+                {
+                    ["url"] = actionUri.AbsoluteUri,
+                    ["method"] = method,
+                    ["contentType"] = "application/x-www-form-urlencoded",
+                    ["bodyBase64"] = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(encoded))
+                });
+            };
             Mark("parse");
             _engine = _engineFactory();
             Mark("engine");
@@ -283,8 +391,93 @@ public sealed class ContentDocumentRuntime : IDisposable
         Mark("tasks-after");
         var canvasCommands = _document?.Node.Descendants.OfType<ElementNode>().Count(element => element.CanvasSurface is not null) ?? 0;
         var displayItems = PublishCurrentFrame(timings);
-        return Task.FromResult(new ContentDocumentResult(result.ToString(), displayItems, canvasCommands,
-            _runner?.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(_taskDiagnostics).ToArray() ?? _taskDiagnostics.ToArray(), timings));
+        await FlushDiagnosticsAsync().ConfigureAwait(false);
+        return new ContentDocumentResult(result.ToString(), displayItems, canvasCommands,
+            _runner?.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(_taskDiagnostics).ToArray() ?? _taskDiagnostics.ToArray(), timings);
+    }
+
+    private Uri? ResolveCurrentBaseUri(Uri? fallback)
+    {
+        if (_engine is not null)
+        {
+            try
+            {
+                var href = _engine.EvaluateHostScript("typeof location !== 'undefined' ? location.href : ''", "folio://location-href").AsString();
+                if (!string.IsNullOrEmpty(href) && Uri.TryCreate(href, UriKind.Absolute, out var liveUri))
+                    return liveUri;
+            }
+            catch { }
+        }
+        return fallback;
+    }
+
+    private (string ContentType, byte[] Body) BuildMultipartBody(FormSubmittedEventArgs e)
+    {
+        var boundary = "----FolioBoundary" + Guid.NewGuid().ToString("N");
+        var fileFieldNames = new HashSet<string>(
+            e.Form.QuerySelectorAll("input[type=\"file\"]")
+                .Select(el => el.GetAttribute("name") ?? "")
+                .Where(name => name.Length > 0),
+            StringComparer.Ordinal);
+
+        var uploadedFiles = new List<(string Field, string FileName, string ContentType, byte[] Bytes)>();
+        if (_engine is not null && fileFieldNames.Count > 0)
+        {
+            try
+            {
+                var json = _engine.EvaluateHostScript(
+                    "(function(){ var out=[]; var els=document.querySelectorAll('input[type=\"file\"]'); for(var i=0;i<els.length;i++){ var inp=els[i]; if(!inp.name||!inp.__folioFiles) continue; for(var j=0;j<inp.__folioFiles.length;j++){ var f=inp.__folioFiles[j]; out.push({ field: String(inp.name), name: String(f.name||'upload.bin'), type: String(f.type||'application/octet-stream'), base64: String(f.base64||'') }); } } return JSON.stringify(out); })();",
+                    "folio://multipart-files").AsString();
+                if (!string.IsNullOrEmpty(json))
+                {
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in doc.RootElement.EnumerateArray())
+                        {
+                            var field = item.TryGetProperty("field", out var fp) ? fp.GetString() ?? "" : "";
+                            if (!fileFieldNames.Contains(field)) continue;
+                            var name = item.TryGetProperty("name", out var np) ? np.GetString() ?? "upload.bin" : "upload.bin";
+                            var type = item.TryGetProperty("type", out var tp) ? tp.GetString() ?? "application/octet-stream" : "application/octet-stream";
+                            var b64 = item.TryGetProperty("base64", out var bp) ? bp.GetString() ?? "" : "";
+                            uploadedFiles.Add((field, name, type, string.IsNullOrEmpty(b64) ? [] : Convert.FromBase64String(b64)));
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        static string EscapeHeader(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "").Replace("\n", "");
+        using var ms = new System.IO.MemoryStream();
+        var utf8 = System.Text.Encoding.UTF8;
+
+        foreach (var kv in e.Data)
+        {
+            if (fileFieldNames.Contains(kv.Key)) continue;
+            var header = $"--{boundary}\r\nContent-Disposition: form-data; name=\"{EscapeHeader(kv.Key)}\"\r\n\r\n{kv.Value}\r\n";
+            ms.Write(utf8.GetBytes(header));
+        }
+
+        var writtenFileFields = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var file in uploadedFiles)
+        {
+            writtenFileFields.Add(file.Field);
+            var header = $"--{boundary}\r\nContent-Disposition: form-data; name=\"{EscapeHeader(file.Field)}\"; filename=\"{EscapeHeader(file.FileName)}\"\r\nContent-Type: {file.ContentType.Replace("\r", "").Replace("\n", "")}\r\n\r\n";
+            ms.Write(utf8.GetBytes(header));
+            ms.Write(file.Bytes);
+            ms.Write(utf8.GetBytes("\r\n"));
+        }
+
+        foreach (var field in fileFieldNames)
+        {
+            if (writtenFileFields.Contains(field)) continue;
+            var emptyPart = $"--{boundary}\r\nContent-Disposition: form-data; name=\"{EscapeHeader(field)}\"; filename=\"\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n";
+            ms.Write(utf8.GetBytes(emptyPart));
+        }
+
+        ms.Write(utf8.GetBytes($"--{boundary}--\r\n"));
+        return ($"multipart/form-data; boundary={boundary}", ms.ToArray());
     }
 
     // The parent hands over the GPU worker channel once (host-owned, never from page input).

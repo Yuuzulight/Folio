@@ -261,8 +261,6 @@ internal sealed class AppContainerSecurity : IDisposable
             GrantTraverse(sidObject, Path.GetDirectoryName(framePath)!, paths);
             GrantFile(sidObject, framePath, paths);
             SetLowIntegrityLabel(framePath);
-            var logPath = Path.Combine(Path.GetDirectoryName(framePath)!, "worker.log");
-            if (File.Exists(logPath)) { GrantFile(sidObject, logPath, paths); SetLowIntegrityLabel(logPath); }
             GrantWindowObject(GetProcessWindowStation(), sidObject, 0x37F);
             GrantWindowObject(GetThreadDesktop(GetCurrentThreadId()), sidObject, 0x1FF);
             return new AppContainerSecurity(name, sid, sidObject, paths);
