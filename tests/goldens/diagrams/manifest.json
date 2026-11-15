@@ -1,0 +1,14 @@
+{
+  "tests": {
+    "labelled-edges": {
+      "channelThreshold": 8,
+      "maxDifferingRatio": 0.01,
+      "reason": "The diagram is a little wider than the page, so it is scaled to fit; scaled text and line antialiasing differs slightly between the Skia and software backends."
+    },
+    "mixed-8": {
+      "channelThreshold": 8,
+      "maxDifferingRatio": 0.01,
+      "reason": "Eight nodes in a row of six layers are wider than the page, so the diagram is scaled to fit; scaled text and line antialiasing differs slightly between the Skia and software backends."
+    }
+  }
+}

@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#F4F4FB;color:#1E1B3A;font:15px "Source Sans 3",sans-serif}
+.card{margin:12px;background:#fff;border:1px solid #E3E3F3;border-radius:12px;padding:12px}
+.card svg{display:block;max-width:100%;height:auto}
+.card svg text{font-family:"Source Sans 3",sans-serif}
+.folio-diagram-node{fill:#ECECFF;stroke:#5B5BF0;stroke-width:2}
+.folio-diagram-subgraph{stroke:#9A9AD8;stroke-dasharray:4 3}
+.folio-diagram-edge{stroke:#5B5BF0;stroke-width:2}
+.folio-diagram-label{fill:#1E1B3A;stroke:none;font-weight:600}
+.folio-diagram-edge-label-bg{fill:#fff}
+#arrow path{fill:#5B5BF0}
+</style></head><body><div class="card"><script type="text/plain" id="source">
+flowchart LR
+  A[Start] --> B[Validate]
+  B --> C{Valid}
+  C -->|yes| D[Store]
+  C -->|no| E(Reject)
+  D --> F[Index]
+  E --> G[Notify]
+  F --> H((Done))
+  G --> H
+  A --> H
+</script><!--svg--><svg class="folio-diagram" xmlns="http://www.w3.org/2000/svg" width="897" height="165" viewBox="0 0 897 165"><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z"/></marker></defs><g class="folio-diagram-content" fill="white" stroke="currentColor" font-family="sans-serif" font-size="14"><rect class="folio-diagram-node folio-diagram-rect" data-id="A" x="16" y="52" width="100" height="44" rx="8"/><text class="folio-diagram-label" x="66" y="79" text-anchor="middle" fill="currentColor" stroke="none">Start</text><rect class="folio-diagram-node folio-diagram-rect" data-id="B" x="172" y="52" width="100" height="44" rx="8"/><text class="folio-diagram-label" x="222" y="79" text-anchor="middle" fill="currentColor" stroke="none">Validate</text><path class="folio-diagram-node folio-diagram-diamond" data-id="C" d="M 388 42 L 448 74 L 388 106 L 328 74 Z"/><text class="folio-diagram-label" x="388" y="79" text-anchor="middle" fill="currentColor" stroke="none">Valid</text><rect class="folio-diagram-node folio-diagram-rect" data-id="D" x="508.4" y="16" width="100" height="44" rx="8"/><text class="folio-diagram-label" x="558.4" y="43" text-anchor="middle" fill="currentColor" stroke="none">Store</text><rect class="folio-diagram-node folio-diagram-round" data-id="E" x="508.4" y="88" width="100" height="44" rx="22"/><text class="folio-diagram-label" x="558.4" y="115" text-anchor="middle" fill="currentColor" stroke="none">Reject</text><rect class="folio-diagram-node folio-diagram-rect" data-id="F" x="664.4" y="16" width="100" height="44" rx="8"/><text class="folio-diagram-label" x="714.4" y="43" text-anchor="middle" fill="currentColor" stroke="none">Index</text><rect class="folio-diagram-node folio-diagram-rect" data-id="G" x="664.4" y="88" width="100" height="44" rx="8"/><text class="folio-diagram-label" x="714.4" y="115" text-anchor="middle" fill="currentColor" stroke="none">Notify</text><circle class="folio-diagram-node folio-diagram-circle" data-id="H" cx="850.4" cy="99" r="30"/><text class="folio-diagram-label" x="850.4" y="104" text-anchor="middle" fill="currentColor" stroke="none">Done</text><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 116 74 L 172 74" marker-end="url(#arrow)"/><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 272 74 L 328 74" marker-end="url(#arrow)"/><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 448 74 L 478.2 74 L 478.2 38 L 508.4 38" marker-end="url(#arrow)"/><rect class="folio-diagram-edge-label-bg" x="462" y="46" width="32.4" height="20" rx="4" fill="white" stroke="none"/><text class="folio-diagram-label folio-diagram-edge-label" x="478.2" y="60" text-anchor="middle" font-size="12" fill="currentColor" stroke="none">yes</text><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 448 74 L 478.2 74 L 478.2 110 L 508.4 110" marker-end="url(#arrow)"/><rect class="folio-diagram-edge-label-bg" x="465.4" y="82" width="25.6" height="20" rx="4" fill="white" stroke="none"/><text class="folio-diagram-label folio-diagram-edge-label" x="478.2" y="96" text-anchor="middle" font-size="12" fill="currentColor" stroke="none">no</text><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 608.4 38 L 664.4 38" marker-end="url(#arrow)"/><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 608.4 110 L 664.4 110" marker-end="url(#arrow)"/><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 764.4 38 L 792.4 38 L 792.4 99 L 820.4 99" marker-end="url(#arrow)"/><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 764.4 110 L 792.4 110 L 792.4 99 L 820.4 99" marker-end="url(#arrow)"/><path class="folio-diagram-edge" data-kind="--&gt;" fill="none" d="M 116 74 L 144 74 L 144 113 L 300 113 L 300 123 L 478.2 123 L 478.2 149 L 792.4 149 L 792.4 99 L 820.4 99" marker-end="url(#arrow)"/></g></svg><!--/svg--></div></body></html>
