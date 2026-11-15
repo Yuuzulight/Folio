@@ -326,7 +326,9 @@ public static class Program
 
         var approved = targets.SelectMany(target => GoldenSuite.Repo.Approve(target,
             target.Replace('\\', '/').Trim('/') is "feature-fallback" || target.Replace('\\', '/').StartsWith("feature-fallback/", StringComparison.Ordinal)
-                ? FeatureFallbackRenderTests.GoldenNames : null)).ToList();
+                ? FeatureFallbackRenderTests.GoldenNames
+                : target.Replace('\\', '/').Trim('/') is "chart-bridge" || target.Replace('\\', '/').StartsWith("chart-bridge/", StringComparison.Ordinal)
+                    ? ChartBridgeRenderTests.GoldenNames : null)).ToList();
         foreach (var test in approved)
             Console.WriteLine($"approved {test}");
         if (approved.Count == 0)
