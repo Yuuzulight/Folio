@@ -16,6 +16,8 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "hero")
+            return HeroRender.Run(args[1..]);
         if (args.Length > 0 && args[0] == "approve")
             return Approve(args[1..]);
         if (args.Length > 0 && args[0] == "conformance")

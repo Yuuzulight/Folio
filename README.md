@@ -19,6 +19,12 @@
   <a href="https://github.com/Yuuzulight/Folio/milestone/9">1.1 plans</a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/folio-hero.png" alt="A report page rendered by Folio: styled text, a table, a bar chart and a flowchart" width="760">
+  <br>
+  <sub>A page rendered by Folio itself on its own script engine: styled text and a table, a chart drawn by Folio's chart bridge, and a flowchart drawn by Folio's diagram renderer. Regenerate it with <code>dotnet run --project tests/Folio.RenderTests -c Release -- hero docs/assets/folio-hero.html docs/assets/folio-hero.png 1200</code>.</sub>
+</p>
+
 ## What Folio is
 
 Folio renders and runs HTML pages (reports, tables, charts, small interactive pages) inside your application's own window, or straight to an image, without embedding a web view. It started as the rendering engine for [Mana](https://github.com/Yuuzulight/Mana) and is a standalone library that any .NET application can use.
@@ -79,8 +85,9 @@ Folio renders and runs a tested subset of the web platform. It does not claim ge
 | SVG and images | Supported | |
 | Headless render to PNG | Supported | Windows and Linux. |
 | Interactive control (hover, clicks, scroll, selection, resize) | Supported | Windows. |
-| Diagrams (`Folio.Diagrams`) | Supported | |
-| Scripting | Supported | Folio's own JavaScript engine in a sandboxed process. React 18.3.1 with Babel, Twind, D3 7.9.0 and Phaser 3.90.0 are tested. Chart.js and Mermaid are not run as libraries: pages that load them are drawn by Folio's built-in chart bridge and diagram renderer, which cover a subset ([#821](https://github.com/Yuuzulight/Folio/issues/821), [#822](https://github.com/Yuuzulight/Folio/issues/822)). |
+| Scripting | Supported | Folio's own JavaScript engine in a sandboxed process. React 18.3.1 with Babel, Twind, D3 7.9.0 and Phaser 3.90.0 are tested. Chart.js and Mermaid are not run as libraries: a page that loads Chart.js is drawn by Folio's chart bridge, and Mermaid blocks by Folio's diagram renderer. See the rows below. |
+| Charts | Partial | A subset of Chart.js 4 for bar, line, pie and doughnut charts: dataset colours, several datasets, stacking, horizontal bars, legend and title, round axis ticks, min, max and grace, and tension, fill and dash on lines. Layout was matched to Chart.js. Other chart types are not drawn and raise a diagnostic. |
+| Diagrams | Partial | Mermaid-style flowcharts (LR, RL, TD, BT, subgraphs, labelled edges), sequence, class, state, ER, pie, timeline and Gantt diagrams, laid out and styled by `Folio.Diagrams`. Class and ER relationships use plain arrows. |
 | Canvas 2D | Supported | |
 | WebRTC | Supported, with limits | Data channels, Opus, VP8 and H.264 receive, through a host-mediated transport. Interop was checked with Chrome only; sent video is VP8 key frames only. See the [release notes](docs/releases/1.0.0.md#known-limits). |
 | WebAssembly, WebGL, workers, media, camera and microphone | Partial | Available when the host grants them; coverage is the tested corpus. Capture needs a host-supplied provider. |
