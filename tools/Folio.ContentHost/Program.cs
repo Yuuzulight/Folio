@@ -123,6 +123,8 @@ session.MessageReceived += async (message, cancellationToken) =>
         {
             var result = await runtime.ExecuteAsync(message, cancellationToken);
             await SendFrame(message.Sequence, result, cancellationToken);
+            // Behind the frame, so the collection of the replaced document is not in the first-frame time.
+            runtime.CollectRetired();
         }
         catch (Exception exception)
         {

@@ -156,11 +156,27 @@ public sealed class ContentDocumentRuntime : IDisposable
         if (timings is not null) timings["raster"] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         started = Stopwatch.GetTimestamp();
         var pixels = surface.PremultipliedPixels;
-        for (var i = 0; i < pixels.Length; i += 4)
-            (pixels[i], pixels[i + 2]) = (pixels[i + 2], pixels[i]);
+        SwapRedAndBlue(pixels);
         _frameStore.Publish(pixels);
         if (timings is not null) timings["publish"] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         return list.Items.Count;
+    }
+
+    /// <summary>RGBA to BGRA in place: swaps bytes 0 and 2 of every pixel, sixteen bytes (four pixels) per step.</summary>
+    internal static void SwapRedAndBlue(byte[] pixels)
+    {
+        var i = 0;
+        if (System.Runtime.Intrinsics.Vector128.IsHardwareAccelerated)
+        {
+            var swap = System.Runtime.Intrinsics.Vector128.Create((byte)2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
+            for (; i <= pixels.Length - 16; i += 16)
+            {
+                var block = System.Runtime.Intrinsics.Vector128.LoadUnsafe(ref pixels[i]);
+                System.Runtime.Intrinsics.Vector128.StoreUnsafe(System.Runtime.Intrinsics.Vector128.Shuffle(block, swap), ref pixels[i]);
+            }
+        }
+        for (; i + 2 < pixels.Length; i += 4)
+            (pixels[i], pixels[i + 2]) = (pixels[i + 2], pixels[i]);
     }
 
     public bool ApplyCapabilities(ContentMessage message)
@@ -193,7 +209,8 @@ public sealed class ContentDocumentRuntime : IDisposable
         }
         if (replacesDocument)
         {
-            DisposeDocument();
+            // The collection of the retired document waits for CollectRetired, after the new frame is out.
+            DisposeDocument(collect: false);
             var documentGeneration = _documentGeneration;
             var policy = message.Payload.TryGetProperty("hostPolicy", out var hostPolicy) ? hostPolicy : default;
             var origins = ContentHostPolicy.ReadOrigins(policy);
@@ -362,7 +379,27 @@ public sealed class ContentDocumentRuntime : IDisposable
         _engine.SetGlobalProperty("devicePixelRatio", ScriptValue.FromNumber(_viewport.DeviceScale));
     }
 
-    private void DisposeDocument()
+    private bool _collectionPending;
+
+    /// <summary>
+    /// Collects what the last replaced document left behind. The host calls it once the new document's frame has been sent, so
+    /// the full collection (about 5 ms) is not part of the load a user waits for; every other way a document ends still
+    /// collects at once.
+    /// </summary>
+    public void CollectRetired()
+    {
+        if (!_collectionPending) return;
+        _collectionPending = false;
+        CollectGarbage();
+    }
+
+    private static void CollectGarbage()
+    {
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: false);
+        GC.WaitForPendingFinalizers();
+    }
+
+    private void DisposeDocument(bool collect = true)
     {
         ++_documentGeneration;
         if (_captureProvider is null && _engine is null && _runner is null && _eventLoop is null && _document is null)
@@ -377,8 +414,8 @@ public sealed class ContentDocumentRuntime : IDisposable
         // A content process replaces documents repeatedly. Promptly collect
         // retired DOM/script graphs so the process working-set target reflects
         // the live document rather than every page visited since startup.
-        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: false);
-        GC.WaitForPendingFinalizers();
+        if (collect) { _collectionPending = false; CollectGarbage(); }
+        else _collectionPending = true;
     }
 
     private sealed class BrokerResourceLoader(ContentHostSession session) : IResourceLoader
