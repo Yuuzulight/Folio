@@ -8,6 +8,38 @@ namespace Folio.Scripting.Tests;
 public sealed class HeadlessContentBrokerLifetimeTests
 {
     [Fact]
+    public async Task NavigationRequiresAnExplicitAllowedHttpsOrigin()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var broker = StartBroker(Environment.ProcessId);
+        try
+        {
+            using var hello = await ExchangeAsync(broker, 1, new { op = "hello" });
+            Assert.False(hello.RootElement.GetProperty("networkEnabled").GetBoolean());
+            using var denied = await ExchangeAsync(broker, 2, new { op = "navigate", url = "https://example.test/index.html" });
+            Assert.False(denied.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal("policy_refused", denied.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+        finally { KillTreeIfRunning(broker); }
+    }
+
+    [Fact]
+    public async Task NavigationCannotLeaveConfiguredOriginPathPrefix()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var broker = StartBroker(Environment.ProcessId, ["https://allowed.example/site"]);
+        try
+        {
+            using var hello = await ExchangeAsync(broker, 1, new { op = "hello" });
+            Assert.True(hello.RootElement.GetProperty("networkEnabled").GetBoolean());
+            using var denied = await ExchangeAsync(broker, 2, new { op = "navigate", url = "https://allowed.example/outside/page.html" });
+            Assert.False(denied.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal("policy_refused", denied.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+        finally { KillTreeIfRunning(broker); }
+    }
+
+    [Fact]
     public async Task BrokerSnapshotObservesDomMutationAndScreenshotContainsRenderedPng()
     {
         if (!OperatingSystem.IsWindows()) return;
@@ -36,15 +68,10 @@ public sealed class HeadlessContentBrokerLifetimeTests
             Assert.Equal(root.GetProperty("width").GetInt32(), image.Width);
             Assert.Equal(root.GetProperty("height").GetInt32(), image.Height);
             var paintedPixels = 0;
-            var nonWhitePixels = 0;
             for (var offset = 0; offset < image.Pixels.Length; offset += 4)
-            {
                 if (image.Pixels[offset] == 37 && image.Pixels[offset + 1] == 107 && image.Pixels[offset + 2] == 51)
                     paintedPixels++;
-                if (image.Pixels[offset] != 255 || image.Pixels[offset + 1] != 255 || image.Pixels[offset + 2] != 255)
-                    nonWhitePixels++;
-            }
-            Assert.True(paintedPixels > 0 || nonWhitePixels > 100, "The PNG did not contain the sandboxed page rendering.");
+            Assert.True(paintedPixels > 0, "The PNG did not preserve the sandboxed canvas drawing.");
         }
         finally { KillTreeIfRunning(broker); }
     }
@@ -105,7 +132,7 @@ public sealed class HeadlessContentBrokerLifetimeTests
         return Process.Start(start) ?? throw new InvalidOperationException("Unable to start parent process fixture.");
     }
 
-    private static Process StartBroker(int parentPid)
+    private static Process StartBroker(int parentPid, IEnumerable<string>? allowedOrigins = null)
     {
         var host = Path.ChangeExtension(ContentHostTestPaths.Resolve(), ".exe");
         if (!File.Exists(host)) throw new FileNotFoundException("Content host executable was not built.", host);
@@ -119,6 +146,7 @@ public sealed class HeadlessContentBrokerLifetimeTests
         };
         start.ArgumentList.Add("--broker");
         start.ArgumentList.Add($"--arcana-parent-pid={parentPid}");
+        foreach (var origin in allowedOrigins ?? []) start.ArgumentList.Add($"--allow-origin={origin}");
         return Process.Start(start) ?? throw new InvalidOperationException("Unable to start Folio headless broker.");
     }
 

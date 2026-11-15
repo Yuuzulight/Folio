@@ -6,7 +6,9 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Nodes;
 using System.IO.Compression;
 using System.Buffers.Binary;
+using Folio;
 using Folio.Scripting.Ipc;
+using Folio.Resources;
 
 namespace Folio.ContentHost;
 
@@ -81,20 +83,27 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
 
     private readonly SemaphoreSlim _requestGate = new(1, 1);
     private readonly int _parentPid;
+    private readonly IReadOnlyList<AllowedOrigin> _allowedOrigins;
     private readonly string _referencePrefix = "folio-" + Guid.NewGuid().ToString("N")[..12] + "-e";
+    private readonly IArtifactStorage _storage = new BrokerMemoryStorage(Environment.GetEnvironmentVariable("FOLIO_STORAGE_PATH"));
     private ContentProcessClient? _client;
+    private IResourceLoader? _resourceLoader;
+    private ContentResourcePolicy? _resourcePolicy;
     private TaskCompletionSource<ContentMessage>? _pendingReply;
     private string _urlLabel = "about:blank";
     private long _lastWorkerSequence;
     private int _referenceCounter;
+    private double _pointerX;
+    private double _pointerY;
     private bool _closed;
     private bool _disposed;
 
-    public HeadlessContentBroker(int parentPid)
+    public HeadlessContentBroker(int parentPid, IEnumerable<string>? allowedOrigins = null)
     {
         if (parentPid <= 0 || parentPid == Environment.ProcessId)
             throw new ArgumentOutOfRangeException(nameof(parentPid), "The Arcana parent process ID must be a different positive process ID.");
         _parentPid = parentPid;
+        _allowedOrigins = (allowedOrigins ?? []).Select(ParseAllowedOrigin).DistinctBy(origin => origin.Origin, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
@@ -242,8 +251,10 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             await EnsureClientAsync().ConfigureAwait(false);
             var hello = await ExchangeAsync(ContentMessageKind.Hello, EmptyObject, ContentMessageKind.Hello, cancellationToken).ConfigureAwait(false);
             var protocol = hello.Payload.TryGetProperty("protocol", out var protocolValue) && protocolValue.TryGetInt32(out var version) ? version : ContentMessage.CurrentVersion;
-            return new BrokerHelloResponse(IdOrNull(id, hasId), true, "v1", new BrokerEngine("Folio.ContentHost/native", protocol), true, false);
+            return new BrokerHelloResponse(IdOrNull(id, hasId), true, "v1", new BrokerEngine("Folio.ContentHost/native", protocol), true, _allowedOrigins.Count > 0);
         }
+        if (operation.Equals("navigate", StringComparison.OrdinalIgnoreCase))
+            return await NavigateAsync(id, hasId, RequiredString(request, "url"), cancellationToken).ConfigureAwait(false);
         if (operation.Equals("load", StringComparison.OrdinalIgnoreCase))
         {
             var html = RequiredString(request, "html");
@@ -310,11 +321,39 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             return new BrokerScreenshotResponse(IdOrNull(id, hasId), true, "image/png", captured.Frame.Width,
                 captured.Frame.Height, captured.Frame.Sequence, Convert.ToBase64String(png));
         }
+        switch (operation)
+        {
+            case "click-at":
+                var x = RequiredFiniteNumber(request, "x");
+                var y = RequiredFiniteNumber(request, "y");
+                await SendInputAsync(new JsonObject { ["type"] = "pointerdown", ["x"] = x, ["y"] = y, ["button"] = 0, ["buttons"] = 1 }, cancellationToken).ConfigureAwait(false);
+                await SendInputAsync(new JsonObject { ["type"] = "pointerup", ["x"] = x, ["y"] = y, ["button"] = 0 }, cancellationToken).ConfigureAwait(false);
+                _pointerX = x;
+                _pointerY = y;
+                return new BrokerSimpleResponse(IdOrNull(id, hasId), true);
+            case "press":
+                var key = RequiredString(request, "key");
+                if (string.IsNullOrWhiteSpace(key)) throw new BrokerRequestException("invalid_request", "key must not be empty.");
+                await SendInputAsync(new JsonObject { ["type"] = "keydown", ["key"] = key }, cancellationToken).ConfigureAwait(false);
+                await SendInputAsync(new JsonObject { ["type"] = "keyup", ["key"] = key }, cancellationToken).ConfigureAwait(false);
+                return new BrokerSimpleResponse(IdOrNull(id, hasId), true);
+            case "type":
+                await SendInputAsync(new JsonObject { ["type"] = "textinput", ["text"] = RequiredPayloadString(request, "text") }, cancellationToken).ConfigureAwait(false);
+                return new BrokerSimpleResponse(IdOrNull(id, hasId), true);
+            case "scroll":
+                await SendInputAsync(new JsonObject
+                {
+                    ["type"] = "wheel",
+                    ["x"] = _pointerX,
+                    ["y"] = _pointerY,
+                    ["deltaX"] = RequiredFiniteNumber(request, "deltaX"),
+                    ["deltaY"] = RequiredFiniteNumber(request, "deltaY")
+                }, cancellationToken).ConfigureAwait(false);
+                return new BrokerSimpleResponse(IdOrNull(id, hasId), true);
+        }
         if (operation.Equals("click", StringComparison.OrdinalIgnoreCase) ||
             operation.Equals("fill", StringComparison.OrdinalIgnoreCase) ||
             operation.Equals("select", StringComparison.OrdinalIgnoreCase) ||
-            operation.Equals("press", StringComparison.OrdinalIgnoreCase) ||
-            operation.Equals("scroll", StringComparison.OrdinalIgnoreCase) ||
             operation.Equals("upload", StringComparison.OrdinalIgnoreCase))
             throw new BrokerRequestException("unsupported", $"The {operation} operation is not supported by this Folio broker.");
         if (operation.Equals("close", StringComparison.OrdinalIgnoreCase))
@@ -323,6 +362,23 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             return new BrokerSimpleResponse(IdOrNull(id, hasId), true);
         }
         throw new BrokerRequestException("unsupported", $"The {operation} operation is not supported by this Folio broker.");
+    }
+
+    private async Task SendInputAsync(JsonObject input, CancellationToken cancellationToken)
+    {
+        EnsureLoaded();
+        var frame = await ExchangeAsync(ContentMessageKind.Input, input, ContentMessageKind.Frame, cancellationToken).ConfigureAwait(false);
+        var sequence = GetWorkerSequence(frame.Payload);
+        if (sequence <= _lastWorkerSequence) throw new BrokerRequestException("engine_error", "Folio returned a stale input response.");
+        _lastWorkerSequence = sequence;
+    }
+
+    private static double RequiredFiniteNumber(JsonElement request, string name)
+    {
+        if (request.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Number &&
+            property.TryGetDouble(out var number) && double.IsFinite(number) && double.Abs(number) <= float.MaxValue)
+            return number;
+        throw new BrokerRequestException("invalid_request", $"{name} must be a finite viewport coordinate or wheel delta.");
     }
 
     private Task EnsureClientAsync()
@@ -343,10 +399,115 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             if (!File.Exists(assemblyPath)) throw new BrokerRequestException("engine_error", "Unable to locate the Folio content-host build.");
             hostPath = assemblyPath;
         }
-        _client = ContentProcessClient.Start(hostPath, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(20)));
+        if (_allowedOrigins.Count > 0)
+        {
+            _resourceLoader = ResourceLoaders.Allowlist(new AllowlistOptions
+            {
+                Origins = _allowedOrigins,
+                AllowUnversioned = true,
+                Timeout = RequestTimeout
+            });
+            _resourcePolicy = new ContentResourcePolicy
+            {
+                AllowedOrigins = _allowedOrigins.Select(origin => new Uri(origin.Origin).GetLeftPart(UriPartial.Authority))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            };
+        }
+        _client = ContentProcessClient.Start(hostPath, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(20)),
+            resourceLoader: _resourceLoader, resourcePolicy: _resourcePolicy, artifactStorage: _storage);
         _client.MessageReceived += OnContentMessageAsync;
         _client.ScriptStopped += OnScriptStopped;
         return Task.CompletedTask;
+    }
+
+    private async Task<object> NavigateAsync(JsonElement id, bool hasId, string url, CancellationToken cancellationToken)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var requestedUrl) || !IsAllowed(requestedUrl, ResourceKind.Document))
+            throw new BrokerRequestException("policy_refused", "Navigation requires an HTTPS URL covered by a configured allow-origin policy.");
+        if (_allowedOrigins.Count == 0)
+            throw new BrokerRequestException("policy_refused", "Navigation is disabled because no HTTPS origins were configured for this broker.");
+        await EnsureClientAsync().ConfigureAwait(false);
+        var resourceLoader = _resourceLoader ?? throw new BrokerRequestException("navigation_failed", "The configured HTTPS resource loader is unavailable.");
+        ResourceResponse? resource;
+        try
+        {
+            resource = await resourceLoader.LoadAsync(new ResourceRequest(requestedUrl.AbsoluteUri, ResourceKind.Document), cancellationToken)
+                .WaitAsync(RequestTimeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new BrokerRequestException("timeout", "The top-level document load timed out.");
+        }
+        if (resource?.Data is not { } bytes)
+        {
+            var error = resource?.Error ?? "The configured host loader refused the document.";
+            var code = error.Contains("timed out", StringComparison.OrdinalIgnoreCase) ? "timeout"
+                : IsPolicyRefusal(error) ? "policy_refused" : "navigation_failed";
+            throw new BrokerRequestException(code, error);
+        }
+        var finalUrl = resource.FinalUrl ?? requestedUrl.AbsoluteUri;
+        if (!Uri.TryCreate(finalUrl, UriKind.Absolute, out var resolvedUrl) || !IsAllowed(resolvedUrl, ResourceKind.Document))
+            throw new BrokerRequestException("policy_refused", "The final document URL is outside the configured HTTPS origin policy.");
+
+        _urlLabel = resolvedUrl.AbsoluteUri;
+        _lastWorkerSequence = 0;
+        _referenceCounter = 0;
+        var html = Encoding.UTF8.GetString(bytes);
+        var initializeReferences = $"window.__folioRefPrefix='{_referencePrefix}';window.__folioRefCounter=0";
+        var frame = await ExchangeAsync(ContentMessageKind.Load, new JsonObject
+        {
+            ["html"] = html,
+            ["script"] = initializeReferences,
+            ["url"] = _urlLabel
+        }, ContentMessageKind.Frame, cancellationToken).ConfigureAwait(false);
+        if (FindPolicyRefusal(frame.Payload) is { } refusal)
+            throw new BrokerRequestException("policy_refused", refusal);
+        return await FrameResponseAsync(id, hasId, frame, cancellationToken).ConfigureAwait(false);
+    }
+
+    private bool IsAllowed(Uri url, ResourceKind kind)
+    {
+        if (url.Scheme != Uri.UriSchemeHttps || url.UserInfo.Length > 0) return false;
+        return _allowedOrigins.Any(allowed => allowed.Kinds.Contains(kind) &&
+            Uri.TryCreate(allowed.Origin, UriKind.Absolute, out var origin) && origin.Scheme == Uri.UriSchemeHttps &&
+            string.Equals(origin.Host, url.Host, StringComparison.OrdinalIgnoreCase) && origin.Port == url.Port &&
+            IsUnderPrefix(url.AbsolutePath, origin.AbsolutePath));
+    }
+
+    private static AllowedOrigin ParseAllowedOrigin(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length > 0 ||
+            uri.Query.Length > 0 || uri.Fragment.Length > 0)
+            throw new ArgumentException("allow-origin values must be HTTPS origins or path prefixes without credentials, query, or fragment.", nameof(value));
+        var normalized = uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
+        if (string.IsNullOrEmpty(normalized)) normalized = uri.GetLeftPart(UriPartial.Authority);
+        return new AllowedOrigin(normalized, ResourceKind.Document, ResourceKind.Stylesheet, ResourceKind.Script,
+            ResourceKind.Image, ResourceKind.SvgImage, ResourceKind.Font, ResourceKind.Media, ResourceKind.Fetch);
+    }
+
+    private static bool IsUnderPrefix(string path, string prefix)
+        => path.StartsWith(prefix, StringComparison.Ordinal) && (prefix.EndsWith('/') || path.Length == prefix.Length || path[prefix.Length] == '/');
+
+    private static bool IsPolicyRefusal(string error)
+        => error.Contains("not allowed", StringComparison.OrdinalIgnoreCase) ||
+           error.Contains("Blocked by content resource policy", StringComparison.OrdinalIgnoreCase) ||
+           error.Contains("Only HTTPS", StringComparison.OrdinalIgnoreCase) ||
+           error.Contains("credentials", StringComparison.OrdinalIgnoreCase) ||
+           error.Contains("pinned hash", StringComparison.OrdinalIgnoreCase) ||
+           error.Contains("integrity", StringComparison.OrdinalIgnoreCase) ||
+           error.Contains("version", StringComparison.OrdinalIgnoreCase);
+
+    private static string? FindPolicyRefusal(JsonElement payload)
+    {
+        if (!payload.TryGetProperty("diagnostics", out var diagnostics) || diagnostics.ValueKind != JsonValueKind.Array)
+            return null;
+        foreach (var item in diagnostics.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String) continue;
+            var message = item.GetString();
+            if (!string.IsNullOrWhiteSpace(message) && IsPolicyRefusal(message)) return message;
+        }
+        return null;
     }
 
     private void EnsureLoaded()
@@ -386,6 +547,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
 
     private ValueTask OnContentMessageAsync(ContentMessage message, CancellationToken cancellationToken)
     {
+        if (message.Kind == ContentMessageKind.Frame && GetWorkerSequence(message.Payload) == 0) return ValueTask.CompletedTask;
         if (message.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic or ContentMessageKind.Hello)
             _pendingReply?.TrySetResult(message);
         return ValueTask.CompletedTask;
@@ -424,7 +586,8 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
 
         using var reader = new CanvasFrameStore(path!, width, height, stride);
         var pixels = reader.ReadLatest(out var actualSequence);
-        if (actualSequence != describedSequence) throw new BrokerRequestException("engine_error", "Folio's rendered-frame sequence did not match its descriptor.");
+        // The content worker can publish another frame between acknowledging a request and our read.
+        if (actualSequence < describedSequence) throw new BrokerRequestException("engine_error", "Folio's rendered-frame sequence did not match its descriptor.");
         var inside = ReadPixel(pixels, stride, width, height, 16, 16);
         var outside = ReadPixel(pixels, stride, width, height, 100, 100);
         var background = ReadPixel(pixels, stride, width, height, width - 1, height - 1);
@@ -547,16 +710,31 @@ internal static class BrokerPngEncoder
         using (var zlib = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
         {
             var rowBytes = checked(width * 4);
+            var row = new byte[rowBytes];
             for (var y = 0; y < height; y++)
             {
                 zlib.WriteByte(0);
-                zlib.Write(rgba, checked(y * stride), rowBytes);
+                var sourceOffset = checked(y * stride);
+                for (var x = 0; x < width; x++)
+                {
+                    var source = sourceOffset + x * 4;
+                    var destination = x * 4;
+                    var alpha = rgba[source + 3];
+                    row[destination] = Unpremultiply(rgba[source + 2], alpha);
+                    row[destination + 1] = Unpremultiply(rgba[source + 1], alpha);
+                    row[destination + 2] = Unpremultiply(rgba[source], alpha);
+                    row[destination + 3] = alpha;
+                }
+                zlib.Write(row);
             }
         }
         WriteChunk(output, "IDAT", compressed.ToArray());
         WriteChunk(output, "IEND", []);
         return output.ToArray();
     }
+
+    private static byte Unpremultiply(byte value, byte alpha)
+        => alpha == 0 ? (byte)0 : (byte)Math.Min(255, (value * 255 + alpha / 2) / alpha);
 
     private static void WriteChunk(Stream output, string type, byte[] data)
     {
@@ -575,5 +753,94 @@ internal static class BrokerPngEncoder
         Span<byte> checksum = stackalloc byte[4];
         BinaryPrimitives.WriteUInt32BigEndian(checksum, ~crc);
         output.Write(checksum);
+    }
+}
+
+internal sealed class BrokerMemoryStorage : IArtifactStorage
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _values = new(StringComparer.Ordinal);
+    private readonly string? _filePath;
+    private readonly object _lock = new();
+
+    public BrokerMemoryStorage(string? filePath = null)
+    {
+        _filePath = filePath;
+        if (!string.IsNullOrWhiteSpace(_filePath) && File.Exists(_filePath))
+        {
+            try
+            {
+                var bytes = File.ReadAllBytes(_filePath);
+                using var document = JsonDocument.Parse(bytes);
+                foreach (var property in document.RootElement.EnumerateObject())
+                {
+                    if (property.Value.ValueKind == JsonValueKind.String && property.Name.Contains("/local/"))
+                        _values[property.Name] = property.Value.GetString()!;
+                }
+            }
+            catch { }
+        }
+    }
+
+    public string? Read(string key)
+    {
+        if (_values.TryGetValue(key, out var value)) return value;
+        if (!string.IsNullOrWhiteSpace(_filePath) && key.Contains("/local/") && File.Exists(_filePath))
+        {
+            lock (_lock)
+            {
+                try
+                {
+                    var bytes = File.ReadAllBytes(_filePath);
+                    using var document = JsonDocument.Parse(bytes);
+                    foreach (var property in document.RootElement.EnumerateObject())
+                    {
+                        if (property.Value.ValueKind == JsonValueKind.String && property.Name.Contains("/local/"))
+                            _values[property.Name] = property.Value.GetString()!;
+                    }
+                    if (_values.TryGetValue(key, out value)) return value;
+                }
+                catch { }
+            }
+        }
+        return null;
+    }
+
+    public void Write(string key, string value)
+    {
+        _values[key] = value;
+        SaveIfLocal(key);
+    }
+
+    public void Delete(string key)
+    {
+        _values.TryRemove(key, out _);
+        SaveIfLocal(key);
+    }
+
+    public IReadOnlyList<string> Keys(string prefix) => _values.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(key => key, StringComparer.Ordinal).ToArray();
+
+    private void SaveIfLocal(string key)
+    {
+        if (string.IsNullOrWhiteSpace(_filePath) || !key.Contains("/local/")) return;
+        lock (_lock)
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(_filePath);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                using var stream = new MemoryStream();
+                using (var writer = new Utf8JsonWriter(stream))
+                {
+                    writer.WriteStartObject();
+                    foreach (var pair in _values)
+                    {
+                        if (pair.Key.Contains("/local/")) writer.WriteString(pair.Key, pair.Value);
+                    }
+                    writer.WriteEndObject();
+                }
+                File.WriteAllBytes(_filePath, stream.ToArray());
+            }
+            catch { }
+        }
     }
 }

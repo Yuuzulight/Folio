@@ -95,7 +95,7 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
 
         var cached = versioned ? CachePath(request.Url) : null;
         if (cached is not null && ReadCache(cached) is { } bytes && Matches(bytes, pinned) && MatchesMetadata(bytes, request.Integrity))
-            return ResourceResponse.Loaded(bytes, ContentTypeOf(request.Kind));
+            return ResourceResponse.Loaded(bytes, ContentTypeOf(request.Kind), request.Url);
 
         var response = await Fetch(url, request.Kind, cancellationToken).ConfigureAwait(false);
         if (response.Data is not { } data)
@@ -154,7 +154,7 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
                     return ResourceResponse.Refused($"A {kind.ToString().ToLowerInvariant()} cannot have the MIME type {type ?? "(none)"}.");
                 if (response.Content.Headers.ContentLength > ResourceLoader.MaxResourceBytes)
                     return ResourceResponse.Refused($"The resource is larger than {ResourceLoader.MaxResourceBytes} bytes.");
-                return ResourceResponse.Loaded(await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false), type);
+                return ResourceResponse.Loaded(await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false), type, url.AbsoluteUri);
             }
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or IOException)
