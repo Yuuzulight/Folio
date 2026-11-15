@@ -469,8 +469,22 @@ internal sealed class DomContext : IFetchContext
         }
     }
 
-    public (double X, double Y) GetScroll(ElementNode element) => _scrollOffsets.TryGetValue(element, out var value) ? value : (0, 0);
-    public void SetScroll(ElementNode element, double x, double y) => _scrollOffsets[element] = (Math.Max(0, x), Math.Max(0, y));
+    internal Document? HostedDocument { get; set; }
+
+    public (double X, double Y) GetScroll(ElementNode element)
+    {
+        if (HostedDocument is { } document)
+            return (document.GetScrollLeft(element), document.GetScrollTop(element));
+        return _scrollOffsets.TryGetValue(element, out var value) ? value : (0, 0);
+    }
+
+    public void SetScroll(ElementNode element, double x, double y)
+    {
+        if (HostedDocument is { } document)
+            document.ScrollTo(document.Wrap(element), (float)x, (float)y);
+        else
+            _scrollOffsets[element] = (Math.Max(0, x), Math.Max(0, y));
+    }
 
     private MutationObserverRegistry? _mutationObservers;
 
