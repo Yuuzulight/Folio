@@ -85,7 +85,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
     private readonly int _parentPid;
     private readonly IReadOnlyList<AllowedOrigin> _allowedOrigins;
     private readonly string _referencePrefix = "folio-" + Guid.NewGuid().ToString("N")[..12] + "-e";
-    private readonly IArtifactStorage _storage = new BrokerMemoryStorage();
+    private readonly IArtifactStorage _storage = new BrokerMemoryStorage(Environment.GetEnvironmentVariable("FOLIO_STORAGE_PATH"));
     private ContentProcessClient? _client;
     private IResourceLoader? _resourceLoader;
     private ContentResourcePolicy? _resourcePolicy;
@@ -759,8 +759,88 @@ internal static class BrokerPngEncoder
 internal sealed class BrokerMemoryStorage : IArtifactStorage
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _values = new(StringComparer.Ordinal);
-    public string? Read(string key) => _values.TryGetValue(key, out var value) ? value : null;
-    public void Write(string key, string value) => _values[key] = value;
-    public void Delete(string key) => _values.TryRemove(key, out _);
+    private readonly string? _filePath;
+    private readonly object _lock = new();
+
+    public BrokerMemoryStorage(string? filePath = null)
+    {
+        _filePath = filePath;
+        if (!string.IsNullOrWhiteSpace(_filePath) && File.Exists(_filePath))
+        {
+            try
+            {
+                var bytes = File.ReadAllBytes(_filePath);
+                using var document = JsonDocument.Parse(bytes);
+                foreach (var property in document.RootElement.EnumerateObject())
+                {
+                    if (property.Value.ValueKind == JsonValueKind.String && property.Name.Contains("/local/"))
+                        _values[property.Name] = property.Value.GetString()!;
+                }
+            }
+            catch { }
+        }
+    }
+
+    public string? Read(string key)
+    {
+        if (_values.TryGetValue(key, out var value)) return value;
+        if (!string.IsNullOrWhiteSpace(_filePath) && key.Contains("/local/") && File.Exists(_filePath))
+        {
+            lock (_lock)
+            {
+                try
+                {
+                    var bytes = File.ReadAllBytes(_filePath);
+                    using var document = JsonDocument.Parse(bytes);
+                    foreach (var property in document.RootElement.EnumerateObject())
+                    {
+                        if (property.Value.ValueKind == JsonValueKind.String && property.Name.Contains("/local/"))
+                            _values[property.Name] = property.Value.GetString()!;
+                    }
+                    if (_values.TryGetValue(key, out value)) return value;
+                }
+                catch { }
+            }
+        }
+        return null;
+    }
+
+    public void Write(string key, string value)
+    {
+        _values[key] = value;
+        SaveIfLocal(key);
+    }
+
+    public void Delete(string key)
+    {
+        _values.TryRemove(key, out _);
+        SaveIfLocal(key);
+    }
+
     public IReadOnlyList<string> Keys(string prefix) => _values.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(key => key, StringComparer.Ordinal).ToArray();
+
+    private void SaveIfLocal(string key)
+    {
+        if (string.IsNullOrWhiteSpace(_filePath) || !key.Contains("/local/")) return;
+        lock (_lock)
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(_filePath);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                using var stream = new MemoryStream();
+                using (var writer = new Utf8JsonWriter(stream))
+                {
+                    writer.WriteStartObject();
+                    foreach (var pair in _values)
+                    {
+                        if (pair.Key.Contains("/local/")) writer.WriteString(pair.Key, pair.Value);
+                    }
+                    writer.WriteEndObject();
+                }
+                File.WriteAllBytes(_filePath, stream.ToArray());
+            }
+            catch { }
+        }
+    }
 }
