@@ -453,6 +453,9 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                 using var document = Document.Parse(html);
                 var urls = document.QuerySelectorAll("script[src]").Select(script => script.GetAttribute("src")!).Distinct(StringComparer.Ordinal).ToArray();
                 var id = $"D{category}/{Path.GetFileName(Path.GetDirectoryName(path))}";
+                // FOLIO_BENCH_ONLY="D2/pantry,D4/" limits a run to rows whose id starts with one of the prefixes (for A/B profiling).
+                var only = Environment.GetEnvironmentVariable("FOLIO_BENCH_ONLY");
+                if (!string.IsNullOrEmpty(only) && !only.Split(',').Any(prefix => id.StartsWith(prefix, StringComparison.Ordinal))) continue;
                 if (urls.Length == 0)
                 {
                     if (compiled is null) continue;
@@ -527,7 +530,7 @@ mockPeople.filter(p => [p.name, p.role].some(v => v.toLowerCase().includes('e'))
                         {
                             if (sample > 0 && shared is not null) await LoadOn(shared, WarmUpPage, "", false);
                             start = Stopwatch.GetTimestamp();
-                            frame = await LoadOn(client, html, probe, profile && sample == 0);
+                            frame = await LoadOn(client, html, probe, profile);
                             samples.Add(Stopwatch.GetElapsedTime(start));
                         }
                         samples.Sort();
