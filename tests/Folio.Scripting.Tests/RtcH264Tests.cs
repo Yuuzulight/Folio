@@ -309,6 +309,23 @@ public sealed class RtcH264Tests
     }
 
     [Fact]
+    public async Task TheProbeOfferCanBeReducedToOneVideoCodecAndStillParses()
+    {
+        using var peer = new RtcPeerConnectionController();
+        var offer = await peer.CreateOfferAsync(false, 1, 0, 0, 1);
+        var h264 = ChromeRtcMediaProbe.KeepVideoCodec(offer, "H264");
+        Assert.DoesNotContain("VP8", h264);
+        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 97 98\r\n", h264);
+        Assert.DoesNotContain("a=rtcp-fb:96", h264);
+        Assert.Equal("H264/90000", ChromeRtcMediaProbe.FirstCodec(h264, "video"));
+        var vp8 = ChromeRtcMediaProbe.KeepVideoCodec(offer, "VP8");
+        Assert.DoesNotContain("H264", vp8);
+        Assert.Contains("m=video 9 UDP/TLS/RTP/SAVPF 96\r\n", vp8);
+        Assert.Contains("m=audio", vp8);
+        Assert.Single(RtcSdp.Parse(vp8).Media.Where(m => m.Kind == "video"));
+    }
+
+    [Fact]
     public async Task AnOfferListsVp8ThenBothH264VariantsWithFeedbackAndRtcpMux()
     {
         using var offerer = new RtcPeerConnectionController();
@@ -360,9 +377,11 @@ public sealed class RtcH264Tests
 
         // Mode 0 alone is answered as mode 0; no fmtp at all means Baseline level 1 in mode 0.
         var mode0 = await Answer(BrowserHead + "102" + BrowserTail + "a=rtpmap:102 H264/90000\r\na=fmtp:102 packetization-mode=0;profile-level-id=42001f\r\n");
-        Assert.Contains("a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f\r\n", mode0);
+        Assert.Contains("a=fmtp:102 packetization-mode=0;profile-level-id=42001f\r\n", mode0);   // level-asymmetry-allowed is echoed only when offered
         var bare = await Answer(BrowserHead + "102" + BrowserTail + "a=rtpmap:102 H264/90000\r\n");
-        Assert.Contains("a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42000a\r\n", bare);
+        Assert.Contains("a=fmtp:102 packetization-mode=0;profile-level-id=42000a\r\n", bare);
+        var asymmetric = await Answer(BrowserHead + "102" + BrowserTail + "a=rtpmap:102 H264/90000\r\na=fmtp:102 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f\r\n");
+        Assert.Contains("a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f\r\n", asymmetric);
 
         // Main and High profile payload types are not decodable and are never picked, even when listed first.
         var mixed = await Answer(BrowserHead + "101 102" + BrowserTail +

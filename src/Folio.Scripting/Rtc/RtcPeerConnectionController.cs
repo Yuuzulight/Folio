@@ -38,8 +38,8 @@ internal sealed class RtcPeerConnectionController : IDisposable
         Media = new RtcMediaEngine(time, mediaBudget);
         Media.OnPacketToSend += bytes => Ice.SendDatagram(bytes);
         Media.OnRemoteTrack += track => OnRemoteTrack?.Invoke(track);
-        Dtls = new DtlsTransport(TimeProvider.System, enableRetryTimer: false);
-        Sctp = new SctpDataChannel(TimeProvider.System, enableRetryTimer: false);
+        Dtls = new DtlsTransport(time ?? TimeProvider.System, enableRetryTimer: false, mediaBudget);
+        Sctp = new SctpDataChannel(time ?? TimeProvider.System, enableRetryTimer: false, mediaBudget);
         Ice.OnMaintenance += () =>
         {
             Dtls.RetryDueFlight(); Sctp.RetryDueHandshake(); Sctp.RetryDueData(); Media.Tick();
@@ -113,6 +113,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
     }
 
     private readonly List<RtcLocalTrack> _localAudio = [];
+    private readonly List<RtcLocalTrack?> _localVideo = [];
 
     private RtcLocalTrack? LocalAudio(int index)
     {
@@ -127,6 +128,32 @@ internal sealed class RtcPeerConnectionController : IDisposable
     /// <summary>The i-th audio sender, in addTrack order, once an offer or answer has created it.</summary>
     public RtcLocalTrack? LocalAudioTrack(int index) { lock (_gate) return index >= 0 && index < _localAudio.Count ? _localAudio[index] : null; }
 
+    internal RtcLocalTrack? LocalVideo(int index)
+    {
+        while (_localVideo.Count <= index)
+        {
+            if (Media.AddLocalVideo() is not { } track) return null;
+            _localVideo.Add(track);
+        }
+        return _localVideo[index];
+    }
+
+    /// <summary>The video sender in slot <paramref name="index"/>, once an offer or answer has created it. A released slot stays empty; slots are never reused.</summary>
+    public RtcLocalTrack? LocalVideoTrack(int index) { lock (_gate) return index >= 0 && index < _localVideo.Count ? _localVideo[index] : null; }
+
+    /// <summary>Frees the sender in slot <paramref name="index"/> and its track budget, for example when its camera ended.</summary>
+    public void ReleaseLocalVideo(int index)
+    {
+        RtcLocalTrack? track;
+        lock (_gate)
+        {
+            if (index < 0 || index >= _localVideo.Count) return;
+            track = _localVideo[index];
+            _localVideo[index] = null;
+        }
+        if (track is not null) Media.RemoveLocal(track);
+    }
+
     /// <summary>Folio receives mono or stereo Opus and sends mono (RFC 7587 parameters), with in-band FEC accepted.</summary>
     internal const string OpusFmtp = "minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0";
     private static readonly RtcCodec[] AudioCodecs = [new(111, "opus", 48000, 2) { Fmtp = OpusFmtp }, new(0, "PCMU", 8000, 1), new(8, "PCMA", 8000, 1)];
@@ -137,7 +164,8 @@ internal sealed class RtcPeerConnectionController : IDisposable
         new(97, "H264", 90000, 1) { Fmtp = H264Fmtp("42e01f", 1) },
         new(98, "H264", 90000, 1) { Fmtp = H264Fmtp("42001f", 1) },
     ];
-    private static string H264Fmtp(string profileLevelId, int packetizationMode) => $"level-asymmetry-allowed=1;packetization-mode={packetizationMode};profile-level-id={profileLevelId}";
+    private static string H264Fmtp(string profileLevelId, int packetizationMode, bool levelAsymmetryAllowed = true) =>
+        (levelAsymmetryAllowed ? "level-asymmetry-allowed=1;" : "") + $"packetization-mode={packetizationMode};profile-level-id={profileLevelId}";
     private static readonly string[] VideoFeedback = ["nack", "nack pli", "ccm fir"];
 
     private RtcMediaDescription MediaSection(string kind, string mid, string direction, RtcLocalTrack? sender)
@@ -163,13 +191,14 @@ internal sealed class RtcPeerConnectionController : IDisposable
     {
         var midIndex = hasDataChannels ? 1 : 0;
         if (hasDataChannels) sdp.Media.Add(DataSection("0"));
-        // Folio sends and decodes Opus and G.711 audio and decodes VP8 and H.264 (Constrained Baseline) video. It cannot send video, so every video section is
-        // offered recvonly (with NACK, PLI and FIR feedback); addTrack(video) is refused before it reaches this point.
+        // Folio sends and decodes Opus and G.711 audio, and sends/decodes VP8 video. H.264 is decode-only.
         for (var i = 0; i < audioSenders && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
             sdp.Media.Add(MediaSection("audio", (midIndex++).ToString(), "sendrecv", LocalAudio(i)));
         for (var i = 0; i < audioReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
             sdp.Media.Add(MediaSection("audio", (midIndex++).ToString(), "recvonly", null));
-        for (var i = 0; i < videoSenders + videoReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
+        for (var i = 0; i < videoSenders && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
+            sdp.Media.Add(MediaSection("video", (midIndex++).ToString(), "sendrecv", LocalVideo(i)));
+        for (var i = 0; i < videoReceivers && sdp.Media.Count < RtcSdp.MaxMediaSections; i++)
             sdp.Media.Add(MediaSection("video", (midIndex++).ToString(), "recvonly", null));
     }
 
@@ -193,14 +222,14 @@ internal sealed class RtcPeerConnectionController : IDisposable
 
     /// <summary>
     /// The one video codec an answer accepts: VP8 when it is offered, else the best H.264 Constrained Baseline payload type
-    /// (packetization mode 1 before 0, then the offer's order), answered with the offered profile-level-id and mode.
+    /// (packetization mode 1 before 0, then the offer's order), answered with the offered profile-level-id and mode, echoing level-asymmetry-allowed only when the offer carried it.
     /// </summary>
     private static RtcCodec[] AcceptVideo(RtcMediaDescription offered)
     {
         var codecs = offered.PayloadTypes.Select(pt => offered.CodecFor(pt)).OfType<RtcCodec>().ToArray();
         if (codecs.FirstOrDefault(c => c is { IsVp8: true, ClockRate: 90000 }) is { } vp8) return [vp8];
         var h264 = codecs.Where(c => c.IsDecodableH264).OrderByDescending(c => c.H264PacketizationMode).FirstOrDefault();
-        return h264 is null ? [] : [new RtcCodec(h264.PayloadType, "H264", 90000, 1) { Fmtp = H264Fmtp(h264.H264ProfileLevelId, h264.H264PacketizationMode) }];
+        return h264 is null ? [] : [new RtcCodec(h264.PayloadType, "H264", 90000, 1) { Fmtp = H264Fmtp(h264.H264ProfileLevelId, h264.H264PacketizationMode, h264.FmtpParameter("level-asymmetry-allowed") == "1") }];
     }
 
     public async Task<string> CreateAnswerAsync(bool hasDataChannels, int audioSenders, int videoSenders)
@@ -222,6 +251,7 @@ internal sealed class RtcPeerConnectionController : IDisposable
             {
                 // An answer mirrors the offer: same sections, same order, same mids (RFC 3264). Sections Folio cannot serve are rejected.
                 var audioIndex = 0;
+                var videoIndex = 0;
                 for (var i = 0; i < remote.Media.Count; i++)
                 {
                     var offered = remote.Media[i];
@@ -243,8 +273,15 @@ internal sealed class RtcPeerConnectionController : IDisposable
                     }
                     if (offered.Kind == "video")
                     {
-                        // Receive only: the offered payload type, with the feedback mechanisms the offer also lists.
-                        var video = MediaSection("video", mid, offered.Sends ? "recvonly" : "inactive", null);
+                        var videoSender = offered.Receives && videoIndex < Math.Max(0, videoSenders) && accepted.Any(c => c.IsVp8) ? LocalVideo(videoIndex++) : null;
+                        var videoDirection = (videoSender is not null, offered.Sends) switch
+                        {
+                            (true, true) => "sendrecv",
+                            (true, false) => "sendonly",
+                            (false, true) => "recvonly",
+                            _ => "inactive"
+                        };
+                        var video = MediaSection("video", mid, videoDirection, videoSender);
                         video.Codecs.Clear(); video.Feedback.Clear();
                         video.Codecs.Add(accepted[0]);
                         foreach (var feedback in VideoFeedback)

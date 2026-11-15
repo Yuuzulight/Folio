@@ -20,6 +20,7 @@ internal sealed partial class TrueTypeMachine
     private int _allowance = InstructionLimit;
     private readonly Dictionary<int, byte[]> _functions = [];
     private readonly Dictionary<int, byte[]> _instructions = [];
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<byte[], Prescan> _prescans;
     internal readonly int[] Storage;
     internal readonly int[] Cvt;
     internal readonly Zone Twilight;
@@ -30,7 +31,8 @@ internal sealed partial class TrueTypeMachine
     internal int StackCount => _top;
     internal int InstructionsUsed => _allowance - _fuel;
     internal long RetainedBytes => 16_384L + Storage.Length * 4L + Cvt.Length * 4L
-        + Twilight.Current.Length * 32L + _functions.Sum(f => 96L + f.Value.Length) + _instructions.Sum(f => 96L + f.Value.Length);
+        // Each definition also keeps the scan of its bytes (a byte per byte, and the record): counted here, where it is planned for.
+        + Twilight.Current.Length * 32L + _functions.Sum(f => 160L + 2L * f.Value.Length) + _instructions.Sum(f => 160L + 2L * f.Value.Length);
 
     private TrueTypeMachine(TrueTypeMachine prepared)
     {
@@ -40,6 +42,7 @@ internal sealed partial class TrueTypeMachine
         Array.Copy(prepared.Twilight.Current, Twilight.Current, Twilight.Current.Length);
         _functions = prepared._functions;
         _instructions = prepared._instructions;
+        _prescans = prepared._prescans;
         Graphics = prepared.Graphics.Copy();
     }
 
@@ -60,6 +63,7 @@ internal sealed partial class TrueTypeMachine
         if (!float.IsFinite(pixelsPerEm) || pixelsPerEm <= 0 || pixelsPerEm > 4096 || unitsPerEm <= 0
             || storage < 0 || storage > MemoryLimit || twilight < 0 || twilight > MemoryLimit || cvt.Length > MemoryLimit)
             throw Fault("Font hinting resources exceed host limits.");
+        _prescans = new();
         PixelsPerEm = MathF.Round(pixelsPerEm * 64) / 64;
         _scale = MathF.Round(PixelsPerEm * 64 / unitsPerEm * 65536) / 65536;
         Storage = new int[storage];
@@ -120,33 +124,54 @@ internal sealed partial class TrueTypeMachine
         return pc + bytes;
     }
 
+    // What a program's scan found: where instructions begin (a branch may only land on one, never inside a PUSH payload),
+    // how many instructions were visited (one unit of fuel each), and the fault that stopped the scan, if any.
+    private sealed record Prescan(bool[] Boundaries, int Steps, string? Fault);
+
+    private static Prescan Scan(byte[] code)
+    {
+        var boundaries = new bool[code.Length + 1];
+        var conditions = new Stack<bool>();
+        var steps = 0;
+        try
+        {
+            for (var p = 0; p < code.Length; p = Next(code, p))
+            {
+                steps++; boundaries[p] = true;
+                if (code[p] == 0x58)
+                {
+                    if (conditions.Count == 64) throw Fault("Conditional nesting exceeds host limits.");
+                    conditions.Push(false);
+                }
+                else if (code[p] == 0x1B)
+                {
+                    if (conditions.Count == 0 || conditions.Pop()) throw Fault("Unexpected ELSE.");
+                    conditions.Push(true);
+                }
+                else if (code[p] == 0x59)
+                {
+                    if (conditions.Count == 0) throw Fault("Unexpected EIF.");
+                    conditions.Pop();
+                }
+            }
+            if (conditions.Count != 0) throw Fault("Unterminated conditional.");
+        }
+        catch (InvalidDataException fault) { return new Prescan(boundaries, steps, fault.Message); }
+        boundaries[code.Length] = true;
+        return new Prescan(boundaries, steps, null);
+    }
+
     private void Run(byte[] code, bool definitions, int depth)
     {
         if (depth >= 64 || code.Length > 65_536) throw Fault("Program or call depth exceeds host limits.");
-        // Branches may target instruction boundaries only, never bytes inside a PUSH payload.
-        var boundaries = new bool[code.Length + 1];
-        var conditions = new Stack<bool>();
-        for (var p = 0; p < code.Length; p = Next(code, p))
-        {
-            Step(); boundaries[p] = true;
-            if (code[p] == 0x58)
-            {
-                if (conditions.Count == 64) throw Fault("Conditional nesting exceeds host limits.");
-                conditions.Push(false);
-            }
-            else if (code[p] == 0x1B)
-            {
-                if (conditions.Count == 0 || conditions.Pop()) throw Fault("Unexpected ELSE.");
-                conditions.Push(true);
-            }
-            else if (code[p] == 0x59)
-            {
-                if (conditions.Count == 0) throw Fault("Unexpected EIF.");
-                conditions.Pop();
-            }
-        }
-        if (conditions.Count != 0) throw Fault("Unterminated conditional.");
-        boundaries[code.Length] = true;
+        // A called function or instruction definition is the same bytes for every call, so it is scanned once (per machine,
+        // shared by its forks); a glyph's own program is scanned each time. The scan's instruction count is charged to the
+        // fuel as before, whether it comes from the cache or not.
+        var scan = depth > 0 ? _prescans.GetOrAdd(code, static program => Scan(program)) : Scan(code);
+        _fuel -= scan.Steps;
+        if (_fuel < 0) { _fuel = -1; throw Fault("Instruction budget exhausted."); }
+        if (scan.Fault is { } scanFault) throw new InvalidDataException(scanFault);
+        var boundaries = scan.Boundaries;
         for (var pc = 0; pc < code.Length;)
         {
             Step();
@@ -233,7 +258,10 @@ internal sealed partial class TrueTypeMachine
                         end = Next(code, end);
                     }
                     if (end == code.Length) throw Fault("Unterminated function.");
-                    (op == 0x2C ? _functions : _instructions)[id] = code[pc..end]; pc = end + 1; break;
+                    var table = op == 0x2C ? _functions : _instructions;
+                    // A redefinition replaces the bytes; the scan kept for the old ones would only sit in the cache.
+                    if (table.TryGetValue(id, out var replaced)) _prescans.TryRemove(replaced, out _);
+                    table[id] = code[pc..end]; pc = end + 1; break;
                 }
                 case 0x2D: throw Fault("Unexpected function terminator.");
                 case 0x2E: case 0x2F: AbsoluteMove(op, false); break;

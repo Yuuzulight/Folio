@@ -59,7 +59,7 @@ internal sealed class DtlsTransport : IDisposable
     private ulong _localSequenceNumber = 0;
     private ushort _handshakeSeq = 0;
     private ushort _nextRemoteHandshake;
-    private readonly DtlsHandshakeFragments _fragments = new();
+    private readonly DtlsHandshakeFragments _fragments;
     private bool _remoteCipherSpec;
     private bool _clientCertificateRequested;
     private bool _peerCertificateProof;
@@ -77,9 +77,10 @@ internal sealed class DtlsTransport : IDisposable
 
     public DtlsTransport() : this(TimeProvider.System, true) { }
 
-    internal DtlsTransport(TimeProvider clock, bool enableRetryTimer)
+    internal DtlsTransport(TimeProvider clock, bool enableRetryTimer, RtcMediaBudget? budget = null)
     {
         _clock = clock;
+        _fragments = new DtlsHandshakeFragments(budget);
         _localEcdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var request = new CertificateRequest("CN=FolioWebRTC", _localEcdsa, HashAlgorithmName.SHA256);
         _localCert = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
@@ -534,7 +535,10 @@ internal sealed class DtlsTransport : IDisposable
             if (type == 0x000E)
             {
                 var data = body.Slice(offset, length);
-                if (_srtpNegotiated || data.Length != 5 || data[0] != 0 || data[1] != 2 || data[2] != 0 || data[3] != 7 || data[4] != 0)
+                if (_srtpNegotiated) throw new CryptographicException("The DTLS server sent a duplicate use_srtp extension.");
+                if (data.Length != 5 || data[0] != 0 || data[1] != 2 || data[4] != 0)
+                    throw new CryptographicException("The DTLS server sent a malformed use_srtp extension (length).");
+                if (data[2] != 0 || data[3] != 7)
                     throw new CryptographicException("The DTLS server chose an unsupported SRTP profile.");
                 _srtpNegotiated = true;
             }
@@ -851,6 +855,7 @@ internal sealed class DtlsTransport : IDisposable
             _disposed = true;
             StopFlight();
             _retryTimer?.Dispose();
+            _fragments.Dispose();
             State = "closed";
         }
         foreach (var secret in new[] { SrtpLocalMasterKey, SrtpRemoteMasterKey, SrtpLocalMasterSalt, SrtpRemoteMasterSalt, _masterSecret })

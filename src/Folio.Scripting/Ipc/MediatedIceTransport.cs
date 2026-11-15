@@ -19,6 +19,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
     private readonly ConcurrentDictionary<long, (TaskCompletionSource<(long Id, int Port)> Result, Transport Owner)> _pendingOpens = new();
     private readonly ConcurrentDictionary<long, Transport> _byId = new();
     private readonly ConcurrentDictionary<long, TaskCompletionSource<IPAddress?>> _pendingResolves = new();
+    private readonly ConcurrentDictionary<long, TaskCompletionSource<IPAddress?>> _pendingMdnsResolves = new();
     private long _nextToken, _generation = 1;
 
     /// <summary>The document generation the host stamped into the current Load. New transports carry it on every command.</summary>
@@ -67,6 +68,11 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
                     resolve.TrySetResult(evt.TryGetProperty("host", out var host) && host.ValueKind == JsonValueKind.String
                         && IPAddress.TryParse(host.GetString(), out var resolved) && resolved.AddressFamily == AddressFamily.InterNetwork ? resolved : null);
                 break;
+            case "resolvedMdns" when TryNumber(evt, "token", out var mdnsToken):
+                if (_pendingMdnsResolves.TryGetValue(mdnsToken, out var mdnsResolve))
+                    mdnsResolve.TrySetResult(evt.TryGetProperty("host", out var host) && host.ValueKind == JsonValueKind.String
+                        && IPAddress.TryParse(host.GetString(), out var resolved) && resolved.AddressFamily == AddressFamily.InterNetwork ? resolved : null);
+                break;
             case "closed" when TryTransport(evt, out var closing): closing.HostClosed(); break;
         }
     }
@@ -76,6 +82,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
     {
         foreach (var pending in _pendingOpens.Values) pending.Result.TrySetException(new IOException("The host connection closed."));
         foreach (var pending in _pendingResolves.Values) pending.TrySetResult(null);
+        foreach (var pending in _pendingMdnsResolves.Values) pending.TrySetResult(null);
         foreach (var transport in _byId.Values) transport.HostClosed();
     }
 
@@ -93,6 +100,21 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
         }
         catch (TimeoutException) { return null; }
         finally { _pendingResolves.TryRemove(token, out _); }
+    }
+
+    /// <summary>Asks the host to resolve an mDNS .local name. Null when the host refuses (disabled, over quota, disallowed IP, no answer).</summary>
+    internal async Task<IPAddress?> ResolveMdnsAsync(string name, CancellationToken cancellation)
+    {
+        var token = Interlocked.Increment(ref _nextToken);
+        var answer = new TaskCompletionSource<IPAddress?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingMdnsResolves[token] = answer;
+        try
+        {
+            Send(new Dictionary<string, object?> { ["op"] = "resolveMdns", ["gen"] = Generation, ["token"] = token, ["name"] = name });
+            return await answer.Task.WaitAsync(ResolveTimeout, cancellation).ConfigureAwait(false);
+        }
+        catch (TimeoutException) { return null; }
+        finally { _pendingMdnsResolves.TryRemove(token, out _); }
     }
 
     private bool TryTransport(JsonElement evt, out Transport transport)
@@ -115,10 +137,13 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
 
     private sealed class Transport(MediatedUdpClient owner) : IIceTransport
     {
+        internal const int MaxIncomingBytes = 512 * 1024;
+        /// <summary>Datagrams dropped because the child-side queue was full by count or by bytes.</summary>
+        internal long DroppedIncoming;
         private readonly Channel<(byte[] Data, IPEndPoint From)> _incoming = Channel.CreateBounded<(byte[], IPEndPoint)>(
             new BoundedChannelOptions(IncomingCapacity) { SingleReader = true, FullMode = BoundedChannelFullMode.DropWrite });
         private long _id;
-        private int _disposed;
+        private int _disposed, _incomingBytes;
         private readonly long _generation = owner.Generation;
         internal UdpBrokerOptions Policy { get; set; } = new();
 
@@ -129,6 +154,8 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
         }
 
         public Task<IPAddress?> ResolveAsync(string host, CancellationToken cancellation) => owner.ResolveAsync(host, cancellation);
+
+        public Task<IPAddress?> ResolveMdnsAsync(string host, CancellationToken cancellation) => owner.ResolveMdnsAsync(host, cancellation);
 
         public bool CanSendTo(IPEndPoint destination) => UdpDestinationPolicy.IsAllowed(destination, Policy);
 
@@ -151,7 +178,15 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
             finally { owner._pendingOpens.TryRemove(token, out _); }
         }
 
-        internal void Enqueue(byte[] data, IPEndPoint from) => _incoming.Writer.TryWrite((data, from));
+        internal void Enqueue(byte[] data, IPEndPoint from)
+        {
+            if (Volatile.Read(ref _incomingBytes) + data.Length > MaxIncomingBytes || !_incoming.Writer.TryWrite((data, from)))
+            {
+                Interlocked.Increment(ref DroppedIncoming);
+                return;
+            }
+            Interlocked.Add(ref _incomingBytes, data.Length);
+        }
 
         public void SendTo(ReadOnlySpan<byte> datagram, IPEndPoint destination)
         {
@@ -171,6 +206,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
             try
             {
                 var (data, from) = _incoming.Reader.ReadAsync(timeout.Token).AsTask().GetAwaiter().GetResult();
+                Interlocked.Add(ref _incomingBytes, -data.Length);
                 remote = from;
                 data.CopyTo(buffer, 0);
                 return Math.Min(data.Length, buffer.Length);
@@ -183,6 +219,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
         internal void HostClosed()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            Volatile.Write(ref _incomingBytes, 0);
             owner._byId.TryRemove(Volatile.Read(ref _id), out _);
             _incoming.Writer.TryComplete();
         }
@@ -190,6 +227,7 @@ internal sealed class MediatedUdpClient(Action<JsonElement> sendCommand)
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            Volatile.Write(ref _incomingBytes, 0);
             var id = Volatile.Read(ref _id);
             if (id != 0)
             {

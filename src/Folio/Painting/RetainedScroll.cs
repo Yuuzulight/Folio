@@ -15,10 +15,9 @@ namespace Folio.Painting;
 /// not hold, and the shift is refused, when the list has something anchored to the viewport (<see cref="DisplayList.ViewportAnchored"/>),
 /// a backdrop-filter layer, or a filter layer other than colour matrices (saturate, brightness and the like work on one pixel at a time and are fine; a blur's reach ends at the viewport edge, which moves), a blend mode (it may read what the
 /// shift cannot vouch for), a perspective transform, or the shift is nearly the whole viewport (nothing left to reuse).
-/// One known gap: a blur of two pixels or more is done in box passes that keep running sums, whose rounding depends on where the
-/// blurred shape's pixels start, and that moves with the viewport, so a wide soft shadow can come out one level off in a few
-/// isolated bytes (measured: text-shadow 4px at 150%, a handful of bytes in 480,000). It is bounded and does not build up,
-/// because a row is painted once and then only moved.
+/// A soft shadow is exact too: a blur of two pixels or more is box passes with running sums, and <c>GaussianBlur</c> rounds
+/// each pass to a multiple of 1/256 so those sums are exact and do not depend on where the blurred mask was cropped (the clip
+/// of the rows being painted differs from the whole viewport's).
 /// The kill switch is the environment variable FOLIO_RETAINED_SCROLL=0.
 /// </remarks>
 internal static class RetainedScroll

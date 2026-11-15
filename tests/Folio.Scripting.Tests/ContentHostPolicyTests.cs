@@ -168,8 +168,10 @@ public sealed class ContentHostPolicyTests
 
         var cancellation = TestContext.Current.CancellationToken;
         var watch = Stopwatch.StartNew();
-        while (remote.Dtls.State != "connected" && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
+        // Dtls.State flips to "connected" before OnStateChanged derives the SRTP keys, so wait for the transport itself.
+        while (remote.Srtp is null && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
         Assert.Equal("connected", remote.Dtls.State);
+        Assert.NotNull(remote.Srtp);
         ushort sequence = 1; uint timestamp = 1000;
         var ssrc = 0xABCDu;
         string? pixel = null;
@@ -193,14 +195,15 @@ public sealed class ContentHostPolicyTests
                 timestamp += 3000;
                 await Task.Delay(5, cancellation);
             }
+            await Task.Delay(50, cancellation);
             var seen = Value(await Exchange(client, new { script = probe }));
-            if (seen is not null && seen.StartsWith("176x144:")) pixel = seen;
+            if (seen == "176x144:" + want) pixel = seen; // the last frame sent, not the first decoded picture
             else Assert.False(seen is not null && seen.StartsWith("ERROR"), seen);
             if (watch.Elapsed > TimeSpan.FromSeconds(60)) break;
         }
         Assert.Equal("176x144:" + want, pixel);
         Assert.Equal("video", Value(await Exchange(client, new { script = "info" })));
-        Assert.Equal("NotSupportedError", Value(await Exchange(client, new { script = "sendError" })));
+        Assert.Equal("none", Value(await Exchange(client, new { script = "sendError" })));
     }
 
     // The same path for H.264: the child offers VP8 and H.264, the remote peer is left with H.264 only, so the answer picks it, and
@@ -254,8 +257,10 @@ public sealed class ContentHostPolicyTests
 
         var cancellation = TestContext.Current.CancellationToken;
         var watch = Stopwatch.StartNew();
-        while (remote.Dtls.State != "connected" && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
+        // Dtls.State flips to "connected" before OnStateChanged derives the SRTP keys, so wait for the transport itself.
+        while (remote.Srtp is null && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20, cancellation);
         Assert.Equal("connected", remote.Dtls.State);
+        Assert.NotNull(remote.Srtp);
         ushort sequence = 1; uint timestamp = 1000;
         var ssrc = 0xBEEFu;
         string? pixel = null;

@@ -149,6 +149,9 @@ public sealed class FolioOptions
     /// <summary>Origins permitted for WebRTC ICE servers. An empty set permits loopback only.</summary>
     public IReadOnlySet<string> WebRtcAllowedOrigins { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Whether host-mediated mDNS resolution of .local ICE candidate hostnames is permitted.</summary>
+    public bool WebRtcAllowMdns { get; init; }
+
     /// <summary>Stage-6 capabilities granted by the host. All are disabled by default.</summary>
     public FeatureCapabilities Capabilities { get; init; } = FeatureCapabilities.Default;
 
