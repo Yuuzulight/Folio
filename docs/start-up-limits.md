@@ -1,6 +1,6 @@
 # Start-up limits for pinned libraries
 
-Proposed for 1.0, pending owner confirmation. Ordinary libraries keep 50 ms / 80 MiB; chart/canvas and Phaser-class libraries get their own limits.
+Confirmed for 1.0. Ordinary libraries (D2, D3, D6) keep 50 ms / 80 MiB; chart/canvas libraries (D4, D5) are limited to 60 ms / 85 MiB and Phaser-class libraries (D7) to 180 ms / 130 MiB.
 
 ## Measured (NativeAOT content host, median of 3 runs x 27 pages per category)
 
