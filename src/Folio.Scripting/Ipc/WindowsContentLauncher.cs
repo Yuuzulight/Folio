@@ -78,8 +78,11 @@ internal static class WindowsContentLauncher
                 var startup = new StartupInfoEx { StartupInfo = new StartupInfo { Cb = Marshal.SizeOf<StartupInfoEx>(), Flags = UseStdHandles, StdInput = childInput.DangerousGetHandle(), StdOutput = childOutput.DangerousGetHandle(), StdError = childError.DangerousGetHandle() }, Attributes = attrs.Pointer };
                 var command = new System.Text.StringBuilder(commandLine);
                     var profilePath = security.GetPrivateProfilePath();
-                    var pathValue = Path.GetDirectoryName(fileName) + ";" + Path.Combine(Environment.GetEnvironmentVariable("SystemRoot") ?? "C:\\Windows", "System32");
+                    var systemRoot = Environment.GetEnvironmentVariable("SystemRoot") ?? "C:\\Windows";
+                    var systemDrive = Environment.GetEnvironmentVariable("SystemDrive") ?? "C:";
+                    var pathValue = Path.GetDirectoryName(fileName) + ";" + Path.Combine(systemRoot, "System32");
                     var env = EnvironmentBlock.Create(("FOLIO_CONTENT_FRAME_PATH", framePath), ("TEMP", profilePath), ("TMP", profilePath), ("PATH", pathValue),
+                        ("SystemRoot", systemRoot), ("SystemDrive", systemDrive), ("windir", systemRoot),
                         ("USERPROFILE", profilePath), ("LOCALAPPDATA", profilePath), ("APPDATA", profilePath),
                         // The launcher uses an explicit, minimal environment block.
                         // Preserve the test/diagnostic engine selector so a native
@@ -90,7 +93,7 @@ internal static class WindowsContentLauncher
                         ("DOTNET_EnableDiagnostics_Debugger", "0"), ("DOTNET_EnableDiagnostics_Profiler", "0"));
                 try
                 {
-                    if (!CreateProcess(fileName, command, IntPtr.Zero, IntPtr.Zero, true, ExtendedStartup | Suspended | UnicodeEnvironment | NoWindow,
+                    if (!CreateProcess(fileName, command, IntPtr.Zero, IntPtr.Zero, true, ExtendedStartup | Suspended | UnicodeEnvironment,
                         env.Pointer, Path.GetDirectoryName(assetPath), ref startup, out var processInfo))
                     {
                         var error = Marshal.GetLastWin32Error();
@@ -185,11 +188,21 @@ internal static class WindowsContentLauncher
         return end < 0 ? null : text[(end + 1)..].TrimStart();
     }
     private static string Quote(string path) => "\"" + path.Replace("\"", "\\\"") + "\"";
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static SafeFileHandle CreatePipe(out SafeFileHandle child, out SafeFileHandle parent)
     {
-        var security = new SecurityAttributes { Length = Marshal.SizeOf<SecurityAttributes>(), Inherit = 1 };
-        if (!CreatePipe(out var read, out var write, ref security, 0)) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreatePipe failed.");
-        child = read; parent = write; return parent;
+        if (!AppContainerSecurity.ConvertStringSecurityDescriptorToSecurityDescriptor("D:(A;;GA;;;WD)(A;;GA;;;AC)S:(ML;;NW;;;LW)", 1, out var descriptor, out _))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot create pipe security descriptor.");
+        try
+        {
+            var security = new SecurityAttributes { Length = Marshal.SizeOf<SecurityAttributes>(), Descriptor = descriptor, Inherit = 1 };
+            if (!CreatePipe(out var read, out var write, ref security, 0)) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreatePipe failed.");
+            child = read; parent = write; return parent;
+        }
+        finally
+        {
+            AppContainerSecurity.LocalFree(descriptor);
+        }
     }
     private static void SetInherit(SafeFileHandle handle, bool inherit) { if (!SetHandleInformation(handle, HandleFlagInherit, inherit ? HandleFlagInherit : 0)) throw new Win32Exception(Marshal.GetLastWin32Error(), "SetHandleInformation failed."); }
 
@@ -248,11 +261,20 @@ internal sealed class AppContainerSecurity : IDisposable
             GrantTraverse(sidObject, Path.GetDirectoryName(framePath)!, paths);
             GrantFile(sidObject, framePath, paths);
             SetLowIntegrityLabel(framePath);
+            var logPath = Path.Combine(Path.GetDirectoryName(framePath)!, "worker.log");
+            if (File.Exists(logPath)) { GrantFile(sidObject, logPath, paths); SetLowIntegrityLabel(logPath); }
+            GrantWindowObject(GetProcessWindowStation(), sidObject, 0x37F);
+            GrantWindowObject(GetThreadDesktop(GetCurrentThreadId()), sidObject, 0x1FF);
             return new AppContainerSecurity(name, sid, sidObject, paths);
         }
         catch
         {
-            if (sidObject is not null) foreach (var path in paths) TryRemove(sidObject, path);
+            if (sidObject is not null)
+            {
+                RevokeWindowObject(GetProcessWindowStation(), sidObject);
+                RevokeWindowObject(GetThreadDesktop(GetCurrentThreadId()), sidObject);
+                foreach (var path in paths) TryRemove(sidObject, path);
+            }
             var deleteResult = DeleteAppContainerProfile(name);
             if (deleteResult != 0) Trace.TraceWarning($"Content AppContainer profile cleanup failed (HRESULT 0x{deleteResult:X8}).");
             if (sid != IntPtr.Zero) FreeSid(sid);
@@ -277,6 +299,8 @@ internal sealed class AppContainerSecurity : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        RevokeWindowObject(GetProcessWindowStation(), Sid);
+        RevokeWindowObject(GetThreadDesktop(GetCurrentThreadId()), Sid);
         foreach (var path in _aclPaths) TryRemove(Sid, path);
         if (AppContainerSid != IntPtr.Zero) FreeSid(AppContainerSid);
         var deleteResult = DeleteAppContainerProfile(_name);
@@ -369,16 +393,95 @@ internal sealed class AppContainerSecurity : IDisposable
         finally { LocalFree(descriptor); }
     }
 
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static void GrantWindowObject(IntPtr handle, SecurityIdentifier sid, uint accessMask)
+    {
+        const int SE_WINDOW_OBJECT = 7;
+        const uint DACL_SECURITY_INFORMATION = 0x00000004;
+        if (handle == IntPtr.Zero) return;
+        if (GetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, out _, out _, out var pDacl, out _, out var pSD) != 0) return;
+        try
+        {
+            var len = (int)GetAclSize(pDacl);
+            if (len <= 0) return;
+            var aclBytes = new byte[len];
+            Marshal.Copy(pDacl, aclBytes, 0, len);
+            var rawAcl = new RawAcl(aclBytes, 0);
+            rawAcl.InsertAce(rawAcl.Count, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, (int)accessMask, sid, false, null));
+            var newAclBytes = new byte[rawAcl.BinaryLength];
+            rawAcl.GetBinaryForm(newAclBytes, 0);
+            var pNewAcl = Marshal.AllocHGlobal(newAclBytes.Length);
+            try
+            {
+                Marshal.Copy(newAclBytes, 0, pNewAcl, newAclBytes.Length);
+                SetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, IntPtr.Zero, IntPtr.Zero, pNewAcl, IntPtr.Zero);
+            }
+            finally { Marshal.FreeHGlobal(pNewAcl); }
+        }
+        catch (Exception ex) { Trace.TraceWarning($"GrantWindowObject failed: {ex.Message}"); }
+        finally { LocalFree(pSD); }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static void RevokeWindowObject(IntPtr handle, SecurityIdentifier sid)
+    {
+        const int SE_WINDOW_OBJECT = 7;
+        const uint DACL_SECURITY_INFORMATION = 0x00000004;
+        if (handle == IntPtr.Zero) return;
+        if (GetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, out _, out _, out var pDacl, out _, out var pSD) != 0) return;
+        try
+        {
+            var len = (int)GetAclSize(pDacl);
+            if (len <= 0) return;
+            var aclBytes = new byte[len];
+            Marshal.Copy(pDacl, aclBytes, 0, len);
+            var rawAcl = new RawAcl(aclBytes, 0);
+            for (int i = rawAcl.Count - 1; i >= 0; i--)
+            {
+                if (rawAcl[i] is CommonAce commonAce && commonAce.SecurityIdentifier == sid)
+                    rawAcl.RemoveAce(i);
+            }
+            var newAclBytes = new byte[rawAcl.BinaryLength];
+            rawAcl.GetBinaryForm(newAclBytes, 0);
+            var pNewAcl = Marshal.AllocHGlobal(newAclBytes.Length);
+            try
+            {
+                Marshal.Copy(newAclBytes, 0, pNewAcl, newAclBytes.Length);
+                SetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, IntPtr.Zero, IntPtr.Zero, pNewAcl, IntPtr.Zero);
+            }
+            finally { Marshal.FreeHGlobal(pNewAcl); }
+        }
+        catch (Exception ex) { Trace.TraceWarning($"RevokeWindowObject failed: {ex.Message}"); }
+        finally { LocalFree(pSD); }
+    }
+
+    private static uint GetAclSize(IntPtr pAcl)
+    {
+        if (pAcl == IntPtr.Zero) return 0;
+        GetAclInformation(pAcl, out var info, (uint)Marshal.SizeOf<AclSizeInformation>(), 2);
+        return info.AclBytesInUse;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct AclSizeInformation { public uint AceCount, AclBytesInUse, AclBytesFree; }
+
+    [DllImport("user32.dll")] private static extern IntPtr GetProcessWindowStation();
+    [DllImport("user32.dll")] private static extern IntPtr GetThreadDesktop(uint threadId);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("advapi32.dll", SetLastError = true)] private static extern uint GetSecurityInfo(IntPtr handle, int objectType, uint securityInfo, out IntPtr pSidOwner, out IntPtr pSidGroup, out IntPtr pDacl, out IntPtr pSacl, out IntPtr pSecurityDescriptor);
+    [DllImport("advapi32.dll", SetLastError = true)] private static extern uint SetSecurityInfo(IntPtr handle, int objectType, uint securityInfo, IntPtr pSidOwner, IntPtr pSidGroup, IntPtr pDacl, IntPtr pSacl);
+    [DllImport("advapi32.dll", SetLastError = true)] private static extern bool GetAclInformation(IntPtr pAcl, out AclSizeInformation pAclInformation, uint nAclInformationLength, int aclInformationClass);
+
     [DllImport("userenv.dll", CharSet = CharSet.Unicode)] private static extern int CreateAppContainerProfile(string name, string displayName, string description, IntPtr capabilities, uint count, out IntPtr sid);
     [DllImport("userenv.dll", CharSet = CharSet.Unicode)] private static extern int DeriveAppContainerSidFromAppContainerName(string name, out IntPtr sid);
     [DllImport("userenv.dll", CharSet = CharSet.Unicode)] private static extern int DeleteAppContainerProfile(string name);
     [DllImport("userenv.dll", CharSet = CharSet.Unicode)] private static extern int GetAppContainerFolderPath(string sid, out IntPtr path);
     [DllImport("advapi32.dll")] private static extern IntPtr FreeSid(IntPtr sid);
     [DllImport("advapi32.dll", SetLastError = true)] private static extern int GetLengthSid(IntPtr sid);
-    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool ConvertStringSecurityDescriptorToSecurityDescriptor(string sddl, uint revision, out IntPtr descriptor, out uint size);
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] internal static extern bool ConvertStringSecurityDescriptorToSecurityDescriptor(string sddl, uint revision, out IntPtr descriptor, out uint size);
     [DllImport("advapi32.dll", SetLastError = true)] private static extern bool GetSecurityDescriptorSacl(IntPtr descriptor, out bool present, out IntPtr sacl, out bool defaulted);
     [DllImport("advapi32.dll", CharSet = CharSet.Unicode)] private static extern int SetNamedSecurityInfo(string name, int objectType, uint securityInfo, IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl);
-    [DllImport("kernel32.dll")] private static extern IntPtr LocalFree(IntPtr handle);
+    [DllImport("kernel32.dll")] internal static extern IntPtr LocalFree(IntPtr handle);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern SafeWaitHandle CreateMutexEx(IntPtr attributes, string name, uint flags, uint desiredAccess);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern uint WaitForSingleObject(SafeWaitHandle handle, uint milliseconds);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool ReleaseMutex(SafeWaitHandle handle);

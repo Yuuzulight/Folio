@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Nodes;
 using System.IO.Compression;
 using System.Buffers.Binary;
+using Folio;
 using Folio.Scripting.Ipc;
 using Folio.Resources;
 
@@ -84,6 +85,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
     private readonly int _parentPid;
     private readonly IReadOnlyList<AllowedOrigin> _allowedOrigins;
     private readonly string _referencePrefix = "folio-" + Guid.NewGuid().ToString("N")[..12] + "-e";
+    private readonly IArtifactStorage _storage = new BrokerMemoryStorage();
     private ContentProcessClient? _client;
     private IResourceLoader? _resourceLoader;
     private ContentResourcePolicy? _resourcePolicy;
@@ -412,7 +414,7 @@ internal sealed class HeadlessContentBroker : IAsyncDisposable
             };
         }
         _client = ContentProcessClient.Start(hostPath, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(20)),
-            resourceLoader: _resourceLoader, resourcePolicy: _resourcePolicy);
+            resourceLoader: _resourceLoader, resourcePolicy: _resourcePolicy, artifactStorage: _storage);
         _client.MessageReceived += OnContentMessageAsync;
         _client.ScriptStopped += OnScriptStopped;
         return Task.CompletedTask;
@@ -752,4 +754,13 @@ internal static class BrokerPngEncoder
         BinaryPrimitives.WriteUInt32BigEndian(checksum, ~crc);
         output.Write(checksum);
     }
+}
+
+internal sealed class BrokerMemoryStorage : IArtifactStorage
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _values = new(StringComparer.Ordinal);
+    public string? Read(string key) => _values.TryGetValue(key, out var value) ? value : null;
+    public void Write(string key, string value) => _values[key] = value;
+    public void Delete(string key) => _values.TryRemove(key, out _);
+    public IReadOnlyList<string> Keys(string prefix) => _values.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(key => key, StringComparer.Ordinal).ToArray();
 }
