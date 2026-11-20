@@ -20,6 +20,7 @@
     <ProjectReference Include="..\..\src\Folio.Skia\Folio.Skia.csproj" />
     <ProjectReference Include="..\..\src\Folio.Scripting.Jint\Folio.Scripting.Jint.csproj" />
     <ProjectReference Include="..\..\tools\Folio.Gen\Folio.Gen.csproj" />
+    <ProjectReference Include="..\..\tools\Folio.ContentHost\Folio.ContentHost.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>

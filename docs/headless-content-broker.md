@@ -1,0 +1,15 @@
+# Headless content broker
+
+`Folio.ContentHost.exe --broker --arcana-parent-pid=<pid>` starts the Folio-owned headless broker. The broker owns one page and starts the same build's content worker through `ContentProcessClient`, which applies the Windows AppContainer and Job Object limits before the worker resumes. It watches the Arcana parent process and exits when that process ends, disposing the sandboxed worker job. The broker refuses to start on platforms without that sandbox and refuses `FOLIO_UNSANDBOXED=1`.
+
+The transport is newline-delimited UTF-8 JSON. Each request has an `id` and an `op`; every response echoes the `id` and includes `ok`. Errors use `{ "ok": false, "error": { "code": "...", "message": "..." } }`.
+
+Supported operations:
+
+- `hello` reports protocol version, engine identity, and the sandbox/network boundary.
+- `load` takes inline `html` and an optional `urlLabel` (`about:blank` or a `fixture:` label). It returns the current script result, rendered display-item count, diagnostics, worker sequence, and any shared canvas-frame information.
+- `evaluate` evaluates an expression in the current document and returns the same render result.
+- `snapshot` returns the Arcana page snapshot shape. Element references remain stable for the page process lifetime and are not reused when a document is replaced.
+- `close` stops the page worker and exits the broker.
+
+There is no resource loader, network capability, navigation to remote URLs, persistent storage, cookie jar, or browser session. Page actions and screenshots return the stable `unsupported` error code until their behavior is implemented and verified. `fixture:` is a document label; it does not trigger a fetch.
